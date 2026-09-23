@@ -1,0 +1,19 @@
+{
+  "name": "@via/keys",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@via/config": "workspace:*"
+  },
+  "devDependencies": {
+    "@via/tsconfig": "workspace:*"
+  }
+}
