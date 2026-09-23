@@ -15,6 +15,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
     "@via/tsconfig": "workspace:*",
     "vitest": "catalog:"

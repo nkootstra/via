@@ -21,7 +21,7 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   `Promise`, `throw` or `try`/`catch` in library code.
 - Services: `class Foo extends Context.Service<Foo, FooShape>()("via/Foo") {}`
   plus a `Layer` (`Foo.layer`). Depend on services, not modules with side effects.
-- Errors: `Schema.TaggedErrorClass` (serializable) or `Data.TaggedError`.
+- Errors: `Schema.TaggedError` (serializable) or `Data.TaggedError`.
   Fail with `yield* new FooError({...})`. Handle with `Effect.catchTag`/`catchTags`.
   Never inspect `_tag` or use `instanceof` by hand.
 - Parse all external data (files, HTTP bodies, JWT claims) with `Schema`. No

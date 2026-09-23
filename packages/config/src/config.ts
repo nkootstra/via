@@ -1,23 +1,37 @@
-import { z } from "zod";
+import { Effect, FileSystem, Schema } from "effect";
 
-export const configSchema = z.object({
-  host: z.string().default("127.0.0.1"),
-  port: z.number().int().min(1).max(65535).default(8317),
-  codex: z
-    .object({
-      cloak: z.boolean().default(true),
-    })
-    .prefault({}),
+export const Config = Schema.Struct({
+  host: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("127.0.0.1"))),
+  port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed(8317)),
+  ),
+  codex: Schema.Struct({
+    cloak: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
+  }).pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
 });
 
-export type Config = z.infer<typeof configSchema>;
+export type Config = typeof Config.Type;
 
-export async function loadConfig(path: string): Promise<Config> {
-  const file = Bun.file(path);
-  const raw = (await file.exists()) ? (Bun.YAML.parse(await file.text()) ?? {}) : {};
-  const result = configSchema.safeParse(raw);
-  if (!result.success) {
-    throw new Error(`Invalid config in ${path}:\n${z.prettifyError(result.error)}`);
+export class InvalidConfigError extends Schema.TaggedError<InvalidConfigError>()(
+  "InvalidConfigError",
+  { path: Schema.String, reason: Schema.String },
+) {
+  override get message() {
+    return `Invalid config in ${this.path}: ${this.reason}`;
   }
-  return result.data;
 }
+
+export const loadConfig = Effect.fn("loadConfig")(function* (path: string) {
+  const fs = yield* FileSystem.FileSystem;
+  const text = yield* fs.readFileString(path).pipe(
+    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed("")),
+    Effect.orDie,
+  );
+  const raw = yield* Effect.try({
+    try: (): unknown => Bun.YAML.parse(text) ?? {},
+    catch: (cause) => new InvalidConfigError({ path, reason: String(cause) }),
+  });
+  return yield* Schema.decodeUnknownEffect(Config)(raw).pipe(
+    Effect.mapError((error) => new InvalidConfigError({ path, reason: error.message })),
+  );
+});
