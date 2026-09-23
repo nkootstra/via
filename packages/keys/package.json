@@ -7,13 +7,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun --bun vitest run",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
     "@via/config": "workspace:*"
   },
   "devDependencies": {
-    "@via/tsconfig": "workspace:*"
+    "@effect/vitest": "catalog:",
+    "@via/tsconfig": "workspace:*",
+    "vitest": "catalog:"
   }
 }

@@ -23,7 +23,7 @@ jobs:
       - run: bun run format:check
 
   typecheck:
-    name: Typecheck
+    name: Typecheck (TS 7 + Effect diagnostics)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,23 +13,23 @@ afterEach(async () => {
 });
 
 describe("json files", () => {
-  test("round-trips data, creating parent directories", async () => {
+  it("round-trips data, creating parent directories", async () => {
     const file = join(dir, "nested", "data.json");
     await writeJsonFile(file, { hello: "world" });
     expect(await readJsonFile<unknown>(file, null)).toEqual({ hello: "world" });
   });
 
-  test("returns the fallback when the file does not exist", async () => {
+  it("returns the fallback when the file does not exist", async () => {
     expect(await readJsonFile(join(dir, "missing.json"), [])).toEqual([]);
   });
 
-  test("writes files readable only by the owner", async () => {
+  it("writes files readable only by the owner", async () => {
     const file = join(dir, "secret.json");
     await writeJsonFile(file, { token: "x" });
     expect((await stat(file)).mode & 0o777).toBe(0o600);
   });
 
-  test("leaves no temporary files behind", async () => {
+  it("leaves no temporary files behind", async () => {
     await writeJsonFile(join(dir, "a.json"), 1);
     await writeJsonFile(join(dir, "a.json"), 2);
     expect(await readdir(dir)).toEqual(["a.json"]);

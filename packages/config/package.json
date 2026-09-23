@@ -7,13 +7,16 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "test": "bun test",
+    "test": "bun --bun vitest run",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "effect": "catalog:",
     "zod": "^4.6.5"
   },
   "devDependencies": {
-    "@via/tsconfig": "workspace:*"
+    "@effect/vitest": "catalog:",
+    "@via/tsconfig": "workspace:*",
+    "vitest": "catalog:"
   }
 }

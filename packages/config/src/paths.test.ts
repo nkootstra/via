@@ -1,10 +1,10 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, it } from "@effect/vitest";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { resolvePaths } from "./index.ts";
 
 describe("resolvePaths", () => {
-  test("uses VIA_HOME when set", () => {
+  it("uses VIA_HOME when set", () => {
     expect(resolvePaths({ VIA_HOME: "/tmp/via-test" })).toEqual({
       home: "/tmp/via-test",
       config: "/tmp/via-test/config.yaml",
@@ -14,7 +14,7 @@ describe("resolvePaths", () => {
     });
   });
 
-  test("defaults to ~/.config/via", () => {
+  it("defaults to ~/.config/via", () => {
     expect(resolvePaths({}).home).toBe(join(homedir(), ".config", "via"));
   });
 });

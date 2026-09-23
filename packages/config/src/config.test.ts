@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,7 +13,7 @@ afterEach(async () => {
 });
 
 describe("loadConfig", () => {
-  test("returns defaults when the file does not exist", async () => {
+  it("returns defaults when the file does not exist", async () => {
     expect(await loadConfig(join(dir, "config.yaml"))).toEqual({
       host: "127.0.0.1",
       port: 8317,
@@ -21,7 +21,7 @@ describe("loadConfig", () => {
     });
   });
 
-  test("merges values from YAML over defaults", async () => {
+  it("merges values from YAML over defaults", async () => {
     const file = join(dir, "config.yaml");
     await writeFile(file, "port: 9000\ncodex:\n  cloak: false\n");
     expect(await loadConfig(file)).toEqual({
@@ -31,9 +31,9 @@ describe("loadConfig", () => {
     });
   });
 
-  test("rejects an invalid port with a readable error", async () => {
+  it("rejects an invalid port with a readable error", async () => {
     const file = join(dir, "config.yaml");
     await writeFile(file, "port: nope\n");
-    expect(loadConfig(file)).rejects.toThrow(/port/);
+    await expect(loadConfig(file)).rejects.toThrow(/port/);
   });
 });

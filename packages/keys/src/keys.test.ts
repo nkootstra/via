@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,41 +15,41 @@ afterEach(async () => {
 });
 
 describe("KeyStore", () => {
-  test("creates a via_ key that verifies to its name", async () => {
+  it("creates a via_ key that verifies to its name", async () => {
     const created = await store.create("laptop");
     expect(created.key).toMatch(/^via_[A-Za-z0-9]{32}$/);
     expect(await store.verify(created.key)).toEqual({ id: created.id, name: "laptop" });
   });
 
-  test("does not store the plaintext key", async () => {
+  it("does not store the plaintext key", async () => {
     const { key } = await store.create("laptop");
     expect(await readFile(join(dir, "keys.json"), "utf8")).not.toContain(key);
   });
 
-  test("rejects unknown keys", async () => {
+  it("rejects unknown keys", async () => {
     await store.create("laptop");
     expect(await store.verify("via_notarealkeynotarealkeynotareal")).toBeNull();
   });
 
-  test("lists keys without exposing them", async () => {
+  it("lists keys without exposing them", async () => {
     const { id } = await store.create("laptop");
     expect(await store.list()).toEqual([{ id, name: "laptop", createdAt: expect.any(String) }]);
   });
 
-  test("revoked keys stop verifying", async () => {
+  it("revoked keys stop verifying", async () => {
     const { id, key } = await store.create("laptop");
     expect(await store.revoke(id)).toBe(true);
     expect(await store.verify(key)).toBeNull();
   });
 
-  test("revokes by name too, and reports unknown targets", async () => {
+  it("revokes by name too, and reports unknown targets", async () => {
     await store.create("laptop");
     expect(await store.revoke("laptop")).toBe(true);
     expect(await store.revoke("laptop")).toBe(false);
   });
 
-  test("refuses duplicate names", async () => {
+  it("refuses duplicate names", async () => {
     await store.create("laptop");
-    expect(store.create("laptop")).rejects.toThrow(/already exists/);
+    await expect(store.create("laptop")).rejects.toThrow(/already exists/);
   });
 });
