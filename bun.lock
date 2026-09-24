@@ -31,6 +31,18 @@
         "vitest": "catalog:",
       },
     },
+    "packages/codex-auth": {
+      "name": "@via/codex-auth",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@via/tsconfig": "workspace:*",
+        "vitest": "catalog:",
+      },
+    },
     "packages/config": {
       "name": "@via/config",
       "version": "0.0.0",
@@ -273,6 +285,8 @@
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
 
     "@via/cli": ["@via/cli@workspace:apps/cli"],
+
+    "@via/codex-auth": ["@via/codex-auth@workspace:packages/codex-auth"],
 
     "@via/config": ["@via/config@workspace:packages/config"],
 
