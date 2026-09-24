@@ -17,8 +17,8 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
         expect(list).toHaveProperty(
           "data",
           expect.arrayContaining([
-            { id: "gpt-5.5", object: "model", created: 0, owned_by: "openai" },
-            { id: "gpt-5.5-high", object: "model", created: 0, owned_by: "openai" },
+            { id: "gpt-6-astra", object: "model", created: 0, owned_by: "openai" },
+            { id: "gpt-6-astra-high", object: "model", created: 0, owned_by: "openai" },
           ]),
         );
       }),

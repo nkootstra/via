@@ -9,7 +9,7 @@ describe("toResponsesRequest", () => {
   it("moves system messages into instructions and user text into input", () => {
     expect(
       translate({
-        model: "gpt-5.5",
+        model: "gpt-6-astra",
         messages: [
           { role: "system", content: "Be brief." },
           { role: "developer", content: "Answer in English." },
@@ -17,7 +17,7 @@ describe("toResponsesRequest", () => {
         ],
       }),
     ).toEqual({
-      model: "gpt-5.5",
+      model: "gpt-6-astra",
       instructions: "Be brief.\n\nAnswer in English.",
       input: [{ type: "message", role: "user", content: [{ type: "input_text", text: "hi" }] }],
     });
@@ -26,7 +26,7 @@ describe("toResponsesRequest", () => {
   it("keeps the turns of a conversation in order, with assistant replies as output text", () => {
     expect(
       translate({
-        model: "gpt-5.5",
+        model: "gpt-6-astra",
         messages: [
           { role: "user", content: "hi" },
           { role: "assistant", content: "hello" },
@@ -43,7 +43,7 @@ describe("toResponsesRequest", () => {
   it("translates text and image parts of a user message", () => {
     expect(
       translate({
-        model: "gpt-5.5",
+        model: "gpt-6-astra",
         messages: [
           {
             role: "user",
@@ -69,7 +69,7 @@ describe("toResponsesRequest", () => {
   it("turns assistant tool calls and tool results into function call items", () => {
     expect(
       translate({
-        model: "gpt-5.5",
+        model: "gpt-6-astra",
         messages: [
           { role: "user", content: "Weather in Paris?" },
           {
@@ -101,7 +101,7 @@ describe("toResponsesRequest", () => {
     const parameters = { type: "object", properties: { city: { type: "string" } } };
     expect(
       translate({
-        model: "gpt-5.5",
+        model: "gpt-6-astra",
         messages: [{ role: "user", content: "hi" }],
         tools: [
           {
@@ -128,7 +128,9 @@ describe("toResponsesRequest", () => {
   });
 
   it("passes a tool choice mode through", () => {
-    expect(translate({ model: "gpt-5.5", messages: [], tool_choice: "required" })).toMatchObject({
+    expect(
+      translate({ model: "gpt-6-astra", messages: [], tool_choice: "required" }),
+    ).toMatchObject({
       tool_choice: "required",
     });
   });
@@ -137,7 +139,7 @@ describe("toResponsesRequest", () => {
     const schema = { type: "object", properties: { answer: { type: "string" } } };
     expect(
       translate({
-        model: "gpt-5.5",
+        model: "gpt-6-astra",
         messages: [],
         response_format: {
           type: "json_schema",
@@ -148,13 +150,13 @@ describe("toResponsesRequest", () => {
       text: { format: { type: "json_schema", name: "answer", schema, strict: true } },
     });
     expect(
-      translate({ model: "gpt-5.5", messages: [], response_format: { type: "json_object" } }),
+      translate({ model: "gpt-6-astra", messages: [], response_format: { type: "json_object" } }),
     ).toMatchObject({ text: { format: { type: "json_object" } } });
   });
 
   it("carries the reasoning effort and streaming over", () => {
     expect(
-      translate({ model: "gpt-5.5", messages: [], reasoning_effort: "high", stream: true }),
+      translate({ model: "gpt-6-astra", messages: [], reasoning_effort: "high", stream: true }),
     ).toMatchObject({ reasoning: { effort: "high" }, stream: true });
   });
 });

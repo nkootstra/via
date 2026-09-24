@@ -50,14 +50,14 @@ Point any OpenAI client at it:
 curl http://127.0.0.1:8317/v1/chat/completions \
   -H "Authorization: Bearer $VIA_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model": "gpt-5.5", "messages": [{"role": "user", "content": "Hello"}]}'
+  -d '{"model": "gpt-6-astra", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8317/v1", api_key="via_...")
-reply = client.responses.create(model="gpt-5.5-high", input="Hello")
+reply = client.responses.create(model="gpt-6-astra-high", input="Hello")
 print(reply.output_text)
 ```
 
@@ -71,9 +71,9 @@ Every route needs `Authorization: Bearer <key>` with a key from `via keys create
 | `POST /v1/chat/completions` | Translated to and from the Responses API, streaming included. |
 | `GET /v1/models`            | Lists the models below.                                       |
 
-Models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`. Add `-low`,
+Models: `gpt-6-astra`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`. Add `-low`,
 `-medium`, `-high` or `-xhigh` to a model id to pick the reasoning effort, as in
-`gpt-5.5-high`.
+`gpt-6-astra-high`.
 
 ## Commands
 

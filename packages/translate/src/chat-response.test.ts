@@ -18,7 +18,7 @@ describe("toChatCompletion", () => {
       translate({
         id: "resp_1",
         created_at: 1_700_000_000,
-        model: "gpt-5.5",
+        model: "gpt-6-astra",
         status: "completed",
         output: [
           { type: "reasoning", id: "rs_1", summary: [] },
@@ -37,7 +37,7 @@ describe("toChatCompletion", () => {
       id: "resp_1",
       object: "chat.completion",
       created: 1_700_000_000,
-      model: "gpt-5.5",
+      model: "gpt-6-astra",
       choices: [
         {
           index: 0,
@@ -53,7 +53,7 @@ describe("toChatCompletion", () => {
     const completion = translate({
       id: "resp_1",
       created_at: 1_700_000_000,
-      model: "gpt-5.5",
+      model: "gpt-6-astra",
       status: "completed",
       output: [
         {

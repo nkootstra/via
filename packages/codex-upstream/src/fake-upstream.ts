@@ -23,7 +23,7 @@ const response = {
   id: "resp_1",
   object: "response",
   created_at: 1_700_000_000,
-  model: "gpt-5.5",
+  model: "gpt-6-astra",
 };
 
 /** A stream in which Codex answers with `text` and completes. */

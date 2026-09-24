@@ -10,7 +10,7 @@ const usageLimit = (resetsAt: number) => ({
   status: 429,
   body: JSON.stringify({ error: { type: "usage_limit_reached", resets_at: resetsAt } }),
 });
-const request = { model: "gpt-5.5", input: "hi" };
+const request = { model: "gpt-6-astra", input: "hi" };
 
 layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
   it.effect("rejects a request without an API key", () =>

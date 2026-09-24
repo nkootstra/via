@@ -53,7 +53,7 @@ const postResponses = (url: string, key: string) =>
     const http = yield* HttpClient.HttpClient;
     return yield* HttpClientRequest.post(`${url}/v1/responses`).pipe(
       HttpClientRequest.bearerToken(key),
-      HttpClientRequest.bodyJsonUnsafe({ model: "gpt-5.5", input: "hi" }),
+      HttpClientRequest.bodyJsonUnsafe({ model: "gpt-6-astra", input: "hi" }),
       http.execute,
     );
   }).pipe(Effect.provide(FetchHttpClient.layer));

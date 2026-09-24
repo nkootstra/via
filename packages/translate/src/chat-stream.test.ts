@@ -7,7 +7,7 @@ const sse = (events: ReadonlyArray<object>) =>
 
 const created = {
   type: "response.created",
-  response: { id: "resp_1", created_at: 1_700_000_000, model: "gpt-5.5" },
+  response: { id: "resp_1", created_at: 1_700_000_000, model: "gpt-6-astra" },
 };
 const completed = {
   type: "response.completed",
@@ -48,7 +48,7 @@ describe("toChatStream", () => {
         id: "resp_1",
         object: "chat.completion.chunk",
         created: 1_700_000_000,
-        model: "gpt-5.5",
+        model: "gpt-6-astra",
         choices: [{ index: 0, delta: { role: "assistant", content: "" }, finish_reason: null }],
       });
       expect(deltas(events)).toEqual([
