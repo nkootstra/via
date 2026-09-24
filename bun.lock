@@ -73,6 +73,18 @@
         "vitest": "catalog:",
       },
     },
+    "packages/pool": {
+      "name": "@via/pool",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@via/tsconfig": "workspace:*",
+        "vitest": "catalog:",
+      },
+    },
     "packages/tsconfig": {
       "name": "@via/tsconfig",
       "version": "0.0.0",
@@ -294,6 +306,8 @@
     "@via/config": ["@via/config@workspace:packages/config"],
 
     "@via/keys": ["@via/keys@workspace:packages/keys"],
+
+    "@via/pool": ["@via/pool@workspace:packages/pool"],
 
     "@via/tsconfig": ["@via/tsconfig@workspace:packages/tsconfig"],
 
