@@ -30,6 +30,30 @@ export class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableEr
   }
 }
 
+export class ModelsUnavailableError extends Schema.TaggedError<ModelsUnavailableError>()(
+  "ModelsUnavailableError",
+  { status: Schema.Finite },
+) {
+  override get message() {
+    return `Codex did not list its models (HTTP ${this.status})`;
+  }
+}
+
+const ModelsPayload = Schema.Struct({
+  models: Schema.Array(
+    Schema.Struct({
+      slug: Schema.String,
+      visibility: Schema.optionalKey(Schema.String),
+      supported_reasoning_levels: Schema.optionalKey(
+        Schema.Array(Schema.Struct({ effort: Schema.String })),
+      ),
+    }),
+  ),
+});
+
+/** A model an account can pick, with the reasoning efforts it supports. */
+export type CatalogModel = { readonly model: string; readonly efforts: ReadonlyArray<string> };
+
 const Window = Schema.Struct({
   used_percent: Schema.Finite,
   limit_window_seconds: Schema.Finite,
@@ -105,7 +129,33 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak }: CodexUpstreamOptions) =>
       );
     });
 
-    return { send, usage };
+    /**
+     * The models the account can pick, as the Codex model picker lists them;
+     * hidden models are left out. The catalog differs by plan.
+     */
+    const models = Effect.fn("CodexUpstream.models")(function* (account: UpstreamAccount) {
+      const response = yield* HttpClientRequest.get(`${baseUrl}/codex/models`).pipe(
+        HttpClientRequest.setUrlParam("client_version", CODEX_TUI_VERSION),
+        HttpClientRequest.setHeaders({
+          ...identity,
+          authorization: `Bearer ${account.accessToken}`,
+          "chatgpt-account-id": account.accountId,
+        }),
+        http.execute,
+      );
+      if (response.status !== 200) {
+        return yield* new ModelsUnavailableError({ status: response.status });
+      }
+      const payload = yield* HttpClientResponse.schemaBodyJson(ModelsPayload)(response);
+      return payload.models
+        .filter((model) => model.visibility === undefined || model.visibility === "list")
+        .map((model): CatalogModel => ({
+          model: model.slug,
+          efforts: (model.supported_reasoning_levels ?? []).map((level) => level.effort),
+        }));
+    });
+
+    return { send, usage, models };
   });
 
 /** The ChatGPT backend that serves Codex (`chatgpt.com/backend-api`). */

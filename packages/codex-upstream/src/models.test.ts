@@ -26,4 +26,13 @@ describe("the model catalog", () => {
   ])("resolves %s to %s at %s effort", (alias, model, effort) => {
     expect(resolveAlias(alias)).toEqual({ model, effort });
   });
+
+  it("lists a catalog Codex served, aliasing only the efforts via can resolve", () => {
+    expect(
+      modelIds([
+        { model: "gpt-7", efforts: ["low", "turbo"] },
+        { model: "gpt-7-mini", efforts: [] },
+      ]),
+    ).toEqual(["gpt-7", "gpt-7-mini", "gpt-7-low"]);
+  });
 });
