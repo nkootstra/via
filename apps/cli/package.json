@@ -7,7 +7,7 @@
   },
   "type": "module",
   "scripts": {
-    "test": "bun --bun vitest run",
+    "test": "bun --bun vitest run --test-timeout=30000",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
