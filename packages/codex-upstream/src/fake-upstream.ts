@@ -1,4 +1,4 @@
-// Test-only: a local stand-in for chatgpt.com/backend-api/codex, exported as `./testing`.
+// Test-only: a local stand-in for chatgpt.com/backend-api, exported as `./testing`.
 import { BunHttpServer } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import {
@@ -42,12 +42,12 @@ export const completedStream = (text: string) =>
     },
   ]);
 
-/** Serves POST /responses, answering each request with `reply`. */
+/** Serves POST /codex/responses, answering each request with `reply`. */
 export const fakeUpstream = (reply: (request: RecordedRequest) => FakeReply) =>
   HttpRouter.serve(
     HttpRouter.add(
       "POST",
-      "/responses",
+      "/codex/responses",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const body = yield* HttpServerRequest.schemaBodyJson(

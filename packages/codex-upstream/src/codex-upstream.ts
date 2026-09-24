@@ -2,7 +2,7 @@ import { Context, Effect, Layer } from "effect";
 import { HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 
-export const CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
+export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 
 const CODEX_TUI_VERSION = "0.154.0";
 const IDENTITIES = {
@@ -35,7 +35,7 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak }: CodexUpstreamOptions) =>
         typeof body.prompt_cache_key === "string"
           ? body.prompt_cache_key
           : yield* Effect.sync(() => crypto.randomUUID());
-      return yield* HttpClientRequest.post(`${baseUrl}/responses`).pipe(
+      return yield* HttpClientRequest.post(`${baseUrl}/codex/responses`).pipe(
         HttpClientRequest.setHeaders({
           ...identity,
           authorization: `Bearer ${account.accessToken}`,
@@ -51,7 +51,7 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak }: CodexUpstreamOptions) =>
     return { send };
   });
 
-/** The ChatGPT Codex backend (`/backend-api/codex/responses`). */
+/** The ChatGPT backend that serves Codex (`chatgpt.com/backend-api`). */
 export class CodexUpstream extends Context.Service<
   CodexUpstream,
   Effect.Success<ReturnType<typeof make>>
