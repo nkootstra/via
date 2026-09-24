@@ -380,7 +380,45 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       }),
   );
 
-  it.effect("lists gpt-6-astra and every effort alias from /v1/models", () =>
+  it.effect("proxies the model catalog Codex offers, and routes its effort aliases", () =>
+    Effect.gen(function* () {
+      const upstream = yield* startCodex;
+      upstream.models({
+        models: [
+          {
+            slug: "gpt-7",
+            display_name: "GPT-7",
+            visibility: "list",
+            supported_reasoning_levels: [{ effort: "low" }, { effort: "high" }],
+          },
+          { slug: "codex-internal", visibility: "hide", supported_reasoning_levels: [] },
+        ],
+      });
+      upstream.script(reply.text("pong"));
+      yield* withVia({ upstream: upstream.url }, (via) =>
+        Effect.gen(function* () {
+          const response = yield* Effect.promise(() => openai(via).models.list());
+          expect(response.data.map((model) => model.id)).toEqual([
+            "gpt-7",
+            "gpt-7-low",
+            "gpt-7-high",
+          ]);
+          yield* Effect.promise(() =>
+            openai(via).chat.completions.create({
+              model: "gpt-7-high",
+              messages: [{ role: "user", content: "ping" }],
+            }),
+          );
+          expect(upstream.requests.at(-1)?.body).toMatchObject({
+            model: "gpt-7",
+            reasoning: { effort: "high" },
+          });
+        }),
+      );
+    }),
+  );
+
+  it.effect("lists the bundled models when Codex does not list any", () =>
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       yield* withVia({ upstream: upstream.url }, (via) =>
