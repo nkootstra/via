@@ -46,6 +46,18 @@
         "vitest": "catalog:",
       },
     },
+    "packages/codex-upstream": {
+      "name": "@via/codex-upstream",
+      "version": "0.0.0",
+      "dependencies": {
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@via/tsconfig": "workspace:*",
+        "vitest": "catalog:",
+      },
+    },
     "packages/config": {
       "name": "@via/config",
       "version": "0.0.0",
@@ -302,6 +314,8 @@
     "@via/cli": ["@via/cli@workspace:apps/cli"],
 
     "@via/codex-auth": ["@via/codex-auth@workspace:packages/codex-auth"],
+
+    "@via/codex-upstream": ["@via/codex-upstream@workspace:packages/codex-upstream"],
 
     "@via/config": ["@via/config@workspace:packages/config"],
 
