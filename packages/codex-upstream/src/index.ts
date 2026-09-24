@@ -9,3 +9,4 @@ export {
 export { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 export { collectResponse, IncompleteStreamError, UpstreamFailedError } from "./collect-response.ts";
 export { EFFORTS, MODELS, modelIds, resolveAlias } from "./models.ts";
+export { relayStream } from "./relay-stream.ts";
