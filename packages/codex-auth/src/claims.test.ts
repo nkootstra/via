@@ -1,12 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
+import { jwt } from "./fake-issuer.ts";
 import { decodeIdToken, InvalidIdTokenError } from "./index.ts";
-
-const jwt = (payload: object) =>
-  [{ alg: "RS256", typ: "JWT" }, payload]
-    .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
-    .concat("signature")
-    .join(".");
 
 describe("decodeIdToken", () => {
   it.effect("extracts email, ChatGPT account id and plan", () =>
