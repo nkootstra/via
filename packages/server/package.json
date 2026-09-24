@@ -1,0 +1,26 @@
+{
+  "name": "@via/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun --bun vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@effect/platform-bun": "catalog:",
+    "@via/codex-auth": "workspace:*",
+    "@via/codex-upstream": "workspace:*",
+    "@via/keys": "workspace:*",
+    "@via/pool": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@via/tsconfig": "workspace:*",
+    "vitest": "catalog:"
+  }
+}
