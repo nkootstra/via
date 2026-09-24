@@ -7,6 +7,7 @@ import { Console, Effect, Layer, Schema } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 import { accounts } from "./accounts.ts";
+import { serve } from "./serve.ts";
 
 class KeyNotFoundError extends Schema.TaggedError<KeyNotFoundError>()("KeyNotFoundError", {
   idOrName: Schema.String,
@@ -57,7 +58,8 @@ const keys = Command.make("keys").pipe(
 
 const via = Command.make("via").pipe(
   Command.withDescription("Pool Codex subscriptions behind one OpenAI-compatible endpoint"),
-  Command.withSubcommands([accounts, keys]),
+  // VIA_CODEX_BASE_URL points serve at a fake Codex backend in tests.
+  Command.withSubcommands([accounts, keys, serve(paths.config, process.env.VIA_CODEX_BASE_URL)]),
 );
 
 Command.runWith(via, { version: "0.0.0" })(process.argv.slice(2)).pipe(
@@ -66,8 +68,8 @@ Command.runWith(via, { version: "0.0.0" })(process.argv.slice(2)).pipe(
       KeyStore.layer(paths.keys),
       AccountStore.layer(paths.authDir),
       // VIA_CODEX_ISSUER points logins at a fake issuer in tests.
-      CodexAuth.layer(process.env.VIA_CODEX_ISSUER).pipe(Layer.provide(FetchHttpClient.layer)),
-    ).pipe(Layer.provideMerge(BunServices.layer)),
+      CodexAuth.layer(process.env.VIA_CODEX_ISSUER),
+    ).pipe(Layer.provideMerge(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer))),
   ),
   // CLI boundary: a failure becomes one line on stderr and exit code 1, not a logged stack
   // trace. Parse errors are skipped because the CLI has already rendered them with help.
