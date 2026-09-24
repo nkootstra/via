@@ -16,6 +16,9 @@ import {
 } from "effect/unstable/http";
 import { ViaServer } from "./index.ts";
 
+/** The access token the fake issuer hands out when any account refreshes. */
+export const refreshedAccessToken = jwt({ exp: 2_000_000_000, refreshed: true });
+
 /** Tokens for a ChatGPT account named `name`, valid far into the future. */
 export const accountTokens = (name: string) => ({
   idToken: jwt({
@@ -61,7 +64,14 @@ export const withVia = <A, E>(
         return reply(request);
       }),
     );
-    const issuer = yield* Layer.build(fakeIssuer());
+    const issuer = yield* Layer.build(
+      fakeIssuer({
+        refreshResponse: {
+          status: 200,
+          body: { access_token: refreshedAccessToken, refresh_token: "rt-2" },
+        },
+      }),
+    );
     const address = (context: typeof upstream | typeof issuer) =>
       HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
 

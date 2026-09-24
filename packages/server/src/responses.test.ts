@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { completedStream, type RecordedRequest } from "@via/codex-upstream/testing";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
-import { withVia } from "./harness.ts";
+import { refreshedAccessToken, withVia } from "./harness.ts";
 
 const ok = () => ({ status: 200, body: completedStream("hello") });
 const accountOf = (request: RecordedRequest) => request.headers["chatgpt-account-id"];
@@ -99,6 +99,20 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
           expect(response.status).toBe(400);
           expect(yield* response.json).toEqual({ error: { message: "bad input" } });
           expect(via.upstreamRequests).toHaveLength(1);
+        }),
+    ),
+  );
+
+  it.effect("refreshes a rejected access token and retries with the same account", () =>
+    withVia(
+      (received) =>
+        received.headers.authorization === `Bearer ${refreshedAccessToken}`
+          ? ok()
+          : { status: 401, body: JSON.stringify({ error: { code: "token_expired" } }) },
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-a"]);
         }),
     ),
   );

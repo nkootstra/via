@@ -62,6 +62,9 @@ export const responses = Effect.gen(function* () {
   const mark = (id: string, state: AccountState) =>
     Ref.update(states, (current) => ({ ...current, [id]: state }));
 
+  // Accounts whose access token was already refreshed after a 401 in this request.
+  const refreshed = new Set<string>();
+
   // Fill-first: try accounts in order until one answers or none is left.
   while (true) {
     const accounts = yield* store.list;
@@ -83,6 +86,11 @@ export const responses = Effect.gen(function* () {
     const verdict = classify(upstream.status, upstream.headers, text, now);
     if (Verdict.$is("Cooldown")(verdict)) {
       yield* mark(account.id, { status: "cooling", until: verdict.until, reason: verdict.reason });
+      continue;
+    }
+    if (Verdict.$is("Unauthorized")(verdict) && !refreshed.has(account.id)) {
+      refreshed.add(account.id);
+      yield* tokens.refreshRejected(account.id, account.accessToken);
       continue;
     }
     return HttpServerResponse.text(text, {
