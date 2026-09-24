@@ -6,6 +6,7 @@ import { CodexUpstream } from "@via/codex-upstream";
 import { type FakeReply, fakeUpstream, type RecordedRequest } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
 import { Effect, FileSystem, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import {
   FetchHttpClient,
   HttpClient,
@@ -82,6 +83,8 @@ export const withVia = <A, E>(
     return yield* Effect.gen(function* () {
       const store = yield* AccountStore;
       yield* store.save(accountTokens("a"));
+      // Accounts are used in the order they were added, so "a" must come first.
+      yield* TestClock.adjust("1 second");
       yield* store.save(accountTokens("b"));
       const { key } = yield* (yield* KeyStore).create("test");
       const base = yield* HttpServer.addressFormattedWith(Effect.succeed);
