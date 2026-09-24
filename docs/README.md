@@ -71,9 +71,10 @@ Every route needs `Authorization: Bearer <key>` with a key from `via keys create
 | `POST /v1/chat/completions` | Translated to and from the Responses API, streaming included. |
 | `GET /v1/models`            | Lists the models below.                                       |
 
-Models: `gpt-6-astra`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`. Add `-low`,
-`-medium`, `-high` or `-xhigh` to a model id to pick the reasoning effort, as in
-`gpt-6-astra-high`.
+Models: `gpt-6-astra`, `gpt-6-sol`, `gpt-6-luna`. Add an effort suffix to a model
+id to pick the reasoning effort, as in `gpt-6-astra-high`: `-low`, `-medium`,
+`-high`, `-xhigh` and `-max` work everywhere, `-ultra` on astra and sol, `-none`
+on sol and luna. Other model ids are passed through to Codex unchanged.
 
 ## Commands
 

@@ -49,8 +49,8 @@ describe("prepareBody", () => {
   });
 
   it("leaves a model without an effort suffix alone", () => {
-    expect(prepareBody({ ...request, model: "gpt-5.4-mini" })).toMatchObject({
-      model: "gpt-5.4-mini",
+    expect(prepareBody({ ...request, model: "gpt-6-luna" })).toMatchObject({
+      model: "gpt-6-luna",
     });
     expect(prepareBody(request)).not.toHaveProperty("reasoning");
   });
