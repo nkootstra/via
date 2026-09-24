@@ -93,7 +93,13 @@ export const responses = Effect.gen(function* () {
         yield* mark(account.id, { status: "auth_error", reason: "unauthorized" });
       } else {
         refreshed.add(account.id);
-        yield* tokens.refreshRejected(account.id, account.accessToken);
+        yield* tokens
+          .refreshRejected(account.id, account.accessToken)
+          .pipe(
+            Effect.catchTag("RefreshRejectedError", (error) =>
+              mark(account.id, { status: "auth_error", reason: error.code }),
+            ),
+          );
       }
       continue;
     }

@@ -1,7 +1,7 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
-import { fakeIssuer, jwt } from "@via/codex-auth/testing";
+import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
 import { type FakeReply, fakeUpstream, type RecordedRequest } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
@@ -43,11 +43,18 @@ export type Via = {
 
 /**
  * Starts via with accounts "a" and "b" (in that order) and a fresh API key.
- * The fake upstream answers each request with `reply`.
+ * The fake upstream answers each request with `reply`; the fake issuer answers the
+ * first refresh with `refreshResponse`, by default a new access token.
  */
 export const withVia = <A, E>(
   reply: (request: RecordedRequest) => FakeReply,
   body: (via: Via) => Effect.Effect<A, E>,
+  {
+    refreshResponse = {
+      status: 200,
+      body: { access_token: refreshedAccessToken, refresh_token: "rt-2" },
+    },
+  }: Pick<FakeIssuerOptions, "refreshResponse"> = {},
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -64,14 +71,7 @@ export const withVia = <A, E>(
         return reply(request);
       }),
     );
-    const issuer = yield* Layer.build(
-      fakeIssuer({
-        refreshResponse: {
-          status: 200,
-          body: { access_token: refreshedAccessToken, refresh_token: "rt-2" },
-        },
-      }),
-    );
+    const issuer = yield* Layer.build(fakeIssuer({ refreshResponse }));
     const address = (context: typeof upstream | typeof issuer) =>
       HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
 

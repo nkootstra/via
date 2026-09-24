@@ -131,4 +131,17 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
         }),
     ),
   );
+
+  it.effect("locks out an account whose refresh token is rejected, and moves on", () =>
+    withVia(
+      (received) => (accountOf(received) === "acc-a" ? { status: 401, body: "{}" } : ok()),
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
+        }),
+      { refreshResponse: { status: 400, body: { error: "invalid_grant" } } },
+    ),
+  );
 });
