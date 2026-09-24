@@ -26,6 +26,7 @@ export const CompletedResponse = Schema.Struct({
   model: Schema.String,
   output: Schema.Array(Schema.Union([MessageItem, FunctionCallItem, OtherItem])),
   usage: Usage,
+  incomplete_details: Schema.optionalKey(Schema.NullOr(Schema.Struct({ reason: Schema.String }))),
 });
 export type CompletedResponse = typeof CompletedResponse.Type;
 
@@ -35,6 +36,10 @@ export const chatUsage = (usage: typeof Usage.Type) => ({
   completion_tokens: usage.output_tokens,
   total_tokens: usage.total_tokens,
 });
+
+/** Why Chat Completions says a response stopped short, by Responses incomplete reason. */
+export const incompleteFinish = (reason: string) =>
+  reason === "content_filter" ? reason : "length";
 
 /** The Chat Completions answer equivalent to a completed Responses response. */
 export const toChatCompletion = (response: CompletedResponse) => {
@@ -61,7 +66,12 @@ export const toChatCompletion = (response: CompletedResponse) => {
           content: text === "" && toolCalls.length > 0 ? null : text,
           ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
         },
-        finish_reason: toolCalls.length > 0 ? "tool_calls" : "stop",
+        finish_reason:
+          response.incomplete_details != null
+            ? incompleteFinish(response.incomplete_details.reason)
+            : toolCalls.length > 0
+              ? "tool_calls"
+              : "stop",
       },
     ],
     usage: chatUsage(response.usage),

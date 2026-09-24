@@ -178,4 +178,21 @@ describe("toChatStream", () => {
       expect(events.at(-1)).toBe("[DONE]");
     }),
   );
+
+  it.effect("finishes an incomplete response that reports no usage", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents(
+        [
+          created,
+          {
+            type: "response.incomplete",
+            response: { status: "incomplete", incomplete_details: { reason: "content_filter" } },
+          },
+        ],
+        { includeUsage: true },
+      );
+      expect(deltas(events).at(-1)).toMatchObject({ finish_reason: "content_filter" });
+      expect(events.at(-1)).toBe("[DONE]");
+    }),
+  );
 });

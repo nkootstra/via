@@ -1,6 +1,6 @@
 import { Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
-import { chatUsage, Usage } from "./chat-response.ts";
+import { chatUsage, incompleteFinish, Usage } from "./chat-response.ts";
 
 const Created = Schema.Struct({
   type: Schema.Literal("response.created"),
@@ -38,7 +38,7 @@ const Incomplete = Schema.Struct({
   type: Schema.Literal("response.incomplete"),
   response: Schema.Struct({
     incomplete_details: Schema.Struct({ reason: Schema.String }),
-    usage: Usage,
+    usage: Schema.optionalKey(Usage),
   }),
 });
 // Reasoning, item bookkeeping and other events have no Chat Completions counterpart.
@@ -56,9 +56,6 @@ const StreamEvent = Schema.Union([
 
 const isTerminal = (event: typeof StreamEvent.Type) =>
   Schema.is(Completed)(event) || Schema.is(Failed)(event) || Schema.is(Incomplete)(event);
-
-/** Why Chat Completions says a response stopped short, by Responses incomplete reason. */
-const incompleteFinish = (reason: string) => (reason === "content_filter" ? reason : "length");
 
 type State = {
   readonly envelope: { id: string; object: string; created: number; model: string };
@@ -138,9 +135,9 @@ export const toChatStream = <E>(
     }
     return [state, []];
   };
-  const finish = (state: State, reason: string, usage: typeof Usage.Type) => [
+  const finish = (state: State, reason: string, usage: typeof Usage.Type | undefined) => [
     chunk(state, {}, reason),
-    ...(options.includeUsage
+    ...(options.includeUsage && usage !== undefined
       ? [data({ ...state.envelope, choices: [], usage: chatUsage(usage) })]
       : []),
     "data: [DONE]\n\n",

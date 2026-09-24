@@ -81,4 +81,23 @@ describe("toChatCompletion", () => {
       finish_reason: "tool_calls",
     });
   });
+
+  it.each([
+    { reason: "max_output_tokens", finish: "length" },
+    { reason: "content_filter", finish: "content_filter" },
+  ])("finishes an incomplete response ($reason) with $finish", ({ reason, finish }) => {
+    const completion = translate({
+      id: "resp_1",
+      created_at: 1_700_000_000,
+      model: "gpt-6-astra",
+      status: "incomplete",
+      incomplete_details: { reason },
+      output: [{ type: "message", content: [{ type: "output_text", text: "Hel" }] }],
+      usage,
+    });
+    expect(completion.choices[0]).toMatchObject({
+      message: { content: "Hel" },
+      finish_reason: finish,
+    });
+  });
 });
