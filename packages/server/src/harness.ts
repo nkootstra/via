@@ -20,14 +20,14 @@ import { ViaServer } from "./index.ts";
 export const refreshedAccessToken = jwt({ exp: 2_000_000_000, refreshed: true });
 
 /** Tokens for a ChatGPT account named `name`, valid far into the future. */
-export const accountTokens = (name: string) => ({
+export const accountTokens = (name: string, expiresAt = 1e15) => ({
   idToken: jwt({
     email: `${name}@example.com`,
     "https://api.openai.com/auth": { chatgpt_account_id: `acc-${name}`, chatgpt_plan_type: "pro" },
   }),
   accessToken: `at-${name}`,
   refreshToken: "rt-1",
-  expiresAt: 1e15,
+  expiresAt,
 });
 
 export type Via = {
@@ -44,7 +44,8 @@ export type Via = {
 /**
  * Starts via with accounts "a" and "b" (in that order) and a fresh API key.
  * The fake upstream answers each request with `reply`; the fake issuer answers the
- * first refresh with `refreshResponse`, by default a new access token.
+ * first refresh with `refreshResponse`, by default a new access token. Account "a"'s
+ * access token expires at `aExpiresAt`, by default far in the future.
  */
 export const withVia = <A, E>(
   reply: (request: RecordedRequest) => FakeReply,
@@ -54,7 +55,8 @@ export const withVia = <A, E>(
       status: 200,
       body: { access_token: refreshedAccessToken, refresh_token: "rt-2" },
     },
-  }: Pick<FakeIssuerOptions, "refreshResponse"> = {},
+    aExpiresAt,
+  }: Pick<FakeIssuerOptions, "refreshResponse"> & { aExpiresAt?: number } = {},
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -92,7 +94,7 @@ export const withVia = <A, E>(
 
     return yield* Effect.gen(function* () {
       const store = yield* AccountStore;
-      yield* store.save(accountTokens("a"));
+      yield* store.save(accountTokens("a", aExpiresAt));
       // Accounts are used in the order they were added, so "a" must come first.
       yield* TestClock.adjust("1 second");
       yield* store.save(accountTokens("b"));

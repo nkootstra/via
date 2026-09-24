@@ -1,4 +1,4 @@
-import { AccountStore, AccountTokens } from "@via/codex-auth";
+import { AccountStore, AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
 import { collectResponse, CodexUpstream } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import {
@@ -61,6 +61,9 @@ export const responses = Effect.gen(function* () {
   const states = yield* PoolStates;
   const mark = (id: string, state: AccountState) =>
     Ref.update(states, (current) => ({ ...current, [id]: state }));
+  // A dead refresh token takes the account out of rotation until it logs in again.
+  const lockOut = (id: string) => (error: RefreshRejectedError) =>
+    mark(id, { status: "auth_error", reason: error.code });
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
@@ -73,7 +76,14 @@ export const responses = Effect.gen(function* () {
     const chosen = select(accounts, state, now);
     if (Option.isNone(chosen)) return noAccountLeft(retryAfter(accounts, state, now));
 
-    const account = yield* tokens.fresh(chosen.value.id);
+    const fresh = yield* tokens.fresh(chosen.value.id).pipe(
+      Effect.map(Option.some),
+      Effect.catchTag("RefreshRejectedError", (error) =>
+        lockOut(chosen.value.id)(error).pipe(Effect.as(Option.none())),
+      ),
+    );
+    if (Option.isNone(fresh)) continue;
+    const account = fresh.value;
     const upstream = yield* codex.send(account, body);
     if (upstream.status === 200) {
       if (body.stream === true) {
@@ -95,11 +105,7 @@ export const responses = Effect.gen(function* () {
         refreshed.add(account.id);
         yield* tokens
           .refreshRejected(account.id, account.accessToken)
-          .pipe(
-            Effect.catchTag("RefreshRejectedError", (error) =>
-              mark(account.id, { status: "auth_error", reason: error.code }),
-            ),
-          );
+          .pipe(Effect.catchTag("RefreshRejectedError", lockOut(account.id)));
       }
       continue;
     }

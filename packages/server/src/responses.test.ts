@@ -144,4 +144,16 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
       { refreshResponse: { status: 400, body: { error: "invalid_grant" } } },
     ),
   );
+
+  it.effect("skips an expired account whose refresh token is rejected", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-b"]);
+        }),
+      { refreshResponse: { status: 400, body: { error: "invalid_grant" } }, aExpiresAt: 0 },
+    ),
+  );
 });
