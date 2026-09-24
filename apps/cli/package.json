@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@effect/platform-bun": "catalog:",
+    "@via/codex-auth": "workspace:*",
     "@via/config": "workspace:*",
     "@via/keys": "workspace:*",
     "effect": "catalog:"

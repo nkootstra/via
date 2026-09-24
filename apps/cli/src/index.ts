@@ -1,9 +1,12 @@
 #!/usr/bin/env bun
 import { BunRuntime, BunServices } from "@effect/platform-bun";
+import { AccountStore, CodexAuth } from "@via/codex-auth";
 import { resolvePaths } from "@via/config";
 import { KeyStore } from "@via/keys";
 import { Console, Effect, Layer, Schema } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/unstable/cli";
+import { FetchHttpClient } from "effect/unstable/http";
+import { accounts } from "./accounts.ts";
 
 class KeyNotFoundError extends Schema.TaggedError<KeyNotFoundError>()("KeyNotFoundError", {
   idOrName: Schema.String,
@@ -54,11 +57,18 @@ const keys = Command.make("keys").pipe(
 
 const via = Command.make("via").pipe(
   Command.withDescription("Pool Codex subscriptions behind one OpenAI-compatible endpoint"),
-  Command.withSubcommands([keys]),
+  Command.withSubcommands([accounts, keys]),
 );
 
 Command.runWith(via, { version: "0.0.0" })(process.argv.slice(2)).pipe(
-  Effect.provide(KeyStore.layer(paths.keys).pipe(Layer.provideMerge(BunServices.layer))),
+  Effect.provide(
+    Layer.mergeAll(
+      KeyStore.layer(paths.keys),
+      AccountStore.layer(paths.authDir),
+      // VIA_CODEX_ISSUER points logins at a fake issuer in tests.
+      CodexAuth.layer(process.env.VIA_CODEX_ISSUER).pipe(Layer.provide(FetchHttpClient.layer)),
+    ).pipe(Layer.provideMerge(BunServices.layer)),
+  ),
   // CLI boundary: a failure becomes one line on stderr and exit code 1, not a logged stack
   // trace. Parse errors are skipped because the CLI has already rendered them with help.
   Effect.tapError((error) =>

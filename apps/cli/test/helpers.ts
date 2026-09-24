@@ -11,17 +11,25 @@ export const tempHome = Effect.gen(function* () {
   return yield* fs.makeTempDirectoryScoped();
 });
 
-/** Runs the real `via` entrypoint in a subprocess, black-box style. */
-export const runVia = (home: string, ...args: ReadonlyArray<string>) =>
-  Effect.sync((): RunResult => {
-    const proc = Bun.spawnSync(["bun", entry, ...args], {
-      env: { ...process.env, VIA_HOME: home, NO_COLOR: "1" },
+/**
+ * Runs the real `via` entrypoint in a subprocess, black-box style. It runs
+ * asynchronously so fake servers in the test process can answer it.
+ */
+export const runVia = (
+  home: string,
+  args: ReadonlyArray<string>,
+  env: Record<string, string> = {},
+) =>
+  Effect.promise(async (): Promise<RunResult> => {
+    const proc = Bun.spawn(["bun", entry, ...args], {
+      env: { ...process.env, ...env, VIA_HOME: home, NO_COLOR: "1" },
       stdout: "pipe",
       stderr: "pipe",
     });
-    return {
-      exitCode: proc.exitCode ?? -1,
-      stdout: proc.stdout.toString(),
-      stderr: proc.stderr.toString(),
-    };
+    const [exitCode, stdout, stderr] = await Promise.all([
+      proc.exited,
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+    ]);
+    return { exitCode, stdout, stderr };
   });
