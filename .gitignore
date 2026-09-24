@@ -4,3 +4,4 @@ dist
 *.tgz
 tmp-*/
 npm/via-*/bin/
+.claude/worktrees
