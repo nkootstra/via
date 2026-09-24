@@ -42,8 +42,25 @@ describe("refresh", () => {
     ),
   );
 
+  // The first four are verbatim from codex's refresh tests (see
+  // @via/codex-upstream's fixtures/refresh-errors.json): what the issuer sends.
   for (const [label, status, body] of [
-    ["invalid_grant", 400, { error: "invalid_grant" }],
+    ["invalid_grant", 400, { error: "invalid_grant", error_description: "refresh token expired" }],
+    [
+      "refresh_token_expired",
+      400,
+      { error: "refresh_token_expired", error_description: "refresh token has expired" },
+    ],
+    [
+      "refresh_token_reused",
+      400,
+      { error: "refresh_token_reused", error_description: "refresh token was already used" },
+    ],
+    [
+      "refresh_token_invalidated",
+      400,
+      { error: "refresh_token_invalidated", error_description: "refresh token was revoked" },
+    ],
     ["refresh_token_reused", 401, { error: { code: "refresh_token_reused", message: "reused" } }],
     [
       "refresh_token_expired",
@@ -51,7 +68,7 @@ describe("refresh", () => {
       { error: { code: "refresh_token_expired", message: "expired" } },
     ],
   ] as const) {
-    it.effect(`rejects the account on ${label}, so it must log in again`, () =>
+    it.effect(`rejects the account on ${label} (HTTP ${status}), so it must log in again`, () =>
       withIssuer({ refreshResponse: { status, body } }, () =>
         Effect.gen(function* () {
           const error = yield* Effect.flip((yield* CodexAuth).refresh(current));
