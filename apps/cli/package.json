@@ -1,0 +1,24 @@
+{
+  "name": "@via/cli",
+  "version": "0.0.0",
+  "private": true,
+  "bin": {
+    "via": "./src/index.ts"
+  },
+  "type": "module",
+  "scripts": {
+    "test": "bun --bun vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@effect/platform-bun": "catalog:",
+    "@via/config": "workspace:*",
+    "@via/keys": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@via/tsconfig": "workspace:*",
+    "vitest": "catalog:"
+  }
+}

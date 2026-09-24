@@ -13,6 +13,24 @@
         "typescript": "7.0.2",
       },
     },
+    "apps/cli": {
+      "name": "@via/cli",
+      "version": "0.0.0",
+      "bin": {
+        "via": "./src/index.ts",
+      },
+      "dependencies": {
+        "@effect/platform-bun": "catalog:",
+        "@via/config": "workspace:*",
+        "@via/keys": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/vitest": "catalog:",
+        "@via/tsconfig": "workspace:*",
+        "vitest": "catalog:",
+      },
+    },
     "packages/config": {
       "name": "@via/config",
       "version": "0.0.0",
@@ -253,6 +271,8 @@
     "@typescript/typescript-win32-arm64": ["@typescript/typescript-win32-arm64@7.0.2", "", { "os": "win32", "cpu": "arm64" }, "sha512-Gyl1Vy6OsWesLzmq+EP0Fb7b4Nid5232AvcA2SFcdYreldpNtYFFofPjnt62y9hQy7VTaZp65ICJjuAQRaVcIQ=="],
 
     "@typescript/typescript-win32-x64": ["@typescript/typescript-win32-x64@7.0.2", "", { "os": "win32", "cpu": "x64" }, "sha512-0BQ3HkAHHlKLSp1qRvf3SUhGpGsDuhB/jgFw75guyqbxJqEaS0Cw/VFO8i2nHglJUzQCRtMMR/IBAKE3ETMC4g=="],
+
+    "@via/cli": ["@via/cli@workspace:apps/cli"],
 
     "@via/config": ["@via/config@workspace:packages/config"],
 
