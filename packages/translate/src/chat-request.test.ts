@@ -132,4 +132,29 @@ describe("toResponsesRequest", () => {
       tool_choice: "required",
     });
   });
+
+  it("asks for structured output in the Responses text format", () => {
+    const schema = { type: "object", properties: { answer: { type: "string" } } };
+    expect(
+      translate({
+        model: "gpt-5.5",
+        messages: [],
+        response_format: {
+          type: "json_schema",
+          json_schema: { name: "answer", schema, strict: true },
+        },
+      }),
+    ).toMatchObject({
+      text: { format: { type: "json_schema", name: "answer", schema, strict: true } },
+    });
+    expect(
+      translate({ model: "gpt-5.5", messages: [], response_format: { type: "json_object" } }),
+    ).toMatchObject({ text: { format: { type: "json_object" } } });
+  });
+
+  it("carries the reasoning effort and streaming over", () => {
+    expect(
+      translate({ model: "gpt-5.5", messages: [], reasoning_effort: "high", stream: true }),
+    ).toMatchObject({ reasoning: { effort: "high" }, stream: true });
+  });
 });

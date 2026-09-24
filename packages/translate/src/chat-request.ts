@@ -51,12 +51,29 @@ const ToolChoice = Schema.Union([
   }),
 ]);
 
+const JsonSchemaFormat = Schema.Struct({
+  type: Schema.Literal("json_schema"),
+  json_schema: Schema.Struct({
+    name: Schema.String,
+    description: Schema.optionalKey(Schema.String),
+    schema: Schema.optionalKey(Schema.Unknown),
+    strict: Schema.optionalKey(Schema.Boolean),
+  }),
+});
+const ResponseFormat = Schema.Union([
+  JsonSchemaFormat,
+  Schema.Struct({ type: Schema.Literals(["json_object", "text"]) }),
+]);
+
 export const ChatRequest = Schema.Struct({
   model: Schema.String,
   messages: Schema.Array(Message),
   tools: Schema.optionalKey(Schema.Array(FunctionTool)),
   tool_choice: Schema.optionalKey(ToolChoice),
   parallel_tool_calls: Schema.optionalKey(Schema.Boolean),
+  response_format: Schema.optionalKey(ResponseFormat),
+  reasoning_effort: Schema.optionalKey(Schema.String),
+  stream: Schema.optionalKey(Schema.Boolean),
 });
 export type ChatRequest = typeof ChatRequest.Type;
 
@@ -103,6 +120,11 @@ const tool = ({ function: fn }: typeof FunctionTool.Type) => ({ type: "function"
 const toolChoice = (choice: typeof ToolChoice.Type) =>
   Schema.is(ToolChoiceMode)(choice) ? choice : { type: "function", name: choice.function.name };
 
+const textFormat = (format: typeof ResponseFormat.Type) =>
+  Schema.is(JsonSchemaFormat)(format)
+    ? { type: "json_schema", ...format.json_schema }
+    : { type: format.type };
+
 /** The Responses API request equivalent to a Chat Completions request. */
 export const toResponsesRequest = (chat: ChatRequest): Record<string, unknown> => ({
   model: chat.model,
@@ -114,4 +136,7 @@ export const toResponsesRequest = (chat: ChatRequest): Record<string, unknown> =
   ...(chat.tools && { tools: chat.tools.map(tool) }),
   ...(chat.tool_choice && { tool_choice: toolChoice(chat.tool_choice) }),
   ...(chat.parallel_tool_calls !== undefined && { parallel_tool_calls: chat.parallel_tool_calls }),
+  ...(chat.response_format && { text: { format: textFormat(chat.response_format) } }),
+  ...(chat.reasoning_effort && { reasoning: { effort: chat.reasoning_effort } }),
+  ...(chat.stream !== undefined && { stream: chat.stream }),
 });
