@@ -116,4 +116,19 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
         }),
     ),
   );
+
+  it.effect("locks out an account that is still refused after a refresh, and moves on", () =>
+    withVia(
+      (received) =>
+        accountOf(received) === "acc-a"
+          ? { status: 401, body: JSON.stringify({ error: { code: "account_deactivated" } }) }
+          : ok(),
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-a", "acc-b", "acc-b"]);
+        }),
+    ),
+  );
 });
