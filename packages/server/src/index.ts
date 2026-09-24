@@ -2,6 +2,7 @@ import { Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { chatCompletions } from "./chat-completions.ts";
 import { PoolStates } from "./dispatch.ts";
+import { models } from "./models.ts";
 import { responses } from "./responses.ts";
 
 /** The OpenAI-compatible HTTP API of `via serve`. */
@@ -10,6 +11,7 @@ export const ViaServer = {
     Layer.mergeAll(
       HttpRouter.add("POST", "/v1/responses", responses),
       HttpRouter.add("POST", "/v1/chat/completions", chatCompletions),
+      HttpRouter.add("GET", "/v1/models", models),
     ),
   ).pipe(Layer.provide(PoolStates.layer)),
 };

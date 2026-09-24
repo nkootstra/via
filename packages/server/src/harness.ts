@@ -37,6 +37,11 @@ export type Via = {
     body: object,
     key?: string | null,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
+  /** GETs a path from the via server, with a valid API key unless `key` says otherwise. */
+  readonly get: (
+    path: string,
+    key?: string | null,
+  ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** Every request the fake Codex upstream received so far. */
   readonly upstreamRequests: ReadonlyArray<RecordedRequest>;
 };
@@ -101,12 +106,18 @@ export const withVia = <A, E>(
       const { key } = yield* (yield* KeyStore).create("test");
       const base = yield* HttpServer.addressFormattedWith(Effect.succeed);
       const http = yield* HttpClient.HttpClient;
+      const authorize = (override: string | null | undefined) =>
+        override === null
+          ? (request: HttpClientRequest.HttpClientRequest) => request
+          : HttpClientRequest.bearerToken(override ?? key);
       const post: Via["post"] = (path, json, override) =>
         HttpClientRequest.post(`${base}${path}`).pipe(
-          override === null ? (r) => r : HttpClientRequest.bearerToken(override ?? key),
+          authorize(override),
           HttpClientRequest.bodyJsonUnsafe(json),
           http.execute,
         );
-      return yield* body({ post, upstreamRequests });
+      const get: Via["get"] = (path, override) =>
+        http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
+      return yield* body({ post, get, upstreamRequests });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });

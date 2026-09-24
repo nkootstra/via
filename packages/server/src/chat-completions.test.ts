@@ -64,4 +64,16 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
       }),
     ),
   );
+
+  it.effect("asks Codex for the base model and effort behind a suffix alias", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/chat/completions", { ...request, model: "gpt-5.5-high" });
+        expect(via.upstreamRequests[0]?.body).toMatchObject({
+          model: "gpt-5.5",
+          reasoning: { effort: "high" },
+        });
+      }),
+    ),
+  );
 });
