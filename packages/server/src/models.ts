@@ -33,6 +33,7 @@ export class ModelCatalog extends Context.Service<
       });
       const cache = yield* Cache.makeWith(() => ask, {
         capacity: 1,
+        // A failed ask is not kept, so the next request tries Codex again.
         timeToLive: (exit) => (Exit.isSuccess(exit) ? "5 minutes" : 0),
       });
       return Cache.get(cache, undefined).pipe(
