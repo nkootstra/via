@@ -1,5 +1,5 @@
-import { Context, Effect, Layer } from "effect";
-import { HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { Context, Effect, Layer, Schema } from "effect";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 
 export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
@@ -19,6 +19,35 @@ export type CodexUpstreamOptions = {
   readonly baseUrl?: string;
   /** Present requests as the official Codex TUI. */
   readonly cloak: boolean;
+};
+
+export class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableError>()(
+  "UsageUnavailableError",
+  { status: Schema.Finite },
+) {
+  override get message() {
+    return `ChatGPT did not report usage (HTTP ${this.status})`;
+  }
+}
+
+const Window = Schema.Struct({
+  used_percent: Schema.Finite,
+  limit_window_seconds: Schema.Finite,
+  reset_at: Schema.Finite,
+});
+const UsagePayload = Schema.Struct({
+  rate_limit: Schema.Struct({
+    primary_window: Schema.NullOr(Window),
+    secondary_window: Schema.NullOr(Window),
+  }),
+});
+
+/** How much of one rate limit window an account has used, and when it starts over. */
+export type UsageWindow = {
+  readonly windowMinutes: number;
+  readonly usedPercent: number;
+  /** Epoch milliseconds. */
+  readonly resetsAt: number;
 };
 
 const make = ({ baseUrl = CODEX_BASE_URL, cloak }: CodexUpstreamOptions) =>
@@ -48,7 +77,35 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak }: CodexUpstreamOptions) =>
       );
     });
 
-    return { send };
+    /** The account's rate limit windows: the short (5-hour) one first, then the weekly one. */
+    const usage = Effect.fn("CodexUpstream.usage")(function* (account: UpstreamAccount) {
+      const response = yield* HttpClientRequest.get(`${baseUrl}/wham/usage`).pipe(
+        HttpClientRequest.setHeaders({
+          ...identity,
+          authorization: `Bearer ${account.accessToken}`,
+          "chatgpt-account-id": account.accountId,
+        }),
+        http.execute,
+      );
+      if (response.status !== 200) {
+        return yield* new UsageUnavailableError({ status: response.status });
+      }
+      const { rate_limit } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
+      return [rate_limit.primary_window, rate_limit.secondary_window].flatMap(
+        (window): Array<UsageWindow> =>
+          window === null
+            ? []
+            : [
+                {
+                  windowMinutes: window.limit_window_seconds / 60,
+                  usedPercent: window.used_percent,
+                  resetsAt: window.reset_at * 1000,
+                },
+              ],
+      );
+    });
+
+    return { send, usage };
   });
 
 /** The ChatGPT backend that serves Codex (`chatgpt.com/backend-api`). */

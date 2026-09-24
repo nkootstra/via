@@ -42,25 +42,73 @@ export const completedStream = (text: string) =>
     },
   ]);
 
-/** Serves POST /codex/responses, answering each request with `reply`. */
-export const fakeUpstream = (reply: (request: RecordedRequest) => FakeReply) =>
+/** A `/wham/usage` answer: 12% of the 5-hour window and 40% of the weekly window used. */
+export const usagePayload = {
+  plan_type: "pro",
+  rate_limit: {
+    allowed: true,
+    limit_reached: false,
+    primary_window: {
+      used_percent: 12,
+      limit_window_seconds: 18_000,
+      reset_after_seconds: 3_600,
+      reset_at: 1_700_003_600,
+    },
+    secondary_window: {
+      used_percent: 40,
+      limit_window_seconds: 604_800,
+      reset_after_seconds: 86_400,
+      reset_at: 1_700_086_400,
+    },
+  },
+};
+
+const record = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+  const body =
+    request.method === "GET"
+      ? {}
+      : yield* HttpServerRequest.schemaBodyJson(Schema.Record(Schema.String, Schema.Unknown));
+  return { headers: request.headers, body };
+});
+
+const answer = ({ status, headers, body }: FakeReply, contentType: string) =>
+  HttpServerResponse.text(body, {
+    status,
+    headers,
+    contentType: status === 200 ? contentType : "application/json",
+  });
+
+/**
+ * Serves POST /codex/responses, answering each request with `reply`, and
+ * GET /wham/usage, answering with `usage` (by default `usagePayload`).
+ */
+export const fakeUpstream = (
+  reply: (request: RecordedRequest) => FakeReply,
+  usage: (request: RecordedRequest) => FakeReply = () => ({
+    status: 200,
+    body: JSON.stringify(usagePayload),
+  }),
+) =>
   HttpRouter.serve(
-    HttpRouter.add(
-      "POST",
-      "/codex/responses",
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const body = yield* HttpServerRequest.schemaBodyJson(
-          Schema.Record(Schema.String, Schema.Unknown),
-        );
-        const { status, headers, body: text } = reply({ headers: request.headers, body });
-        return HttpServerResponse.text(text, {
-          status,
-          headers,
-          contentType: status === 200 ? "text/event-stream" : "application/json",
-        });
+    Layer.mergeAll(
+      HttpRouter.add(
+        "POST",
+        "/codex/responses",
         // Test fixture: a body that is not JSON is a bug in the code under test.
-      }).pipe(Effect.orDie),
+        record.pipe(
+          Effect.map((request) => answer(reply(request), "text/event-stream")),
+          Effect.orDie,
+        ),
+      ),
+      HttpRouter.add(
+        "GET",
+        "/wham/usage",
+        record.pipe(
+          Effect.map((request) => answer(usage(request), "application/json")),
+          Effect.orDie,
+        ),
+      ),
     ),
   ).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 })));
 
