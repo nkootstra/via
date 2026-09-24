@@ -1,0 +1,18 @@
+{
+  "name": "via",
+  "version": "0.0.0",
+  "description": "Pool Codex subscriptions behind one OpenAI-compatible endpoint",
+  "license": "MIT",
+  "bin": {
+    "via": "bin/via.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "optionalDependencies": {
+    "via-darwin-arm64": "0.0.0",
+    "via-darwin-x64": "0.0.0",
+    "via-linux-arm64": "0.0.0",
+    "via-linux-x64": "0.0.0"
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "name": "via-linux-x64",
+  "version": "0.0.0",
+  "description": "The via binary for linux-x64",
+  "license": "MIT",
+  "files": [
+    "bin"
+  ],
+  "os": [
+    "linux"
+  ],
+  "cpu": [
+    "x64"
+  ]
+}

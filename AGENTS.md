@@ -38,3 +38,6 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
   `codex-upstream`, `translate`, `server`). Create a package only when the first
   test needs it.
+- `npm/`: distribution. `bun run build` compiles the binary into each
+  `npm/via-<os>-<arch>` package; `npm/via` is the Node launcher; `bun run smoke`
+  installs the packed packages with npm and runs them under Node.

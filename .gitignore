@@ -3,3 +3,4 @@ dist
 .turbo
 *.tgz
 tmp-*/
+npm/via-*/bin/

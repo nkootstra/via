@@ -4,7 +4,8 @@
   "workspaces": {
     "packages": [
       "apps/*",
-      "packages/*"
+      "packages/*",
+      "npm"
     ],
     "catalog": {
       "effect": "4.0.0-rc.117",
@@ -16,6 +17,7 @@
   "scripts": {
     "prepare": "effect-tsgo patch --typescript --no-oxlint",
     "build": "turbo run build",
+    "smoke": "turbo run smoke",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "lint": "oxlint --deny-warnings",

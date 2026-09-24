@@ -34,6 +34,17 @@
         "vitest": "catalog:",
       },
     },
+    "npm": {
+      "name": "@via/npm",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@effect/platform-bun": "catalog:",
+        "@effect/vitest": "catalog:",
+        "@via/tsconfig": "workspace:*",
+        "effect": "catalog:",
+        "vitest": "catalog:",
+      },
+    },
     "packages/codex-auth": {
       "name": "@via/codex-auth",
       "version": "0.0.0",
@@ -354,6 +365,8 @@
     "@via/config": ["@via/config@workspace:packages/config"],
 
     "@via/keys": ["@via/keys@workspace:packages/keys"],
+
+    "@via/npm": ["@via/npm@workspace:npm"],
 
     "@via/pool": ["@via/pool@workspace:packages/pool"],
 
