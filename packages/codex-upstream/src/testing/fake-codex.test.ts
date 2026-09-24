@@ -95,6 +95,21 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
     }),
   );
 
+  it.effect("fails a response in-stream after it started", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.script(reply.failed("server_is_overloaded", "busy"));
+      const answer = yield* post(codex.url, "acc-a");
+      expect(answer.status).toBe(200);
+      expect(events(answer.text)).toEqual([
+        "response.created",
+        "response.in_progress",
+        "response.failed",
+      ]);
+      expect(answer.text).toContain('"error":{"code":"server_is_overloaded","message":"busy"}');
+    }),
+  );
+
   it.effect("truncates a stream after n events, ending it cleanly", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;

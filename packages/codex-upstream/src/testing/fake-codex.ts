@@ -52,17 +52,19 @@ const stream = (events: ReadonlyArray<Event>): Plan => ({
 const usage = { input_tokens: 10, output_tokens: 2, total_tokens: 12 };
 
 /** The response lifecycle around `items`, in the public Responses API shape. */
+const envelope = (request: CodexRequest) => ({
+  id: "resp_fake",
+  object: "response",
+  created_at: 1_700_000_000,
+  model: typeof request.body["model"] === "string" ? request.body["model"] : "gpt-6-astra",
+});
+
 const lifecycle = (
   request: CodexRequest,
   items: ReadonlyArray<ReadonlyArray<Event>>,
   output: ReadonlyArray<unknown>,
 ) => {
-  const response = {
-    id: "resp_fake",
-    object: "response",
-    created_at: 1_700_000_000,
-    model: typeof request.body["model"] === "string" ? request.body["model"] : "gpt-6-astra",
-  };
+  const response = envelope(request);
   return stream([
     { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
     { type: "response.in_progress", response: { ...response, status: "in_progress", output: [] } },
@@ -141,6 +143,24 @@ export const reply = {
         .filter((chunk) => chunk.trim() !== "")
         .map((chunk) => `${chunk}\n\n`),
     }),
+
+  /** Codex starts the response, then fails it in-stream with `code`. */
+  failed:
+    (code: string, message: string): Reply =>
+    (request) => {
+      const response = envelope(request);
+      return stream([
+        { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
+        {
+          type: "response.in_progress",
+          response: { ...response, status: "in_progress", output: [] },
+        },
+        {
+          type: "response.failed",
+          response: { ...response, status: "failed", error: { code, message }, usage: null },
+        },
+      ]);
+    },
 
   /** A plain HTTP error, as Codex sends before any stream starts. */
   error:
