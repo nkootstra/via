@@ -22,6 +22,7 @@
   "devDependencies": {
     "@effect/vitest": "catalog:",
     "@via/tsconfig": "workspace:*",
+    "openai": "^7.23.0",
     "vitest": "catalog:"
   }
 }

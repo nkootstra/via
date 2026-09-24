@@ -42,6 +42,10 @@ export type Via = {
     path: string,
     key?: string | null,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
+  /** The via server's URL, e.g. `http://127.0.0.1:1234`. */
+  readonly baseUrl: string;
+  /** A valid API key. */
+  readonly key: string;
   /** Every request the fake Codex upstream received so far. */
   readonly upstreamRequests: ReadonlyArray<RecordedRequest>;
 };
@@ -118,6 +122,6 @@ export const withVia = <A, E>(
         );
       const get: Via["get"] = (path, override) =>
         http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
-      return yield* body({ post, get, upstreamRequests });
+      return yield* body({ post, get, baseUrl: base, key, upstreamRequests });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });
