@@ -15,6 +15,14 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 - Tests never call real OpenAI endpoints. Fake upstreams run as local HTTP
   servers, and base URLs are injected through layers.
 
+## Commits & PRs
+
+- Sign every commit (SSH or GPG) with a key added to your GitHub account as a
+  signing key. `main` rejects unverified commits.
+- No AI attribution: no `Co-authored-by` trailers for bots or tools, no
+  "Generated with …" footers or badges, in commits or PR descriptions.
+- Fill in the PR template; don't delete its sections. CI checks all three.
+
 ## Effect conventions
 
 - Everything outside the CLI's `main` is an `Effect`. No `async`/`await`,
