@@ -29,22 +29,49 @@ const Failed = Schema.Struct({
     error: Schema.Struct({ code: Schema.String, message: Schema.String }),
   }),
 });
+const Incomplete = Schema.Struct({
+  type: Schema.Literal("response.incomplete"),
+  response: Schema.Record(Schema.String, Schema.Unknown),
+});
+const ItemDone = Schema.Struct({
+  type: Schema.Literal("response.output_item.done"),
+  item: Schema.Unknown,
+});
 const Progress = Schema.Struct({ type: Schema.String });
-const StreamEvent = Schema.Union([Completed, Failed, Progress]);
+const StreamEvent = Schema.Union([Completed, Failed, Incomplete, ItemDone, Progress]);
 
 const isTerminal = (event: typeof StreamEvent.Type) =>
-  Schema.is(Completed)(event) || Schema.is(Failed)(event);
+  Schema.is(Completed)(event) || Schema.is(Failed)(event) || Schema.is(Incomplete)(event);
 
-/** Reads a Responses SSE stream to its end and returns the final response object. */
+type Collected = {
+  readonly items: ReadonlyArray<unknown>;
+  readonly terminal: Option.Option<typeof StreamEvent.Type>;
+};
+
+const collect = (state: Collected, event: typeof StreamEvent.Type): Collected =>
+  Schema.is(ItemDone)(event)
+    ? { ...state, items: [...state.items, event.item] }
+    : isTerminal(event)
+      ? { ...state, terminal: Option.some(event) }
+      : state;
+
+const hasOutput = (response: Record<string, unknown>) =>
+  Array.isArray(response["output"]) && response["output"].length > 0;
+
+/**
+ * Reads a Responses SSE stream to its end and returns the final response
+ * object. The Codex backend may leave the final `output` empty, as codex
+ * itself expects, so it is rebuilt from the items finished along the way.
+ */
 export const collectResponse = Effect.fn("collectResponse")(function* <E>(
   body: Stream.Stream<Uint8Array, E>,
 ) {
-  const terminal = yield* body.pipe(
+  const { items, terminal } = yield* body.pipe(
     Stream.decodeText,
     Stream.pipeThroughChannel(Sse.decodeDataSchema(StreamEvent)),
     Stream.map((event) => event.data),
-    Stream.filter(isTerminal),
-    Stream.runHead,
+    Stream.takeUntil(isTerminal),
+    Stream.runFold((): Collected => ({ items: [], terminal: Option.none() }), collect),
   );
   if (Option.isNone(terminal)) return yield* new IncompleteStreamError();
   const event = terminal.value;
@@ -52,5 +79,9 @@ export const collectResponse = Effect.fn("collectResponse")(function* <E>(
     const { code, message } = event.response.error;
     return yield* new UpstreamFailedError({ code, reason: message });
   }
-  return event.response;
+  if (Schema.is(Completed)(event) || Schema.is(Incomplete)(event)) {
+    const { response } = event;
+    return hasOutput(response) ? response : { ...response, output: items };
+  }
+  return yield* new IncompleteStreamError();
 });
