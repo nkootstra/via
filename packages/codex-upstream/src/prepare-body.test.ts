@@ -41,4 +41,17 @@ describe("prepareBody", () => {
       reasoning: { effort: "high" },
     });
   });
+
+  it("turns an effort suffix alias into the base model and a reasoning effort", () => {
+    expect(
+      prepareBody({ ...request, model: "gpt-5.5-high", reasoning: { summary: "auto" } }),
+    ).toMatchObject({ model: "gpt-5.5", reasoning: { effort: "high", summary: "auto" } });
+  });
+
+  it("leaves a model without an effort suffix alone", () => {
+    expect(prepareBody({ ...request, model: "gpt-5.4-mini" })).toMatchObject({
+      model: "gpt-5.4-mini",
+    });
+    expect(prepareBody(request)).not.toHaveProperty("reasoning");
+  });
 });
