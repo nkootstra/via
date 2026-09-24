@@ -32,4 +32,23 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
       );
     }),
   );
+
+  it.effect("routes a seeded pool's first request to its oldest account", () =>
+    Effect.gen(function* () {
+      const upstream = yield* startAimock;
+      upstream.mock.onMessage("ping", { content: "pong" });
+      yield* withVia({ upstream: upstream.url, accounts: [{ name: "a" }, { name: "b" }] }, (via) =>
+        Effect.gen(function* () {
+          const response = yield* Effect.promise(() =>
+            openai(via).responses.create({ model: "gpt-6-astra", input: "ping" }),
+          );
+          expect(response.output_text).toBe("pong");
+          expect(upstream.requests[0]?.headers).toMatchObject({
+            authorization: "Bearer at-a",
+            "chatgpt-account-id": "acc-a",
+          });
+        }),
+      );
+    }),
+  );
 });
