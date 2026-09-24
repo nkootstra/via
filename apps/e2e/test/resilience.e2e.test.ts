@@ -2,7 +2,15 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { codexFixture, type Reply, reply } from "@via/codex-upstream/testing";
 import { Deferred, Effect, Fiber } from "effect";
-import { type Codex, freePort, openai, startCodex, type Via, withVia } from "./harness.ts";
+import {
+  type Codex,
+  freePort,
+  openai,
+  realTime,
+  startCodex,
+  type Via,
+  withVia,
+} from "./harness.ts";
 
 // Faults a real Codex connection produces, and what a client must see for
 // each: an OpenAI-shaped error, never a reset or a hang, and a via that keeps
@@ -58,7 +66,7 @@ const stillServes = (via: Via, codex: Codex) =>
         model: MODEL,
         messages: [{ role: "user", content: "ping" }],
       }),
-    ).pipe(Effect.timeout("5 seconds"));
+    ).pipe(Effect.timeout("5 seconds"), realTime);
     expect(completion.choices[0]?.message.content).toBe("pong");
   });
 

@@ -1,6 +1,6 @@
 import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
 import { startFakeCodex } from "@via/codex-upstream/testing";
-import { Effect, FileSystem, Layer } from "effect";
+import { Clock, Effect, FileSystem, Layer } from "effect";
 import { HttpServer } from "effect/unstable/http";
 import OpenAI from "openai";
 import { fileURLToPath } from "node:url";
@@ -16,13 +16,20 @@ const command = (args: ReadonlyArray<string>) => {
 
 export type RunResult = { exitCode: number; stdout: string; stderr: string };
 
+/**
+ * Runs `effect` on the wall clock. Tests get a TestClock, which would never
+ * let a timeout on a real process fire.
+ */
+export const realTime = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.provideService(effect, Clock.Clock, Clock.Clock.defaultValue());
+
 /** A fresh, scoped `VIA_HOME` for one test. */
 export const tempHome = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
   return yield* fs.makeTempDirectoryScoped();
 });
 
-/** A port nothing listens on right now. */
+/** A port nothing listens on right now, for an upstream that can't be reached. */
 export const freePort = Effect.sync(() => {
   const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
   const { port } = probe;
@@ -74,7 +81,14 @@ export const serveVia = (
       throw new Error(
         `via serve exited before listening:\n${await new Response(proc.stderr).text()}`,
       );
-    });
+    }).pipe(
+      // Fail a via that never starts listening here, not at the test timeout.
+      Effect.timeoutOrElse({
+        duration: "15 seconds",
+        orElse: () => Effect.die(new Error("via serve did not start listening in 15 seconds")),
+      }),
+      realTime,
+    );
   });
 
 /** The fake Codex backend, scoped; point via at `codex.url`. */
@@ -163,7 +177,8 @@ export const withVia = <A, E, R>(
     else yield* seedAccounts(home, options.accounts);
     const created = yield* runVia(home, ["keys", "create", "--name", "e2e"]);
     const key = created.stdout.trim().split("\n").at(-1) ?? "";
-    const url = yield* serveVia(home, ["--port", String(yield* freePort)], env);
+    // Port 0 lets the OS pick a free port; via reports the one it got.
+    const url = yield* serveVia(home, ["--port", "0"], env);
     return yield* body({ home, url, key, env });
   });
 
