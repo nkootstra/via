@@ -1,5 +1,5 @@
 import { Clock, Context, Duration, Effect, Layer, Semaphore } from "effect";
-import { AccountStore } from "./accounts.ts";
+import { type Account, AccountStore } from "./accounts.ts";
 import { CodexAuth } from "./codex-auth.ts";
 
 const REFRESH_WINDOW = Duration.minutes(5);
@@ -17,19 +17,40 @@ const make = Effect.gen(function* () {
       return lock;
     });
 
-  /** The account with an access token valid for at least 5 more minutes. */
-  const fresh = Effect.fn("AccountTokens.fresh")(function* (id: string) {
+  /** Refreshes the account when `needed` says so, one refresh per account at a time. */
+  const refreshIf = Effect.fnUntraced(function* (
+    id: string,
+    needed: (account: Account, now: number) => boolean,
+  ) {
     const lock = yield* lockFor((yield* store.find(id)).id);
     return yield* Effect.gen(function* () {
       // Read under the lock, so a caller that waited sees the refresh it waited for.
       const account = yield* store.find(id);
-      const now = yield* Clock.currentTimeMillis;
-      if (account.expiresAt - now > Duration.toMillis(REFRESH_WINDOW)) return account;
+      if (!needed(account, yield* Clock.currentTimeMillis)) return account;
       return yield* store.save(yield* auth.refresh(account));
     }).pipe(Semaphore.withPermit(lock));
   });
 
-  return { fresh };
+  /** The account with an access token valid for at least 5 more minutes. */
+  const fresh = Effect.fn("AccountTokens.fresh")(function* (id: string) {
+    return yield* refreshIf(
+      id,
+      (account, now) => account.expiresAt - now <= Duration.toMillis(REFRESH_WINDOW),
+    );
+  });
+
+  /**
+   * The account with a new access token after upstream refused `rejectedToken`,
+   * unless another caller has already replaced that token.
+   */
+  const refreshRejected = Effect.fn("AccountTokens.refreshRejected")(function* (
+    id: string,
+    rejectedToken: string,
+  ) {
+    return yield* refreshIf(id, (account) => account.accessToken === rejectedToken);
+  });
+
+  return { fresh, refreshRejected };
 });
 
 /** Hands out access tokens, refreshing and saving them shortly before they expire. */

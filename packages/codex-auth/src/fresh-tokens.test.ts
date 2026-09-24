@@ -62,4 +62,38 @@ layer(BunFileSystem.layer)("AccountTokens.fresh", (it) => {
       }),
     ),
   );
+
+  it.effect("refreshes a token that upstream rejected even though it has not expired", () =>
+    withAccount(60 * MINUTE, (account) =>
+      Effect.gen(function* () {
+        const tokens = yield* AccountTokens;
+        const fresh = yield* tokens.refreshRejected(account.id, account.accessToken);
+        expect(fresh.accessToken).toBe(refreshedTokens.access_token);
+      }),
+    ),
+  );
+
+  it.effect("does not refresh again when the rejected token was already replaced", () =>
+    withAccount(60 * MINUTE, (account) =>
+      Effect.gen(function* () {
+        const tokens = yield* AccountTokens;
+        yield* tokens.refreshRejected(account.id, account.accessToken);
+        const again = yield* tokens.refreshRejected(account.id, account.accessToken);
+        expect(again.accessToken).toBe(refreshedTokens.access_token);
+      }),
+    ),
+  );
+
+  it.effect("keeps the account's identity and settings when refreshing", () =>
+    withAccount(0, (account) =>
+      Effect.gen(function* () {
+        const store = yield* AccountStore;
+        yield* store.setLabel(account.id, "work");
+        yield* (yield* AccountTokens).fresh(account.id);
+        expect(yield* store.list).toEqual([
+          expect.objectContaining({ id: account.id, label: "work", refreshToken: "rt-2" }),
+        ]);
+      }),
+    ),
+  );
 });
