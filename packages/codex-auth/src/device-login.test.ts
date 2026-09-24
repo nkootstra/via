@@ -1,25 +1,12 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Fiber, Layer } from "effect";
+import { Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient, HttpServer } from "effect/unstable/http";
-import { ACCESS_TOKEN_EXP, fakeIssuer, issuedTokens } from "./fake-issuer.ts";
+import { ACCESS_TOKEN_EXP, issuedTokens, withIssuer } from "./fake-issuer.ts";
 import { CodexAuth, DeviceLoginTimeoutError } from "./index.ts";
-
-/** Runs `body` against a fresh fake issuer, with CodexAuth pointed at it. */
-const withIssuer = <A, E>(
-  options: { pendingPolls: number; interval: string },
-  body: (issuer: string) => Effect.Effect<A, E, CodexAuth>,
-) =>
-  Effect.gen(function* () {
-    const issuer = yield* HttpServer.addressFormattedWith(Effect.succeed);
-    return yield* body(issuer).pipe(
-      Effect.provide(CodexAuth.layer(issuer).pipe(Layer.provide(FetchHttpClient.layer))),
-    );
-  }).pipe(Effect.provide(fakeIssuer(options)));
 
 describe("device login", () => {
   it.effect("returns the code the user enters at the verification URL", () =>
-    withIssuer({ pendingPolls: 0, interval: "5" }, (issuer) =>
+    withIssuer({ interval: "5" }, (issuer) =>
       Effect.gen(function* () {
         const code = yield* (yield* CodexAuth).requestDeviceCode;
         expect(code.userCode).toBe("ABCD-1234");
@@ -29,7 +16,7 @@ describe("device login", () => {
   );
 
   it.effect("exchanges the code for tokens once the user approves", () =>
-    withIssuer({ pendingPolls: 2, interval: "0" }, () =>
+    withIssuer({ pendingPolls: 2 }, () =>
       Effect.gen(function* () {
         const auth = yield* CodexAuth;
         const tokens = yield* auth.awaitDeviceTokens(yield* auth.requestDeviceCode);

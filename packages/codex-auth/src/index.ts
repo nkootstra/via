@@ -4,7 +4,8 @@ export {
   CLIENT_ID,
   CodexAuth,
   DeviceLoginTimeoutError,
+  RefreshRejectedError,
   ISSUER,
   type DeviceCode,
   type Tokens,
-} from "./device-login.ts";
+} from "./codex-auth.ts";

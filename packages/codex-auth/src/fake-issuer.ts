@@ -2,12 +2,13 @@
 import { BunHttpServer } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import {
+  FetchHttpClient,
   HttpRouter,
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { CLIENT_ID } from "./device-login.ts";
+import { CLIENT_ID, CodexAuth } from "./codex-auth.ts";
 
 export const jwt = (payload: object) =>
   [{ alg: "RS256", typ: "JWT" }, payload]
@@ -26,10 +27,30 @@ export const issuedTokens = {
   refresh_token: "rt-1",
 };
 
+export const REFRESHED_EXP = 2_100_000_000;
+
+export const refreshedTokens = {
+  id_token: jwt({ email: "dev@example.com", refreshed: true }),
+  access_token: jwt({ exp: REFRESHED_EXP }),
+  refresh_token: "rt-2",
+};
+
 const badRequest = HttpServerResponse.jsonUnsafe({ error: "invalid_request" }, { status: 400 });
 
-/** Serves the device-code endpoints. The user "approves" after `pendingPolls` polls; `Infinity` never approves. */
-export const fakeIssuer = (options: { pendingPolls: number; interval: string }) => {
+export type FakeIssuerOptions = {
+  /** Polls answered with 403 before the user "approves"; `Infinity` never approves. */
+  pendingPolls?: number;
+  interval?: string;
+  /** What the refresh grant for "rt-1" answers with. */
+  refreshResponse?: { status: number; body: object };
+};
+
+/** Serves the device-code and token endpoints of auth.openai.com. */
+export const fakeIssuer = ({
+  pendingPolls = 0,
+  interval = "0",
+  refreshResponse = { status: 200, body: refreshedTokens },
+}: FakeIssuerOptions = {}) => {
   let polls = 0;
   const routes = Layer.mergeAll(
     HttpRouter.add(
@@ -43,7 +64,7 @@ export const fakeIssuer = (options: { pendingPolls: number; interval: string }) 
         return HttpServerResponse.jsonUnsafe({
           device_auth_id: "dev-1",
           user_code: "ABCD-1234",
-          interval: options.interval,
+          interval,
         });
       }),
     ),
@@ -55,7 +76,7 @@ export const fakeIssuer = (options: { pendingPolls: number; interval: string }) 
           Schema.Struct({ device_auth_id: Schema.String, user_code: Schema.String }),
         );
         if (body.device_auth_id !== "dev-1" || body.user_code !== "ABCD-1234") return badRequest;
-        if (polls++ < options.pendingPolls) return HttpServerResponse.empty({ status: 403 });
+        if (polls++ < pendingPolls) return HttpServerResponse.empty({ status: 403 });
         return HttpServerResponse.jsonUnsafe({
           authorization_code: "auth-code",
           code_challenge: "challenge",
@@ -67,6 +88,20 @@ export const fakeIssuer = (options: { pendingPolls: number; interval: string }) 
       "POST",
       "/oauth/token",
       Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        if (request.headers["content-type"]?.startsWith("application/json")) {
+          yield* HttpServerRequest.schemaBodyJson(
+            Schema.Struct({
+              client_id: Schema.Literal(CLIENT_ID),
+              grant_type: Schema.Literal("refresh_token"),
+              refresh_token: Schema.Literal("rt-1"),
+              scope: Schema.Literal("openid profile email"),
+            }),
+          );
+          return HttpServerResponse.jsonUnsafe(refreshResponse.body, {
+            status: refreshResponse.status,
+          });
+        }
         const issuer = yield* HttpServer.addressFormattedWith(Effect.succeed);
         const form = yield* HttpServerRequest.schemaBodyUrlParams(
           Schema.Struct({
@@ -84,3 +119,15 @@ export const fakeIssuer = (options: { pendingPolls: number; interval: string }) 
   );
   return HttpRouter.serve(routes).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 })));
 };
+
+/** Runs `body` against a fresh fake issuer, with CodexAuth pointed at it. */
+export const withIssuer = <A, E>(
+  options: FakeIssuerOptions,
+  body: (issuer: string) => Effect.Effect<A, E, CodexAuth>,
+) =>
+  Effect.gen(function* () {
+    const issuer = yield* HttpServer.addressFormattedWith(Effect.succeed);
+    return yield* body(issuer).pipe(
+      Effect.provide(CodexAuth.layer(issuer).pipe(Layer.provide(FetchHttpClient.layer))),
+    );
+  }).pipe(Effect.provide(fakeIssuer(options)));

@@ -19,6 +19,22 @@ const TokenResponse = Schema.Struct({
   access_token: Schema.String,
   refresh_token: Schema.String,
 });
+// The issuer may omit tokens it does not rotate; the caller keeps its current ones.
+const RefreshResponse = Schema.Struct({
+  access_token: Schema.String,
+  id_token: Schema.optionalKey(Schema.String),
+  refresh_token: Schema.optionalKey(Schema.String),
+});
+// Codes meaning the refresh token is dead and the account has to log in again.
+const RejectedCode = Schema.Literals([
+  "invalid_grant",
+  "refresh_token_expired",
+  "refresh_token_reused",
+  "refresh_token_invalidated",
+]);
+const RefreshErrorBody = Schema.Struct({
+  error: Schema.Union([RejectedCode, Schema.Struct({ code: RejectedCode })]),
+});
 const AccessTokenExpiry = Schema.StringFromBase64Url.pipe(
   Schema.decodeTo(Schema.fromJsonString(Schema.Struct({ exp: Schema.Finite }))),
 );
@@ -37,6 +53,15 @@ export class DeviceLoginTimeoutError extends Schema.TaggedError<DeviceLoginTimeo
 ) {
   override get message() {
     return `Device login was not approved within ${Duration.format(LOGIN_TIMEOUT)}`;
+  }
+}
+
+export class RefreshRejectedError extends Schema.TaggedError<RefreshRejectedError>()(
+  "RefreshRejectedError",
+  { code: Schema.String },
+) {
+  override get message() {
+    return `The refresh token was rejected (${this.code}); log in to this account again`;
   }
 }
 
@@ -154,10 +179,45 @@ const make = (issuer: string) =>
       return yield* exchangeCode(approved);
     });
 
-    return { requestDeviceCode, awaitDeviceTokens };
+    const refresh = Effect.fn("CodexAuth.refresh")(function* (current: Tokens) {
+      const response = yield* HttpClientRequest.post(`${issuer}/oauth/token`).pipe(
+        HttpClientRequest.bodyJsonUnsafe({
+          client_id: CLIENT_ID,
+          grant_type: "refresh_token",
+          refresh_token: current.refreshToken,
+          scope: "openid profile email",
+        }),
+        http.execute,
+        Effect.mapError(toAuthRequestError),
+      );
+      if (response.status === 400 || response.status === 401) {
+        const rejected = yield* decodeJson(RefreshErrorBody)(response).pipe(Effect.option);
+        if (Option.isSome(rejected)) {
+          const { error } = rejected.value;
+          return yield* new RefreshRejectedError({
+            code: typeof error === "string" ? error : error.code,
+          });
+        }
+      }
+      if (response.status !== 200) {
+        return yield* new AuthRequestError({
+          reason: `token refresh returned HTTP ${response.status}`,
+        });
+      }
+      const body = yield* decodeJson(RefreshResponse)(response).pipe(
+        Effect.mapError(toAuthRequestError),
+      );
+      return yield* toTokens({
+        access_token: body.access_token,
+        id_token: body.id_token ?? current.idToken,
+        refresh_token: body.refresh_token ?? current.refreshToken,
+      }).pipe(Effect.mapError(toAuthRequestError));
+    });
+
+    return { requestDeviceCode, awaitDeviceTokens, refresh };
   });
 
-/** OpenAI (ChatGPT) OAuth for Codex: device-code login. */
+/** OpenAI (ChatGPT) OAuth for Codex: device-code login and token refresh. */
 export class CodexAuth extends Context.Service<
   CodexAuth,
   Effect.Success<ReturnType<typeof make>>
