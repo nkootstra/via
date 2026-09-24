@@ -95,6 +95,23 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     ),
   );
 
+  it.effect("picks up accounts and keys changed by other via commands without a restart", () =>
+    withHome(({ home, key, env }) =>
+      Effect.gen(function* () {
+        const url = yield* serveVia(home, ["--port", String(yield* freePort)], env);
+        expect((yield* postResponses(url, key)).status).toBe(200);
+
+        yield* runVia(home, ["accounts", "disable", "dev@example.com"]);
+        expect((yield* postResponses(url, key)).status).toBe(503);
+        yield* runVia(home, ["accounts", "enable", "dev@example.com"]);
+        expect((yield* postResponses(url, key)).status).toBe(200);
+
+        yield* runVia(home, ["keys", "revoke", "test"]);
+        expect((yield* postResponses(url, key)).status).toBe(401);
+      }),
+    ),
+  );
+
   it.effect("refuses to start with an invalid config.yaml", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;
