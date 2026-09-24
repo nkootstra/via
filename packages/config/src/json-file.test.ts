@@ -1,37 +1,61 @@
-import { afterEach, beforeEach, describe, expect, it } from "@effect/vitest";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { readJsonFile, writeJsonFile } from "./index.ts";
+import { BunFileSystem } from "@effect/platform-bun";
+import { expect, layer } from "@effect/vitest";
+import { Effect, FileSystem, Schema } from "effect";
+import { CorruptFileError, readJsonFile, writeJsonFile } from "./index.ts";
 
-let dir: string;
-beforeEach(async () => {
-  dir = await mkdtemp(join(tmpdir(), "via-json-"));
-});
-afterEach(async () => {
-  await rm(dir, { recursive: true, force: true });
+const Greeting = Schema.Struct({ hello: Schema.String });
+
+const tempDir = Effect.gen(function* () {
+  const fs = yield* FileSystem.FileSystem;
+  return yield* fs.makeTempDirectoryScoped();
 });
 
-describe("json files", () => {
-  it("round-trips data, creating parent directories", async () => {
-    const file = join(dir, "nested", "data.json");
-    await writeJsonFile(file, { hello: "world" });
-    expect(await readJsonFile<unknown>(file, null)).toEqual({ hello: "world" });
-  });
+layer(BunFileSystem.layer)("json files", (it) => {
+  it.effect("round-trips data, creating parent directories", () =>
+    Effect.gen(function* () {
+      const file = `${yield* tempDir}/nested/data.json`;
+      yield* writeJsonFile(file, Greeting, { hello: "world" });
+      expect(yield* readJsonFile(file, Greeting, () => ({ hello: "fallback" }))).toEqual({
+        hello: "world",
+      });
+    }),
+  );
 
-  it("returns the fallback when the file does not exist", async () => {
-    expect(await readJsonFile(join(dir, "missing.json"), [])).toEqual([]);
-  });
+  it.effect("returns the fallback when the file does not exist", () =>
+    Effect.gen(function* () {
+      const file = `${yield* tempDir}/missing.json`;
+      expect(yield* readJsonFile(file, Greeting, () => ({ hello: "fallback" }))).toEqual({
+        hello: "fallback",
+      });
+    }),
+  );
 
-  it("writes files readable only by the owner", async () => {
-    const file = join(dir, "secret.json");
-    await writeJsonFile(file, { token: "x" });
-    expect((await stat(file)).mode & 0o777).toBe(0o600);
-  });
+  it.effect("fails with CorruptFileError when the content does not match the schema", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = `${yield* tempDir}/bad.json`;
+      yield* fs.writeFileString(file, '{"hello": 42}');
+      const error = yield* Effect.flip(readJsonFile(file, Greeting, () => ({ hello: "x" })));
+      expect(error).toBeInstanceOf(CorruptFileError);
+    }),
+  );
 
-  it("leaves no temporary files behind", async () => {
-    await writeJsonFile(join(dir, "a.json"), 1);
-    await writeJsonFile(join(dir, "a.json"), 2);
-    expect(await readdir(dir)).toEqual(["a.json"]);
-  });
+  it.effect("writes files readable only by the owner", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = `${yield* tempDir}/secret.json`;
+      yield* writeJsonFile(file, Greeting, { hello: "x" });
+      expect((yield* fs.stat(file)).mode & 0o777).toBe(0o600);
+    }),
+  );
+
+  it.effect("leaves no temporary files behind", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = yield* tempDir;
+      yield* writeJsonFile(`${dir}/a.json`, Greeting, { hello: "1" });
+      yield* writeJsonFile(`${dir}/a.json`, Greeting, { hello: "2" });
+      expect(yield* fs.readDirectory(dir)).toEqual(["a.json"]);
+    }),
+  );
 });

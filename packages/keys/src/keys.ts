@@ -1,60 +1,87 @@
-import { timingSafeEqual } from "node:crypto";
 import { readJsonFile, writeJsonFile } from "@via/config";
+import { Context, DateTime, Effect, FileSystem, Layer, Option, Schema } from "effect";
+import { createHash, timingSafeEqual } from "node:crypto";
 
-type StoredKey = { id: string; name: string; hash: string; createdAt: string };
-export type KeyInfo = { id: string; name: string; createdAt: string };
+const StoredKeys = Schema.Array(
+  Schema.Struct({
+    id: Schema.String,
+    name: Schema.String,
+    hash: Schema.String,
+    createdAt: Schema.String,
+  }),
+);
+
+export class DuplicateKeyNameError extends Schema.TaggedError<DuplicateKeyNameError>()(
+  "DuplicateKeyNameError",
+  { name: Schema.String },
+) {
+  override get message() {
+    return `A key named "${this.name}" already exists`;
+  }
+}
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
-function randomString(length: number): string {
-  // 248 is the largest multiple of 62 below 256; rejecting above it avoids modulo bias.
-  let out = "";
-  while (out.length < length) {
-    for (const byte of crypto.getRandomValues(new Uint8Array(length * 2))) {
-      if (byte < 248 && out.length < length) out += ALPHABET[byte % 62];
+// Keys are secrets, so this uses the OS CSPRNG rather than Effect's `Random`.
+// 248 is the largest multiple of 62 below 256; rejecting above it avoids modulo bias.
+const randomString = (length: number) =>
+  Effect.sync(() => {
+    let out = "";
+    while (out.length < length) {
+      for (const byte of crypto.getRandomValues(new Uint8Array(length * 2))) {
+        if (byte < 248 && out.length < length) out += ALPHABET[byte % 62];
+      }
     }
-  }
-  return out;
-}
+    return out;
+  });
 
-function hash(key: string): string {
-  return new Bun.CryptoHasher("sha256").update(key).digest("hex");
-}
+const hash = (key: string) => createHash("sha256").update(key).digest();
 
-export class KeyStore {
-  constructor(private readonly path: string) {}
+const make = (path: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const read = readJsonFile(path, StoredKeys, () => []).pipe(
+      Effect.provideService(FileSystem.FileSystem, fs),
+    );
+    const write = (keys: typeof StoredKeys.Type) =>
+      writeJsonFile(path, StoredKeys, keys).pipe(Effect.provideService(FileSystem.FileSystem, fs));
 
-  private read(): Promise<StoredKey[]> {
-    return readJsonFile<StoredKey[]>(this.path, []);
-  }
+    const create = Effect.fn("KeyStore.create")(function* (name: string) {
+      const keys = yield* read;
+      if (keys.some((k) => k.name === name)) return yield* new DuplicateKeyNameError({ name });
+      const key = `via_${yield* randomString(32)}`;
+      const id = (yield* randomString(8)).toLowerCase();
+      const createdAt = DateTime.formatIso(yield* DateTime.now);
+      yield* write([...keys, { id, name, hash: hash(key).toString("hex"), createdAt }]);
+      return { id, name, key };
+    });
 
-  async create(name: string): Promise<{ id: string; name: string; key: string }> {
-    const keys = await this.read();
-    if (keys.some((k) => k.name === name)) throw new Error(`A key named "${name}" already exists`);
-    const key = `via_${randomString(32)}`;
-    const id = randomString(8).toLowerCase();
-    keys.push({ id, name, hash: hash(key), createdAt: new Date().toISOString() });
-    await writeJsonFile(this.path, keys);
-    return { id, name, key };
-  }
+    const list = read.pipe(
+      Effect.map((keys) => keys.map(({ id, name, createdAt }) => ({ id, name, createdAt }))),
+    );
 
-  async list(): Promise<KeyInfo[]> {
-    return (await this.read()).map(({ id, name, createdAt }) => ({ id, name, createdAt }));
-  }
+    const revoke = Effect.fn("KeyStore.revoke")(function* (idOrName: string) {
+      const keys = yield* read;
+      const remaining = keys.filter((k) => k.id !== idOrName && k.name !== idOrName);
+      if (remaining.length === keys.length) return false;
+      yield* write(remaining);
+      return true;
+    });
 
-  async revoke(idOrName: string): Promise<boolean> {
-    const keys = await this.read();
-    const remaining = keys.filter((k) => k.id !== idOrName && k.name !== idOrName);
-    if (remaining.length === keys.length) return false;
-    await writeJsonFile(this.path, remaining);
-    return true;
-  }
+    const verify = Effect.fn("KeyStore.verify")(function* (key: string) {
+      const candidate = hash(key);
+      const match = (yield* read).find((k) =>
+        timingSafeEqual(candidate, Buffer.from(k.hash, "hex")),
+      );
+      return Option.fromNullishOr(match).pipe(Option.map(({ id, name }) => ({ id, name })));
+    });
 
-  async verify(key: string): Promise<{ id: string; name: string } | null> {
-    const candidate = Buffer.from(hash(key), "hex");
-    for (const k of await this.read()) {
-      if (timingSafeEqual(candidate, Buffer.from(k.hash, "hex"))) return { id: k.id, name: k.name };
-    }
-    return null;
-  }
+    return { create, list, revoke, verify };
+  });
+
+/** API keys for clients of `via serve`; only SHA-256 hashes are stored. */
+export class KeyStore extends Context.Service<KeyStore, Effect.Success<ReturnType<typeof make>>>()(
+  "via/KeyStore",
+) {
+  static readonly layer = (path: string) => Layer.effect(KeyStore, make(path));
 }

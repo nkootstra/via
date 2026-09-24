@@ -1,1 +1,1 @@
-export { KeyStore, type KeyInfo } from "./keys.ts";
+export { DuplicateKeyNameError, KeyStore } from "./keys.ts";

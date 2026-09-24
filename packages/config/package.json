@@ -11,8 +11,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "effect": "catalog:",
-    "zod": "^4.6.5"
+    "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/platform-bun": "catalog:",
