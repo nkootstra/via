@@ -14,9 +14,15 @@ const completed = {
   response: { usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } },
 };
 
+const upstream = (events: ReadonlyArray<object>) =>
+  Stream.make(new TextEncoder().encode(sse(events)));
+
 /** The `data:` payloads a chat client receives for the given upstream events. */
 const chatEvents = (events: ReadonlyArray<object>, options = { includeUsage: false }) =>
-  toChatStream(Stream.make(new TextEncoder().encode(sse(events))), options).pipe(
+  chatEventsOf(upstream(events), options);
+
+const chatEventsOf = <E>(body: Stream.Stream<Uint8Array, E>, options = { includeUsage: false }) =>
+  toChatStream(body, options).pipe(
     Stream.decodeText,
     Stream.mkString,
     Effect.map((text) =>
@@ -111,6 +117,65 @@ describe("toChatStream", () => {
         choices: [],
         usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
       });
+    }),
+  );
+
+  it.effect("ends a failed response with an error chunk instead of [DONE]", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents([
+        created,
+        {
+          type: "response.failed",
+          response: { error: { code: "server_is_overloaded", message: "Codex is busy" } },
+        },
+      ]);
+      expect(events).not.toContain("[DONE]");
+      expect(events.at(-1)).toEqual({
+        error: { message: "Codex is busy", type: "server_error", code: "server_is_overloaded" },
+      });
+    }),
+  );
+
+  it.effect("ends a stream cut off before completing with an upstream_incomplete error", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents([
+        created,
+        { type: "response.output_text.delta", delta: "Hel" },
+      ]);
+      expect(events).not.toContain("[DONE]");
+      expect(events.at(-1)).toMatchObject({
+        error: { type: "server_error", code: "upstream_incomplete" },
+      });
+    }),
+  );
+
+  it.effect("ends a stream that broke while reading with an upstream_incomplete error", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEventsOf(
+        upstream([created]).pipe(Stream.concat(Stream.fail("connection reset"))),
+      );
+      expect(events).not.toContain("[DONE]");
+      expect(events.at(-1)).toMatchObject({
+        error: { type: "server_error", code: "upstream_incomplete" },
+      });
+    }),
+  );
+
+  it.effect.each([
+    { reason: "max_output_tokens", finish: "length" },
+    { reason: "content_filter", finish: "content_filter" },
+  ])("finishes an incomplete response ($reason) with $finish and [DONE]", ({ reason, finish }) =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents([
+        created,
+        { type: "response.output_text.delta", delta: "Hel" },
+        {
+          type: "response.incomplete",
+          response: { incomplete_details: { reason }, usage: completed.response.usage },
+        },
+      ]);
+      expect(deltas(events).at(-1)).toEqual({ index: 0, delta: {}, finish_reason: finish });
+      expect(events.at(-1)).toBe("[DONE]");
     }),
   );
 });
