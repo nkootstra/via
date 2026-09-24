@@ -8,7 +8,6 @@
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
-    "@copilotkit/aimock": "1.43.0",
     "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
     "@via/codex-auth": "workspace:*",

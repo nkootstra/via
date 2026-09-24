@@ -1,5 +1,5 @@
-import { LLMock } from "@copilotkit/aimock";
 import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
+import { startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Layer } from "effect";
 import { HttpServer } from "effect/unstable/http";
 import OpenAI from "openai";
@@ -77,67 +77,10 @@ export const serveVia = (
     });
   });
 
-/** What via actually sent upstream, before aimock redacts or converts it. */
-export type UpstreamRequest = {
-  path: string;
-  headers: Record<string, string>;
-  body: unknown;
-};
+/** The fake Codex backend, scoped; point via at `codex.url`. */
+export const startCodex = startFakeCodex;
 
-export type Upstream = {
-  /** Where via should send Codex traffic. */
-  url: string;
-  mock: LLMock;
-  requests: ReadonlyArray<UpstreamRequest>;
-};
-
-/**
- * aimock standing in for the Codex backend, behind a pass-through recorder:
- * aimock's journal redacts `authorization` and converts Responses bodies, and
- * the tests need both raw. Everything is stopped with the scope.
- */
-export const startAimock = Effect.gen(function* () {
-  const mock = yield* Effect.acquireRelease(
-    Effect.promise(async () => {
-      const server = new LLMock({ port: 0, logLevel: "silent", strict: true });
-      await server.start();
-      return server;
-    }),
-    (server) => Effect.promise(() => server.stop()),
-  );
-  const requests: Array<UpstreamRequest> = [];
-  const recorder = yield* Effect.acquireRelease(
-    Effect.sync(() =>
-      Bun.serve({
-        hostname: "127.0.0.1",
-        port: 0,
-        idleTimeout: 0,
-        fetch: async (request) => {
-          const { pathname, search } = new URL(request.url);
-          const text = await request.text();
-          requests.push({
-            path: pathname,
-            headers: Object.fromEntries(request.headers),
-            body: text === "" ? undefined : JSON.parse(text),
-          });
-          const headers = new Headers(request.headers);
-          headers.delete("host");
-          const response = await fetch(`${mock.url}${pathname}${search}`, {
-            method: request.method,
-            headers,
-            ...(text !== "" && { body: text }),
-          });
-          return new Response(response.body, {
-            status: response.status,
-            headers: response.headers,
-          });
-        },
-      }),
-    ),
-    (server) => Effect.promise(() => server.stop(true)),
-  );
-  return { url: `http://127.0.0.1:${recorder.port}`, mock, requests } satisfies Upstream;
-});
+export type Codex = Effect.Success<typeof startFakeCodex>;
 
 /** The fake OpenAI issuer, scoped, as a base URL. */
 export const startIssuer = (options: FakeIssuerOptions = {}) =>
