@@ -30,7 +30,11 @@ export const issuedTokens = {
 export const REFRESHED_EXP = 2_100_000_000;
 
 export const refreshedTokens = {
-  id_token: jwt({ email: "dev@example.com", refreshed: true }),
+  id_token: jwt({
+    email: "dev@example.com",
+    "https://api.openai.com/auth": { chatgpt_account_id: "acc-123", chatgpt_plan_type: "pro" },
+    refreshed: true,
+  }),
   access_token: jwt({ exp: REFRESHED_EXP }),
   refresh_token: "rt-2",
 };
@@ -41,7 +45,7 @@ export type FakeIssuerOptions = {
   /** Polls answered with 403 before the user "approves"; `Infinity` never approves. */
   pendingPolls?: number;
   interval?: string;
-  /** What the refresh grant for "rt-1" answers with. */
+  /** What the first refresh grant for "rt-1" answers with; reusing "rt-1" is rejected. */
   refreshResponse?: { status: number; body: object };
 };
 
@@ -52,6 +56,7 @@ export const fakeIssuer = ({
   refreshResponse = { status: 200, body: refreshedTokens },
 }: FakeIssuerOptions = {}) => {
   let polls = 0;
+  let refreshTokenUsed = false;
   const routes = Layer.mergeAll(
     HttpRouter.add(
       "POST",
@@ -98,6 +103,13 @@ export const fakeIssuer = ({
               scope: Schema.Literal("openid profile email"),
             }),
           );
+          if (refreshTokenUsed) {
+            return HttpServerResponse.jsonUnsafe(
+              { error: { code: "refresh_token_reused", message: "reused" } },
+              { status: 401 },
+            );
+          }
+          refreshTokenUsed = true;
           return HttpServerResponse.jsonUnsafe(refreshResponse.body, {
             status: refreshResponse.status,
           });
@@ -121,9 +133,9 @@ export const fakeIssuer = ({
 };
 
 /** Runs `body` against a fresh fake issuer, with CodexAuth pointed at it. */
-export const withIssuer = <A, E>(
+export const withIssuer = <A, E, R>(
   options: FakeIssuerOptions,
-  body: (issuer: string) => Effect.Effect<A, E, CodexAuth>,
+  body: (issuer: string) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const issuer = yield* HttpServer.addressFormattedWith(Effect.succeed);
