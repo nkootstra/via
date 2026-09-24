@@ -1,3 +1,4 @@
+export { type Account, AccountNotFoundError, AccountStore } from "./accounts.ts";
 export { decodeIdToken, InvalidIdTokenError, type IdentityClaims } from "./claims.ts";
 export {
   AuthRequestError,
