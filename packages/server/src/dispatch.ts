@@ -1,5 +1,5 @@
 import { AccountStore, AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
-import { CodexUpstream } from "@via/codex-upstream";
+import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import {
   type AccountState,
@@ -9,7 +9,7 @@ import {
   select,
   Verdict,
 } from "@via/pool";
-import { Clock, Context, Effect, Layer, Option, Ref } from "effect";
+import { Clock, Context, Effect, Layer, Option, Ref, type Schema } from "effect";
 import {
   type HttpClientResponse,
   HttpServerRequest,
@@ -31,8 +31,31 @@ export const openAiError = (
   headers: Record<string, string> = {},
 ) =>
   HttpServerResponse.jsonUnsafe(
-    { error: { message, type: "invalid_request_error", code } },
+    { error: { message, type: status >= 500 ? "server_error" : "invalid_request_error", code } },
     { status, headers },
+  );
+
+/**
+ * Reads a Codex stream to its final response for a non-streaming client, and
+ * answers a response that failed or broke off with a 502.
+ */
+export const collected = (
+  upstream: HttpClientResponse.HttpClientResponse,
+  onResponse: (
+    response: Record<string, unknown>,
+  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, Schema.SchemaError>,
+) =>
+  collectResponse(upstream.stream).pipe(
+    Effect.flatMap(onResponse),
+    Effect.catchTags({
+      UpstreamFailedError: (error) => Effect.succeed(openAiError(502, error.code, error.reason)),
+      IncompleteStreamError: (error) =>
+        Effect.succeed(openAiError(502, "upstream_incomplete", error.message)),
+      HttpClientError: () =>
+        Effect.succeed(
+          openAiError(502, "upstream_incomplete", "The Codex stream broke off while reading"),
+        ),
+    }),
   );
 
 /** The client's API key, if it presented a valid one. */
@@ -94,7 +117,15 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
     );
     if (Option.isNone(fresh)) continue;
     const account = fresh.value;
-    const upstream = yield* codex.send(account, body);
+    const sent = yield* codex.send(account, body).pipe(
+      Effect.asSome,
+      // Codex is unreachable for every account alike, so there is no one to fail over to.
+      Effect.catchTag("HttpClientError", () => Effect.succeedNone),
+    );
+    if (Option.isNone(sent)) {
+      return openAiError(502, "upstream_unavailable", "Codex could not be reached");
+    }
+    const upstream = sent.value;
     if (upstream.status === 200) return yield* onSuccess(upstream);
 
     const text = yield* upstream.text;

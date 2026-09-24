@@ -54,7 +54,8 @@ export type Via = {
  * Starts via with accounts "a" and "b" (in that order) and a fresh API key.
  * The fake upstream answers each request with `reply`; the fake issuer answers the
  * first refresh with `refreshResponse`, by default a new access token. Account "a"'s
- * access token expires at `aExpiresAt`, by default far in the future.
+ * access token expires at `aExpiresAt`, by default far in the future. With
+ * `codexUrl`, via sends Codex traffic there instead of to the fake upstream.
  */
 export const withVia = <A, E>(
   reply: (request: RecordedRequest) => FakeReply,
@@ -65,7 +66,8 @@ export const withVia = <A, E>(
       body: { access_token: refreshedAccessToken, refresh_token: "rt-2" },
     },
     aExpiresAt,
-  }: Pick<FakeIssuerOptions, "refreshResponse"> & { aExpiresAt?: number } = {},
+    codexUrl,
+  }: Pick<FakeIssuerOptions, "refreshResponse"> & { aExpiresAt?: number; codexUrl?: string } = {},
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -91,7 +93,7 @@ export const withVia = <A, E>(
         Layer.provide(CodexAuth.layer(yield* address(issuer))),
         Layer.provideMerge(stores),
       ),
-      CodexUpstream.layer({ baseUrl: yield* address(upstream), cloak: true }),
+      CodexUpstream.layer({ baseUrl: codexUrl ?? (yield* address(upstream)), cloak: true }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     const server = yield* Layer.build(
