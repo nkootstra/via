@@ -69,3 +69,7 @@ jobs:
       - run: bun run smoke
       # Cross-compiles the binaries for every platform package.
       - run: bun run build
+      # Runs the end-to-end suite against this platform's compiled binary.
+      - run: bun run --filter @via/e2e test
+        env:
+          VIA_E2E_BIN: ${{ github.workspace }}/npm/via-${{ runner.os == 'macOS' && 'darwin' || 'linux' }}-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}/bin/via
