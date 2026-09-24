@@ -65,4 +65,71 @@ describe("toResponsesRequest", () => {
       },
     ]);
   });
+
+  it("turns assistant tool calls and tool results into function call items", () => {
+    expect(
+      translate({
+        model: "gpt-5.5",
+        messages: [
+          { role: "user", content: "Weather in Paris?" },
+          {
+            role: "assistant",
+            content: null,
+            tool_calls: [
+              {
+                id: "call_1",
+                type: "function",
+                function: { name: "weather", arguments: '{"city":"Paris"}' },
+              },
+            ],
+          },
+          { role: "tool", tool_call_id: "call_1", content: "Sunny" },
+        ],
+      }).input,
+    ).toEqual([
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_text", text: "Weather in Paris?" }],
+      },
+      { type: "function_call", call_id: "call_1", name: "weather", arguments: '{"city":"Paris"}' },
+      { type: "function_call_output", call_id: "call_1", output: "Sunny" },
+    ]);
+  });
+
+  it("flattens function tools and a forced tool choice", () => {
+    const parameters = { type: "object", properties: { city: { type: "string" } } };
+    expect(
+      translate({
+        model: "gpt-5.5",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [
+          {
+            type: "function",
+            function: { name: "weather", description: "Current weather", parameters, strict: true },
+          },
+        ],
+        tool_choice: { type: "function", function: { name: "weather" } },
+        parallel_tool_calls: false,
+      }),
+    ).toMatchObject({
+      tools: [
+        {
+          type: "function",
+          name: "weather",
+          description: "Current weather",
+          parameters,
+          strict: true,
+        },
+      ],
+      tool_choice: { type: "function", name: "weather" },
+      parallel_tool_calls: false,
+    });
+  });
+
+  it("passes a tool choice mode through", () => {
+    expect(translate({ model: "gpt-5.5", messages: [], tool_choice: "required" })).toMatchObject({
+      tool_choice: "required",
+    });
+  });
 });

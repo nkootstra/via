@@ -7,6 +7,12 @@ const ImagePart = Schema.Struct({
 });
 const UserPart = Schema.Union([TextPart, ImagePart]);
 
+const ToolCall = Schema.Struct({
+  id: Schema.String,
+  type: Schema.Literal("function"),
+  function: Schema.Struct({ name: Schema.String, arguments: Schema.String }),
+});
+
 const InstructionMessage = Schema.Struct({
   role: Schema.Literals(["system", "developer"]),
   content: Schema.String,
@@ -17,13 +23,40 @@ const UserMessage = Schema.Struct({
 });
 const AssistantMessage = Schema.Struct({
   role: Schema.Literal("assistant"),
+  content: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  tool_calls: Schema.optionalKey(Schema.Array(ToolCall)),
+});
+const ToolMessage = Schema.Struct({
+  role: Schema.Literal("tool"),
+  tool_call_id: Schema.String,
   content: Schema.String,
 });
-const Message = Schema.Union([InstructionMessage, UserMessage, AssistantMessage]);
+const Message = Schema.Union([InstructionMessage, UserMessage, AssistantMessage, ToolMessage]);
+
+const FunctionTool = Schema.Struct({
+  type: Schema.Literal("function"),
+  function: Schema.Struct({
+    name: Schema.String,
+    description: Schema.optionalKey(Schema.String),
+    parameters: Schema.optionalKey(Schema.Unknown),
+    strict: Schema.optionalKey(Schema.Boolean),
+  }),
+});
+const ToolChoiceMode = Schema.Literals(["auto", "none", "required"]);
+const ToolChoice = Schema.Union([
+  ToolChoiceMode,
+  Schema.Struct({
+    type: Schema.Literal("function"),
+    function: Schema.Struct({ name: Schema.String }),
+  }),
+]);
 
 export const ChatRequest = Schema.Struct({
   model: Schema.String,
   messages: Schema.Array(Message),
+  tools: Schema.optionalKey(Schema.Array(FunctionTool)),
+  tool_choice: Schema.optionalKey(ToolChoice),
+  parallel_tool_calls: Schema.optionalKey(Schema.Boolean),
 });
 export type ChatRequest = typeof ChatRequest.Type;
 
@@ -42,14 +75,33 @@ const inputItems = (message: typeof Message.Type): ReadonlyArray<object> => {
         : message.content;
     return [{ type: "message", role: "user", content: parts.map(userPart) }];
   }
-  return [
-    {
-      type: "message",
-      role: "assistant",
-      content: [{ type: "output_text", text: message.content }],
-    },
-  ];
+  if (Schema.is(ToolMessage)(message)) {
+    return [
+      { type: "function_call_output", call_id: message.tool_call_id, output: message.content },
+    ];
+  }
+  const text = message.content
+    ? [
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: message.content }],
+        },
+      ]
+    : [];
+  const calls = (message.tool_calls ?? []).map((call) => ({
+    type: "function_call",
+    call_id: call.id,
+    name: call.function.name,
+    arguments: call.function.arguments,
+  }));
+  return [...text, ...calls];
 };
+
+const tool = ({ function: fn }: typeof FunctionTool.Type) => ({ type: "function", ...fn });
+
+const toolChoice = (choice: typeof ToolChoice.Type) =>
+  Schema.is(ToolChoiceMode)(choice) ? choice : { type: "function", name: choice.function.name };
 
 /** The Responses API request equivalent to a Chat Completions request. */
 export const toResponsesRequest = (chat: ChatRequest): Record<string, unknown> => ({
@@ -59,4 +111,7 @@ export const toResponsesRequest = (chat: ChatRequest): Record<string, unknown> =
     .map((message) => message.content)
     .join("\n\n"),
   input: chat.messages.flatMap(inputItems),
+  ...(chat.tools && { tools: chat.tools.map(tool) }),
+  ...(chat.tool_choice && { tool_choice: toolChoice(chat.tool_choice) }),
+  ...(chat.parallel_tool_calls !== undefined && { parallel_tool_calls: chat.parallel_tool_calls }),
 });
