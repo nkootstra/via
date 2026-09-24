@@ -1,0 +1,3 @@
+event: response.failed
+data: {"type":"response.failed","response":{"id":"disabled-model","error":{"code":"server_is_overloaded","message":"This model is disabled."}}}
+

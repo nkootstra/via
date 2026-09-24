@@ -5,7 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./testing": "./src/fake-upstream.ts"
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "test": "bun --bun vitest run",

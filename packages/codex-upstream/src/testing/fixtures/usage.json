@@ -1,0 +1,55 @@
+{
+  "plan_type": "pro",
+  "rate_limit": {
+    "allowed": false,
+    "limit_reached": false,
+    "primary_window": {
+      "used_percent": 42,
+      "limit_window_seconds": 300,
+      "reset_after_seconds": 0,
+      "reset_at": 123
+    },
+    "secondary_window": {
+      "used_percent": 84,
+      "limit_window_seconds": 3600,
+      "reset_after_seconds": 0,
+      "reset_at": 456
+    }
+  },
+  "credits": {
+    "has_credits": true,
+    "unlimited": false,
+    "balance": "9.99"
+  },
+  "spend_control": {
+    "reached": false,
+    "individual_limit": {
+      "limit": "25000",
+      "used": "8000",
+      "remaining": "17000",
+      "used_percent": 32,
+      "remaining_percent": 68,
+      "reset_after_seconds": 3600,
+      "reset_at": 789
+    }
+  },
+  "additional_rate_limits": [
+    {
+      "limit_name": "codex_other",
+      "metered_feature": "codex_other",
+      "rate_limit": {
+        "allowed": false,
+        "limit_reached": false,
+        "primary_window": {
+          "used_percent": 70,
+          "limit_window_seconds": 900,
+          "reset_after_seconds": 0,
+          "reset_at": 789
+        }
+      }
+    }
+  ],
+  "rate_limit_reached_type": {
+    "type": "workspace_member_credits_depleted"
+  }
+}
