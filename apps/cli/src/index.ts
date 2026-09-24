@@ -58,8 +58,12 @@ const keys = Command.make("keys").pipe(
 
 const via = Command.make("via").pipe(
   Command.withDescription("Pool Codex subscriptions behind one OpenAI-compatible endpoint"),
-  // VIA_CODEX_BASE_URL points serve at a fake Codex backend in tests.
-  Command.withSubcommands([accounts, keys, serve(paths.config, process.env.VIA_CODEX_BASE_URL)]),
+  // VIA_CODEX_BASE_URL points serve and accounts status at a fake Codex backend in tests.
+  Command.withSubcommands([
+    accounts(paths.config, process.env.VIA_CODEX_BASE_URL),
+    keys,
+    serve(paths.config, process.env.VIA_CODEX_BASE_URL),
+  ]),
 );
 
 Command.runWith(via, { version: "0.0.0" })(process.argv.slice(2)).pipe(

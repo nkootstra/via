@@ -1,11 +1,11 @@
 import { BunHttpServer } from "@effect/platform-bun";
 import { AccountTokens } from "@via/codex-auth";
 import { loadConfig } from "@via/config";
-import { CodexUpstream } from "@via/codex-upstream";
 import { ViaServer } from "@via/server";
 import { Console, Effect, Layer, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { HttpServer } from "effect/unstable/http";
+import { codexUpstream } from "./upstream.ts";
 
 /**
  * `via serve`, reading `configPath`. `upstreamBaseUrl` replaces the Codex backend,
@@ -35,12 +35,7 @@ export const serve = (configPath: string, upstreamBaseUrl: string | undefined) =
             }),
           ),
           Layer.provide(AccountTokens.layer),
-          Layer.provide(
-            CodexUpstream.layer({
-              cloak: config.codex.cloak,
-              ...(upstreamBaseUrl === undefined ? {} : { baseUrl: upstreamBaseUrl }),
-            }),
-          ),
+          Layer.provide(codexUpstream(config, upstreamBaseUrl)),
         );
         return yield* HttpServer.addressFormattedWith((url) =>
           Console.log(`Listening on ${url}`),
