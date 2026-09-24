@@ -17,11 +17,15 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 
 ## Commits & PRs
 
+- PR titles and commit subjects read `type(scope): subject`, e.g.
+  `fix(pool): hand out a still-valid token`. Types: `feat`, `fix`, `perf`,
+  `refactor`, `test`, `docs`, `chore`, `ci`, `build`, `revert`. The scope is
+  required, any lowercase word; add `!` after it for a breaking change.
 - Sign every commit (SSH or GPG) with a key added to your GitHub account as a
   signing key. `main` rejects unverified commits.
 - No AI attribution: no `Co-authored-by` trailers for bots or tools, no
   "Generated with …" footers or badges, in commits or PR descriptions.
-- Fill in the PR template; don't delete its sections. CI checks all three.
+- Fill in the PR template; don't delete its sections. CI checks every rule here.
 
 ## Effect conventions
 
