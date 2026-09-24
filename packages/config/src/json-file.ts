@@ -1,4 +1,4 @@
-import { Effect, FileSystem, Random, Schema } from "effect";
+import { Effect, FileSystem, Option, Random, Schema } from "effect";
 import { dirname } from "node:path";
 
 export class CorruptFileError extends Schema.TaggedError<CorruptFileError>()("CorruptFileError", {
@@ -15,9 +15,12 @@ export const readJsonFile = Effect.fn("readJsonFile")(function* <
   S extends Schema.Codec<unknown, unknown>,
 >(path: string, schema: S, fallback: () => S["Type"]) {
   const fs = yield* FileSystem.FileSystem;
-  if (!(yield* fs.exists(path))) return fallback();
-  const text = yield* fs.readFileString(path);
-  return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(text).pipe(
+  const text = yield* fs.readFileString(path).pipe(
+    Effect.asSome,
+    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeedNone),
+  );
+  if (Option.isNone(text)) return fallback();
+  return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(text.value).pipe(
     Effect.mapError((error) => new CorruptFileError({ path, reason: error.message })),
   );
 });

@@ -43,9 +43,14 @@ const make = (authDir: string) => {
       );
 
     const list = Effect.gen(function* () {
-      if (!(yield* fs.exists(authDir))) return [];
-      const files = (yield* fs.readDirectory(authDir)).filter((name) => name.endsWith(".json"));
-      const accounts = yield* Effect.forEach(files, (name) => readAccount(`${authDir}/${name}`));
+      const files = yield* fs
+        .readDirectory(authDir)
+        .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])));
+      const accounts = yield* Effect.forEach(
+        files.filter((name) => name.endsWith(".json")),
+        (name) => readAccount(`${authDir}/${name}`),
+        { concurrency: "unbounded" },
+      );
       return accounts.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
     }).pipe(Effect.withSpan("AccountStore.list"));
 
