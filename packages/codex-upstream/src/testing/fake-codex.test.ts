@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Deferred, Effect, Exit, Fiber } from "effect";
+import { Deferred, Effect, Exit, Fiber, Option, Stream } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { codexFixture, reply, startFakeCodex } from "./fake-codex.ts";
 
@@ -110,6 +110,20 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
       codex.script(reply.hangUp(reply.text("pong"), 2));
       const outcome = yield* post(codex.url, "acc-a").pipe(Effect.exit);
       expect(Exit.isFailure(outcome)).toBe(true);
+    }),
+  );
+
+  it.effect("stalls a stream after n events, keeping the connection open", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.script(reply.stalled(reply.text("pong"), 1));
+      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+      const response = yield* HttpClientRequest.post(`${codex.url}/codex/responses`).pipe(
+        HttpClientRequest.bodyJsonUnsafe({ model: "gpt-6-astra" }),
+        http.execute,
+      );
+      const first = yield* response.stream.pipe(Stream.decodeText, Stream.runHead);
+      expect(Option.getOrThrow(first)).toContain("response.created");
     }),
   );
 

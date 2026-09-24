@@ -26,8 +26,11 @@ type Plan = {
   contentType: string;
   /** SSE frames, or a single JSON body for an error. */
   chunks: ReadonlyArray<string>;
-  /** `hangUp` breaks the connection after the last chunk instead of closing it. */
-  ending: "close" | "hangUp";
+  /**
+   * After the last chunk, `hangUp` breaks the connection and `stall` keeps it
+   * open without sending anything more.
+   */
+  ending: "close" | "hangUp" | "stall";
   /** The response is not sent until this completes. */
   gate?: Deferred.Deferred<void>;
 };
@@ -166,6 +169,14 @@ export const reply = {
       return { ...plan, chunks: plan.chunks.slice(0, events), ending: "hangUp" };
     },
 
+  /** `inner`, going quiet after `events` frames with the connection left open. */
+  stalled:
+    (inner: Reply, events: number): Reply =>
+    (request) => {
+      const plan = inner(request);
+      return { ...plan, chunks: plan.chunks.slice(0, events), ending: "stall" };
+    },
+
   /** `inner`, held back until `gate` completes. */
   held:
     (gate: Deferred.Deferred<void>, inner: Reply): Reply =>
@@ -193,11 +204,13 @@ const hangUp = Stream.fromEffect(
   Effect.sleep("20 millis").pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue())),
 ).pipe(Stream.drain, Stream.concat(Stream.fail(new HangUp())));
 
+const endings = { close: Stream.empty, hangUp, stall: Stream.never };
+
 const respond = (plan: Plan) =>
   Effect.gen(function* () {
     if (plan.gate !== undefined) yield* Deferred.await(plan.gate);
     const body = Stream.fromIterable(plan.chunks).pipe(
-      Stream.concat(plan.ending === "hangUp" ? hangUp : Stream.empty),
+      Stream.concat(endings[plan.ending]),
       Stream.encodeText,
     );
     return HttpServerResponse.stream(body, {
