@@ -109,6 +109,7 @@
         "@via/codex-upstream": "workspace:*",
         "@via/keys": "workspace:*",
         "@via/pool": "workspace:*",
+        "@via/translate": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {

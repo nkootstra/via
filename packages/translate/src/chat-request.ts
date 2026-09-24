@@ -74,6 +74,9 @@ export const ChatRequest = Schema.Struct({
   response_format: Schema.optionalKey(ResponseFormat),
   reasoning_effort: Schema.optionalKey(Schema.String),
   stream: Schema.optionalKey(Schema.Boolean),
+  stream_options: Schema.optionalKey(
+    Schema.Struct({ include_usage: Schema.optionalKey(Schema.Boolean) }),
+  ),
 });
 export type ChatRequest = typeof ChatRequest.Type;
 

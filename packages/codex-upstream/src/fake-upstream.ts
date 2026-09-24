@@ -19,16 +19,20 @@ export type FakeReply = { status: number; headers?: Record<string, string>; body
 export const sse = (events: ReadonlyArray<{ type: string } & Record<string, unknown>>) =>
   events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
 
+const response = { id: "resp_1", created_at: 1_700_000_000, model: "gpt-5.5" };
+
+/** A stream in which Codex answers with `text` and completes. */
 export const completedStream = (text: string) =>
   sse([
-    { type: "response.created", response: { id: "resp_1", status: "in_progress" } },
+    { type: "response.created", response: { ...response, status: "in_progress" } },
     { type: "response.output_text.delta", delta: text },
     {
       type: "response.completed",
       response: {
-        id: "resp_1",
+        ...response,
         status: "completed",
         output: [{ type: "message", role: "assistant", content: [{ type: "output_text", text }] }],
+        usage: { input_tokens: 10, output_tokens: 2, total_tokens: 12 },
       },
     },
   ]);
