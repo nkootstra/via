@@ -48,7 +48,7 @@ const showUsage = Effect.fnUntraced(function* (account: Account) {
   yield* Console.log(describe(account));
   const tokens = yield* AccountTokens;
   const codex = yield* CodexUpstream;
-  const lines = yield* tokens.fresh(account.id).pipe(
+  const lines = yield* tokens.fresh(account).pipe(
     Effect.flatMap(codex.usage),
     Effect.map((windows) => windows.map(formatWindow)),
     Effect.catchTags({

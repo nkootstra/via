@@ -25,6 +25,14 @@ const withAccountStore = <A, E>(
   });
 
 layer(BunFileSystem.layer)("AccountStore", (it) => {
+  it.effect("has no accounts before the first login creates the auth directory", () =>
+    withAccountStore(() =>
+      Effect.gen(function* () {
+        expect(yield* (yield* AccountStore).list).toEqual([]);
+      }),
+    ),
+  );
+
   it.effect("saves a logged-in account with identity from its ID token", () =>
     withAccountStore(() =>
       Effect.gen(function* () {

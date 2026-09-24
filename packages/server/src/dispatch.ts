@@ -86,7 +86,7 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
     const chosen = select(accounts, state, now);
     if (Option.isNone(chosen)) return noAccountLeft(retryAfter(accounts, state, now));
 
-    const fresh = yield* tokens.fresh(chosen.value.id).pipe(
+    const fresh = yield* tokens.fresh(chosen.value).pipe(
       Effect.asSome,
       Effect.catchTag("RefreshRejectedError", (error) =>
         lockOut(chosen.value.id)(error).pipe(Effect.as(Option.none())),
