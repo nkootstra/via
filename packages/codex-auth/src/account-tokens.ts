@@ -4,6 +4,9 @@ import { CodexAuth } from "./codex-auth.ts";
 
 const REFRESH_WINDOW = Duration.minutes(5);
 
+const expiring = (account: Account, now: number) =>
+  account.expiresAt - now <= Duration.toMillis(REFRESH_WINDOW);
+
 const make = Effect.gen(function* () {
   const store = yield* AccountStore;
   const auth = yield* CodexAuth;
@@ -22,7 +25,7 @@ const make = Effect.gen(function* () {
     id: string,
     needed: (account: Account, now: number) => boolean,
   ) {
-    const lock = yield* lockFor((yield* store.find(id)).id);
+    const lock = yield* lockFor(id);
     return yield* Effect.gen(function* () {
       // Read under the lock, so a caller that waited sees the refresh it waited for.
       const account = yield* store.find(id);
@@ -31,12 +34,13 @@ const make = Effect.gen(function* () {
     }).pipe(Semaphore.withPermit(lock));
   });
 
-  /** The account with an access token valid for at least 5 more minutes. */
-  const fresh = Effect.fn("AccountTokens.fresh")(function* (id: string) {
-    return yield* refreshIf(
-      id,
-      (account, now) => account.expiresAt - now <= Duration.toMillis(REFRESH_WINDOW),
-    );
+  /**
+   * `account` with an access token valid for at least 5 more minutes. A token that
+   * already is goes straight back, without taking the lock or reading the store again.
+   */
+  const fresh = Effect.fnUntraced(function* (account: Account) {
+    if (!expiring(account, yield* Clock.currentTimeMillis)) return account;
+    return yield* refreshIf(account.id, expiring);
   });
 
   /**

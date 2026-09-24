@@ -32,7 +32,7 @@ layer(BunFileSystem.layer)("AccountTokens.fresh", (it) => {
   it.effect("uses the stored access token while it stays valid for over 5 minutes", () =>
     withAccount(6 * MINUTE, (account) =>
       Effect.gen(function* () {
-        const fresh = yield* (yield* AccountTokens).fresh(account.id);
+        const fresh = yield* (yield* AccountTokens).fresh(account);
         expect(fresh.accessToken).toBe(issuedTokens.access_token);
       }),
     ),
@@ -41,7 +41,7 @@ layer(BunFileSystem.layer)("AccountTokens.fresh", (it) => {
   it.effect("refreshes a token that expires within 5 minutes and saves the rotation", () =>
     withAccount(4 * MINUTE, (account) =>
       Effect.gen(function* () {
-        const fresh = yield* (yield* AccountTokens).fresh(account.id);
+        const fresh = yield* (yield* AccountTokens).fresh(account);
         expect(fresh.accessToken).toBe(refreshedTokens.access_token);
         expect((yield* (yield* AccountStore).find(account.id)).refreshToken).toBe("rt-2");
       }),
@@ -53,7 +53,7 @@ layer(BunFileSystem.layer)("AccountTokens.fresh", (it) => {
       Effect.gen(function* () {
         const tokens = yield* AccountTokens;
         const results = yield* Effect.all(
-          Array.from({ length: 3 }, () => tokens.fresh(account.id)),
+          Array.from({ length: 3 }, () => tokens.fresh(account)),
           { concurrency: "unbounded" },
         );
         expect(results.map((a) => a.accessToken)).toEqual(
@@ -89,7 +89,7 @@ layer(BunFileSystem.layer)("AccountTokens.fresh", (it) => {
       Effect.gen(function* () {
         const store = yield* AccountStore;
         yield* store.setLabel(account.id, "work");
-        yield* (yield* AccountTokens).fresh(account.id);
+        yield* (yield* AccountTokens).fresh(account);
         expect(yield* store.list).toEqual([
           expect.objectContaining({ id: account.id, label: "work", refreshToken: "rt-2" }),
         ]);
