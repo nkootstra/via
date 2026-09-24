@@ -170,4 +170,26 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
       expect(answer).toMatchObject({ rate_limit: expect.any(Object) });
     }),
   );
+
+  it.effect("serves a scripted /codex/models catalog", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models({ models: [{ slug: "gpt-6-astra" }] });
+      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+      const answer = yield* http
+        .execute(HttpClientRequest.get(`${codex.url}/codex/models?client_version=1.0.0`))
+        .pipe(Effect.flatMap((response) => response.json));
+      expect(answer).toEqual({ models: [{ slug: "gpt-6-astra" }] });
+      expect(codex.requests.at(-1)?.path).toBe("/codex/models");
+    }),
+  );
+
+  it.effect("fails an unscripted /codex/models request loudly", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+      const response = yield* http.execute(HttpClientRequest.get(`${codex.url}/codex/models`));
+      expect(response.status).toBe(599);
+    }),
+  );
 });

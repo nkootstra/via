@@ -253,6 +253,7 @@ export const startFakeCodex = Effect.gen(function* () {
   const shared: Array<Reply> = [];
   const perAccount = new Map<string, Array<Reply>>();
   const usageByAccount = new Map<string, string>();
+  let catalog: string | undefined;
   const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
   let handler: ((request: CodexRequest) => Reply) | undefined;
 
@@ -304,6 +305,16 @@ export const startFakeCodex = Effect.gen(function* () {
         return HttpServerResponse.text(body, { contentType: "application/json" });
       }),
     ),
+    HttpRouter.add(
+      "GET",
+      "/codex/models",
+      Effect.gen(function* () {
+        const request = yield* record({});
+        return catalog === undefined
+          ? yield* respond(unscripted(request))
+          : HttpServerResponse.text(catalog, { contentType: "application/json" });
+      }),
+    ),
   );
 
   const server = yield* Layer.build(
@@ -326,6 +337,9 @@ export const startFakeCodex = Effect.gen(function* () {
     /** Sets one account's `/wham/usage` answer. */
     usage: (account: string, body: string | object) =>
       void usageByAccount.set(account, typeof body === "string" ? body : JSON.stringify(body)),
+    /** Sets the `/codex/models` answer; until then, the catalog is unscripted. */
+    models: (body: string | object) =>
+      void (catalog = typeof body === "string" ? body : JSON.stringify(body)),
     /** Waits until at least `count` requests have arrived. */
     received: (count: number) =>
       Effect.gen(function* () {
