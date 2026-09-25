@@ -241,7 +241,7 @@ export const startFakeCodex = Effect.gen(function* () {
   const requests: Array<CodexRequest> = [];
   const shared: Array<Reply> = [];
   const perAccount = new Map<string, Array<Reply>>();
-  const usageByAccount = new Map<string, string>();
+  const usageByAccount = new Map<string, { status: number; body: string }>();
   let catalog: string | undefined;
   const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
   let handler: ((request: CodexRequest) => Reply) | undefined;
@@ -288,10 +288,10 @@ export const startFakeCodex = Effect.gen(function* () {
       Effect.gen(function* () {
         const request = yield* record({});
         const account = request.headers["chatgpt-account-id"];
-        const body =
-          (account === undefined ? undefined : usageByAccount.get(account)) ??
-          JSON.stringify(usagePayload);
-        return HttpServerResponse.text(body, { contentType: "application/json" });
+        const { status, body } = (account === undefined
+          ? undefined
+          : usageByAccount.get(account)) ?? { status: 200, body: JSON.stringify(usagePayload) };
+        return HttpServerResponse.text(body, { status, contentType: "application/json" });
       }),
     ),
     HttpRouter.add(
@@ -323,9 +323,12 @@ export const startFakeCodex = Effect.gen(function* () {
       void perAccount.set(account, [...(perAccount.get(account) ?? []), ...replies]),
     /** Answers every request the queues don't. */
     respond: (answer: (request: CodexRequest) => Reply) => void (handler = answer),
-    /** Sets one account's `/wham/usage` answer. */
-    usage: (account: string, body: string | object) =>
-      void usageByAccount.set(account, typeof body === "string" ? body : JSON.stringify(body)),
+    /** Sets one account's `/wham/usage` answer, a refusal when `status` is not 200. */
+    usage: (account: string, body: string | object, status = 200) =>
+      void usageByAccount.set(account, {
+        status,
+        body: typeof body === "string" ? body : JSON.stringify(body),
+      }),
     /** Sets the `/codex/models` answer; until then, the catalog is unscripted. */
     models: (body: string | object) =>
       void (catalog = typeof body === "string" ? body : JSON.stringify(body)),

@@ -172,6 +172,20 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
     }),
   );
 
+  it.effect("answers /wham/usage with a scripted refusal", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.usage("acc-a", {}, 403);
+      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+      const response = yield* http.execute(
+        HttpClientRequest.get(`${codex.url}/wham/usage`).pipe(
+          HttpClientRequest.setHeader("chatgpt-account-id", "acc-a"),
+        ),
+      );
+      expect(response.status).toBe(403);
+    }),
+  );
+
   it.effect("serves a scripted /codex/models catalog", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
