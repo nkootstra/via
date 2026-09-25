@@ -1,7 +1,7 @@
 // Test-only: a scriptable OpenAI-compatible provider, such as OpenRouter or
 // OpenCode Go, that records every request it receives.
 import { BunHttpServer } from "@effect/platform-bun";
-import { Effect, Layer, Schema } from "effect";
+import { Deferred, Effect, Layer, Schema } from "effect";
 import {
   HttpRouter,
   HttpServer,
@@ -47,6 +47,8 @@ export const startFakeProvider = Effect.gen(function* () {
   const requests: Array<ProviderRequest> = [];
   let handler = unscripted;
   let modelList: ReadonlyArray<Record<string, unknown>> | undefined;
+  const modelRequests: Array<ProviderRequest> = [];
+  const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
 
   const answer = HttpServerRequest.schemaBodyJson(Body).pipe(
     Effect.flatMap((body) =>
@@ -74,7 +76,12 @@ export const startFakeProvider = Effect.gen(function* () {
       "/models",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
-        requests.push({ path: "/models", headers: request.headers, body: {} });
+        modelRequests.push({ path: "/models", headers: request.headers, body: {} });
+        for (const waiter of waiters) {
+          if (modelRequests.length >= waiter.count) {
+            yield* Deferred.succeed(waiter.deferred, undefined);
+          }
+        }
         return modelList === undefined
           ? HttpServerResponse.text("", { status: 500 })
           : HttpServerResponse.jsonUnsafe({ object: "list", data: modelList });
@@ -88,8 +95,18 @@ export const startFakeProvider = Effect.gen(function* () {
   return {
     /** The provider's base URL, as config.yaml's `baseUrl`. */
     url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),
-    /** Every request received so far, in order. */
+    /** Every completion request received so far, in order. */
     requests: requests as ReadonlyArray<ProviderRequest>,
+    /** Every `GET /models` request received so far, in order. */
+    modelRequests: modelRequests as ReadonlyArray<ProviderRequest>,
+    /** Waits until at least `count` `GET /models` requests have arrived. */
+    modelsReceived: (count: number) =>
+      Effect.gen(function* () {
+        if (modelRequests.length >= count) return;
+        const deferred = yield* Deferred.make<void>();
+        waiters.push({ count, deferred });
+        yield* Deferred.await(deferred);
+      }),
     /** Answers every completion request. */
     respond: (reply: ProviderReply) => void (handler = reply),
     /**

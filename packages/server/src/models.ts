@@ -70,8 +70,8 @@ export class ModelCatalog extends Context.Service<
   /**
    * Lists the models Codex offers any usable account, as the Codex picker
    * does, since plans differ, then every provider's as the provider describes
-   * them. Each list is refreshed in the background once it is five minutes
-   * old. When no account can ask Codex, it lists the models via bundles.
+   * them. Both are fetched as via starts and refreshed in the background
+   * once five minutes old. When no account can ask Codex, it lists the models via bundles.
    */
   static readonly layer = Layer.effect(
     ModelCatalog,
@@ -100,7 +100,7 @@ export class ModelCatalog extends Context.Service<
         Effect.orElseSucceed(() => modelIds()),
         Effect.map((ids) => ids.map((id) => entry(id, "openai"))),
       );
-      return Effect.all([codexModels, providerModels], { concurrency: "unbounded" }).pipe(
+      const catalog = Effect.all([codexModels, providerModels], { concurrency: "unbounded" }).pipe(
         Effect.map(([fromCodex, fromProviders]) => [
           ...fromCodex,
           // The provider's own fields, such as context_length or pricing, win.
@@ -110,6 +110,9 @@ export class ModelCatalog extends Context.Service<
           })),
         ]),
       );
+      // Fetched as via starts, so the first request need not wait.
+      yield* Effect.forkScoped(catalog);
+      return catalog;
     }),
   );
 }
