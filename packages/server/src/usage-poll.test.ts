@@ -10,7 +10,7 @@ import { PoolStates, type PoolStatesShape } from "@via/pool";
 import { expect, layer } from "@effect/vitest";
 import { Clock, Deferred, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient, HttpServer } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpServer } from "effect/unstable/http";
 import { UsagePoll } from "./usage-poll.ts";
 
 /** Mirrors the poll's own interval: this suite shares one `TestClock` across its
@@ -82,7 +82,7 @@ const withPoll = <A, E>(
     start: number;
   }) => Effect.Effect<A, E>,
   options: {
-    authLayer?: Layer.Layer<CodexAuth>;
+    authLayer?: Layer.Layer<CodexAuth, never, HttpClient.HttpClient>;
     tokens?: (start: number) => Partial<{ refreshToken: string; expiresAt: number }>;
   } = {},
 ) =>
