@@ -101,8 +101,10 @@ layer(BunFileSystem.layer)("resilience", (it) => {
         Effect.gen(function* () {
           const outcome = yield* read(yield* post(via, CHAT, JSON.stringify(chatBody(true))));
           expect(outcome.reset).toBe(false);
-          const last = frames(outcome.text).at(-1);
-          expect(last?.data).not.toBe("[DONE]");
+          const all = frames(outcome.text);
+          expect(all.filter((frame) => frame.data.startsWith('{"error"'))).toHaveLength(1);
+          expect(all.some((frame) => frame.data === "[DONE]")).toBe(false);
+          const last = all.at(-1);
           expect(JSON.parse(last?.data ?? "null")).toMatchObject({
             error: { type: "server_error", code },
           });
@@ -139,7 +141,9 @@ layer(BunFileSystem.layer)("resilience", (it) => {
             yield* post(via, RESPONSES, JSON.stringify(responsesBody(true))),
           );
           expect(outcome.reset).toBe(false);
-          const last = frames(outcome.text).at(-1);
+          const all = frames(outcome.text);
+          expect(all.filter((frame) => frame.event === "error")).toHaveLength(1);
+          const last = all.at(-1);
           expect(last?.event).toBe("error");
           expect(JSON.parse(last?.data ?? "null")).toMatchObject({
             type: "error",
