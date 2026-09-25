@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { prepareBody } from "./index.ts";
+import { prepareBody } from "./prepare-body.ts";
 
 const request = { model: "gpt-6-astra", input: "hi" };
 

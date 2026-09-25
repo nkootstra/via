@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 import { jwt } from "./fake-issuer.ts";
-import { decodeIdToken, InvalidIdTokenError } from "./index.ts";
+import { decodeIdToken, InvalidIdTokenError } from "./claims.ts";
 
 describe("decodeIdToken", () => {
   it.effect("extracts email, ChatGPT account id and plan", () =>
