@@ -147,13 +147,29 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
   it.effect("lists each provider's models under its prefix, asking again after five minutes", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
-        via.provider.models(["qwen/qwen3"]);
+        via.provider.models([
+          "qwen/qwen3",
+          {
+            id: "kimi-k3",
+            object: "model",
+            created: 1_780_000_000,
+            owned_by: "moonshot",
+            context_length: 262_144,
+          },
+        ]);
         const list = yield* (yield* via.get("/v1/models")).json;
         expect(list).toHaveProperty(
           "data",
           expect.arrayContaining([
             { id: "openrouter/qwen/qwen3", object: "model", created: 0, owned_by: "openrouter" },
             { id: "opencode-go/qwen/qwen3", object: "model", created: 0, owned_by: "opencode-go" },
+            {
+              id: "openrouter/kimi-k3",
+              object: "model",
+              created: 1_780_000_000,
+              owned_by: "moonshot",
+              context_length: 262_144,
+            },
             expect.objectContaining({ id: "gpt-6-astra", owned_by: "openai" }),
           ]),
         );

@@ -41,12 +41,12 @@ const Body = Schema.Record(Schema.String, Schema.Unknown);
 /**
  * Starts the fake for the current scope. It answers `POST /chat/completions`
  * and `POST /responses` with the `respond` handler (500 until one is set) and
- * `GET /models` with the ids given to `models`.
+ * `GET /models` with the models given to `models`.
  */
 export const startFakeProvider = Effect.gen(function* () {
   const requests: Array<ProviderRequest> = [];
   let handler = unscripted;
-  let modelIds: ReadonlyArray<string> | undefined;
+  let modelList: ReadonlyArray<Record<string, unknown>> | undefined;
 
   const answer = HttpServerRequest.schemaBodyJson(Body).pipe(
     Effect.flatMap((body) =>
@@ -75,12 +75,9 @@ export const startFakeProvider = Effect.gen(function* () {
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         requests.push({ path: "/models", headers: request.headers, body: {} });
-        return modelIds === undefined
+        return modelList === undefined
           ? HttpServerResponse.text("", { status: 500 })
-          : HttpServerResponse.jsonUnsafe({
-              object: "list",
-              data: modelIds.map((id) => ({ id, object: "model" })),
-            });
+          : HttpServerResponse.jsonUnsafe({ object: "list", data: modelList });
       }),
     ),
   );
@@ -95,8 +92,14 @@ export const startFakeProvider = Effect.gen(function* () {
     requests: requests as ReadonlyArray<ProviderRequest>,
     /** Answers every completion request. */
     respond: (reply: ProviderReply) => void (handler = reply),
-    /** Lists `ids` at `GET /models`; until then, it answers 500. */
-    models: (ids: ReadonlyArray<string>) => void (modelIds = ids),
+    /**
+     * Lists `models` at `GET /models`, each an id or a full model object; until
+     * then, it answers 500.
+     */
+    models: (models: ReadonlyArray<string | Record<string, unknown>>) =>
+      void (modelList = models.map((model) =>
+        typeof model === "string" ? { id: model, object: "model" } : model,
+      )),
   };
 });
 

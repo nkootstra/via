@@ -152,10 +152,11 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
-  it.effect("lists every provider's models under its prefix, skipping one that is down", () =>
+  it.effect("lists every provider's models as it describes them, skipping one that is down", () =>
     Effect.gen(function* () {
       const up = yield* startFakeProvider;
-      up.models(["qwen/qwen3", "kimi-k3"]);
+      const qwen = { id: "qwen/qwen3", created: 1_780_000_000, context_length: 262_144 };
+      up.models([qwen, "kimi-k3"]);
       const down = yield* startFakeProvider;
       const models = yield* withProviders(
         {
@@ -165,8 +166,8 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         (providers) => providers.models,
       );
       expect(models).toEqual([
-        { id: "up/qwen/qwen3", provider: "up" },
-        { id: "up/kimi-k3", provider: "up" },
+        { provider: "up", model: { ...qwen, id: "up/qwen/qwen3" } },
+        { provider: "up", model: { id: "up/kimi-k3", object: "model" } },
       ]);
       expect(up.requests[0]?.headers["authorization"]).toBe("Bearer sk-test");
     }),

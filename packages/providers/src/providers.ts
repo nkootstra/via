@@ -48,7 +48,13 @@ export class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()
   }
 }
 
-const ModelList = Schema.Struct({ data: Schema.Array(Schema.Struct({ id: Schema.String })) });
+/** A model as a provider describes it: an id, plus whatever else it tells. */
+const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [
+  Schema.Record(Schema.String, Schema.Unknown),
+]);
+export type ProviderModel = typeof Model.Type;
+
+const ModelList = Schema.Struct({ data: Schema.Array(Model) });
 
 type Provider = { baseUrl: string; apiKey: Redacted.Redacted; session: SessionTarget };
 
@@ -58,10 +64,10 @@ export interface ProvidersShape {
   /** The base URL requests to `provider` go to. */
   readonly baseUrl: (provider: string) => string | undefined;
   /**
-   * Every provider's models, as `<provider>/<model>` ids; a provider that
-   * can't list them is left out.
+   * Every provider's models as it describes them, with `<provider>/<model>`
+   * ids; a provider that can't list them is left out.
    */
-  readonly models: Effect.Effect<ReadonlyArray<{ id: string; provider: string }>>;
+  readonly models: Effect.Effect<ReadonlyArray<{ provider: string; model: ProviderModel }>>;
   /**
    * Posts `body` to the route's provider, with its model in place of via's and
    * `session` where the provider looks for it.
@@ -105,7 +111,9 @@ const make = (configs: Record<string, ProviderConfig>) =>
       http.execute(authorized(provider, HttpClientRequest.get(`${provider.baseUrl}/models`))).pipe(
         Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap(HttpClientResponse.schemaBodyJson(ModelList)),
-        Effect.map(({ data }) => data.map(({ id }) => ({ id: `${name}/${id}`, provider: name }))),
+        Effect.map(({ data }) =>
+          data.map((model) => ({ provider: name, model: { ...model, id: `${name}/${model.id}` } })),
+        ),
         // A provider that is down or answers oddly just has no models to offer now.
         Effect.orElseSucceed(() => []),
       );
