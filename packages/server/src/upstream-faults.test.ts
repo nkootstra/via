@@ -56,6 +56,23 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
       ),
     );
 
+    it.effect(`${path} answers a garbled Codex stream with 502 upstream_incomplete`, () =>
+      withVia(
+        () => ({
+          status: 200,
+          body: `${sse([created])}event: response.completed\ndata: {not json\n\n`,
+        }),
+        (via) =>
+          Effect.gen(function* () {
+            const answer = yield* via.post(path, bodies[path]);
+            expect(answer.status).toBe(502);
+            expect(yield* answer.json).toMatchObject({
+              error: { type: "server_error", code: "upstream_incomplete" },
+            });
+          }),
+      ),
+    );
+
     it.effect(`${path} answers an unreachable Codex with 502 upstream_unavailable`, () =>
       withVia(
         cutOff,
@@ -91,8 +108,12 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
       Effect.gen(function* () {
         const text = yield* (yield* via.post(RESPONSES, { ...bodies[RESPONSES], stream: true }))
           .text;
-        const last = text.trim().split("\n\n").at(-1) ?? "";
-        expect(last).toMatch(/^event: error\n/);
+        const frames = text.trim().split("\n\n");
+        expect(frames.map((frame) => /^event: (.*)$/m.exec(frame)?.[1])).toEqual([
+          "response.created",
+          "error",
+        ]);
+        const last = frames.at(-1) ?? "";
         expect(JSON.parse(last.replace(/^event: error\ndata: /, ""))).toMatchObject({
           type: "error",
           code: "upstream_incomplete",

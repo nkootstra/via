@@ -35,6 +35,12 @@ export const openAiError = (
     { status, headers },
   );
 
+const unreadable = openAiError(
+  502,
+  "upstream_incomplete",
+  "The Codex stream broke off or could not be read",
+);
+
 /**
  * Reads a Codex stream to its final response for a non-streaming client, and
  * answers a response that failed or broke off with a 502.
@@ -51,10 +57,10 @@ export const collected = (
       UpstreamFailedError: (error) => Effect.succeed(openAiError(502, error.code, error.reason)),
       IncompleteStreamError: (error) =>
         Effect.succeed(openAiError(502, "upstream_incomplete", error.message)),
-      HttpClientError: () =>
-        Effect.succeed(
-          openAiError(502, "upstream_incomplete", "The Codex stream broke off while reading"),
-        ),
+      HttpClientError: () => Effect.succeed(unreadable),
+      Retry: () => Effect.succeed(unreadable),
+      SchemaError: () => Effect.succeed(unreadable),
+      SseError: () => Effect.succeed(unreadable),
     }),
   );
 
