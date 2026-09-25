@@ -2,7 +2,7 @@
 // queued per test, so each test says exactly what Codex answers, including the
 // ways it fails. The golden fixtures in ./fixtures come from openai/codex.
 import { BunHttpServer } from "@effect/platform-bun";
-import { Clock, Data, Deferred, Effect, FileSystem, Layer, Schema, Stream } from "effect";
+import { Clock, Deferred, Effect, FileSystem, Layer, Schema, Stream } from "effect";
 import {
   HttpRouter,
   HttpServer,
@@ -75,8 +75,6 @@ const lifecycle = (
     },
   ]);
 };
-
-class HangUp extends Data.TaggedError("HangUp") {}
 
 export const reply = {
   /** Codex answers with an assistant message. */
@@ -219,10 +217,11 @@ const unscripted: Reply = (request) =>
 
 // Bun only resets the socket when a body fails after the sent frames were
 // flushed; failing straight away ends the response cleanly and empty. The pause
-// runs on the real clock so a test's TestClock can't freeze it.
+// runs on the real clock so a test's TestClock can't freeze it. Bun logs the
+// failure; a plain string keeps that to one line instead of a stack trace.
 const hangUp = Stream.fromEffect(
   Effect.sleep("20 millis").pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue())),
-).pipe(Stream.drain, Stream.concat(Stream.fail(new HangUp())));
+).pipe(Stream.drain, Stream.concat(Stream.fail("fake Codex hung up")));
 
 const endings = { close: Stream.empty, hangUp, stall: Stream.never };
 
