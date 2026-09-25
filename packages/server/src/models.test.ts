@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { completedStream, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { withVia } from "./harness.ts";
+import { type Via, withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
 
@@ -12,6 +12,12 @@ const ModelList = Schema.Struct({
 });
 const ids = (list: unknown) =>
   Schema.decodeUnknownSync(ModelList)(list).data.map((model) => model.id);
+
+const listed = (via: Via) =>
+  via.get("/v1/models").pipe(
+    Effect.flatMap((response) => response.json),
+    Effect.map(ids),
+  );
 
 const catalog = {
   models: [
@@ -122,7 +128,7 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
     }),
   );
 
-  it.effect("asks Codex again only once the listed catalog is five minutes old", () =>
+  it.effect("answers from the listed catalog while it asks Codex again after five minutes", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
       codex.models(catalog);
@@ -134,9 +140,35 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
             yield* via.get("/v1/models");
             // One ask per account.
             expect(codex.requests).toHaveLength(2);
+            codex.models({ models: [{ slug: "gpt-8" }] });
             yield* TestClock.adjust("5 minutes");
-            yield* via.get("/v1/models");
+            expect(yield* listed(via)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            expect(
+              yield* listed(via).pipe(Effect.repeat({ until: (list) => list[0] === "gpt-8" })),
+            ).toEqual(["gpt-8"]);
             expect(codex.requests).toHaveLength(4);
+          }),
+        { codexUrl: codex.url },
+      );
+    }),
+  );
+
+  it.effect("keeps the listed catalog when asking Codex again fails", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models(catalog);
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            yield* via.get("/v1/models");
+            codex.models("not a catalog");
+            yield* TestClock.adjust("5 minutes");
+            // A second round of asks means the first one failed and was let go.
+            const last = yield* listed(via).pipe(
+              Effect.repeat({ until: () => codex.requests.length >= 6 }),
+            );
+            expect(last).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
           }),
         { codexUrl: codex.url },
       );
@@ -212,7 +244,7 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
         yield* via.get("/v1/models");
         expect(via.provider.requests).toHaveLength(2);
         yield* TestClock.adjust("5 minutes");
-        yield* via.get("/v1/models");
+        yield* listed(via).pipe(Effect.repeat({ until: () => via.provider.requests.length >= 4 }));
         expect(via.provider.requests).toHaveLength(4);
       }),
     ),

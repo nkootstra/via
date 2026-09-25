@@ -1,6 +1,6 @@
 import { type CatalogModel, CodexUpstream, modelIds } from "@via/codex-upstream";
 import { type ProviderModel, Providers } from "@via/providers";
-import { Array, Cache, Context, Effect, Exit, Layer, Option } from "effect";
+import { Array, Clock, Context, Duration, Effect, Layer, Option, Ref, Semaphore } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
 import { authenticated, usableAccounts } from "./dispatch.ts";
 
@@ -21,6 +21,47 @@ const combine = (catalogs: ReadonlyArray<ReadonlyArray<CatalogModel>>) => {
   return [...efforts].map(([model, supported]) => ({ model, efforts: supported }));
 };
 
+const isOld = (at: number, maxAge: Duration.Input) =>
+  Effect.map(Clock.currentTimeMillis, (now) => now - at >= Duration.toMillis(maxAge));
+
+/**
+ * Keeps `load`'s last success. Only the first call waits for `load`; once what
+ * it keeps is `maxAge` old, a call starts one reload in the background and
+ * still answers with what it keeps, so the next call gets the new answer.
+ */
+const stale = <A, E, R>(load: Effect.Effect<A, E, R>, maxAge: Duration.Input) =>
+  Effect.gen(function* () {
+    const scope = yield* Effect.scope;
+    const context = yield* Effect.context<R>();
+    const lock = yield* Semaphore.make(1);
+    const kept = yield* Ref.make(Option.none<{ readonly value: A; readonly at: number }>());
+    const reload = Effect.gen(function* () {
+      const value = yield* load;
+      yield* Ref.set(kept, Option.some({ value, at: yield* Clock.currentTimeMillis }));
+      return value;
+    }).pipe(Effect.provide(context));
+    // Run under the lock: what another call has just loaded, or else a new load.
+    const loadIfOld = Effect.gen(function* () {
+      const current = yield* Ref.get(kept);
+      if (Option.isSome(current) && !(yield* isOld(current.value.at, maxAge)))
+        return current.value.value;
+      return yield* reload;
+    });
+    return Effect.gen(function* () {
+      const current = yield* Ref.get(kept);
+      // Calls that find nothing kept wait for one shared load.
+      if (Option.isNone(current)) return yield* Semaphore.withPermits(lock, 1)(loadIfOld);
+      if (yield* isOld(current.value.at, maxAge)) {
+        // One reload at a time; a failed one keeps the old answer, and a later call tries again.
+        yield* Semaphore.withPermitsIfAvailable(
+          lock,
+          1,
+        )(loadIfOld).pipe(Effect.ignore, Effect.forkIn(scope));
+      }
+      return current.value.value;
+    });
+  });
+
 /** The models `/v1/models` lists, in OpenAI's model object shape. */
 export class ModelCatalog extends Context.Service<
   ModelCatalog,
@@ -29,14 +70,14 @@ export class ModelCatalog extends Context.Service<
   /**
    * Lists the models Codex offers any usable account, as the Codex picker
    * does, since plans differ, then every provider's as the provider describes
-   * them, and keeps each list for five minutes. When no account can ask Codex,
-   * it lists the models via bundles.
+   * them. Each list is refreshed in the background once it is five minutes
+   * old. When no account can ask Codex, it lists the models via bundles.
    */
   static readonly layer = Layer.effect(
     ModelCatalog,
     Effect.gen(function* () {
       const codex = yield* CodexUpstream;
-      const providerModels = yield* Effect.cachedWithTTL((yield* Providers).models, "5 minutes");
+      const providerModels = yield* stale((yield* Providers).models, "5 minutes");
       const ask = usableAccounts.pipe(
         Effect.flatMap((accounts) =>
           Effect.forEach(accounts, (account) => Effect.option(codex.models(account)), {
@@ -44,7 +85,7 @@ export class ModelCatalog extends Context.Service<
           }),
         ),
         Effect.map(Array.getSomes),
-        // Failing when no account answered keeps the bundled list out of the cache.
+        // Failing when no account answered keeps the bundled list from being kept.
         Effect.flatMap((catalogs) =>
           Effect.fromOption(
             Array.isReadonlyArrayNonEmpty(catalogs)
@@ -53,12 +94,7 @@ export class ModelCatalog extends Context.Service<
           ),
         ),
       );
-      const cache = yield* Cache.makeWith(() => ask, {
-        capacity: 1,
-        // A failed ask is not kept, so the next request tries Codex again.
-        timeToLive: (exit) => (Exit.isSuccess(exit) ? "5 minutes" : 0),
-      });
-      const codexModels = Cache.get(cache, undefined).pipe(
+      const codexModels = (yield* stale(ask, "5 minutes")).pipe(
         Effect.map(modelIds),
         // Any failure to ask Codex leaves the bundled list, which is still a useful answer.
         Effect.orElseSucceed(() => modelIds()),
