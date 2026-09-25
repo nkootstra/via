@@ -14,7 +14,7 @@ export const responses = authenticated(
     const log = yield* RequestLog;
     const decoded = yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option);
     if (Option.isNone(decoded)) {
-      return openAiError(400, "invalid_request", "The request body is not a JSON object");
+      return yield* openAiError(400, "invalid_request", "The request body is not a JSON object");
     }
     const body = decoded.value;
     const { headers } = yield* HttpServerRequest.HttpServerRequest;

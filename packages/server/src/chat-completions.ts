@@ -34,7 +34,11 @@ export const chatCompletions = authenticated(
       Effect.option,
     );
     if (Option.isNone(decoded)) {
-      return openAiError(400, "invalid_request", "The request is not a valid chat completion");
+      return yield* openAiError(
+        400,
+        "invalid_request",
+        "The request is not a valid chat completion",
+      );
     }
     const chat = decoded.value;
     return yield* dispatch(toResponsesRequest(chat), resolveSession(headers, chat), (upstream) =>

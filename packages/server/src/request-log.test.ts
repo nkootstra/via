@@ -125,6 +125,32 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs a request via turns away itself with its model and why", () =>
+    withVia(
+      () => reply.error(429, "", { "retry-after": "120" }),
+      (via) =>
+        Effect.gen(function* () {
+          // Cools both accounts down; the next request has no account to try.
+          yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
+          yield* via.logged("Sent HTTP response");
+          yield* via.post("/v1/chat/completions", { model: "gpt-6-sol", messages: [] });
+          expect(yield* via.logged("gpt-6-sol")).toEqual({
+            level: "Info",
+            message: "Sent HTTP response",
+            spans: ["http.span"],
+            annotations: {
+              "http.method": "POST",
+              "http.url": "/v1/chat/completions",
+              "http.status": 429,
+              model: "gpt-6-sol",
+              error: "rate_limit_exceeded",
+              retry_after: "120",
+            },
+          });
+        }),
+    ),
+  );
+
   it.effect("logs a request turned away without its model", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
@@ -133,7 +159,12 @@ layer(BunFileSystem.layer)("request log", (it) => {
           level: "Info",
           message: "Sent HTTP response",
           spans: ["http.span"],
-          annotations: { "http.method": "GET", "http.url": "/v1/models", "http.status": 401 },
+          annotations: {
+            "http.method": "GET",
+            "http.url": "/v1/models",
+            "http.status": 401,
+            error: "invalid_api_key",
+          },
         });
       }),
     ),

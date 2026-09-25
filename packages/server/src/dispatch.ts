@@ -13,23 +13,26 @@ import { accountsAllowed, nextAccount } from "./accounts.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { RequestLog } from "./request-log.ts";
 
-/** An error in the shape OpenAI clients expect. */
+/** An error in the shape OpenAI clients expect, noted in the request's log line. */
 export const openAiError = (
   status: number,
   code: string,
   message: string,
   headers: Record<string, string> = {},
 ) =>
-  HttpServerResponse.jsonUnsafe(
-    {
-      error: {
-        message,
-        type: status >= 500 ? "server_error" : "invalid_request_error",
-        code,
+  Effect.gen(function* () {
+    yield* (yield* RequestLog).refused(code);
+    return HttpServerResponse.jsonUnsafe(
+      {
+        error: {
+          message,
+          type: status >= 500 ? "server_error" : "invalid_request_error",
+          code,
+        },
       },
-    },
-    { status, headers },
-  );
+      { status, headers },
+    );
+  });
 
 const unreadable = openAiError(
   502,
@@ -50,13 +53,12 @@ export const collected = (
   collectResponse(upstream.stream).pipe(
     Effect.flatMap(onResponse),
     Effect.catchTags({
-      UpstreamFailedError: (error) => Effect.succeed(openAiError(502, error.code, error.reason)),
-      IncompleteStreamError: (error) =>
-        Effect.succeed(openAiError(502, "upstream_incomplete", error.message)),
-      HttpClientError: () => Effect.succeed(unreadable),
-      Retry: () => Effect.succeed(unreadable),
-      SchemaError: () => Effect.succeed(unreadable),
-      SseError: () => Effect.succeed(unreadable),
+      UpstreamFailedError: (error) => openAiError(502, error.code, error.reason),
+      IncompleteStreamError: (error) => openAiError(502, "upstream_incomplete", error.message),
+      HttpClientError: () => unreadable,
+      Retry: () => unreadable,
+      SchemaError: () => unreadable,
+      SseError: () => unreadable,
     }),
   );
 
@@ -71,7 +73,8 @@ export const forward = Effect.fn("forward")(function* (
   session: string,
 ) {
   const log = yield* RequestLog;
-  yield* log.served({ model: `${route.provider}/${route.model}`, by: route.provider });
+  yield* log.asked(`${route.provider}/${route.model}`);
+  yield* log.served(route.provider);
   return yield* (yield* Providers).send(route, path, body, session).pipe(
     Effect.flatMap((upstream) =>
       Effect.map(log.timed(upstream.stream), (stream) =>
@@ -82,9 +85,7 @@ export const forward = Effect.fn("forward")(function* (
       ),
     ),
     Effect.catchTag("HttpClientError", () =>
-      Effect.succeed(
-        openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
-      ),
+      openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
     ),
   );
 });
@@ -101,7 +102,7 @@ const authenticate = Effect.gen(function* () {
 export const authenticated = <A, E, R>(handler: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     if (Option.isNone(yield* authenticate)) {
-      return openAiError(401, "invalid_api_key", "Missing or unknown API key");
+      return yield* openAiError(401, "invalid_api_key", "Missing or unknown API key");
     }
     return yield* handler;
   });
@@ -132,6 +133,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
   const log = yield* RequestLog;
+  if (typeof body.model === "string") yield* log.asked(body.model);
   const allowed =
     typeof body.model === "string" ? yield* (yield* ModelCatalog).mayServe(body.model) : () => true;
   // A dead refresh token takes the account out of rotation until it logs in again.
@@ -144,17 +146,19 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     const next = yield* nextAccount(allowed);
     const now = yield* Clock.currentTimeMillis;
     if (Option.isNone(next)) {
-      return noAccountLeft(retryAfter(yield* accountsAllowed(allowed), yield* states.get, now));
+      return yield* noAccountLeft(
+        retryAfter(yield* accountsAllowed(allowed), yield* states.get, now),
+      );
     }
     const account = next.value;
-    yield* log.served({ model: String(body.model), by: account.label });
+    yield* log.served(account.label);
     const sent = yield* codex.send(account, body, session).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),
     );
     if (Option.isNone(sent)) {
-      return openAiError(502, "upstream_unavailable", "Codex could not be reached");
+      return yield* openAiError(502, "upstream_unavailable", "Codex could not be reached");
     }
     const upstream = sent.value;
     if (upstream.status === 200) return yield* onSuccess(upstream);
