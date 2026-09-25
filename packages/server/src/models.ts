@@ -3,7 +3,7 @@ import { CodexUpstream, modelIds } from "@via/codex-upstream";
 import { PoolStates, select } from "@via/pool";
 import { Cache, Clock, Context, Effect, Exit, Layer, Option } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
-import { authenticate, unauthenticated } from "./dispatch.ts";
+import { authenticated } from "./dispatch.ts";
 
 /** The model ids `/v1/models` lists. */
 export class ModelCatalog extends Context.Service<
@@ -56,16 +56,17 @@ export class ModelCatalog extends Context.Service<
 }
 
 /** GET /v1/models: the Codex models, and each with every effort suffix. */
-export const models = Effect.gen(function* () {
-  if (Option.isNone(yield* authenticate)) return unauthenticated();
-  const ids = yield* yield* ModelCatalog;
-  return HttpServerResponse.jsonUnsafe({
-    object: "list",
-    data: ids.map((id) => ({
-      id,
-      object: "model",
-      created: 0,
-      owned_by: "openai",
-    })),
-  });
-});
+export const models = authenticated(
+  Effect.gen(function* () {
+    const ids = yield* yield* ModelCatalog;
+    return HttpServerResponse.jsonUnsafe({
+      object: "list",
+      data: ids.map((id) => ({
+        id,
+        object: "model",
+        created: 0,
+        owned_by: "openai",
+      })),
+    });
+  }),
+);

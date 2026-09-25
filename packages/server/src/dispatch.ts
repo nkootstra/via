@@ -62,15 +62,21 @@ export const collected = (
   );
 
 /** The client's API key, if it presented a valid one. */
-export const authenticate = Effect.gen(function* () {
+const authenticate = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const [scheme, key] = (request.headers.authorization ?? "").split(" ");
   if (scheme !== "Bearer" || key === undefined) return Option.none();
   return yield* (yield* KeyStore).verify(key);
 });
 
-export const unauthenticated = () =>
-  openAiError(401, "invalid_api_key", "Missing or unknown API key");
+/** Runs `handler` only for a client with a valid API key; anyone else gets a 401. */
+export const authenticated = <A, E, R>(handler: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    if (Option.isNone(yield* authenticate)) {
+      return openAiError(401, "invalid_api_key", "Missing or unknown API key");
+    }
+    return yield* handler;
+  });
 
 const noAccountLeft = (waitMs: Option.Option<number>) =>
   Option.match(waitMs, {
@@ -87,7 +93,7 @@ const noAccountLeft = (waitMs: Option.Option<number>) =>
  * tried in order, skipping those cooling down or locked out, until one answers.
  * A successful answer goes to `onSuccess`; a client error is returned as-is.
  */
-export const dispatch = Effect.fnUntraced(function* <E, R>(
+export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   body: Record<string, unknown>,
   onSuccess: (
     upstream: HttpClientResponse.HttpClientResponse,
