@@ -1,0 +1,9 @@
+.git
+.github
+.claude
+.turbo
+**/node_modules
+**/.turbo
+npm/via-*/bin
+docs
+*.tgz
