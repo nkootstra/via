@@ -1,6 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { completedStream, reply, startFakeCodex } from "@via/codex-upstream/testing";
+import { startFakeProvider } from "@via/providers/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { type Via, withVia } from "./harness.ts";
@@ -234,42 +235,59 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
   );
 
   it.effect("lists each provider's models under its prefix, asking again after five minutes", () =>
-    withVia(ok, (via) =>
-      Effect.gen(function* () {
-        via.provider.models([
-          "qwen/qwen3",
-          {
-            id: "kimi-k3",
-            object: "model",
-            created: 1_780_000_000,
-            owned_by: "moonshot",
-            context_length: 262_144,
-          },
-        ]);
-        const list = yield* (yield* via.get("/v1/models")).json;
-        expect(list).toHaveProperty(
-          "data",
-          expect.arrayContaining([
-            { id: "openrouter/qwen/qwen3", object: "model", created: 0, owned_by: "openrouter" },
-            { id: "opencode-go/qwen/qwen3", object: "model", created: 0, owned_by: "opencode-go" },
-            {
-              id: "openrouter/kimi-k3",
-              object: "model",
-              created: 1_780_000_000,
-              owned_by: "moonshot",
-              context_length: 262_144,
-            },
-            expect.objectContaining({ id: "gpt-6-astra", owned_by: "openai" }),
-          ]),
-        );
-        yield* via.get("/v1/models");
-        expect(via.provider.modelRequests).toHaveLength(2);
-        yield* TestClock.adjust("5 minutes");
-        yield* listed(via).pipe(
-          Effect.repeat({ until: () => via.provider.modelRequests.length >= 4 }),
-        );
-        expect(via.provider.modelRequests).toHaveLength(4);
-      }),
-    ),
+    Effect.gen(function* () {
+      // Scripted before via starts, as via asks as it starts.
+      const provider = yield* startFakeProvider;
+      provider.models([
+        "qwen/qwen3",
+        {
+          id: "kimi-k3",
+          object: "model",
+          created: 1_780_000_000,
+          owned_by: "moonshot",
+          context_length: 262_144,
+        },
+      ]);
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const list = yield* (yield* via.get("/v1/models")).json;
+            expect(list).toHaveProperty(
+              "data",
+              expect.arrayContaining([
+                {
+                  id: "openrouter/qwen/qwen3",
+                  object: "model",
+                  created: 0,
+                  owned_by: "openrouter",
+                },
+                {
+                  id: "opencode-go/qwen/qwen3",
+                  object: "model",
+                  created: 0,
+                  owned_by: "opencode-go",
+                },
+                {
+                  id: "openrouter/kimi-k3",
+                  object: "model",
+                  created: 1_780_000_000,
+                  owned_by: "moonshot",
+                  context_length: 262_144,
+                },
+                expect.objectContaining({ id: "gpt-6-astra", owned_by: "openai" }),
+              ]),
+            );
+            yield* via.get("/v1/models");
+            expect(provider.modelRequests).toHaveLength(2);
+            yield* TestClock.adjust("5 minutes");
+            yield* listed(via).pipe(
+              Effect.repeat({ until: () => provider.modelRequests.length >= 4 }),
+            );
+            expect(provider.modelRequests).toHaveLength(4);
+          }),
+        { providerUrl: provider.url },
+      );
+    }),
   );
 });
