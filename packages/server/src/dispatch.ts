@@ -7,6 +7,7 @@ import {
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import { classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
+import { type ProviderPath, Providers, type Route } from "@via/providers";
 import { Clock, Effect, Option, type Schema } from "effect";
 import {
   type HttpClientResponse,
@@ -60,6 +61,31 @@ export const collected = (
       SseError: () => Effect.succeed(unreadable),
     }),
   );
+
+/**
+ * Sends a request for a provider's model to that provider and pipes its answer
+ * back as it comes, errors included.
+ */
+export const forward = Effect.fn("forward")(function* (
+  route: Route,
+  path: ProviderPath,
+  body: Record<string, unknown>,
+  session: string,
+) {
+  return yield* (yield* Providers).send(route, path, body, session).pipe(
+    Effect.map((upstream) =>
+      HttpServerResponse.stream(upstream.stream, {
+        status: upstream.status,
+        contentType: upstream.headers["content-type"] ?? "application/json",
+      }),
+    ),
+    Effect.catchTag("HttpClientError", () =>
+      Effect.succeed(
+        openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
+      ),
+    ),
+  );
+});
 
 /** The client's API key, if it presented a valid one. */
 const authenticate = Effect.gen(function* () {

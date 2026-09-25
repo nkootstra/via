@@ -2,6 +2,7 @@ import { BunHttpServer } from "@effect/platform-bun";
 import { AccountTokens } from "@via/codex-auth";
 import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
+import { Providers } from "@via/providers";
 import { ViaServer } from "@via/server";
 import { ConfigProvider, Console, Effect, Layer, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
@@ -53,6 +54,7 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
           Layer.provide(PoolStates.layerFile(statePath)),
           Layer.provide(AccountTokens.layer),
           Layer.provide(codexUpstream(config, upstreamBaseUrl)),
+          Layer.provide(Providers.layer(config.providers)),
           Layer.provideMerge(tracing),
         );
         return yield* HttpServer.addressFormattedWith((url) =>
