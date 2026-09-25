@@ -1,10 +1,18 @@
-import { BunFileSystem } from "@effect/platform-bun";
+import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { fakeIssuer } from "@via/codex-auth/testing";
 import { type FakeCodex, reply, startFakeCodex } from "@via/codex-upstream/testing";
-import { Effect, FileSystem, Layer } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest, HttpServer } from "effect/unstable/http";
-import { freePort, runVia, serveVia, tempHome } from "./helpers.ts";
+import { Deferred, Effect, FileSystem, Layer, Schema } from "effect";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
+import { freePort, realTime, runVia, serveVia, tempHome } from "./helpers.ts";
 
 /**
  * A `via` home with one account (from a fake issuer) and one API key, whose
@@ -44,6 +52,56 @@ const postResponses = (url: string, key: string) =>
       http.execute,
     );
   }).pipe(Effect.provide(FetchHttpClient.layer));
+
+const Traces = Schema.Struct({
+  resourceSpans: Schema.Array(
+    Schema.Struct({
+      scopeSpans: Schema.Array(
+        Schema.Struct({ spans: Schema.Array(Schema.Struct({ name: Schema.String })) }),
+      ),
+    }),
+  ),
+});
+
+/** A local OTLP/HTTP collector; `saw(name)` waits until a span called `name` arrives. */
+const startCollector = Effect.gen(function* () {
+  const names = new Set<string>();
+  const waiters: Array<{ name: string; seen: Deferred.Deferred<void> }> = [];
+  const receive = HttpServerRequest.schemaBodyJson(Traces).pipe(
+    Effect.tap((traces) =>
+      Effect.forEach(
+        traces.resourceSpans.flatMap((resource) =>
+          resource.scopeSpans.flatMap((scope) => scope.spans.map((span) => span.name)),
+        ),
+        (name) => {
+          names.add(name);
+          return Effect.forEach(
+            waiters.filter((waiter) => waiter.name === name),
+            (waiter) => Deferred.succeed(waiter.seen, undefined),
+          );
+        },
+      ),
+    ),
+    Effect.as(HttpServerResponse.empty()),
+    // Test fixture: an export that is not OTLP JSON is a bug in the code under test.
+    Effect.orDie,
+  );
+  const server = yield* Layer.build(
+    HttpRouter.serve(HttpRouter.add("POST", "/v1/traces", receive)).pipe(
+      Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
+    ),
+  );
+  return {
+    url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),
+    saw: (name: string) =>
+      Effect.gen(function* () {
+        if (names.has(name)) return;
+        const seen = yield* Deferred.make<void>();
+        waiters.push({ name, seen });
+        yield* Deferred.await(seen);
+      }),
+  };
+});
 
 layer(BunFileSystem.layer)("via serve", (it) => {
   it.effect("serves /v1/responses through the added accounts, as configured in config.yaml", () =>
@@ -123,6 +181,21 @@ layer(BunFileSystem.layer)("via serve", (it) => {
         const url = yield* serveVia(home, ["--port", port], env);
         expect((yield* postResponses(url, key)).status).toBe(429);
         expect(codex.requests).toHaveLength(1);
+      }),
+    ),
+  );
+
+  it.effect("exports traces to the OTLP endpoint in the standard OpenTelemetry variables", () =>
+    withHome(({ home, key, env }) =>
+      Effect.gen(function* () {
+        const collector = yield* startCollector;
+        const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+          ...env,
+          OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
+          OTEL_BSP_SCHEDULE_DELAY: "50",
+        });
+        expect((yield* postResponses(url, key)).status).toBe(200);
+        yield* collector.saw("dispatch").pipe(Effect.timeout("10 seconds"), realTime);
       }),
     ),
   );

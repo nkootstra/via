@@ -137,6 +137,14 @@ codex:
 
 `via serve --host` and `--port` override the file.
 
+### Tracing
+
+Set `OTEL_EXPORTER_OTLP_ENDPOINT` to an OpenTelemetry collector's OTLP/HTTP
+address, such as `http://localhost:4318`, and `via serve` exports a trace of
+each request it serves. The other standard variables work too:
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`,
+`OTEL_BSP_SCHEDULE_DELAY`, and `OTEL_SDK_DISABLED=true` to turn it off.
+
 ## Security
 
 - Account tokens are stored as plaintext JSON, readable only by you (files
