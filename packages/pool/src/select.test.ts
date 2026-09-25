@@ -173,4 +173,39 @@ describe("properties", () => {
       expect(retryAfter(accounts, state, NOW)).toEqual(expected);
     },
   );
+
+  /** Which built account (if any) to name as `preferred`, and whether to misspell its id. */
+  const Preferred = Schema.Struct({
+    index: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 7 })),
+    missing: Schema.Boolean,
+  });
+  const preferredSpecs = Arbitrary.schema(Preferred);
+
+  it.prop(
+    "a preferred account is always chosen when it is available, whatever the fill order",
+    { specs, preferred: preferredSpecs },
+    ({ specs: values, preferred }) => {
+      const { accounts, state } = build(values);
+      const target = accounts[preferred.index % accounts.length];
+      if (target === undefined || preferred.missing || !expectAvailable(state, NOW)(target)) {
+        return true;
+      }
+      expect(select(accounts, state, NOW, Option.some(target.id))).toEqual(Option.some(target));
+      return true;
+    },
+  );
+
+  it.prop(
+    "falls back to fill-first when the preferred account is unavailable or not in the list",
+    { specs, preferred: preferredSpecs },
+    ({ specs: values, preferred }) => {
+      const { accounts, state } = build(values);
+      const target = accounts[preferred.index % accounts.length];
+      if (target === undefined) return true;
+      const id = preferred.missing ? `${target.id}-missing` : target.id;
+      if (!preferred.missing && expectAvailable(state, NOW)(target)) return true;
+      expect(select(accounts, state, NOW, Option.some(id))).toEqual(select(accounts, state, NOW));
+      return true;
+    },
+  );
 });
