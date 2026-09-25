@@ -1,10 +1,10 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream } from "@via/codex-upstream/testing";
+import { completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
 import { withVia } from "./harness.ts";
 
-const ok = () => ({ status: 200, body: completedStream("hello") });
+const ok = () => reply.sse(completedStream("hello"));
 const request = {
   model: "gpt-6-astra",
   messages: [{ role: "user", content: "hi" }],

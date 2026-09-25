@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { sse } from "@via/codex-upstream/testing";
+import { reply, sse } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
 import { withVia } from "./harness.ts";
 
@@ -14,21 +14,21 @@ const created = {
   type: "response.created",
   response: { ...response, status: "in_progress" },
 };
-const cutOff = () => ({ status: 200, body: sse([created]) });
-const failed = () => ({
-  status: 200,
-  body: sse([
-    created,
-    {
-      type: "response.failed",
-      response: {
-        ...response,
-        status: "failed",
-        error: { code: "server_is_overloaded", message: "Codex is busy" },
+const cutOff = () => reply.sse(sse([created]));
+const failed = () =>
+  reply.sse(
+    sse([
+      created,
+      {
+        type: "response.failed",
+        response: {
+          ...response,
+          status: "failed",
+          error: { code: "server_is_overloaded", message: "Codex is busy" },
+        },
       },
-    },
-  ]),
-});
+    ]),
+  );
 
 const CHAT = "/v1/chat/completions";
 const RESPONSES = "/v1/responses";
@@ -69,10 +69,7 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
 
     it.effect(`${path} answers a garbled Codex stream with 502 upstream_incomplete`, () =>
       withVia(
-        () => ({
-          status: 200,
-          body: `${sse([created])}event: response.completed\ndata: {not json\n\n`,
-        }),
+        () => reply.sse(`${sse([created])}event: response.completed\ndata: {not json\n\n`),
         (via) =>
           Effect.gen(function* () {
             const answer = yield* via.post(path, bodies[path]);
@@ -137,27 +134,27 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
 
   it.effect(`${CHAT} finishes an incomplete Codex response with length`, () =>
     withVia(
-      () => ({
-        status: 200,
-        body: sse([
-          created,
-          {
-            type: "response.incomplete",
-            response: {
-              ...response,
-              status: "incomplete",
-              incomplete_details: { reason: "max_output_tokens" },
-              output: [
-                {
-                  type: "message",
-                  content: [{ type: "output_text", text: "Hel" }],
-                },
-              ],
-              usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+      () =>
+        reply.sse(
+          sse([
+            created,
+            {
+              type: "response.incomplete",
+              response: {
+                ...response,
+                status: "incomplete",
+                incomplete_details: { reason: "max_output_tokens" },
+                output: [
+                  {
+                    type: "message",
+                    content: [{ type: "output_text", text: "Hel" }],
+                  },
+                ],
+                usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
+              },
             },
-          },
-        ]),
-      }),
+          ]),
+        ),
       (via) =>
         Effect.gen(function* () {
           const answer = yield* via.post(CHAT, bodies[CHAT]);
