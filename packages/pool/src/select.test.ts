@@ -43,6 +43,25 @@ describe("select", () => {
     };
     expect(select([{ ...a, enabled: false }, b], state, NOW)).toEqual(Option.none());
   });
+
+  it("prefers the given account over fill-first order when it is available", () => {
+    expect(select([a, b, c], {}, NOW, Option.some("c"))).toEqual(Option.some(c));
+  });
+
+  it("falls back to fill-first when the preferred account is cooling down", () => {
+    const state: PoolState = {
+      b: { status: "cooling", until: NOW + 1, reason: "quota" },
+    };
+    expect(select([a, b, c], state, NOW, Option.some("b"))).toEqual(Option.some(a));
+  });
+
+  it("falls back to fill-first when the preferred account isn't in the list", () => {
+    expect(select([a, b], {}, NOW, Option.some("nonexistent"))).toEqual(Option.some(a));
+  });
+
+  it("falls back to fill-first when nothing is preferred", () => {
+    expect(select([a, b], {}, NOW, Option.none())).toEqual(Option.some(a));
+  });
 });
 
 describe("retryAfter", () => {
