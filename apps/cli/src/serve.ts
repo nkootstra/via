@@ -1,6 +1,7 @@
 import { BunHttpServer } from "@effect/platform-bun";
 import { AccountTokens } from "@via/codex-auth";
 import { loadConfig } from "@via/config";
+import { PoolStates } from "@via/pool";
 import { ViaServer } from "@via/server";
 import { Console, Effect, Layer, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
@@ -8,10 +9,10 @@ import { HttpServer } from "effect/unstable/http";
 import { codexUpstream } from "./upstream.ts";
 
 /**
- * `via serve`, reading `configPath`. `upstreamBaseUrl` replaces the Codex backend,
- * which only tests do.
+ * `via serve`, reading `configPath` and keeping cooldowns in `statePath`.
+ * `upstreamBaseUrl` replaces the Codex backend, which only tests do.
  */
-export const serve = (configPath: string, upstreamBaseUrl: string | undefined) =>
+export const serve = (configPath: string, statePath: string, upstreamBaseUrl: string | undefined) =>
   Command.make(
     "serve",
     {
@@ -34,6 +35,7 @@ export const serve = (configPath: string, upstreamBaseUrl: string | undefined) =
               port: Option.getOrElse(port, () => config.port),
             }),
           ),
+          Layer.provide(PoolStates.layerFile(statePath)),
           Layer.provide(AccountTokens.layer),
           Layer.provide(codexUpstream(config, upstreamBaseUrl)),
         );

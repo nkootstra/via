@@ -111,7 +111,8 @@ model ids are passed through to Codex unchanged.
   restart `via serve`.
 - When no account is left, the client gets `429` with a `Retry-After` header
   (or `503` if waiting won't help).
-- Cooldowns live in memory. Restarting `via serve` clears them.
+- Running cooldowns are saved in `state.json`, so a restarted `via serve` keeps
+  them. Lockouts aren't saved: a restart gives a locked-out account one more try.
 
 ## Configuration
 
@@ -122,6 +123,7 @@ via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set.
 | `config.yaml`    | Optional settings; you write it, via only reads it. |
 | `keys.json`      | SHA-256 hashes of your API keys.                    |
 | `auth/<id>.json` | One account's OAuth tokens.                         |
+| `state.json`     | Running cooldowns; safe to delete.                  |
 
 `config.yaml`, with the defaults:
 

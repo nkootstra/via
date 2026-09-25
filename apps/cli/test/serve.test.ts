@@ -1,21 +1,21 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { fakeIssuer } from "@via/codex-auth/testing";
-import { type CodexRequest, reply, startFakeCodex } from "@via/codex-upstream/testing";
+import { type FakeCodex, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Layer } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpServer } from "effect/unstable/http";
 import { freePort, runVia, serveVia, tempHome } from "./helpers.ts";
 
 /**
  * A `via` home with one account (from a fake issuer) and one API key, whose
- * upstream is a fake Codex backend that records what it receives.
+ * upstream is a fake Codex backend that answers "hello" unless scripted otherwise.
  */
 const withHome = <A, E, R>(
   body: (setup: {
     home: string;
     key: string;
     env: Record<string, string>;
-    upstreamRequests: ReadonlyArray<CodexRequest>;
+    codex: FakeCodex;
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
@@ -32,7 +32,7 @@ const withHome = <A, E, R>(
     yield* runVia(home, ["accounts", "add"], env);
     const created = yield* runVia(home, ["keys", "create", "--name", "test"]);
     const key = created.stdout.trim().split("\n").at(-1) ?? "";
-    return yield* body({ home, key, env, upstreamRequests: codex.requests });
+    return yield* body({ home, key, env, codex });
   });
 
 const postResponses = (url: string, key: string) =>
@@ -47,7 +47,7 @@ const postResponses = (url: string, key: string) =>
 
 layer(BunFileSystem.layer)("via serve", (it) => {
   it.effect("serves /v1/responses through the added accounts, as configured in config.yaml", () =>
-    withHome(({ home, key, env, upstreamRequests }) =>
+    withHome(({ home, key, env, codex }) =>
       Effect.gen(function* () {
         const port = yield* freePort;
         yield* (yield* FileSystem.FileSystem).writeFileString(
@@ -60,7 +60,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
         const response = yield* postResponses(url, key);
         expect(response.status).toBe(200);
         expect(yield* response.json).toMatchObject({ id: "resp_fake", status: "completed" });
-        expect(upstreamRequests[0]?.headers).toMatchObject({
+        expect(codex.requests[0]?.headers).toMatchObject({
           "chatgpt-account-id": "acc-123",
           originator: "via",
         });
@@ -107,5 +107,23 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("Invalid config");
     }),
+  );
+
+  it.effect("keeps an account cooling down across a restart", () =>
+    withHome(({ home, key, env, codex }) =>
+      Effect.gen(function* () {
+        codex.script(reply.error(429, "", { "retry-after": "3600" }));
+        const port = String(yield* freePort);
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const url = yield* serveVia(home, ["--port", port], env);
+            expect((yield* postResponses(url, key)).status).toBe(429);
+          }),
+        );
+        const url = yield* serveVia(home, ["--port", port], env);
+        expect((yield* postResponses(url, key)).status).toBe(429);
+        expect(codex.requests).toHaveLength(1);
+      }),
+    ),
   );
 });

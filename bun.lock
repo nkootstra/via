@@ -26,6 +26,7 @@
         "@via/codex-upstream": "workspace:*",
         "@via/config": "workspace:*",
         "@via/keys": "workspace:*",
+        "@via/pool": "workspace:*",
         "@via/server": "workspace:*",
         "effect": "catalog:",
       },

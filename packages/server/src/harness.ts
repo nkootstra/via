@@ -5,6 +5,7 @@ import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing
 import { CodexUpstream } from "@via/codex-upstream";
 import { type CodexRequest, type Reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
+import { PoolStates } from "@via/pool";
 import { Effect, FileSystem, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import {
@@ -107,6 +108,7 @@ export const withVia = <A, E>(
 
     const server = yield* Layer.build(
       ViaServer.layer.pipe(
+        Layer.provide(PoolStates.layer),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(services),
       ),

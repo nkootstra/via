@@ -52,7 +52,7 @@ const via = Command.make("via").pipe(
   Command.withSubcommands([
     accounts(paths.config, process.env.VIA_CODEX_BASE_URL),
     keys,
-    serve(paths.config, process.env.VIA_CODEX_BASE_URL),
+    serve(paths.config, paths.state, process.env.VIA_CODEX_BASE_URL),
   ]),
 );
 
