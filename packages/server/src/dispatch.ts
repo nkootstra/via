@@ -151,7 +151,6 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       );
     }
     const account = next.value;
-    yield* log.served(account.label);
     const sent = yield* codex.send(account, body, session).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
@@ -161,7 +160,10 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       return yield* openAiError(502, "upstream_unavailable", "Codex could not be reached");
     }
     const upstream = sent.value;
-    if (upstream.status === 200) return yield* onSuccess(upstream);
+    if (upstream.status === 200) {
+      yield* log.served(account.label);
+      return yield* onSuccess(upstream);
+    }
 
     const text = yield* upstream.text;
     const verdict = classify(upstream.status, upstream.headers, text, now);
@@ -193,6 +195,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       }
       continue;
     }
+    yield* log.served(account.label);
     return HttpServerResponse.text(text, {
       status: upstream.status,
       contentType: upstream.headers["content-type"] ?? "application/json",

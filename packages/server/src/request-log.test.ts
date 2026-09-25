@@ -132,7 +132,15 @@ layer(BunFileSystem.layer)("request log", (it) => {
         Effect.gen(function* () {
           // Cools both accounts down; the next request has no account to try.
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
-          yield* via.logged("Sent HTTP response");
+          // Both accounts were tried, but neither served it.
+          expect((yield* via.logged("Sent HTTP response")).annotations).toEqual({
+            "http.method": "POST",
+            "http.url": "/v1/responses",
+            "http.status": 429,
+            model: "gpt-6-astra",
+            error: "rate_limit_exceeded",
+            retry_after: "120",
+          });
           yield* via.post("/v1/chat/completions", { model: "gpt-6-sol", messages: [] });
           expect(yield* via.logged("gpt-6-sol")).toEqual({
             level: "Info",

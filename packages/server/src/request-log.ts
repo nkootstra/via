@@ -27,7 +27,7 @@ const noted = (key: string, value: Option.Option<string>) =>
 
 /**
  * Runs `app` for one request and then logs it as Effect's own request log does
- * (`http.span=1520ms: Sent HTTP response`), adding the model, who served it
+ * ("Sent HTTP response" in an `http.span`), adding the model, who served it
  * and, for an error via answers itself, its code and any `Retry-After`.
  * A streamed answer is logged once the stream ends, so `http.span` covers it,
  * with when its headers and its first chunk were sent.
