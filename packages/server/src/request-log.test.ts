@@ -201,6 +201,24 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("generates a fresh UUID request ID when the client sends the header twice", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const first = "550e8400-e29b-41d4-a716-446655440000";
+        const second = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+        const response = yield* via.post(
+          "/v1/responses",
+          { model: "gpt-6-astra", input: "hi" },
+          undefined,
+          { "x-request-id": [first, second] },
+        );
+        expect(response.headers["x-request-id"]).not.toBe(first);
+        expect(response.headers["x-request-id"]).not.toBe(second);
+        expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      }),
+    ),
+  );
+
   it.effect("generates a fresh UUID request ID when the client's is not a valid UUID", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
