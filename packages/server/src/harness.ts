@@ -6,7 +6,9 @@ import { CodexUpstream } from "@via/codex-upstream";
 import { type CodexRequest, type Reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
-import { Effect, FileSystem, Layer } from "effect";
+import { Providers } from "@via/providers";
+import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
+import { ConfigProvider, Effect, FileSystem, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import {
   FetchHttpClient,
@@ -43,6 +45,7 @@ export type Via = {
     path: string,
     body: object,
     key?: string | null,
+    headers?: Record<string, string>,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** GETs a path from the via server, with a valid API key unless `key` says otherwise. */
   readonly get: (
@@ -55,6 +58,8 @@ export type Via = {
   readonly key: string;
   /** Every request the fake Codex received so far. */
   readonly upstreamRequests: ReadonlyArray<CodexRequest>;
+  /** The fake provider behind both `openrouter/` and `opencode-go/` models. */
+  readonly provider: FakeProvider;
 };
 
 /**
@@ -63,6 +68,8 @@ export type Via = {
  * first refresh with `refreshResponse`, by default a new access token. Account "a"'s
  * access token expires at `aExpiresAt`, by default far in the future. With
  * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
+ * Models prefixed `openrouter/` and `opencode-go/` go to a fake provider, or
+ * to `providerUrl` when it is given.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -74,9 +81,11 @@ export const withVia = <A, E>(
     },
     aExpiresAt,
     codexUrl,
+    providerUrl,
   }: Pick<FakeIssuerOptions, "refreshResponse"> & {
     aExpiresAt?: number;
     codexUrl?: string;
+    providerUrl?: string;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -90,6 +99,8 @@ export const withVia = <A, E>(
     const codex = yield* startFakeCodex;
     codex.respond(answer);
     const issuer = yield* Layer.build(fakeIssuer({ refreshResponse }));
+    const provider = yield* startFakeProvider;
+    const providerConfig = { baseUrl: providerUrl ?? provider.url, apiKeyEnv: "PROVIDER_KEY" };
 
     const services = Layer.mergeAll(
       AccountTokens.layer.pipe(
@@ -104,6 +115,11 @@ export const withVia = <A, E>(
         baseUrl: codexUrl ?? codex.url,
         cloak: true,
       }),
+      Providers.layer({ openrouter: providerConfig, "opencode-go": providerConfig }).pipe(
+        Layer.provide(
+          ConfigProvider.layer(ConfigProvider.fromUnknown({ PROVIDER_KEY: "sk-provider" })),
+        ),
+      ),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     const server = yield* Layer.build(
@@ -127,14 +143,22 @@ export const withVia = <A, E>(
         override === null
           ? (request: HttpClientRequest.HttpClientRequest) => request
           : HttpClientRequest.bearerToken(override ?? key);
-      const post: Via["post"] = (path, json, override) =>
+      const post: Via["post"] = (path, json, override, headers = {}) =>
         HttpClientRequest.post(`${base}${path}`).pipe(
           authorize(override),
+          HttpClientRequest.setHeaders(headers),
           HttpClientRequest.bodyJsonUnsafe(json),
           http.execute,
         );
       const get: Via["get"] = (path, override) =>
         http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
-      return yield* body({ post, get, baseUrl: base, key, upstreamRequests: codex.requests });
+      return yield* body({
+        post,
+        get,
+        baseUrl: base,
+        key,
+        upstreamRequests: codex.requests,
+        provider,
+      });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });

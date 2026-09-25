@@ -6,7 +6,9 @@ on your machine.
 via logs in to each of your ChatGPT accounts, hands out its own API keys, and
 serves `/v1/responses`, `/v1/chat/completions` and `/v1/models` on
 `127.0.0.1:8317`. Each request goes to the first account that still has
-capacity; when one hits its rate limit, via moves on to the next.
+capacity; when one hits its rate limit, via moves on to the next. It can also
+pass requests on to OpenAI-compatible providers such as OpenRouter and
+OpenCode Go.
 
 > **Status:** pre-release (`0.0.0`). Commands and file formats may still change.
 
@@ -69,12 +71,16 @@ Every route needs `Authorization: Bearer <key>` with a key from `via keys create
 | --------------------------- | ------------------------------------------------------------- |
 | `POST /v1/responses`        | Passed through to the Codex backend.                          |
 | `POST /v1/chat/completions` | Translated to and from the Responses API, streaming included. |
-| `GET /v1/models`            | Lists the models Codex offers your accounts.                  |
+| `GET /v1/models`            | Lists the models Codex offers your accounts, then providers'. |
 
-`/v1/models` lists what the Codex model picker shows the account via would use
-next, refreshed every five minutes, so new models appear without a via update.
-When Codex can't be asked, it lists the models via knows: `gpt-6-astra`,
-`gpt-6-sol` and `gpt-6-luna`.
+A model named `<provider>/<model>` goes to that [provider](#providers) instead.
+
+`/v1/models` lists what the Codex model picker shows your accounts, combined,
+since plans offer different models. So new models appear without a via update.
+via keeps the list and answers from it at once; once it is five minutes old, via
+fetches a new one in the background for the next request. When Codex can't be
+asked, it lists the models via knows: `gpt-6-astra`, `gpt-6-sol` and
+`gpt-6-luna`.
 
 Add an effort suffix to a model id to pick the reasoning effort, as in
 `gpt-6-astra-high`. The list shows each model with the suffixes it supports,
@@ -136,6 +142,43 @@ codex:
 ```
 
 `via serve --host` and `--port` override the file.
+
+### Providers
+
+Add OpenAI-compatible providers under `providers`. Each one reads its API key
+from the environment variable `apiKeyEnv` names; `via serve` won't start while
+that variable is unset.
+
+```yaml
+providers:
+  openrouter:
+    apiKeyEnv: OPENROUTER_API_KEY
+  opencode-go:
+    apiKeyEnv: OPENCODE_API_KEY
+  # Any other OpenAI-compatible endpoint needs its baseUrl.
+  local:
+    baseUrl: http://localhost:11434/v1
+    apiKeyEnv: LOCAL_KEY
+    # Optional: the header the provider reads a session id from.
+    sessionHeader: x-session-id
+```
+
+Prefix a model with the provider's name to use it, as in
+`openrouter/qwen/qwen3-coder` or `opencode-go/kimi-k3`. via passes
+`/v1/chat/completions` and `/v1/responses` requests on as they are, with only
+the prefix taken off the model, and passes the provider's answer back the same
+way, errors included. Models OpenCode Go serves only through Anthropic's
+`/messages` API don't work through via. `/v1/models` lists every provider's
+models with their prefix and the details the provider gives, such as
+`context_length`; a provider that can't be reached is left out.
+
+To keep a conversation on a warm prompt cache, via gives each request a session
+id: the one the client sent, in `x-opencode-session`,
+`x-claude-code-session-id`, `session-id`, `session_id`, `x-session-id`, the
+body's `session_id` or `prompt_cache_key`, `x-task-id` or `x-kilocode-taskid`;
+otherwise one derived from the conversation's first system and user message.
+OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
+`session_id`, and Codex in its `session_id` header.
 
 ### Tracing
 

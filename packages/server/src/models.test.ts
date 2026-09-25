@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { completedStream, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { withVia } from "./harness.ts";
+import { type Via, withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
 
@@ -12,6 +12,12 @@ const ModelList = Schema.Struct({
 });
 const ids = (list: unknown) =>
   Schema.decodeUnknownSync(ModelList)(list).data.map((model) => model.id);
+
+const listed = (via: Via) =>
+  via.get("/v1/models").pipe(
+    Effect.flatMap((response) => response.json),
+    Effect.map(ids),
+  );
 
 const catalog = {
   models: [
@@ -24,7 +30,7 @@ const catalog = {
 };
 
 layer(BunFileSystem.layer)("GET /v1/models", (it) => {
-  it.effect("lists the models Codex offers the first account, with their effort aliases", () =>
+  it.effect("lists the models Codex offers the accounts, with their effort aliases", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
       codex.models(catalog);
@@ -34,7 +40,42 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
           Effect.gen(function* () {
             const response = yield* via.get("/v1/models");
             expect(ids(yield* response.json)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
-            expect(codex.requests.at(-1)?.headers["chatgpt-account-id"]).toBe("acc-a");
+            expect(
+              codex.requests.map((request) => request.headers["chatgpt-account-id"]).toSorted(),
+            ).toEqual(["acc-a", "acc-b"]);
+          }),
+        { codexUrl: codex.url },
+      );
+    }),
+  );
+
+  it.effect("combines the models every account offers, as plans differ", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models(
+        { models: [{ slug: "gpt-7", supported_reasoning_levels: [{ effort: "low" }] }] },
+        "acc-a",
+      );
+      codex.models(
+        {
+          models: [
+            { slug: "gpt-7", supported_reasoning_levels: [{ effort: "high" }] },
+            { slug: "daybreak" },
+          ],
+        },
+        "acc-b",
+      );
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.get("/v1/models");
+            expect(ids(yield* response.json)).toEqual([
+              "gpt-7",
+              "daybreak",
+              "gpt-7-low",
+              "gpt-7-high",
+            ]);
           }),
         { codexUrl: codex.url },
       );
@@ -87,7 +128,7 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
     }),
   );
 
-  it.effect("asks Codex again only once the listed catalog is five minutes old", () =>
+  it.effect("answers from the listed catalog while it asks Codex again after five minutes", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
       codex.models(catalog);
@@ -97,10 +138,37 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
           Effect.gen(function* () {
             yield* via.get("/v1/models");
             yield* via.get("/v1/models");
-            expect(codex.requests).toHaveLength(1);
-            yield* TestClock.adjust("5 minutes");
-            yield* via.get("/v1/models");
+            // One ask per account.
             expect(codex.requests).toHaveLength(2);
+            codex.models({ models: [{ slug: "gpt-8" }] });
+            yield* TestClock.adjust("5 minutes");
+            expect(yield* listed(via)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            expect(
+              yield* listed(via).pipe(Effect.repeat({ until: (list) => list[0] === "gpt-8" })),
+            ).toEqual(["gpt-8"]);
+            expect(codex.requests).toHaveLength(4);
+          }),
+        { codexUrl: codex.url },
+      );
+    }),
+  );
+
+  it.effect("keeps the listed catalog when asking Codex again fails", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models(catalog);
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            yield* via.get("/v1/models");
+            codex.models("not a catalog");
+            yield* TestClock.adjust("5 minutes");
+            // A second round of asks means the first one failed and was let go.
+            const last = yield* listed(via).pipe(
+              Effect.repeat({ until: () => codex.requests.length >= 6 }),
+            );
+            expect(last).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
           }),
         { codexUrl: codex.url },
       );
@@ -140,6 +208,44 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
       Effect.gen(function* () {
         const response = yield* via.get("/v1/models", null);
         expect(response.status).toBe(401);
+      }),
+    ),
+  );
+
+  it.effect("lists each provider's models under its prefix, asking again after five minutes", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.models([
+          "qwen/qwen3",
+          {
+            id: "kimi-k3",
+            object: "model",
+            created: 1_780_000_000,
+            owned_by: "moonshot",
+            context_length: 262_144,
+          },
+        ]);
+        const list = yield* (yield* via.get("/v1/models")).json;
+        expect(list).toHaveProperty(
+          "data",
+          expect.arrayContaining([
+            { id: "openrouter/qwen/qwen3", object: "model", created: 0, owned_by: "openrouter" },
+            { id: "opencode-go/qwen/qwen3", object: "model", created: 0, owned_by: "opencode-go" },
+            {
+              id: "openrouter/kimi-k3",
+              object: "model",
+              created: 1_780_000_000,
+              owned_by: "moonshot",
+              context_length: 262_144,
+            },
+            expect.objectContaining({ id: "gpt-6-astra", owned_by: "openai" }),
+          ]),
+        );
+        yield* via.get("/v1/models");
+        expect(via.provider.requests).toHaveLength(2);
+        yield* TestClock.adjust("5 minutes");
+        yield* listed(via).pipe(Effect.repeat({ until: () => via.provider.requests.length >= 4 }));
+        expect(via.provider.requests).toHaveLength(4);
       }),
     ),
   );

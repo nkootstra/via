@@ -7,12 +7,12 @@ import { reply, startFakeCodex } from "./testing/index.ts";
 const account = { accessToken: "at-1", accountId: "acc-1" };
 
 /** Sends one request through CodexUpstream and returns what the fake Codex received. */
-const sendAndRecord = (body: Record<string, unknown>, cloak = true) =>
+const sendAndRecord = (body: Record<string, unknown>, cloak = true, session = "conv-1") =>
   Effect.gen(function* () {
     const codex = yield* startFakeCodex;
     codex.script(reply.text("hello"));
     const response = yield* Effect.gen(function* () {
-      return yield* (yield* CodexUpstream).send(account, body);
+      return yield* (yield* CodexUpstream).send(account, body, session);
     }).pipe(
       Effect.provide(
         CodexUpstream.layer({ baseUrl: codex.url, cloak }).pipe(
@@ -62,13 +62,17 @@ describe("CodexUpstream.send", () => {
     }),
   );
 
-  it.effect("uses the client's prompt_cache_key as session, else a fresh one", () =>
-    Effect.gen(function* () {
-      const keyed = yield* sendAndRecord({ model: "gpt-6-astra", prompt_cache_key: "conv-7" });
-      expect(keyed.request.headers.session_id).toBe("conv-7");
-      const fresh = yield* sendAndRecord({ model: "gpt-6-astra" });
-      expect(fresh.request.headers.session_id).toMatch(/^[0-9a-f-]{36}$/);
-    }),
+  it.effect(
+    "sends the session it is given, as prompt_cache_key too unless the client set one",
+    () =>
+      Effect.gen(function* () {
+        const plain = yield* sendAndRecord({ model: "gpt-6-astra" });
+        expect(plain.request.headers.session_id).toBe("conv-1");
+        expect(plain.request.body["prompt_cache_key"]).toBe("conv-1");
+        const keyed = yield* sendAndRecord({ model: "gpt-6-astra", prompt_cache_key: "mine" });
+        expect(keyed.request.headers.session_id).toBe("conv-1");
+        expect(keyed.request.body["prompt_cache_key"]).toBe("mine");
+      }),
   );
 
   it.effect("returns the upstream response as-is, errors included", () =>

@@ -21,6 +21,13 @@ const isAvailable = (state: PoolState, now: number) => (account: PoolAccount) =>
   );
 };
 
+/** Every enabled account that is neither cooling nor locked out, in order. */
+export const available = <A extends PoolAccount>(
+  accounts: ReadonlyArray<A>,
+  state: PoolState,
+  now: number,
+): ReadonlyArray<A> => accounts.filter(isAvailable(state, now));
+
 /** Fill-first: the first enabled account, in order, that is neither cooling nor locked out. */
 export const select = <A extends PoolAccount>(
   accounts: ReadonlyArray<A>,

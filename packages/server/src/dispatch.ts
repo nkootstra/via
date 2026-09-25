@@ -6,8 +6,9 @@ import {
 } from "@via/codex-auth";
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
-import { classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
-import { Clock, Effect, Option, type Schema } from "effect";
+import { available, classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
+import { type ProviderPath, Providers, type Route } from "@via/providers";
+import { Array, Clock, Effect, Option, type Schema } from "effect";
 import {
   type HttpClientResponse,
   HttpServerRequest,
@@ -61,6 +62,31 @@ export const collected = (
     }),
   );
 
+/**
+ * Sends a request for a provider's model to that provider and pipes its answer
+ * back as it comes, errors included.
+ */
+export const forward = Effect.fn("forward")(function* (
+  route: Route,
+  path: ProviderPath,
+  body: Record<string, unknown>,
+  session: string,
+) {
+  return yield* (yield* Providers).send(route, path, body, session).pipe(
+    Effect.map((upstream) =>
+      HttpServerResponse.stream(upstream.stream, {
+        status: upstream.status,
+        contentType: upstream.headers["content-type"] ?? "application/json",
+      }),
+    ),
+    Effect.catchTag("HttpClientError", () =>
+      Effect.succeed(
+        openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
+      ),
+    ),
+  );
+});
+
 /** The client's API key, if it presented a valid one. */
 const authenticate = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
@@ -88,33 +114,57 @@ const noAccountLeft = (waitMs: Option.Option<number>) =>
   });
 
 /**
- * The account the pool would use next, with an access token fresh enough to
- * send: fill-first, skipping accounts cooling down or locked out. A dead refresh
- * token locks its account out; an auth-server hiccup cools it down for a minute.
- * None once no account can be used.
+ * The account with an access token fresh enough to send; none when refreshing
+ * fails. A dead refresh token locks the account out; an auth-server hiccup
+ * cools it down for a minute.
  */
-export const nextAccount = Effect.gen(function* () {
+const withFreshToken = (account: Account) =>
+  Effect.gen(function* () {
+    const tokens = yield* AccountTokens;
+    const states = yield* PoolStates;
+    const now = yield* Clock.currentTimeMillis;
+    return yield* tokens.fresh(account).pipe(
+      Effect.asSome,
+      Effect.catchTags({
+        RefreshRejectedError: (error) =>
+          states.lockOut(account.id, error.code).pipe(Effect.as(Option.none<Account>())),
+        AuthRequestError: () =>
+          states
+            .mark(account.id, {
+              status: "cooling",
+              until: now + 60_000,
+              reason: "auth_unavailable",
+            })
+            .pipe(Effect.as(Option.none<Account>())),
+      }),
+    );
+  });
+
+/**
+ * The account the pool would use next, with a fresh access token: fill-first,
+ * skipping accounts cooling down or locked out. None once no account can be used.
+ */
+const nextAccount = Effect.gen(function* () {
   const store = yield* AccountStore;
-  const tokens = yield* AccountTokens;
   const states = yield* PoolStates;
   while (true) {
     const now = yield* Clock.currentTimeMillis;
     const chosen = select(yield* store.list, yield* states.get, now);
     if (Option.isNone(chosen)) return Option.none<Account>();
-    const { id } = chosen.value;
-    const fresh = yield* tokens.fresh(chosen.value).pipe(
-      Effect.asSome,
-      Effect.catchTags({
-        RefreshRejectedError: (error) =>
-          states.lockOut(id, error.code).pipe(Effect.as(Option.none<Account>())),
-        AuthRequestError: () =>
-          states
-            .mark(id, { status: "cooling", until: now + 60_000, reason: "auth_unavailable" })
-            .pipe(Effect.as(Option.none<Account>())),
-      }),
-    );
+    const fresh = yield* withFreshToken(chosen.value);
     if (Option.isSome(fresh)) return fresh;
   }
+});
+
+/** Every account the pool could use now, each with a fresh access token. */
+export const usableAccounts = Effect.gen(function* () {
+  const store = yield* AccountStore;
+  const states = yield* PoolStates;
+  const now = yield* Clock.currentTimeMillis;
+  const accounts = available(yield* store.list, yield* states.get, now);
+  return Array.getSomes(
+    yield* Effect.forEach(accounts, withFreshToken, { concurrency: "unbounded" }),
+  );
 });
 
 /**
@@ -124,6 +174,7 @@ export const nextAccount = Effect.gen(function* () {
  */
 export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   body: Record<string, unknown>,
+  session: string,
   onSuccess: (
     upstream: HttpClientResponse.HttpClientResponse,
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
@@ -145,7 +196,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       return noAccountLeft(retryAfter(yield* store.list, yield* states.get, now));
     }
     const account = next.value;
-    const sent = yield* codex.send(account, body).pipe(
+    const sent = yield* codex.send(account, body, session).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),

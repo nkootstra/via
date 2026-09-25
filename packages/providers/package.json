@@ -1,29 +1,24 @@
 {
-  "name": "@via/server",
+  "name": "@via/providers",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./testing": "./src/testing/index.ts"
   },
   "scripts": {
     "test": "bun --bun vitest run",
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@effect/platform-bun": "catalog:",
-    "@via/codex-auth": "workspace:*",
-    "@via/codex-upstream": "workspace:*",
-    "@via/keys": "workspace:*",
-    "@via/pool": "workspace:*",
-    "@via/providers": "workspace:*",
-    "@via/translate": "workspace:*",
+    "@via/config": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
     "@via/tsconfig": "workspace:*",
-    "openai": "^7.23.0",
     "vitest": "catalog:"
   }
 }

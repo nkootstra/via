@@ -49,7 +49,7 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 
 - `apps/cli`: the `via` binary (`effect/unstable/cli`); the composition root.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
-  `codex-upstream`, `translate`, `server`). Create a package only when the first
+  `codex-upstream`, `providers`, `translate`, `server`). Create a package only when the first
   test needs it.
 - `docs/`: user-facing docs; `docs/README.md` is the repo's landing page.
 - `npm/`: distribution. `bun run build` compiles the binary into each

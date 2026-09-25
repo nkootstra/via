@@ -243,6 +243,7 @@ export const startFakeCodex = Effect.gen(function* () {
   const perAccount = new Map<string, Array<Reply>>();
   const usageByAccount = new Map<string, { status: number; body: string }>();
   let catalog: string | undefined;
+  const catalogByAccount = new Map<string, string>();
   const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
   let handler: ((request: CodexRequest) => Reply) | undefined;
 
@@ -299,9 +300,11 @@ export const startFakeCodex = Effect.gen(function* () {
       "/codex/models",
       Effect.gen(function* () {
         const request = yield* record({});
-        return catalog === undefined
+        const account = request.headers["chatgpt-account-id"];
+        const body = (account === undefined ? undefined : catalogByAccount.get(account)) ?? catalog;
+        return body === undefined
           ? yield* respond(unscripted(request))
-          : HttpServerResponse.text(catalog, { contentType: "application/json" });
+          : HttpServerResponse.text(body, { contentType: "application/json" });
       }),
     ),
   );
@@ -329,9 +332,15 @@ export const startFakeCodex = Effect.gen(function* () {
         status,
         body: typeof body === "string" ? body : JSON.stringify(body),
       }),
-    /** Sets the `/codex/models` answer; until then, the catalog is unscripted. */
-    models: (body: string | object) =>
-      void (catalog = typeof body === "string" ? body : JSON.stringify(body)),
+    /**
+     * Sets the `/codex/models` answer, for one account when `account` is given;
+     * until then, the catalog is unscripted.
+     */
+    models: (body: string | object, account?: string) => {
+      const text = typeof body === "string" ? body : JSON.stringify(body);
+      if (account === undefined) catalog = text;
+      else catalogByAccount.set(account, text);
+    },
     /** Waits until at least `count` requests have arrived. */
     received: (count: number) =>
       Effect.gen(function* () {

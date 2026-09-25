@@ -446,9 +446,8 @@ layer(BunFileSystem.layer)("happy path", (it) => {
           );
           expect(upstream.requests[0]).toMatchObject({
             headers: {
-              session_id: expect.stringMatching(
-                /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
-              ),
+              // Derived from the conversation's opening, as the client sent no session.
+              session_id: expect.stringMatching(/^[0-9a-f]{64}$/),
               accept: "text/event-stream",
               originator: "codex-tui",
             },

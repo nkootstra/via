@@ -181,4 +181,15 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
       { refreshResponse: { status: 500, body: {} }, aExpiresAt: 0 },
     ),
   );
+
+  it.effect("tells Codex the session the client named", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" }, undefined, {
+          "x-opencode-session": "ses_1",
+        });
+        expect(via.upstreamRequests[0]?.headers["session_id"]).toBe("ses_1");
+      }),
+    ),
+  );
 });

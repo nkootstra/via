@@ -20,6 +20,7 @@
     "@via/config": "workspace:*",
     "@via/keys": "workspace:*",
     "@via/pool": "workspace:*",
+    "@via/providers": "workspace:*",
     "@via/server": "workspace:*",
     "effect": "catalog:"
   },

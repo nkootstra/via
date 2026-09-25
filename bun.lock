@@ -27,6 +27,7 @@
         "@via/config": "workspace:*",
         "@via/keys": "workspace:*",
         "@via/pool": "workspace:*",
+        "@via/providers": "workspace:*",
         "@via/server": "workspace:*",
         "effect": "catalog:",
       },
@@ -132,6 +133,20 @@
         "vitest": "catalog:",
       },
     },
+    "packages/providers": {
+      "name": "@via/providers",
+      "version": "0.0.0",
+      "dependencies": {
+        "@via/config": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/platform-bun": "catalog:",
+        "@effect/vitest": "catalog:",
+        "@via/tsconfig": "workspace:*",
+        "vitest": "catalog:",
+      },
+    },
     "packages/server": {
       "name": "@via/server",
       "version": "0.0.0",
@@ -141,6 +156,7 @@
         "@via/codex-upstream": "workspace:*",
         "@via/keys": "workspace:*",
         "@via/pool": "workspace:*",
+        "@via/providers": "workspace:*",
         "@via/translate": "workspace:*",
         "effect": "catalog:",
       },
@@ -478,6 +494,8 @@
     "@via/npm": ["@via/npm@workspace:npm"],
 
     "@via/pool": ["@via/pool@workspace:packages/pool"],
+
+    "@via/providers": ["@via/providers@workspace:packages/providers"],
 
     "@via/server": ["@via/server@workspace:packages/server"],
 

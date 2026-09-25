@@ -1,11 +1,13 @@
 import { relayStream } from "@via/codex-upstream";
+import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { authenticated, collected, dispatch, openAiError } from "./dispatch.ts";
+import { authenticated, collected, dispatch, forward, openAiError } from "./dispatch.ts";
+import { resolveSession } from "./session.ts";
 
 const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
 
-/** POST /v1/responses: the Responses API, passed through to Codex. */
+/** POST /v1/responses: the Responses API, passed through to Codex or the provider its model names. */
 export const responses = authenticated(
   Effect.gen(function* () {
     const decoded = yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option);
@@ -13,7 +15,11 @@ export const responses = authenticated(
       return openAiError(400, "invalid_request", "The request body is not a JSON object");
     }
     const body = decoded.value;
-    return yield* dispatch(body, (upstream) =>
+    const { headers } = yield* HttpServerRequest.HttpServerRequest;
+    const session = resolveSession(headers, body);
+    const route = (yield* Providers).route(body.model);
+    if (Option.isSome(route)) return yield* forward(route.value, "/responses", body, session);
+    return yield* dispatch(body, session, (upstream) =>
       body.stream === true
         ? Effect.succeed(
             HttpServerResponse.stream(relayStream(upstream.stream), {
