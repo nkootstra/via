@@ -20,6 +20,14 @@ export class DuplicateKeyNameError extends Schema.TaggedError<DuplicateKeyNameEr
   }
 }
 
+export class KeyNotFoundError extends Schema.TaggedError<KeyNotFoundError>()("KeyNotFoundError", {
+  idOrName: Schema.String,
+}) {
+  override get message() {
+    return `No key with id or name "${this.idOrName}"`;
+  }
+}
+
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
 // Keys are secrets, so this uses the OS CSPRNG rather than Effect's `Random`.
@@ -63,9 +71,8 @@ const make = (path: string) =>
     const revoke = Effect.fn("KeyStore.revoke")(function* (idOrName: string) {
       const keys = yield* read;
       const remaining = keys.filter((k) => k.id !== idOrName && k.name !== idOrName);
-      if (remaining.length === keys.length) return false;
+      if (remaining.length === keys.length) return yield* new KeyNotFoundError({ idOrName });
       yield* write(remaining);
-      return true;
     });
 
     const verify = Effect.fn("KeyStore.verify")(function* (key: string) {

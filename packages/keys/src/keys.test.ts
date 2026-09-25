@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect, FileSystem, Option } from "effect";
-import { DuplicateKeyNameError, KeyStore } from "./index.ts";
+import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "./index.ts";
 
 const withKeyStore = <A, E>(
   body: (file: string) => Effect.Effect<A, E, KeyStore | FileSystem.FileSystem>,
@@ -61,19 +61,21 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       Effect.gen(function* () {
         const store = yield* KeyStore;
         const { id, key } = yield* store.create("laptop");
-        expect(yield* store.revoke(id)).toBe(true);
+        yield* store.revoke(id);
         expect(yield* store.verify(key)).toEqual(Option.none());
       }),
     ),
   );
 
-  it.effect("revokes by name too, and reports unknown targets", () =>
+  it.effect("revokes by name too, and fails on an unknown target", () =>
     withKeyStore(() =>
       Effect.gen(function* () {
         const store = yield* KeyStore;
         yield* store.create("laptop");
-        expect(yield* store.revoke("laptop")).toBe(true);
-        expect(yield* store.revoke("laptop")).toBe(false);
+        yield* store.revoke("laptop");
+        expect(yield* Effect.flip(store.revoke("laptop"))).toEqual(
+          new KeyNotFoundError({ idOrName: "laptop" }),
+        );
       }),
     ),
   );
