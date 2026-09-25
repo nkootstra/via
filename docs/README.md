@@ -179,6 +179,11 @@ model ids are passed through to Codex unchanged.
 
 - Accounts are used **fill-first**, in the order you added them: via stays on
   the first account until it can't serve a request.
+- A conversation stays on the account that last answered it, so its prompt
+  cache stays warm, as long as that account is still available; a new
+  conversation, or one whose account failed over, uses fill-first. This is
+  kept in memory only, capped at 10,000 conversations, and forgotten after an
+  hour of inactivity.
 - Plans differ, so a model goes only to accounts whose model list includes it,
   such as `daybreak` or `daybreak-high` to the one account that offers
   `daybreak`. A model no account's list includes is tried on every account
