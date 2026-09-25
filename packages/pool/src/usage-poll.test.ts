@@ -72,7 +72,11 @@ describe("decideUsagePoll", () => {
 
   it("extends an already-cooling account to a later verified reset", () => {
     const windows = [{ usedPercent: 100, resetsAt: NOW + 120_000 }];
-    const current = { status: "cooling", until: NOW + 60_000, reason: "usage_limit_reached" } as const;
+    const current = {
+      status: "cooling",
+      until: NOW + 60_000,
+      reason: "usage_limit_reached",
+    } as const;
     expect(decideUsagePoll(windows, current, NOW)).toEqual({
       changed: true,
       until: NOW + 120_000,
@@ -82,13 +86,21 @@ describe("decideUsagePoll", () => {
 
   it("never shortens a running cooldown", () => {
     const windows = [{ usedPercent: 100, resetsAt: NOW + 30_000 }];
-    const current = { status: "cooling", until: NOW + 60_000, reason: "usage_limit_reached" } as const;
+    const current = {
+      status: "cooling",
+      until: NOW + 60_000,
+      reason: "usage_limit_reached",
+    } as const;
     expect(decideUsagePoll(windows, current, NOW)).toEqual({ changed: false });
   });
 
   it("never readmits a cooling account early, even when nothing is exhausted", () => {
     const windows = [{ usedPercent: 12, resetsAt: NOW + 60_000 }];
-    const current = { status: "cooling", until: NOW + 60_000, reason: "usage_limit_reached" } as const;
+    const current = {
+      status: "cooling",
+      until: NOW + 60_000,
+      reason: "usage_limit_reached",
+    } as const;
     expect(decideUsagePoll(windows, current, NOW)).toEqual({ changed: false });
   });
 });

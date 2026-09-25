@@ -194,6 +194,10 @@ model ids are passed through to Codex unchanged.
   those accounts count.
 - Running cooldowns are saved in `state.json`, so a restarted `via serve` keeps
   them. Lockouts aren't saved: a restart gives a locked-out account one more try.
+- In the background, via also asks ChatGPT for each account's usage every 15
+  minutes, so an already-exhausted account cools down before its next request
+  would hit a 429. This never ends a cooldown early, only starts one or
+  extends it to a later reset that ChatGPT has confirmed.
 
 ## Configuration
 

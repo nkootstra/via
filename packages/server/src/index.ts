@@ -5,6 +5,7 @@ import { ModelCatalog } from "./catalog.ts";
 import { models } from "./models.ts";
 import { logRequest, withRequestId } from "./request-log.ts";
 import { responses } from "./responses.ts";
+export { UsagePoll } from "./usage-poll.ts";
 
 /** The OpenAI-compatible HTTP API of `via serve`, keeping account states in `PoolStates`. */
 export const ViaServer = {

@@ -3,7 +3,7 @@ import { AccountTokens } from "@via/codex-auth";
 import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
-import { ViaServer } from "@via/server";
+import { UsagePoll, ViaServer } from "@via/server";
 import { ConfigProvider, Console, Effect, Layer, Logger, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { HttpServer } from "effect/unstable/http";
@@ -45,7 +45,7 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
     ({ host, port }) =>
       Effect.gen(function* () {
         const config = yield* loadConfig(configPath);
-        const server = ViaServer.layer.pipe(
+        const server = Layer.mergeAll(ViaServer.layer, UsagePoll.layer).pipe(
           Layer.provideMerge(
             BunHttpServer.layer({
               hostname: Option.getOrElse(host, () => config.host),

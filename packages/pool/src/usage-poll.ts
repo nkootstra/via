@@ -27,7 +27,7 @@ export const pollable = <A extends PoolAccount>(
  * exhausted; `until` is the latest such reset. An already-cooling account's `until`
  * is only ever extended, never shortened, and a poll that finds nothing exhausted
  * never readmits it early — the payload has no reset-independent "allowed again"
- * signal via trusts.
+ * signal that via could trust.
  */
 export const decideUsagePoll = (
   windows: ReadonlyArray<UsageWindow>,
