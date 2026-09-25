@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { fakeIssuer } from "@via/codex-auth/testing";
-import { completedStream, fakeUpstream, type RecordedRequest } from "@via/codex-upstream/testing";
+import { type CodexRequest, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Layer } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpServer } from "effect/unstable/http";
 import { freePort, runVia, serveVia, tempHome } from "./helpers.ts";
@@ -15,29 +15,24 @@ const withHome = <A, E, R>(
     home: string;
     key: string;
     env: Record<string, string>;
-    upstreamRequests: ReadonlyArray<RecordedRequest>;
+    upstreamRequests: ReadonlyArray<CodexRequest>;
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const home = yield* tempHome;
-    const upstreamRequests: Array<RecordedRequest> = [];
-    const upstream = yield* Layer.build(
-      fakeUpstream((request) => {
-        upstreamRequests.push(request);
-        return { status: 200, body: completedStream("hello") };
-      }),
-    );
+    const codex = yield* startFakeCodex;
+    codex.respond(() => reply.text("hello"));
     const issuer = yield* Layer.build(fakeIssuer());
-    const address = (context: typeof upstream | typeof issuer) =>
-      HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
     const env = {
-      VIA_CODEX_ISSUER: yield* address(issuer),
-      VIA_CODEX_BASE_URL: yield* address(upstream),
+      VIA_CODEX_ISSUER: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(
+        Effect.provide(issuer),
+      ),
+      VIA_CODEX_BASE_URL: codex.url,
     };
     yield* runVia(home, ["accounts", "add"], env);
     const created = yield* runVia(home, ["keys", "create", "--name", "test"]);
     const key = created.stdout.trim().split("\n").at(-1) ?? "";
-    return yield* body({ home, key, env, upstreamRequests });
+    return yield* body({ home, key, env, upstreamRequests: codex.requests });
   });
 
 const postResponses = (url: string, key: string) =>
@@ -64,7 +59,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
 
         const response = yield* postResponses(url, key);
         expect(response.status).toBe(200);
-        expect(yield* response.json).toMatchObject({ id: "resp_1", status: "completed" });
+        expect(yield* response.json).toMatchObject({ id: "resp_fake", status: "completed" });
         expect(upstreamRequests[0]?.headers).toMatchObject({
           "chatgpt-account-id": "acc-123",
           originator: "via",
