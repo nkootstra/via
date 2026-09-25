@@ -132,6 +132,20 @@
         "vitest": "catalog:",
       },
     },
+    "packages/providers": {
+      "name": "@via/providers",
+      "version": "0.0.0",
+      "dependencies": {
+        "@via/config": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/platform-bun": "catalog:",
+        "@effect/vitest": "catalog:",
+        "@via/tsconfig": "workspace:*",
+        "vitest": "catalog:",
+      },
+    },
     "packages/server": {
       "name": "@via/server",
       "version": "0.0.0",
@@ -478,6 +492,8 @@
     "@via/npm": ["@via/npm@workspace:npm"],
 
     "@via/pool": ["@via/pool@workspace:packages/pool"],
+
+    "@via/providers": ["@via/providers@workspace:packages/providers"],
 
     "@via/server": ["@via/server@workspace:packages/server"],
 
