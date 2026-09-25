@@ -12,6 +12,7 @@ import {
 import { accountsAllowed, nextAccount } from "./accounts.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { RequestLog } from "./request-log.ts";
+import { SessionBindings } from "./session-bindings.ts";
 import { spotUsage, usageOf } from "./token-usage.ts";
 
 /** An error in the shape OpenAI clients expect, noted in the request's log line. */
@@ -144,6 +145,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
   const log = yield* RequestLog;
+  const bindings = yield* SessionBindings;
   if (typeof body.model === "string") yield* log.asked(body.model);
   const allowed =
     typeof body.model === "string" ? yield* (yield* ModelCatalog).mayServe(body.model) : () => true;
@@ -152,9 +154,12 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
+  // The account that answered this session last time, if via still remembers it:
+  // preferred over fill-first, so the conversation stays on a warm prompt cache.
+  const preferred = yield* bindings.get(session);
 
   while (true) {
-    const next = yield* nextAccount(allowed);
+    const next = yield* nextAccount(allowed, preferred);
     const now = yield* Clock.currentTimeMillis;
     if (Option.isNone(next)) {
       return yield* noAccountLeft(
@@ -173,6 +178,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     const upstream = sent.value;
     if (upstream.status === 200) {
       yield* log.served(account.label);
+      yield* bindings.bind(session, account.id);
       return yield* onSuccess(upstream);
     }
 

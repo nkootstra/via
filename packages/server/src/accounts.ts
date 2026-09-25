@@ -48,15 +48,19 @@ export const accountsAllowed = (allowed: (accountId: string) => boolean) =>
 
 /**
  * The account among those `allowed` the pool would use next, with a fresh
- * access token: fill-first, skipping accounts cooling down or locked out. None
- * once no account can be used.
+ * access token: `preferred` if it names one that is available, else
+ * fill-first, skipping accounts cooling down or locked out. None once no
+ * account can be used.
  */
-export const nextAccount = (allowed: (accountId: string) => boolean) =>
+export const nextAccount = (
+  allowed: (accountId: string) => boolean,
+  preferred: Option.Option<string> = Option.none(),
+) =>
   Effect.gen(function* () {
     const states = yield* PoolStates;
     while (true) {
       const now = yield* Clock.currentTimeMillis;
-      const chosen = select(yield* accountsAllowed(allowed), yield* states.get, now);
+      const chosen = select(yield* accountsAllowed(allowed), yield* states.get, now, preferred);
       if (Option.isNone(chosen)) return Option.none<Account>();
       const fresh = yield* withFreshToken(chosen.value);
       if (Option.isSome(fresh)) return fresh;
