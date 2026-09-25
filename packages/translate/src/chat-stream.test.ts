@@ -155,6 +155,9 @@ describe("toChatStream", () => {
         upstream([created]).pipe(Stream.concat(Stream.fail("connection reset"))),
       );
       expect(events).not.toContain("[DONE]");
+      expect(events.filter((event) => typeof event === "object" && "error" in event)).toHaveLength(
+        1,
+      );
       expect(events.at(-1)).toMatchObject({
         error: { type: "server_error", code: "upstream_incomplete" },
       });

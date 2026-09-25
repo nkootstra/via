@@ -147,10 +147,11 @@ export const toChatStream = <E>(
     Stream.pipeThroughChannel(Sse.decodeDataSchema(StreamEvent)),
     Stream.map((event) => event.data),
     Stream.takeUntil(isTerminal),
+    // A read that fails ends the stream here, so `onHalt` reports it once.
+    Stream.ignore,
     Stream.mapAccum(initial, step, {
       onHalt: (state) => (state.ended ? [] : [incomplete]),
     }),
-    Stream.orElseSucceed(() => incomplete),
     Stream.encodeText,
   );
 };
