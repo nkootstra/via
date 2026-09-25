@@ -9,7 +9,7 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { usagePayload } from "../fake-upstream.ts";
+import { usagePayload } from "./streams.ts";
 
 /** One request as via sent it: nothing redacted, nothing converted. */
 export type CodexRequest = {

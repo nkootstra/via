@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Stream } from "effect";
-import { sse } from "./fake-upstream.ts";
+import { sse } from "./testing/streams.ts";
 import { relayStream } from "./relay-stream.ts";
 
 const created = { type: "response.created", response: { id: "resp_1" } };

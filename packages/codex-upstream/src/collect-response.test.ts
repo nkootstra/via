@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Stream } from "effect";
-import { completedStream, sse } from "./fake-upstream.ts";
+import { completedStream, sse } from "./testing/streams.ts";
 import { collectResponse, IncompleteStreamError, UpstreamFailedError } from "./index.ts";
 
 /** The SSE text as a byte stream, cut into `size`-byte chunks like a network would. */
