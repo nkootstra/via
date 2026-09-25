@@ -1,5 +1,5 @@
 import type { ProviderConfig } from "@via/config";
-import { Config, Context, Effect, Layer, Option, Redacted, Schema } from "effect";
+import { Config, Context, Effect, identity, Layer, Option, Redacted, Schema } from "effect";
 import {
   HttpClient,
   type HttpClientError,
@@ -13,10 +13,21 @@ export type Route = { provider: string; model: string };
 /** The paths via forwards to an OpenAI-compatible provider. */
 export type ProviderPath = "/chat/completions" | "/responses";
 
+/**
+ * Where a provider wants the conversation's session id, so it can keep the
+ * conversation on a warm prompt cache.
+ */
+type SessionTarget = { header: string } | "body" | undefined;
+
 /** Providers via knows, so config.yaml only needs their API key. */
-const PRESETS: Record<string, { baseUrl: string }> = {
-  openrouter: { baseUrl: "https://openrouter.ai/api/v1" },
-  "opencode-go": { baseUrl: "https://opencode.ai/zen/go/v1" },
+const PRESETS: Record<string, { baseUrl: string; session: SessionTarget }> = {
+  // https://openrouter.ai/docs/guides/best-practices/prompt-caching
+  openrouter: { baseUrl: "https://openrouter.ai/api/v1", session: "body" },
+  // https://opencode.ai/docs/go/
+  "opencode-go": {
+    baseUrl: "https://opencode.ai/zen/go/v1",
+    session: { header: "x-opencode-session" },
+  },
 };
 
 export class UnknownProviderError extends Schema.TaggedError<UnknownProviderError>()(
@@ -28,18 +39,22 @@ export class UnknownProviderError extends Schema.TaggedError<UnknownProviderErro
   }
 }
 
-type Provider = { baseUrl: string; apiKey: Redacted.Redacted };
+type Provider = { baseUrl: string; apiKey: Redacted.Redacted; session: SessionTarget };
 
 export interface ProvidersShape {
   /** The provider a `<provider>/<model>` id names, if it is configured. */
   readonly route: (model: unknown) => Option.Option<Route>;
   /** The base URL requests to `provider` go to. */
   readonly baseUrl: (provider: string) => string | undefined;
-  /** Posts `body` to the route's provider, with its model in place of via's. */
+  /**
+   * Posts `body` to the route's provider, with its model in place of via's and
+   * `session` where the provider looks for it.
+   */
   readonly send: (
     route: Route,
     path: ProviderPath,
     body: Record<string, unknown>,
+    session: string,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
 }
 
@@ -50,7 +65,14 @@ const make = (configs: Record<string, ProviderConfig>) =>
     for (const [name, config] of Object.entries(configs)) {
       const baseUrl = config.baseUrl ?? PRESETS[name]?.baseUrl;
       if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
-      providers.set(name, { baseUrl, apiKey: yield* Config.Redacted(config.apiKeyEnv) });
+      providers.set(name, {
+        baseUrl,
+        apiKey: yield* Config.Redacted(config.apiKeyEnv),
+        session:
+          config.sessionHeader === undefined
+            ? PRESETS[name]?.session
+            : { header: config.sessionHeader },
+      });
     }
 
     return Providers.of({
@@ -63,14 +85,21 @@ const make = (configs: Record<string, ProviderConfig>) =>
           : Option.none();
       },
       baseUrl: (provider) => providers.get(provider)?.baseUrl,
-      send: Effect.fn("Providers.send")(function* (route, path, body) {
+      send: Effect.fn("Providers.send")(function* (route, path, body, session) {
         // `route` comes from `route`, so its provider is configured.
         const provider = providers.get(route.provider);
         if (provider === undefined) return yield* Effect.die(`unrouted provider ${route.provider}`);
         return yield* HttpClientRequest.post(`${provider.baseUrl}${path}`).pipe(
           HttpClientRequest.bearerToken(Redacted.value(provider.apiKey)),
           HttpClientRequest.setHeader("user-agent", "via/0.0.0"),
-          HttpClientRequest.bodyJsonUnsafe({ ...body, model: route.model }),
+          typeof provider.session === "object"
+            ? HttpClientRequest.setHeader(provider.session.header, session)
+            : identity,
+          HttpClientRequest.bodyJsonUnsafe(
+            provider.session === "body"
+              ? { prompt_cache_key: session, ...body, model: route.model, session_id: session }
+              : { ...body, model: route.model },
+          ),
           http.execute,
         );
       }),

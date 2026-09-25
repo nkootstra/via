@@ -23,6 +23,19 @@ const withProviders = <A, E, R>(
     ),
   );
 
+/** The request `name` sends for `body` in session "conv-1", configured as `config`. */
+const sent = (name: string, body: Record<string, unknown>, config: Partial<ProviderConfig> = {}) =>
+  Effect.gen(function* () {
+    const fake = yield* startFakeProvider;
+    fake.respond(providerReply.json({}));
+    yield* withProviders(
+      { [name]: { baseUrl: fake.url, apiKeyEnv: "KEY", ...config } },
+      (providers) =>
+        providers.send({ provider: name, model: "m" }, "/chat/completions", body, "conv-1"),
+    );
+    return fake.requests[0];
+  });
+
 layer(BunFileSystem.layer)("Providers", (it) => {
   it.effect("routes a model whose prefix names a configured provider", () =>
     withProviders({ local: { baseUrl: "http://x", apiKeyEnv: "KEY" } }, (providers) =>
@@ -47,6 +60,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
             { provider: "local", model: "qwen/qwen3" },
             "/chat/completions",
             { model: "local/qwen/qwen3", temperature: 0.2, messages: [] },
+            "conv-1",
           );
           expect(response.status).toBe(200);
           expect(yield* response.json).toEqual({ id: "chatcmpl-1" });
@@ -91,6 +105,48 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         withProviders({ openrouter: { apiKeyEnv: "OPENROUTER_API_KEY" } }, () => Effect.void, {}),
       );
       expect(error.message).toMatch(/OPENROUTER_API_KEY/);
+    }),
+  );
+
+  it.effect("sends OpenCode Go the session in x-opencode-session", () =>
+    Effect.gen(function* () {
+      const request = yield* sent("opencode-go", { model: "opencode-go/m" });
+      expect(request?.headers["x-opencode-session"]).toBe("conv-1");
+      expect(request?.body).toEqual({ model: "m" });
+    }),
+  );
+
+  it.effect("sends OpenRouter the session in the body, keeping the client's cache key", () =>
+    Effect.gen(function* () {
+      expect((yield* sent("openrouter", { model: "openrouter/m" }))?.body).toEqual({
+        model: "m",
+        session_id: "conv-1",
+        prompt_cache_key: "conv-1",
+      });
+      expect(
+        (yield* sent("openrouter", { model: "openrouter/m", prompt_cache_key: "mine" }))?.body,
+      ).toEqual({ model: "m", session_id: "conv-1", prompt_cache_key: "mine" });
+    }),
+  );
+
+  it.effect("sends the session in the header a provider's config names", () =>
+    Effect.gen(function* () {
+      const request = yield* sent(
+        "litellm",
+        { model: "litellm/m" },
+        {
+          sessionHeader: "x-litellm-session-id",
+        },
+      );
+      expect(request?.headers["x-litellm-session-id"]).toBe("conv-1");
+    }),
+  );
+
+  it.effect("sends no session to a provider that has no place for it", () =>
+    Effect.gen(function* () {
+      const request = yield* sent("local", { model: "local/m" });
+      expect(request?.body).toEqual({ model: "m" });
+      expect(Object.values(request?.headers ?? {})).not.toContain("conv-1");
     }),
   );
 });
