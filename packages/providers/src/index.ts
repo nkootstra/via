@@ -1,4 +1,5 @@
 export {
+  MissingApiKeyError,
   type ProviderPath,
   Providers,
   type ProvidersShape,

@@ -2,6 +2,7 @@ import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { fakeIssuer } from "@via/codex-auth/testing";
 import { type FakeCodex, reply, startFakeCodex } from "@via/codex-upstream/testing";
+import { providerReply, startFakeProvider } from "@via/providers/testing";
 import { Deferred, Effect, FileSystem, Layer, Schema } from "effect";
 import {
   FetchHttpClient,
@@ -218,5 +219,47 @@ layer(BunFileSystem.layer)("via serve", (it) => {
         yield* collector.saw("dispatch").pipe(Effect.timeout("1 second"), realTime);
       }),
     ),
+  );
+
+  it.effect(
+    "forwards a provider's model with the API key from the variable config.yaml names",
+    () =>
+      withHome(({ home, key, env }) =>
+        Effect.gen(function* () {
+          const provider = yield* startFakeProvider;
+          provider.respond(providerReply.json({ id: "chatcmpl-local" }));
+          yield* (yield* FileSystem.FileSystem).writeFileString(
+            `${home}/config.yaml`,
+            `providers:\n  local:\n    baseUrl: ${provider.url}\n    apiKeyEnv: LOCAL_KEY\n`,
+          );
+          const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+            ...env,
+            LOCAL_KEY: "sk-local",
+          });
+          const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+          const response = yield* HttpClientRequest.post(`${url}/v1/chat/completions`).pipe(
+            HttpClientRequest.bearerToken(key),
+            HttpClientRequest.bodyJsonUnsafe({ model: "local/qwen3", messages: [] }),
+            http.execute,
+          );
+          expect(yield* response.json).toEqual({ id: "chatcmpl-local" });
+          expect(provider.requests[0]?.headers["authorization"]).toBe("Bearer sk-local");
+        }),
+      ),
+  );
+
+  it.effect("refuses to start when a provider's API key variable is not set", () =>
+    Effect.gen(function* () {
+      const home = yield* tempHome;
+      yield* (yield* FileSystem.FileSystem).writeFileString(
+        `${home}/config.yaml`,
+        "providers:\n  openrouter:\n    apiKeyEnv: VIA_TEST_UNSET_KEY\n",
+      );
+      const result = yield* runVia(home, ["serve"]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain(
+        'error: Provider "openrouter" reads its API key from VIA_TEST_UNSET_KEY, which is not set',
+      );
+    }),
   );
 });

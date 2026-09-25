@@ -39,6 +39,15 @@ export class UnknownProviderError extends Schema.TaggedError<UnknownProviderErro
   }
 }
 
+export class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()(
+  "MissingApiKeyError",
+  { provider: Schema.String, variable: Schema.String },
+) {
+  override get message() {
+    return `Provider "${this.provider}" reads its API key from ${this.variable}, which is not set`;
+  }
+}
+
 const ModelList = Schema.Struct({ data: Schema.Array(Schema.Struct({ id: Schema.String })) });
 
 type Provider = { baseUrl: string; apiKey: Redacted.Redacted; session: SessionTarget };
@@ -74,7 +83,11 @@ const make = (configs: Record<string, ProviderConfig>) =>
       if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
       providers.set(name, {
         baseUrl,
-        apiKey: yield* Config.Redacted(config.apiKeyEnv),
+        apiKey: yield* Config.Redacted(config.apiKeyEnv).pipe(
+          Effect.mapError(
+            () => new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv }),
+          ),
+        ),
         session:
           config.sessionHeader === undefined
             ? PRESETS[name]?.session

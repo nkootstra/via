@@ -104,7 +104,9 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       const error = yield* Effect.flip(
         withProviders({ openrouter: { apiKeyEnv: "OPENROUTER_API_KEY" } }, () => Effect.void, {}),
       );
-      expect(error.message).toMatch(/OPENROUTER_API_KEY/);
+      expect(error.message).toBe(
+        `Provider "openrouter" reads its API key from OPENROUTER_API_KEY, which is not set`,
+      );
     }),
   );
 
