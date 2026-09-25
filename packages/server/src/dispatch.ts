@@ -125,9 +125,18 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
 
     const fresh = yield* tokens.fresh(chosen.value).pipe(
       Effect.asSome,
-      Effect.catchTag("RefreshRejectedError", (error) =>
-        lockOut(chosen.value.id)(error).pipe(Effect.as(Option.none())),
-      ),
+      Effect.catchTags({
+        RefreshRejectedError: (error) =>
+          lockOut(chosen.value.id)(error).pipe(Effect.as(Option.none())),
+        // The issuer itself is having trouble; cool the account down rather than fail
+        // the whole request, the same way an upstream hiccup already does below.
+        AuthRequestError: () =>
+          mark(chosen.value.id, {
+            status: "cooling",
+            until: now + 60_000,
+            reason: "auth_unavailable",
+          }).pipe(Effect.as(Option.none())),
+      }),
     );
     if (Option.isNone(fresh)) continue;
     const account = fresh.value;

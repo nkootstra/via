@@ -156,4 +156,16 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
       { refreshResponse: { status: 400, body: { error: "invalid_grant" } }, aExpiresAt: 0 },
     ),
   );
+
+  it.effect("skips an account whose refresh hits an auth-server hiccup, and moves on", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-b"]);
+        }),
+      { refreshResponse: { status: 500, body: {} }, aExpiresAt: 0 },
+    ),
+  );
 });
