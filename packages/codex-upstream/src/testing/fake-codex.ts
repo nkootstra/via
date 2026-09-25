@@ -342,3 +342,6 @@ export const startFakeCodex = Effect.gen(function* () {
       }),
   };
 });
+
+/** A running fake Codex, as `startFakeCodex` gives it. */
+export type FakeCodex = Effect.Success<typeof startFakeCodex>;

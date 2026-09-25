@@ -23,7 +23,7 @@ export const refreshedAccessToken = jwt({
 });
 
 /** Tokens for a ChatGPT account named `name`, valid far into the future. */
-export const accountTokens = (name: string, expiresAt = 1e15) => ({
+const accountTokens = (name: string, expiresAt = 1e15) => ({
   idToken: jwt({
     email: `${name}@example.com`,
     "https://api.openai.com/auth": {

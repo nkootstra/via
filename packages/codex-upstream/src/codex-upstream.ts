@@ -2,7 +2,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 
-export const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
+const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 
 const CODEX_TUI_VERSION = "0.154.0";
 const IDENTITIES = {
