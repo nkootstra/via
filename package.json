@@ -23,11 +23,13 @@
     "lint": "oxlint --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
-    "check": "oxlint --deny-warnings && oxfmt --check && turbo run typecheck test"
+    "knip": "knip",
+    "check": "oxlint --deny-warnings && oxfmt --check && knip && turbo run typecheck test"
   },
   "devDependencies": {
     "@effect/tsgo": "0.45.0",
     "@types/bun": "^1.4.2",
+    "knip": "6.38.0",
     "oxfmt": "^0.70.0",
     "oxlint": "^1.85.0",
     "turbo": "^2.11.3",
