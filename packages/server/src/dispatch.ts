@@ -12,6 +12,7 @@ import {
 import { accountsAllowed, nextAccount } from "./accounts.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { RequestLog } from "./request-log.ts";
+import { spotUsage, usageOf } from "./token-usage.ts";
 
 /** An error in the shape OpenAI clients expect, noted in the request's log line. */
 export const openAiError = (
@@ -51,6 +52,14 @@ export const collected = (
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, Schema.SchemaError>,
 ) =>
   collectResponse(upstream.stream).pipe(
+    Effect.tap((response) =>
+      Effect.flatMap(RequestLog, (log) =>
+        Option.match(usageOf(response["usage"]), {
+          onNone: () => Effect.void,
+          onSome: log.usage,
+        }),
+      ),
+    ),
     Effect.flatMap(onResponse),
     Effect.catchTags({
       UpstreamFailedError: (error) => openAiError(502, error.code, error.reason),
@@ -76,14 +85,16 @@ export const forward = Effect.fn("forward")(function* (
   yield* log.asked(`${route.provider}/${route.model}`);
   yield* log.served(route.provider);
   return yield* (yield* Providers).send(route, path, body, session).pipe(
-    Effect.flatMap((upstream) =>
-      Effect.map(log.timed(upstream.stream), (stream) =>
+    Effect.flatMap((upstream) => {
+      const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
+      const tapped = spotUsage(upstream.stream, sse, log.usage);
+      return Effect.map(log.timed(tapped), (stream) =>
         HttpServerResponse.stream(stream, {
           status: upstream.status,
           contentType: upstream.headers["content-type"] ?? "application/json",
         }),
-      ),
-    ),
+      );
+    }),
     Effect.catchTag("HttpClientError", () =>
       openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
     ),
