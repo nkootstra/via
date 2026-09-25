@@ -54,6 +54,7 @@ const showUsage = Effect.fnUntraced(function* (account: Account) {
     Effect.catchTags({
       RefreshRejectedError: (error) => Effect.succeed([`  ${error.message}`]),
       UsageUnavailableError: (error) => Effect.succeed([`  ${error.message}`]),
+      AuthRequestError: (error) => Effect.succeed([`  ${error.message}`]),
     }),
   );
   for (const line of lines) yield* Console.log(line);
