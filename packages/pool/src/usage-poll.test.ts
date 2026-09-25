@@ -103,4 +103,10 @@ describe("decideUsagePoll", () => {
     } as const;
     expect(decideUsagePoll(windows, current, NOW)).toEqual({ changed: false });
   });
+
+  it("never turns an auth lockout into a mere cooldown, even with an exhausted window", () => {
+    const windows = [{ usedPercent: 100, resetsAt: NOW + 60_000 }];
+    const current = { status: "auth_error", reason: "invalid_grant" } as const;
+    expect(decideUsagePoll(windows, current, NOW)).toEqual({ changed: false });
+  });
 });
