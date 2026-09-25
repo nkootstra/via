@@ -1,5 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
-import { type PoolState, decideUsagePoll, pollable } from "./index.ts";
+import { Schema } from "effect";
+import { Arbitrary } from "effect/unstable/arbitrary";
+import {
+  type AccountState,
+  type PoolState,
+  type UsageWindow,
+  decideUsagePoll,
+  pollable,
+} from "./index.ts";
 
 const a = { id: "a", enabled: true };
 const b = { id: "b", enabled: true };
@@ -109,4 +117,52 @@ describe("decideUsagePoll", () => {
     const current = { status: "auth_error", reason: "invalid_grant" } as const;
     expect(decideUsagePoll(windows, current, NOW)).toEqual({ changed: false });
   });
+});
+
+describe("properties", () => {
+  const WindowSpec = Schema.Struct({
+    usedPercent: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 150 })),
+    resetsAtOffset: Schema.Int.check(Schema.isBetween({ minimum: -1_000, maximum: 1_000 })),
+  });
+  const windowSpecs = Arbitrary.array(Arbitrary.schema(WindowSpec), { minLength: 0, maxLength: 5 });
+
+  /** A pool account's current state, restricted to what `decideUsagePoll` reads. */
+  const CurrentSpec = Schema.Struct({
+    kind: Schema.Literals(["none", "cooling", "auth_error"]),
+    untilOffset: Schema.Int.check(Schema.isBetween({ minimum: -1_000, maximum: 1_000 })),
+  });
+  const currentSpecs = Arbitrary.schema(CurrentSpec);
+
+  const toWindows = (specs: ReadonlyArray<typeof WindowSpec.Type>): ReadonlyArray<UsageWindow> =>
+    specs.map((spec) => ({ usedPercent: spec.usedPercent, resetsAt: NOW + spec.resetsAtOffset }));
+
+  const toCurrent = (spec: typeof CurrentSpec.Type): AccountState | undefined => {
+    if (spec.kind === "none") return undefined;
+    if (spec.kind === "auth_error") return { status: "auth_error", reason: "invalid_grant" };
+    return { status: "cooling", until: NOW + spec.untilOffset, reason: "usage_limit_reached" };
+  };
+
+  it.prop(
+    "never shortens a running cooldown",
+    { windows: windowSpecs, current: currentSpecs },
+    ({ windows, current }) => {
+      const state = toCurrent(current);
+      if (state?.status !== "cooling") return true;
+      const result = decideUsagePoll(toWindows(windows), state, NOW);
+      const effectiveUntil = result.changed ? result.until : state.until;
+      expect(effectiveUntil >= state.until).toBe(true);
+      return true;
+    },
+  );
+
+  it.prop(
+    "never turns an auth lockout into a mere cooldown",
+    { windows: windowSpecs, current: currentSpecs },
+    ({ windows, current }) => {
+      const state = toCurrent(current);
+      if (state?.status !== "auth_error") return true;
+      expect(decideUsagePoll(toWindows(windows), state, NOW)).toEqual({ changed: false });
+      return true;
+    },
+  );
 });
