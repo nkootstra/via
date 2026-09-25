@@ -149,4 +149,24 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       expect(Object.values(request?.headers ?? {})).not.toContain("conv-1");
     }),
   );
+
+  it.effect("lists every provider's models under its prefix, skipping one that is down", () =>
+    Effect.gen(function* () {
+      const up = yield* startFakeProvider;
+      up.models(["qwen/qwen3", "kimi-k3"]);
+      const down = yield* startFakeProvider;
+      const models = yield* withProviders(
+        {
+          up: { baseUrl: up.url, apiKeyEnv: "KEY" },
+          down: { baseUrl: down.url, apiKeyEnv: "KEY" },
+        },
+        (providers) => providers.models,
+      );
+      expect(models).toEqual([
+        { id: "up/qwen/qwen3", provider: "up" },
+        { id: "up/kimi-k3", provider: "up" },
+      ]);
+      expect(up.requests[0]?.headers["authorization"]).toBe("Bearer sk-test");
+    }),
+  );
 });

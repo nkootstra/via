@@ -4,7 +4,7 @@ import {
   HttpClient,
   type HttpClientError,
   HttpClientRequest,
-  type HttpClientResponse,
+  HttpClientResponse,
 } from "effect/unstable/http";
 
 /** Where a request goes: a configured provider and the model id it knows. */
@@ -39,6 +39,8 @@ export class UnknownProviderError extends Schema.TaggedError<UnknownProviderErro
   }
 }
 
+const ModelList = Schema.Struct({ data: Schema.Array(Schema.Struct({ id: Schema.String })) });
+
 type Provider = { baseUrl: string; apiKey: Redacted.Redacted; session: SessionTarget };
 
 export interface ProvidersShape {
@@ -46,6 +48,11 @@ export interface ProvidersShape {
   readonly route: (model: unknown) => Option.Option<Route>;
   /** The base URL requests to `provider` go to. */
   readonly baseUrl: (provider: string) => string | undefined;
+  /**
+   * Every provider's models, as `<provider>/<model>` ids; a provider that
+   * can't list them is left out.
+   */
+  readonly models: Effect.Effect<ReadonlyArray<{ id: string; provider: string }>>;
   /**
    * Posts `body` to the route's provider, with its model in place of via's and
    * `session` where the provider looks for it.
@@ -75,7 +82,25 @@ const make = (configs: Record<string, ProviderConfig>) =>
       });
     }
 
+    const authorized = (provider: Provider, request: HttpClientRequest.HttpClientRequest) =>
+      request.pipe(
+        HttpClientRequest.bearerToken(Redacted.value(provider.apiKey)),
+        HttpClientRequest.setHeader("user-agent", "via/0.0.0"),
+      );
+
+    const list = (name: string, provider: Provider) =>
+      http.execute(authorized(provider, HttpClientRequest.get(`${provider.baseUrl}/models`))).pipe(
+        Effect.flatMap(HttpClientResponse.filterStatusOk),
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(ModelList)),
+        Effect.map(({ data }) => data.map(({ id }) => ({ id: `${name}/${id}`, provider: name }))),
+        // A provider that is down or answers oddly just has no models to offer now.
+        Effect.orElseSucceed(() => []),
+      );
+
     return Providers.of({
+      models: Effect.forEach([...providers], ([name, provider]) => list(name, provider), {
+        concurrency: "unbounded",
+      }).pipe(Effect.map((lists) => lists.flat())),
       route: (model) => {
         if (typeof model !== "string") return Option.none();
         const slash = model.indexOf("/");
@@ -89,9 +114,10 @@ const make = (configs: Record<string, ProviderConfig>) =>
         // `route` comes from `route`, so its provider is configured.
         const provider = providers.get(route.provider);
         if (provider === undefined) return yield* Effect.die(`unrouted provider ${route.provider}`);
-        return yield* HttpClientRequest.post(`${provider.baseUrl}${path}`).pipe(
-          HttpClientRequest.bearerToken(Redacted.value(provider.apiKey)),
-          HttpClientRequest.setHeader("user-agent", "via/0.0.0"),
+        return yield* authorized(
+          provider,
+          HttpClientRequest.post(`${provider.baseUrl}${path}`),
+        ).pipe(
           typeof provider.session === "object"
             ? HttpClientRequest.setHeader(provider.session.header, session)
             : identity,
