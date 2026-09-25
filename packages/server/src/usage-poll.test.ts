@@ -20,7 +20,10 @@ const POLL_MS = 15 * 60 * 1000;
 
 /** Tokens for a ChatGPT account named `name`, valid far into the future unless
  * `overrides` (computed from the poll's own `start`) says otherwise. */
-const accountTokens = (name: string, overrides: Partial<{ refreshToken: string; expiresAt: number }>) => ({
+const accountTokens = (
+  name: string,
+  overrides: Partial<{ refreshToken: string; expiresAt: number }>,
+) => ({
   idToken: jwt({
     email: `${name}@example.com`,
     "https://api.openai.com/auth": { chatgpt_account_id: `acc-${name}`, chatgpt_plan_type: "pro" },
@@ -218,28 +221,30 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
     ),
   );
 
-  it.effect("leaves the account's state untouched, and does not lock it out, when Codex rejects its refreshed token", () =>
-    Effect.gen(function* () {
-      const issuer = yield* HttpServer.addressFormattedWith(Effect.succeed);
-      yield* withPoll(
-        "a",
-        ({ account, states, logged }) =>
-          Effect.gen(function* () {
-            yield* TestClock.adjust("15 minutes");
-            yield* logged(`Could not poll ${account.label}'s usage`);
-            expect(yield* states.get).toEqual({});
-          }),
-        {
-          authLayer: CodexAuth.layer(issuer),
-          // Due to expire at the poll's own first interval, so `AccountTokens.fresh`
-          // refreshes it -- and "rt-1" is the one refresh token this fake issuer accepts.
-          tokens: (start) => ({ refreshToken: "rt-1", expiresAt: start + POLL_MS + 60_000 }),
-        },
-      );
-    }).pipe(
-      Effect.provide(
-        fakeIssuer({ refreshResponse: { status: 400, body: { error: "invalid_grant" } } }),
+  it.effect(
+    "leaves the account's state untouched, and does not lock it out, when Codex rejects its refreshed token",
+    () =>
+      Effect.gen(function* () {
+        const issuer = yield* HttpServer.addressFormattedWith(Effect.succeed);
+        yield* withPoll(
+          "a",
+          ({ account, states, logged }) =>
+            Effect.gen(function* () {
+              yield* TestClock.adjust("15 minutes");
+              yield* logged(`Could not poll ${account.label}'s usage`);
+              expect(yield* states.get).toEqual({});
+            }),
+          {
+            authLayer: CodexAuth.layer(issuer),
+            // Due to expire at the poll's own first interval, so `AccountTokens.fresh`
+            // refreshes it -- and "rt-1" is the one refresh token this fake issuer accepts.
+            tokens: (start) => ({ refreshToken: "rt-1", expiresAt: start + POLL_MS + 60_000 }),
+          },
+        );
+      }).pipe(
+        Effect.provide(
+          fakeIssuer({ refreshResponse: { status: 400, body: { error: "invalid_grant" } } }),
+        ),
       ),
-    ),
   );
 });
