@@ -2,14 +2,13 @@
 // queued per test, so each test says exactly what Codex answers, including the
 // ways it fails. The golden fixtures in ./fixtures come from openai/codex.
 import { BunHttpServer } from "@effect/platform-bun";
-import { Clock, Deferred, Effect, FileSystem, Layer, Schema, Stream } from "effect";
+import { Clock, Deferred, Effect, Layer, Schema, Stream } from "effect";
 import {
   HttpRouter,
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { fileURLToPath } from "node:url";
 import { usagePayload } from "../fake-upstream.ts";
 
 /** One request as via sent it: nothing redacted, nothing converted. */
@@ -200,15 +199,6 @@ export const reply = {
     (gate: Deferred.Deferred<void>, inner: Reply): Reply =>
     (request) => ({ ...inner(request), gate }),
 };
-
-/** Reads a golden fixture from ./fixtures (see SOURCES.md). */
-export const codexFixture = (name: string) =>
-  Effect.flatMap(FileSystem.FileSystem, (fs) =>
-    fs.readFileString(fileURLToPath(new URL(`./fixtures/${name}`, import.meta.url))),
-  ).pipe(
-    // Test fixture: a missing fixture file is a bug in the test.
-    Effect.orDie,
-  );
 
 const unscripted: Reply = (request) =>
   reply.error(599, {

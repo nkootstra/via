@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { jwt } from "@via/codex-auth/testing";
-import { codexFixture, reply } from "@via/codex-upstream/testing";
+import { codexErrorFixture, reply } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Schema } from "effect";
 import { openai, runVia, startCodex, startIssuer, tempHome, type Via, withVia } from "./harness.ts";
 
@@ -12,26 +12,9 @@ const pingRequest = {
   stream: false as const,
 };
 
-/** The HTTP errors codex's own tests expect from the backend, verbatim. */
-const ErrorFixtures = Schema.fromJsonString(
-  Schema.Record(
-    Schema.String,
-    Schema.Struct({
-      status: Schema.Int,
-      headers: Schema.Record(Schema.String, Schema.String),
-      body: Schema.Unknown,
-    }),
-  ),
-);
-
 const errorFixture = (name: string) =>
-  codexFixture("errors.json").pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(ErrorFixtures)),
-    Effect.map((fixtures) => fixtures[name]),
-    Effect.flatMap(Effect.fromNullishOr),
-    Effect.map(({ status, headers, body }) => reply.error(status, body, headers)),
-    // Test fixture: a missing or malformed fixture is a bug in the test.
-    Effect.orDie,
+  Effect.map(codexErrorFixture(name), ({ status, headers, body }) =>
+    reply.error(status, body, headers),
   );
 
 /** The account file `accounts add` or a refresh saved. */

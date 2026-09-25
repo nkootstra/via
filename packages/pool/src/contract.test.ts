@@ -1,32 +1,15 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { codexFixture } from "@via/codex-upstream/testing";
-import { Effect, Schema } from "effect";
+import { codexErrorFixture } from "@via/codex-upstream/testing";
+import { Effect } from "effect";
 import { classify, Verdict } from "./index.ts";
-
-// Contract tests: the HTTP errors codex's own tests expect from the backend.
-const ErrorFixtures = Schema.fromJsonString(
-  Schema.Record(
-    Schema.String,
-    Schema.Struct({
-      status: Schema.Int,
-      headers: Schema.Record(Schema.String, Schema.String),
-      body: Schema.Unknown,
-    }),
-  ),
-);
 
 const NOW = 1_704_067_000_000;
 const MINUTE = 60_000;
 
 const classifyFixture = (name: string) =>
   Effect.gen(function* () {
-    const fixtures = yield* codexFixture("errors.json").pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(ErrorFixtures)),
-    );
-    const fixture = fixtures[name];
-    expect(fixture).toBeDefined();
-    const { status, headers, body } = fixture!;
+    const { status, headers, body } = yield* codexErrorFixture(name);
     const lowered = Object.fromEntries(
       Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value]),
     );
