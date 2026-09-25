@@ -1,8 +1,8 @@
-import { CodexUpstream, modelIds } from "@via/codex-upstream";
+import { type CatalogModel, CodexUpstream, modelIds } from "@via/codex-upstream";
 import { type ProviderModel, Providers } from "@via/providers";
-import { Cache, Context, Effect, Exit, Layer } from "effect";
+import { Array, Cache, Context, Effect, Exit, Layer, Option } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
-import { authenticated, nextAccount } from "./dispatch.ts";
+import { authenticated, usableAccounts } from "./dispatch.ts";
 
 /** A model object with only what via knows about the model. */
 const entry = (id: string, ownedBy: string) => ({
@@ -12,25 +12,46 @@ const entry = (id: string, ownedBy: string) => ({
   owned_by: ownedBy,
 });
 
+/** One catalog of every model in `catalogs`, each with every effort any of them supports. */
+const combine = (catalogs: ReadonlyArray<ReadonlyArray<CatalogModel>>) => {
+  const efforts = new Map<string, ReadonlyArray<string>>();
+  for (const { model, efforts: more } of catalogs.flat()) {
+    efforts.set(model, Array.union(efforts.get(model) ?? [], more));
+  }
+  return [...efforts].map(([model, supported]) => ({ model, efforts: supported }));
+};
+
 /** The models `/v1/models` lists, in OpenAI's model object shape. */
 export class ModelCatalog extends Context.Service<
   ModelCatalog,
   Effect.Effect<ReadonlyArray<ProviderModel>>
 >()("via/ModelCatalog") {
   /**
-   * Lists the models Codex offers the account the pool would pick next, as
-   * the Codex picker does, then every provider's as the provider describes
-   * them, and keeps each list for five minutes. When Codex can't be asked, it
-   * lists the models via bundles.
+   * Lists the models Codex offers any usable account, as the Codex picker
+   * does, since plans differ, then every provider's as the provider describes
+   * them, and keeps each list for five minutes. When no account can ask Codex,
+   * it lists the models via bundles.
    */
   static readonly layer = Layer.effect(
     ModelCatalog,
     Effect.gen(function* () {
       const codex = yield* CodexUpstream;
       const providerModels = yield* Effect.cachedWithTTL((yield* Providers).models, "5 minutes");
-      const ask = nextAccount.pipe(
-        Effect.flatMap(Effect.fromOption),
-        Effect.flatMap((account) => codex.models(account)),
+      const ask = usableAccounts.pipe(
+        Effect.flatMap((accounts) =>
+          Effect.forEach(accounts, (account) => Effect.option(codex.models(account)), {
+            concurrency: "unbounded",
+          }),
+        ),
+        Effect.map(Array.getSomes),
+        // Failing when no account answered keeps the bundled list out of the cache.
+        Effect.flatMap((catalogs) =>
+          Effect.fromOption(
+            Array.isReadonlyArrayNonEmpty(catalogs)
+              ? Option.some(combine(catalogs))
+              : Option.none(),
+          ),
+        ),
       );
       const cache = yield* Cache.makeWith(() => ask, {
         capacity: 1,

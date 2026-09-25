@@ -24,7 +24,7 @@ const catalog = {
 };
 
 layer(BunFileSystem.layer)("GET /v1/models", (it) => {
-  it.effect("lists the models Codex offers the first account, with their effort aliases", () =>
+  it.effect("lists the models Codex offers the accounts, with their effort aliases", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
       codex.models(catalog);
@@ -34,7 +34,42 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
           Effect.gen(function* () {
             const response = yield* via.get("/v1/models");
             expect(ids(yield* response.json)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
-            expect(codex.requests.at(-1)?.headers["chatgpt-account-id"]).toBe("acc-a");
+            expect(
+              codex.requests.map((request) => request.headers["chatgpt-account-id"]).toSorted(),
+            ).toEqual(["acc-a", "acc-b"]);
+          }),
+        { codexUrl: codex.url },
+      );
+    }),
+  );
+
+  it.effect("combines the models every account offers, as plans differ", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models(
+        { models: [{ slug: "gpt-7", supported_reasoning_levels: [{ effort: "low" }] }] },
+        "acc-a",
+      );
+      codex.models(
+        {
+          models: [
+            { slug: "gpt-7", supported_reasoning_levels: [{ effort: "high" }] },
+            { slug: "daybreak" },
+          ],
+        },
+        "acc-b",
+      );
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.get("/v1/models");
+            expect(ids(yield* response.json)).toEqual([
+              "gpt-7",
+              "daybreak",
+              "gpt-7-low",
+              "gpt-7-high",
+            ]);
           }),
         { codexUrl: codex.url },
       );
@@ -97,10 +132,11 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
           Effect.gen(function* () {
             yield* via.get("/v1/models");
             yield* via.get("/v1/models");
-            expect(codex.requests).toHaveLength(1);
+            // One ask per account.
+            expect(codex.requests).toHaveLength(2);
             yield* TestClock.adjust("5 minutes");
             yield* via.get("/v1/models");
-            expect(codex.requests).toHaveLength(2);
+            expect(codex.requests).toHaveLength(4);
           }),
         { codexUrl: codex.url },
       );
