@@ -1,7 +1,7 @@
+import { PoolStates } from "@via/pool";
 import { Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { chatCompletions } from "./chat-completions.ts";
-import { PoolStates } from "./dispatch.ts";
 import { ModelCatalog, models } from "./models.ts";
 import { responses } from "./responses.ts";
 
@@ -13,5 +13,9 @@ export const ViaServer = {
       HttpRouter.add("POST", "/v1/chat/completions", chatCompletions),
       HttpRouter.add("GET", "/v1/models", models),
     ),
-  ).pipe(Layer.provide(ModelCatalog.layer.pipe(Layer.provideMerge(PoolStates.layer)))),
+  ).pipe(
+    Layer.provide(
+      ModelCatalog.layer.pipe(Layer.provideMerge(PoolStates.layer)),
+    ),
+  ),
 };

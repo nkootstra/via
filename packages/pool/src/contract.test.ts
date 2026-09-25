@@ -37,21 +37,29 @@ layer(BunFileSystem.layer)("classify against codex's error fixtures", (it) => {
   it.effect("cools a usage-limited account down until resets_at", () =>
     Effect.gen(function* () {
       expect(yield* classifyFixture("usage_limit_reached")).toEqual(
-        Verdict.Cooldown({ until: 1_704_067_242_000, reason: "usage_limit_reached" }),
+        Verdict.Cooldown({
+          until: 1_704_067_242_000,
+          reason: "usage_limit_reached",
+        }),
       );
     }),
   );
 
   it.effect("refreshes on a 401", () =>
     Effect.gen(function* () {
-      expect(yield* classifyFixture("unauthorized_401")).toEqual(Verdict.Unauthorized());
+      expect(yield* classifyFixture("unauthorized_401")).toEqual(
+        Verdict.Unauthorized(),
+      );
     }),
   );
 
   it.effect("cools an overloaded server down briefly", () =>
     Effect.gen(function* () {
       expect(yield* classifyFixture("server_overloaded_503")).toEqual(
-        Verdict.Cooldown({ until: NOW + MINUTE, reason: "server_is_overloaded" }),
+        Verdict.Cooldown({
+          until: NOW + MINUTE,
+          reason: "server_is_overloaded",
+        }),
       );
     }),
   );

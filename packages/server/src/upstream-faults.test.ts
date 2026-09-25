@@ -5,8 +5,15 @@ import { Effect } from "effect";
 import { withVia } from "./harness.ts";
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
-const response = { id: "resp_1", created_at: 1_700_000_000, model: "gpt-6-astra" };
-const created = { type: "response.created", response: { ...response, status: "in_progress" } };
+const response = {
+  id: "resp_1",
+  created_at: 1_700_000_000,
+  model: "gpt-6-astra",
+};
+const created = {
+  type: "response.created",
+  response: { ...response, status: "in_progress" },
+};
 const cutOff = () => ({ status: 200, body: sse([created]) });
 const failed = () => ({
   status: 200,
@@ -32,37 +39,10 @@ const bodies = {
 
 layer(BunFileSystem.layer)("upstream faults", (it) => {
   for (const path of [CHAT, RESPONSES] as const) {
-    it.effect(`${path} answers a cut-off Codex stream with 502 upstream_incomplete`, () =>
-      withVia(cutOff, (via) =>
-        Effect.gen(function* () {
-          const answer = yield* via.post(path, bodies[path]);
-          expect(answer.status).toBe(502);
-          expect(yield* answer.json).toMatchObject({
-            error: { type: "server_error", code: "upstream_incomplete" },
-          });
-        }),
-      ),
-    );
-
-    it.effect(`${path} answers a failed Codex response with 502 and its code`, () =>
-      withVia(failed, (via) =>
-        Effect.gen(function* () {
-          const answer = yield* via.post(path, bodies[path]);
-          expect(answer.status).toBe(502);
-          expect(yield* answer.json).toMatchObject({
-            error: { type: "server_error", code: "server_is_overloaded", message: "Codex is busy" },
-          });
-        }),
-      ),
-    );
-
-    it.effect(`${path} answers a garbled Codex stream with 502 upstream_incomplete`, () =>
-      withVia(
-        () => ({
-          status: 200,
-          body: `${sse([created])}event: response.completed\ndata: {not json\n\n`,
-        }),
-        (via) =>
+    it.effect(
+      `${path} answers a cut-off Codex stream with 502 upstream_incomplete`,
+      () =>
+        withVia(cutOff, (via) =>
           Effect.gen(function* () {
             const answer = yield* via.post(path, bodies[path]);
             expect(answer.status).toBe(502);
@@ -70,23 +50,62 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
               error: { type: "server_error", code: "upstream_incomplete" },
             });
           }),
-      ),
+        ),
     );
 
-    it.effect(`${path} answers an unreachable Codex with 502 upstream_unavailable`, () =>
-      withVia(
-        cutOff,
-        (via) =>
+    it.effect(
+      `${path} answers a failed Codex response with 502 and its code`,
+      () =>
+        withVia(failed, (via) =>
           Effect.gen(function* () {
             const answer = yield* via.post(path, bodies[path]);
             expect(answer.status).toBe(502);
             expect(yield* answer.json).toMatchObject({
-              error: { type: "server_error", code: "upstream_unavailable" },
+              error: {
+                type: "server_error",
+                code: "server_is_overloaded",
+                message: "Codex is busy",
+              },
             });
           }),
-        // Nothing listens on port 1, so the connection is refused.
-        { codexUrl: "http://127.0.0.1:1" },
-      ),
+        ),
+    );
+
+    it.effect(
+      `${path} answers a garbled Codex stream with 502 upstream_incomplete`,
+      () =>
+        withVia(
+          () => ({
+            status: 200,
+            body: `${sse([created])}event: response.completed\ndata: {not json\n\n`,
+          }),
+          (via) =>
+            Effect.gen(function* () {
+              const answer = yield* via.post(path, bodies[path]);
+              expect(answer.status).toBe(502);
+              expect(yield* answer.json).toMatchObject({
+                error: { type: "server_error", code: "upstream_incomplete" },
+              });
+            }),
+        ),
+    );
+
+    it.effect(
+      `${path} answers an unreachable Codex with 502 upstream_unavailable`,
+      () =>
+        withVia(
+          cutOff,
+          (via) =>
+            Effect.gen(function* () {
+              const answer = yield* via.post(path, bodies[path]);
+              expect(answer.status).toBe(502);
+              expect(yield* answer.json).toMatchObject({
+                error: { type: "server_error", code: "upstream_unavailable" },
+              });
+            }),
+          // Nothing listens on port 1, so the connection is refused.
+          { codexUrl: "http://127.0.0.1:1" },
+        ),
     );
   }
 
@@ -103,23 +122,28 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
     ),
   );
 
-  it.effect(`a ${RESPONSES} stream cut off by Codex ends in an error event`, () =>
-    withVia(cutOff, (via) =>
-      Effect.gen(function* () {
-        const text = yield* (yield* via.post(RESPONSES, { ...bodies[RESPONSES], stream: true }))
-          .text;
-        const frames = text.trim().split("\n\n");
-        expect(frames.map((frame) => /^event: (.*)$/m.exec(frame)?.[1])).toEqual([
-          "response.created",
-          "error",
-        ]);
-        const last = frames.at(-1) ?? "";
-        expect(JSON.parse(last.replace(/^event: error\ndata: /, ""))).toMatchObject({
-          type: "error",
-          code: "upstream_incomplete",
-        });
-      }),
-    ),
+  it.effect(
+    `a ${RESPONSES} stream cut off by Codex ends in an error event`,
+    () =>
+      withVia(cutOff, (via) =>
+        Effect.gen(function* () {
+          const text = yield* (yield* via.post(RESPONSES, {
+            ...bodies[RESPONSES],
+            stream: true,
+          })).text;
+          const frames = text.trim().split("\n\n");
+          expect(
+            frames.map((frame) => /^event: (.*)$/m.exec(frame)?.[1]),
+          ).toEqual(["response.created", "error"]);
+          const last = frames.at(-1) ?? "";
+          expect(
+            JSON.parse(last.replace(/^event: error\ndata: /, "")),
+          ).toMatchObject({
+            type: "error",
+            code: "upstream_incomplete",
+          });
+        }),
+      ),
   );
 
   it.effect(`${CHAT} finishes an incomplete Codex response with length`, () =>
@@ -134,7 +158,12 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
               ...response,
               status: "incomplete",
               incomplete_details: { reason: "max_output_tokens" },
-              output: [{ type: "message", content: [{ type: "output_text", text: "Hel" }] }],
+              output: [
+                {
+                  type: "message",
+                  content: [{ type: "output_text", text: "Hel" }],
+                },
+              ],
               usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
             },
           },

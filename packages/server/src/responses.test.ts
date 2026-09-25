@@ -1,14 +1,20 @@
 import { BunFileSystem } from "@effect/platform-bun";
-import { completedStream, type RecordedRequest } from "@via/codex-upstream/testing";
+import {
+  completedStream,
+  type RecordedRequest,
+} from "@via/codex-upstream/testing";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { refreshedAccessToken, withVia } from "./harness.ts";
 
 const ok = () => ({ status: 200, body: completedStream("hello") });
-const accountOf = (request: RecordedRequest) => request.headers["chatgpt-account-id"];
+const accountOf = (request: RecordedRequest) =>
+  request.headers["chatgpt-account-id"];
 const usageLimit = (resetsAt: number) => ({
   status: 429,
-  body: JSON.stringify({ error: { type: "usage_limit_reached", resets_at: resetsAt } }),
+  body: JSON.stringify({
+    error: { type: "usage_limit_reached", resets_at: resetsAt },
+  }),
 });
 const request = { model: "gpt-6-astra", input: "hi" };
 
@@ -18,7 +24,9 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
       Effect.gen(function* () {
         const response = yield* via.post("/v1/responses", request, null);
         expect(response.status).toBe(401);
-        expect(yield* response.json).toMatchObject({ error: { code: "invalid_api_key" } });
+        expect(yield* response.json).toMatchObject({
+          error: { code: "invalid_api_key" },
+        });
         expect(via.upstreamRequests).toHaveLength(0);
       }),
     ),
@@ -36,7 +44,10 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
   it.effect("streams the upstream events to a streaming client", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
-        const response = yield* via.post("/v1/responses", { ...request, stream: true });
+        const response = yield* via.post("/v1/responses", {
+          ...request,
+          stream: true,
+        });
         expect(response.status).toBe(200);
         expect(response.headers["content-type"]).toContain("text/event-stream");
         expect(yield* response.text).toBe(completedStream("hello"));
@@ -44,21 +55,28 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     ),
   );
 
-  it.effect("answers a non-streaming client with the completed response as JSON", () =>
-    withVia(ok, (via) =>
-      Effect.gen(function* () {
-        const response = yield* via.post("/v1/responses", request);
-        expect(response.status).toBe(200);
-        expect(yield* response.json).toMatchObject({ id: "resp_1", status: "completed" });
-      }),
-    ),
+  it.effect(
+    "answers a non-streaming client with the completed response as JSON",
+    () =>
+      withVia(ok, (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", request);
+          expect(response.status).toBe(200);
+          expect(yield* response.json).toMatchObject({
+            id: "resp_1",
+            status: "completed",
+          });
+        }),
+      ),
   );
 
   it.effect("uses the first account while it works", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
         yield* via.post("/v1/responses", request);
-        expect(via.upstreamRequests[0]?.headers["chatgpt-account-id"]).toBe("acc-a");
+        expect(via.upstreamRequests[0]?.headers["chatgpt-account-id"]).toBe(
+          "acc-a",
+        );
       }),
     ),
   );
@@ -67,82 +85,139 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     "moves on to the next account when one hits its usage limit, and lets it cool down",
     () =>
       withVia(
-        (received) => (accountOf(received) === "acc-a" ? usageLimit(3600) : ok()),
+        (received) =>
+          accountOf(received) === "acc-a" ? usageLimit(3600) : ok(),
         (via) =>
           Effect.gen(function* () {
-            expect((yield* via.post("/v1/responses", request)).status).toBe(200);
-            expect((yield* via.post("/v1/responses", request)).status).toBe(200);
-            expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
+            expect((yield* via.post("/v1/responses", request)).status).toBe(
+              200,
+            );
+            expect((yield* via.post("/v1/responses", request)).status).toBe(
+              200,
+            );
+            expect(via.upstreamRequests.map(accountOf)).toEqual([
+              "acc-a",
+              "acc-b",
+              "acc-b",
+            ]);
           }),
       ),
   );
 
-  it.effect("answers 429 with Retry-After when every account is cooling down", () =>
-    withVia(
-      () => ({ status: 429, headers: { "retry-after": "120" }, body: "" }),
-      (via) =>
-        Effect.gen(function* () {
-          const response = yield* via.post("/v1/responses", request);
-          expect(response.status).toBe(429);
-          expect(response.headers["retry-after"]).toBe("120");
-          expect(yield* response.json).toMatchObject({ error: { code: "rate_limit_exceeded" } });
-        }),
-    ),
+  it.effect(
+    "answers 429 with Retry-After when every account is cooling down",
+    () =>
+      withVia(
+        () => ({ status: 429, headers: { "retry-after": "120" }, body: "" }),
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.post("/v1/responses", request);
+            expect(response.status).toBe(429);
+            expect(response.headers["retry-after"]).toBe("120");
+            expect(yield* response.json).toMatchObject({
+              error: { code: "rate_limit_exceeded" },
+            });
+          }),
+      ),
   );
 
-  it.effect("returns a client error as-is, since another account would fail the same way", () =>
-    withVia(
-      () => ({ status: 400, body: JSON.stringify({ error: { message: "bad input" } }) }),
-      (via) =>
-        Effect.gen(function* () {
-          const response = yield* via.post("/v1/responses", request);
-          expect(response.status).toBe(400);
-          expect(yield* response.json).toEqual({ error: { message: "bad input" } });
-          expect(via.upstreamRequests).toHaveLength(1);
+  it.effect(
+    "returns a client error as-is, since another account would fail the same way",
+    () =>
+      withVia(
+        () => ({
+          status: 400,
+          body: JSON.stringify({ error: { message: "bad input" } }),
         }),
-    ),
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.post("/v1/responses", request);
+            expect(response.status).toBe(400);
+            expect(yield* response.json).toEqual({
+              error: { message: "bad input" },
+            });
+            expect(via.upstreamRequests).toHaveLength(1);
+          }),
+      ),
   );
 
-  it.effect("refreshes a rejected access token and retries with the same account", () =>
-    withVia(
-      (received) =>
-        received.headers.authorization === `Bearer ${refreshedAccessToken}`
-          ? ok()
-          : { status: 401, body: JSON.stringify({ error: { code: "token_expired" } }) },
-      (via) =>
-        Effect.gen(function* () {
-          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
-          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-a"]);
-        }),
-    ),
+  it.effect(
+    "refreshes a rejected access token and retries with the same account",
+    () =>
+      withVia(
+        (received) =>
+          received.headers.authorization === `Bearer ${refreshedAccessToken}`
+            ? ok()
+            : {
+                status: 401,
+                body: JSON.stringify({ error: { code: "token_expired" } }),
+              },
+        (via) =>
+          Effect.gen(function* () {
+            expect((yield* via.post("/v1/responses", request)).status).toBe(
+              200,
+            );
+            expect(via.upstreamRequests.map(accountOf)).toEqual([
+              "acc-a",
+              "acc-a",
+            ]);
+          }),
+      ),
   );
 
-  it.effect("locks out an account that is still refused after a refresh, and moves on", () =>
-    withVia(
-      (received) =>
-        accountOf(received) === "acc-a"
-          ? { status: 401, body: JSON.stringify({ error: { code: "account_deactivated" } }) }
-          : ok(),
-      (via) =>
-        Effect.gen(function* () {
-          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
-          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
-          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-a", "acc-b", "acc-b"]);
-        }),
-    ),
+  it.effect(
+    "locks out an account that is still refused after a refresh, and moves on",
+    () =>
+      withVia(
+        (received) =>
+          accountOf(received) === "acc-a"
+            ? {
+                status: 401,
+                body: JSON.stringify({
+                  error: { code: "account_deactivated" },
+                }),
+              }
+            : ok(),
+        (via) =>
+          Effect.gen(function* () {
+            expect((yield* via.post("/v1/responses", request)).status).toBe(
+              200,
+            );
+            expect((yield* via.post("/v1/responses", request)).status).toBe(
+              200,
+            );
+            expect(via.upstreamRequests.map(accountOf)).toEqual([
+              "acc-a",
+              "acc-a",
+              "acc-b",
+              "acc-b",
+            ]);
+          }),
+      ),
   );
 
-  it.effect("locks out an account whose refresh token is rejected, and moves on", () =>
-    withVia(
-      (received) => (accountOf(received) === "acc-a" ? { status: 401, body: "{}" } : ok()),
-      (via) =>
-        Effect.gen(function* () {
-          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
-          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
-          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
-        }),
-      { refreshResponse: { status: 400, body: { error: "invalid_grant" } } },
-    ),
+  it.effect(
+    "locks out an account whose refresh token is rejected, and moves on",
+    () =>
+      withVia(
+        (received) =>
+          accountOf(received) === "acc-a" ? { status: 401, body: "{}" } : ok(),
+        (via) =>
+          Effect.gen(function* () {
+            expect((yield* via.post("/v1/responses", request)).status).toBe(
+              200,
+            );
+            expect((yield* via.post("/v1/responses", request)).status).toBe(
+              200,
+            );
+            expect(via.upstreamRequests.map(accountOf)).toEqual([
+              "acc-a",
+              "acc-b",
+              "acc-b",
+            ]);
+          }),
+        { refreshResponse: { status: 400, body: { error: "invalid_grant" } } },
+      ),
   );
 
   it.effect("skips an expired account whose refresh token is rejected", () =>
@@ -153,19 +228,26 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
           expect((yield* via.post("/v1/responses", request)).status).toBe(200);
           expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-b"]);
         }),
-      { refreshResponse: { status: 400, body: { error: "invalid_grant" } }, aExpiresAt: 0 },
+      {
+        refreshResponse: { status: 400, body: { error: "invalid_grant" } },
+        aExpiresAt: 0,
+      },
     ),
   );
 
-  it.effect("skips an account whose refresh hits an auth-server hiccup, and moves on", () =>
-    withVia(
-      ok,
-      (via) =>
-        Effect.gen(function* () {
-          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
-          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-b"]);
-        }),
-      { refreshResponse: { status: 500, body: {} }, aExpiresAt: 0 },
-    ),
+  it.effect(
+    "skips an account whose refresh hits an auth-server hiccup, and moves on",
+    () =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            expect((yield* via.post("/v1/responses", request)).status).toBe(
+              200,
+            );
+            expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-b"]);
+          }),
+        { refreshResponse: { status: 500, body: {} }, aExpiresAt: 0 },
+      ),
   );
 });

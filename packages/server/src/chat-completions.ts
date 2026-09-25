@@ -7,14 +7,26 @@ import {
 } from "@via/translate";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { authenticate, collected, dispatch, openAiError, unauthenticated } from "./dispatch.ts";
+import {
+  authenticate,
+  collected,
+  dispatch,
+  openAiError,
+  unauthenticated,
+} from "./dispatch.ts";
 
 /** POST /v1/chat/completions: Chat Completions, translated to and from Responses. */
 export const chatCompletions = Effect.gen(function* () {
   if (Option.isNone(yield* authenticate)) return unauthenticated();
-  const decoded = yield* HttpServerRequest.schemaBodyJson(ChatRequest).pipe(Effect.option);
+  const decoded = yield* HttpServerRequest.schemaBodyJson(ChatRequest).pipe(
+    Effect.option,
+  );
   if (Option.isNone(decoded)) {
-    return openAiError(400, "invalid_request", "The request is not a valid chat completion");
+    return openAiError(
+      400,
+      "invalid_request",
+      "The request is not a valid chat completion",
+    );
   }
   const chat = decoded.value;
   return yield* dispatch(toResponsesRequest(chat), (upstream) =>
@@ -29,7 +41,9 @@ export const chatCompletions = Effect.gen(function* () {
         )
       : collected(upstream, (response) =>
           Schema.decodeUnknownEffect(CompletedResponse)(response).pipe(
-            Effect.map((completed) => HttpServerResponse.jsonUnsafe(toChatCompletion(completed))),
+            Effect.map((completed) =>
+              HttpServerResponse.jsonUnsafe(toChatCompletion(completed)),
+            ),
           ),
         ),
   );

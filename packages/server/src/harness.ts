@@ -1,9 +1,17 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
-import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
+import {
+  type FakeIssuerOptions,
+  fakeIssuer,
+  jwt,
+} from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
-import { type FakeReply, fakeUpstream, type RecordedRequest } from "@via/codex-upstream/testing";
+import {
+  type FakeReply,
+  fakeUpstream,
+  type RecordedRequest,
+} from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
 import { Effect, FileSystem, Layer } from "effect";
 import { TestClock } from "effect/testing";
@@ -17,13 +25,19 @@ import {
 import { ViaServer } from "./index.ts";
 
 /** The access token the fake issuer hands out when any account refreshes. */
-export const refreshedAccessToken = jwt({ exp: 2_000_000_000, refreshed: true });
+export const refreshedAccessToken = jwt({
+  exp: 2_000_000_000,
+  refreshed: true,
+});
 
 /** Tokens for a ChatGPT account named `name`, valid far into the future. */
 export const accountTokens = (name: string, expiresAt = 1e15) => ({
   idToken: jwt({
     email: `${name}@example.com`,
-    "https://api.openai.com/auth": { chatgpt_account_id: `acc-${name}`, chatgpt_plan_type: "pro" },
+    "https://api.openai.com/auth": {
+      chatgpt_account_id: `acc-${name}`,
+      chatgpt_plan_type: "pro",
+    },
   }),
   accessToken: `at-${name}`,
   refreshToken: "rt-1",
@@ -67,7 +81,10 @@ export const withVia = <A, E>(
     },
     aExpiresAt,
     codexUrl,
-  }: Pick<FakeIssuerOptions, "refreshResponse"> & { aExpiresAt?: number; codexUrl?: string } = {},
+  }: Pick<FakeIssuerOptions, "refreshResponse"> & {
+    aExpiresAt?: number;
+    codexUrl?: string;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -86,14 +103,19 @@ export const withVia = <A, E>(
     );
     const issuer = yield* Layer.build(fakeIssuer({ refreshResponse }));
     const address = (context: typeof upstream | typeof issuer) =>
-      HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
+      HttpServer.addressFormattedWith(Effect.succeed).pipe(
+        Effect.provide(context),
+      );
 
     const services = Layer.mergeAll(
       AccountTokens.layer.pipe(
         Layer.provide(CodexAuth.layer(yield* address(issuer))),
         Layer.provideMerge(stores),
       ),
-      CodexUpstream.layer({ baseUrl: codexUrl ?? (yield* address(upstream)), cloak: true }),
+      CodexUpstream.layer({
+        baseUrl: codexUrl ?? (yield* address(upstream)),
+        cloak: true,
+      }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     const server = yield* Layer.build(
@@ -123,7 +145,9 @@ export const withVia = <A, E>(
           http.execute,
         );
       const get: Via["get"] = (path, override) =>
-        http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
+        http.execute(
+          HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)),
+        );
       return yield* body({ post, get, baseUrl: base, key, upstreamRequests });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });

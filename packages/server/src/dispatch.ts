@@ -1,27 +1,17 @@
-import { AccountStore, AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
+import {
+  AccountStore,
+  AccountTokens,
+  type RefreshRejectedError,
+} from "@via/codex-auth";
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
-import {
-  type AccountState,
-  classify,
-  type PoolState,
-  retryAfter,
-  select,
-  Verdict,
-} from "@via/pool";
-import { Clock, Context, Effect, Layer, Option, Ref, type Schema } from "effect";
+import { classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
+import { Clock, Effect, Option, type Schema } from "effect";
 import {
   type HttpClientResponse,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-
-/** Cooldowns and lockouts of the accounts, as learned from upstream answers. */
-export class PoolStates extends Context.Service<PoolStates, Ref.Ref<PoolState>>()(
-  "via/PoolStates",
-) {
-  static readonly layer = Layer.effect(PoolStates, Ref.make<PoolState>({}));
-}
 
 /** An error in the shape OpenAI clients expect. */
 export const openAiError = (
@@ -31,7 +21,13 @@ export const openAiError = (
   headers: Record<string, string> = {},
 ) =>
   HttpServerResponse.jsonUnsafe(
-    { error: { message, type: status >= 500 ? "server_error" : "invalid_request_error", code } },
+    {
+      error: {
+        message,
+        type: status >= 500 ? "server_error" : "invalid_request_error",
+        code,
+      },
+    },
     { status, headers },
   );
 
@@ -54,7 +50,8 @@ export const collected = (
   collectResponse(upstream.stream).pipe(
     Effect.flatMap(onResponse),
     Effect.catchTags({
-      UpstreamFailedError: (error) => Effect.succeed(openAiError(502, error.code, error.reason)),
+      UpstreamFailedError: (error) =>
+        Effect.succeed(openAiError(502, error.code, error.reason)),
       IncompleteStreamError: (error) =>
         Effect.succeed(openAiError(502, "upstream_incomplete", error.message)),
       HttpClientError: () => Effect.succeed(unreadable),
@@ -77,22 +74,13 @@ export const unauthenticated = () =>
 
 const noAccountLeft = (waitMs: Option.Option<number>) =>
   Option.match(waitMs, {
-    onNone: () => openAiError(503, "no_accounts", "No enabled account can serve requests"),
+    onNone: () =>
+      openAiError(503, "no_accounts", "No enabled account can serve requests"),
     onSome: (ms) =>
       openAiError(429, "rate_limit_exceeded", "Every account is cooling down", {
         "retry-after": String(Math.ceil(ms / 1000)),
       }),
   });
-
-const markAccount = (states: Ref.Ref<PoolState>, id: string, state: AccountState) =>
-  Ref.update(states, (current) => ({ ...current, [id]: state }));
-
-/** A dead refresh token takes the account out of rotation until it logs in again. */
-export const lockOutAccount = (
-  states: Ref.Ref<PoolState>,
-  id: string,
-  error: RefreshRejectedError,
-) => markAccount(states, id, { status: "auth_error", reason: error.code });
 
 /**
  * Sends a Responses request to Codex through the pool, fill-first: accounts are
@@ -109,19 +97,20 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
   const tokens = yield* AccountTokens;
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
-  const mark = (id: string, state: AccountState) => markAccount(states, id, state);
+  // A dead refresh token takes the account out of rotation until it logs in again.
   const lockOut = (id: string) => (error: RefreshRejectedError) =>
-    lockOutAccount(states, id, error);
+    states.lockOut(id, error.code);
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
 
   while (true) {
     const accounts = yield* store.list;
-    const state = yield* Ref.get(states);
+    const state = yield* states.get;
     const now = yield* Clock.currentTimeMillis;
     const chosen = select(accounts, state, now);
-    if (Option.isNone(chosen)) return noAccountLeft(retryAfter(accounts, state, now));
+    if (Option.isNone(chosen))
+      return noAccountLeft(retryAfter(accounts, state, now));
 
     const fresh = yield* tokens.fresh(chosen.value).pipe(
       Effect.asSome,
@@ -131,11 +120,13 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
         // The issuer itself is having trouble; cool the account down rather than fail
         // the whole request, the same way an upstream hiccup already does below.
         AuthRequestError: () =>
-          mark(chosen.value.id, {
-            status: "cooling",
-            until: now + 60_000,
-            reason: "auth_unavailable",
-          }).pipe(Effect.as(Option.none())),
+          states
+            .mark(chosen.value.id, {
+              status: "cooling",
+              until: now + 60_000,
+              reason: "auth_unavailable",
+            })
+            .pipe(Effect.as(Option.none())),
       }),
     );
     if (Option.isNone(fresh)) continue;
@@ -146,7 +137,11 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),
     );
     if (Option.isNone(sent)) {
-      return openAiError(502, "upstream_unavailable", "Codex could not be reached");
+      return openAiError(
+        502,
+        "upstream_unavailable",
+        "Codex could not be reached",
+      );
     }
     const upstream = sent.value;
     if (upstream.status === 200) return yield* onSuccess(upstream);
@@ -154,12 +149,19 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
     const text = yield* upstream.text;
     const verdict = classify(upstream.status, upstream.headers, text, now);
     if (Verdict.$is("Cooldown")(verdict)) {
-      yield* mark(account.id, { status: "cooling", until: verdict.until, reason: verdict.reason });
+      yield* states.mark(account.id, {
+        status: "cooling",
+        until: verdict.until,
+        reason: verdict.reason,
+      });
       continue;
     }
     if (Verdict.$is("Unauthorized")(verdict)) {
       if (refreshed.has(account.id)) {
-        yield* mark(account.id, { status: "auth_error", reason: "unauthorized" });
+        yield* states.mark(account.id, {
+          status: "auth_error",
+          reason: "unauthorized",
+        });
       } else {
         refreshed.add(account.id);
         yield* tokens
