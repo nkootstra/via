@@ -1,4 +1,4 @@
-// Test-only: a local stand-in for auth.openai.com. Not exported from the package.
+// Test-only: a local stand-in for auth.openai.com, exported as `@via/codex-auth/testing`.
 import { BunHttpServer } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import {
