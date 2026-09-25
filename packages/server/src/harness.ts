@@ -8,7 +8,7 @@ import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
-import { ConfigProvider, Deferred, Effect, FileSystem, Layer, Logger } from "effect";
+import { ConfigProvider, Deferred, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
 import {
   FetchHttpClient,
@@ -60,26 +60,41 @@ export type Via = {
   readonly upstreamRequests: ReadonlyArray<CodexRequest>;
   /** The fake provider behind both `openrouter/` and `opencode-go/` models. */
   readonly provider: FakeProvider;
-  /** Waits for the first line via logs that contains `text`, as `<level> <message>`. */
-  readonly logged: (text: string) => Effect.Effect<string>;
+  /** Waits for the first line via logs whose message or annotations contain `text`. */
+  readonly logged: (text: string) => Effect.Effect<LogLine>;
+};
+
+/** A line via logged, with the labels of its log spans. */
+type LogLine = {
+  readonly level: string;
+  readonly message: string;
+  readonly spans: ReadonlyArray<string>;
+  readonly annotations: Record<string, unknown>;
 };
 
 /** A logger that keeps every line, and `logged(text)`, which waits for one containing `text`. */
 const collectLogs = () => {
-  const lines: Array<string> = [];
-  const waiters: Array<{ text: string; line: Deferred.Deferred<string> }> = [];
-  const logger = Logger.make(({ logLevel, message }) => {
-    const line = `${logLevel} ${(Array.isArray(message) ? message : [message]).join(" ")}`;
+  const lines: Array<LogLine> = [];
+  const waiters: Array<{ text: string; line: Deferred.Deferred<LogLine> }> = [];
+  const matches = (line: LogLine, text: string) =>
+    `${line.message} ${JSON.stringify(line.annotations)}`.includes(text);
+  const logger = Logger.make(({ logLevel, message, fiber }) => {
+    const line: LogLine = {
+      level: logLevel,
+      message: (Array.isArray(message) ? message : [message]).join(" "),
+      spans: fiber.getRef(References.CurrentLogSpans).map(([label]) => label),
+      annotations: { ...fiber.getRef(References.CurrentLogAnnotations) },
+    };
     lines.push(line);
-    for (const waiter of waiters.filter(({ text }) => line.includes(text))) {
+    for (const waiter of waiters.filter(({ text }) => matches(line, text))) {
       Deferred.doneUnsafe(waiter.line, Effect.succeed(line));
     }
   });
   const logged = (text: string) =>
     Effect.suspend(() => {
-      const line = lines.find((seen) => seen.includes(text));
+      const line = lines.find((seen) => matches(seen, text));
       if (line !== undefined) return Effect.succeed(line);
-      const waiter = { text, line: Deferred.makeUnsafe<string>() };
+      const waiter = { text, line: Deferred.makeUnsafe<LogLine>() };
       waiters.push(waiter);
       return Deferred.await(waiter.line);
     });

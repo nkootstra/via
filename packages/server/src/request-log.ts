@@ -1,4 +1,4 @@
-import { Clock, Context, Effect, Option, Ref, Stream } from "effect";
+import { Clock, Context, Effect, Option, Ref, References, Stream } from "effect";
 import { HttpServerRequest, type HttpServerResponse } from "effect/unstable/http";
 
 /** What a request's log line says it asked for and who answered. */
@@ -23,13 +23,11 @@ export class RequestLog extends Context.Service<
   }
 >()("via/RequestLog") {}
 
-const ms = (from: number, to: number) => `${to - from}ms`;
-
 /**
- * Runs `app` for one request and then logs one line about it, such as
- * `POST /v1/responses 200 · gpt-6-astra via a@example.com · 1520ms`. A streamed
- * answer is logged once the stream ends, with when its headers, its first chunk
- * and its end were sent.
+ * Runs `app` for one request and then logs it as Effect's own request log does
+ * (`http.span=1520ms: Sent HTTP response`), adding the model and who served it.
+ * A streamed answer is logged once the stream ends, so `http.span` covers it,
+ * with when its headers and its first chunk were sent.
  */
 export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
   Effect.gen(function* () {
@@ -44,23 +42,31 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     const headersAt = yield* Ref.make(start);
 
     const log = Effect.gen(function* () {
-      const end = yield* Clock.currentTimeMillis;
-      const what = Option.match(yield* Ref.get(served), {
-        onNone: () => [],
-        onSome: ({ model, by }) => [`${model} via ${by}`],
-      });
+      const headers = (yield* Ref.get(headersAt)) - start;
       const first = yield* Ref.get(firstChunk);
-      const timing = (yield* Ref.get(streamed))
-        ? [
-            `headers ${ms(start, yield* Ref.get(headersAt))}`,
-            ...Option.toArray(Option.map(first, (at) => `first chunk ${ms(start, at)}`)),
-            `done ${ms(start, end)}`,
-          ]
-        : [ms(start, end)];
-      yield* Effect.log(
-        [`${request.method} ${request.url} ${yield* Ref.get(status)}`, ...what, ...timing].join(
-          " · ",
-        ),
+      const timings = (yield* Ref.get(streamed))
+        ? {
+            headers_ms: headers,
+            ...Option.match(first, {
+              onNone: () => ({}),
+              onSome: (at) => ({ first_chunk_ms: at - start }),
+            }),
+          }
+        : {};
+      const what = Option.match(yield* Ref.get(served), {
+        onNone: () => ({}),
+        onSome: ({ model, by }) => ({ model, served_by: by }),
+      });
+      yield* Effect.log("Sent HTTP response").pipe(
+        Effect.annotateLogs({
+          "http.method": request.method,
+          "http.url": request.url,
+          "http.status": yield* Ref.get(status),
+          ...what,
+          ...timings,
+        }),
+        // As Effect's own request log does, but the span lasts until the answer is sent.
+        Effect.provideService(References.CurrentLogSpans, [["http.span", start]]),
       );
     });
     const finish = Ref.updateAndGet(pending, (n) => n - 1).pipe(

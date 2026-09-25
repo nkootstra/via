@@ -187,14 +187,21 @@ OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
 
 ### Logs
 
-`via serve` logs one line per request once its answer has been sent: the
-model, the provider or Codex account that answered, the status, and how long
-it took. For a streamed answer, the line also says when the headers and the
-first chunk went out:
+`via serve` logs each request once its answer has been sent. `http.span` is
+the whole time via took, and the model, the provider or Codex account that
+answered and, for a streamed answer, when its headers and first chunk went out
+come with it:
 
 ```
-POST /v1/chat/completions 200 · opencode-go/deepseek-v4.1-flash via opencode-go · headers 1441ms · first chunk 1441ms · done 1936ms
-POST /v1/responses 200 · gpt-6-astra via Personal · 1520ms
+[18:26:23.520] INFO (#30) http.span=1875ms: Sent HTTP response {
+  "http.method": "POST",
+  "http.url": "/v1/chat/completions",
+  "http.status": 200,
+  model: "opencode-go/deepseek-v4.1-flash",
+  served_by: "opencode-go",
+  headers_ms: 1478,
+  first_chunk_ms: 1478,
+}
 ```
 
 It also warns when an account cools down, is locked out, or has its token
