@@ -25,7 +25,9 @@ export const loadConfig = Effect.fn("loadConfig")(function* (path: string) {
   const fs = yield* FileSystem.FileSystem;
   const text = yield* fs.readFileString(path).pipe(
     Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed("")),
-    Effect.orDie,
+    Effect.catchTag("PlatformError", (error) =>
+      Effect.fail(new InvalidConfigError({ path, reason: error.message })),
+    ),
   );
   const raw = yield* Effect.try({
     try: (): unknown => Bun.YAML.parse(text) ?? {},
