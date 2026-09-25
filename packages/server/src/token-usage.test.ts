@@ -134,4 +134,23 @@ describe("spotUsage", () => {
       expect(reported).toEqual([]);
     }),
   );
+
+  it.effect("reports usage again each time the same JSON stream value is run", () =>
+    Effect.gen(function* () {
+      const text = '{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}';
+      const reported: Array<unknown> = [];
+      // The returned Stream is a description, not a one-shot effect: running it
+      // twice (as a retry or a replay would) must report both times, not just
+      // reuse whatever state the first run left behind.
+      const stream = spotUsage(Stream.make(bytes(text)), false, (usage) =>
+        Effect.sync(() => reported.push(usage)),
+      );
+      yield* Stream.runDrain(stream);
+      yield* Stream.runDrain(stream);
+      expect(reported).toEqual([
+        { inputTokens: 10, outputTokens: 2 },
+        { inputTokens: 10, outputTokens: 2 },
+      ]);
+    }),
+  );
 });

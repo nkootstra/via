@@ -92,25 +92,31 @@ const reportIfSome = (
 const spotSse = <E>(
   body: Stream.Stream<Uint8Array, E>,
   report: (usage: TokenUsage) => Effect.Effect<void>,
-): Stream.Stream<Uint8Array, E> => {
-  const decoder = new TextDecoder();
-  let pending: Array<string> = [];
-  const parser = Sse.makeParser((event) => {
-    if (!Sse.Retry.is(event)) pending.push(event.data);
-  });
-  return body.pipe(
-    Stream.mapEffect((chunk) => {
-      parser.feed(decoder.decode(chunk, { stream: true }));
-      const events = pending;
-      pending = [];
-      return Effect.forEach(
-        events,
-        (data) => Effect.flatMap(usageIn(data), (found) => reportIfSome(found, report)),
-        { discard: true },
-      ).pipe(Effect.as(chunk));
+): Stream.Stream<Uint8Array, E> =>
+  // Built fresh inside `Effect.sync` so each *run* of the returned stream (not
+  // each call to `spotSse`) gets its own decoder/parser/buffer — a Stream is a
+  // repeatable description, and must be safe to run more than once.
+  Stream.unwrap(
+    Effect.sync(() => {
+      const decoder = new TextDecoder();
+      let pending: Array<string> = [];
+      const parser = Sse.makeParser((event) => {
+        if (!Sse.Retry.is(event)) pending.push(event.data);
+      });
+      return body.pipe(
+        Stream.mapEffect((chunk) => {
+          parser.feed(decoder.decode(chunk, { stream: true }));
+          const events = pending;
+          pending = [];
+          return Effect.forEach(
+            events,
+            (data) => Effect.flatMap(usageIn(data), (found) => reportIfSome(found, report)),
+            { discard: true },
+          ).pipe(Effect.as(chunk));
+        }),
+      );
     }),
   );
-};
 
 /**
  * Taps a JSON body byte stream for the `usage` it carries once it is
@@ -120,29 +126,33 @@ const spotSse = <E>(
 const spotJson = <E>(
   body: Stream.Stream<Uint8Array, E>,
   report: (usage: TokenUsage) => Effect.Effect<void>,
-): Stream.Stream<Uint8Array, E> => {
-  const decoder = new TextDecoder();
-  let text = "";
-  let reported = false;
-  return body.pipe(
-    Stream.mapEffect((chunk) => {
-      text += decoder.decode(chunk, { stream: true });
-      if (reported) return Effect.succeed(chunk);
-      return Effect.flatMap(usageIn(text), (found) =>
-        Effect.as(
-          reportIfSome(found, report).pipe(
-            Effect.tap(() =>
-              Effect.sync(() => {
-                reported = Option.isSome(found);
-              }),
+): Stream.Stream<Uint8Array, E> =>
+  // Same reason as `spotSse`: a fresh decoder/buffer/flag per run, not per call.
+  Stream.unwrap(
+    Effect.sync(() => {
+      const decoder = new TextDecoder();
+      let text = "";
+      let reported = false;
+      return body.pipe(
+        Stream.mapEffect((chunk) => {
+          text += decoder.decode(chunk, { stream: true });
+          if (reported) return Effect.succeed(chunk);
+          return Effect.flatMap(usageIn(text), (found) =>
+            Effect.as(
+              reportIfSome(found, report).pipe(
+                Effect.tap(() =>
+                  Effect.sync(() => {
+                    reported = Option.isSome(found);
+                  }),
+                ),
+              ),
+              chunk,
             ),
-          ),
-          chunk,
-        ),
+          );
+        }),
       );
     }),
   );
-};
 
 /**
  * Taps a response body byte stream for the token usage it reports — an SSE
