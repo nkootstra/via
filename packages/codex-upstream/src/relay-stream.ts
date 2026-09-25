@@ -1,7 +1,6 @@
 import { Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
-
-const TERMINAL = new Set(["response.completed", "response.failed", "response.incomplete"]);
+import { TERMINAL_EVENTS } from "./terminal-events.ts";
 
 // The Responses API's stream error event, which clients such as the openai SDK raise.
 const incomplete = Sse.encoder.write({
@@ -26,12 +25,12 @@ export const relayStream = <E>(body: Stream.Stream<Uint8Array, E>) =>
     Stream.decodeText,
     Stream.pipeThroughChannel(Sse.decode()),
     // Nothing after the terminal event is read, so a late break can't taint it.
-    Stream.takeUntil((event) => TERMINAL.has(event.event)),
+    Stream.takeUntil((event) => TERMINAL_EVENTS.has(event.event)),
     // A read that fails ends the stream here, so `onHalt` reports it once.
     Stream.ignore,
     Stream.mapAccum(
       () => false,
-      (ended, event) => [ended || TERMINAL.has(event.event), [Sse.encoder.write(event)]],
+      (ended, event) => [ended || TERMINAL_EVENTS.has(event.event), [Sse.encoder.write(event)]],
       { onHalt: (ended) => (ended ? [] : [incomplete]) },
     ),
     Stream.encodeText,
