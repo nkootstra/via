@@ -261,10 +261,15 @@ OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
 `key=value` pairs:
 
 ```
-timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 model=opencode-go/deepseek-v4.1-flash served_by=opencode-go headers_ms=2712 first_chunk_ms=3433
-timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 model=gpt-6-astra error=rate_limit_exceeded retry_after=120
+timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" request_id=592f9436-3ad2-4e0f-a239-d4803bdb9925 http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 model=opencode-go/deepseek-v4.1-flash served_by=opencode-go headers_ms=2712 first_chunk_ms=3433
+timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" request_id=2a374005-22ec-40ed-a5e5-1dfa5aa6a807 http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 model=gpt-6-astra error=rate_limit_exceeded retry_after=120
 ```
 
+- `request_id` correlates the line to the request: the client's `x-request-id`
+  header, kept when it's a valid UUID (lower-cased), else one via generates.
+  via echoes it back as `x-request-id` on every response, and stamps it on any
+  warning logged while handling the request (a cooldown, say), even across a
+  retry onto another account.
 - `http.span` is the whole time via took, a stream included.
 - `model` is the model asked for, and `served_by` the provider or Codex account
   that answered.
