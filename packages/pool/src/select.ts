@@ -2,7 +2,11 @@ import { Array, Option } from "effect";
 
 /** Why serve is not using an account right now; absent means it is available. */
 export type AccountState =
-  | { readonly status: "cooling"; readonly until: number; readonly reason: string }
+  | {
+      readonly status: "cooling";
+      readonly until: number;
+      readonly reason: string;
+    }
   | { readonly status: "auth_error"; readonly reason: string };
 
 export type PoolState = Readonly<Record<string, AccountState>>;

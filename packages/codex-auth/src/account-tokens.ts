@@ -21,7 +21,7 @@ const make = Effect.gen(function* () {
     });
 
   /** Refreshes the account when `needed` says so, one refresh per account at a time. */
-  const refreshIf = Effect.fnUntraced(function* (
+  const refreshIf = Effect.fn("AccountTokens.refreshIf")(function* (
     id: string,
     needed: (account: Account, now: number) => boolean,
   ) {
@@ -37,6 +37,7 @@ const make = Effect.gen(function* () {
   /**
    * `account` with an access token valid for at least 5 more minutes. A token that
    * already is goes straight back, without taking the lock or reading the store again.
+   * Untraced: it runs on every request, and a refresh shows up as `refreshIf`'s span.
    */
   const fresh = Effect.fnUntraced(function* (account: Account) {
     if (!expiring(account, yield* Clock.currentTimeMillis)) return account;

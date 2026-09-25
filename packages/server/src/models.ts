@@ -1,9 +1,9 @@
 import { AccountStore, AccountTokens } from "@via/codex-auth";
 import { CodexUpstream, modelIds } from "@via/codex-upstream";
-import { select } from "@via/pool";
-import { Cache, Clock, Context, Effect, Exit, Layer, Option, Ref } from "effect";
+import { PoolStates, select } from "@via/pool";
+import { Cache, Clock, Context, Effect, Exit, Layer, Option } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
-import { authenticate, lockOutAccount, PoolStates, unauthenticated } from "./dispatch.ts";
+import { authenticated } from "./dispatch.ts";
 
 /** The model ids `/v1/models` lists. */
 export class ModelCatalog extends Context.Service<
@@ -26,14 +26,14 @@ export class ModelCatalog extends Context.Service<
         while (true) {
           const chosen = select(
             yield* store.list,
-            yield* Ref.get(states),
+            yield* states.get,
             yield* Clock.currentTimeMillis,
           );
           const account = yield* Effect.fromOption(chosen);
           const fresh = yield* tokens.fresh(account).pipe(
             Effect.asSome,
             Effect.catchTag("RefreshRejectedError", (error) =>
-              lockOutAccount(states, account.id, error).pipe(Effect.as(Option.none())),
+              states.lockOut(account.id, error.code).pipe(Effect.as(Option.none())),
             ),
           );
           if (Option.isSome(fresh)) return yield* codex.models(fresh.value);
@@ -54,11 +54,17 @@ export class ModelCatalog extends Context.Service<
 }
 
 /** GET /v1/models: the Codex models, and each with every effort suffix. */
-export const models = Effect.gen(function* () {
-  if (Option.isNone(yield* authenticate)) return unauthenticated();
-  const ids = yield* yield* ModelCatalog;
-  return HttpServerResponse.jsonUnsafe({
-    object: "list",
-    data: ids.map((id) => ({ id, object: "model", created: 0, owned_by: "openai" })),
-  });
-});
+export const models = authenticated(
+  Effect.gen(function* () {
+    const ids = yield* yield* ModelCatalog;
+    return HttpServerResponse.jsonUnsafe({
+      object: "list",
+      data: ids.map((id) => ({
+        id,
+        object: "model",
+        created: 0,
+        owned_by: "openai",
+      })),
+    });
+  }),
+);

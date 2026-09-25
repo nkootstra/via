@@ -1,7 +1,7 @@
+import { PoolStates } from "@via/pool";
 import { Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { chatCompletions } from "./chat-completions.ts";
-import { PoolStates } from "./dispatch.ts";
 import { ModelCatalog, models } from "./models.ts";
 import { responses } from "./responses.ts";
 

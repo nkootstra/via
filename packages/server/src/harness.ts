@@ -17,13 +17,19 @@ import {
 import { ViaServer } from "./index.ts";
 
 /** The access token the fake issuer hands out when any account refreshes. */
-export const refreshedAccessToken = jwt({ exp: 2_000_000_000, refreshed: true });
+export const refreshedAccessToken = jwt({
+  exp: 2_000_000_000,
+  refreshed: true,
+});
 
 /** Tokens for a ChatGPT account named `name`, valid far into the future. */
 export const accountTokens = (name: string, expiresAt = 1e15) => ({
   idToken: jwt({
     email: `${name}@example.com`,
-    "https://api.openai.com/auth": { chatgpt_account_id: `acc-${name}`, chatgpt_plan_type: "pro" },
+    "https://api.openai.com/auth": {
+      chatgpt_account_id: `acc-${name}`,
+      chatgpt_plan_type: "pro",
+    },
   }),
   accessToken: `at-${name}`,
   refreshToken: "rt-1",
@@ -67,7 +73,10 @@ export const withVia = <A, E>(
     },
     aExpiresAt,
     codexUrl,
-  }: Pick<FakeIssuerOptions, "refreshResponse"> & { aExpiresAt?: number; codexUrl?: string } = {},
+  }: Pick<FakeIssuerOptions, "refreshResponse"> & {
+    aExpiresAt?: number;
+    codexUrl?: string;
+  } = {},
 ) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
@@ -93,7 +102,10 @@ export const withVia = <A, E>(
         Layer.provide(CodexAuth.layer(yield* address(issuer))),
         Layer.provideMerge(stores),
       ),
-      CodexUpstream.layer({ baseUrl: codexUrl ?? (yield* address(upstream)), cloak: true }),
+      CodexUpstream.layer({
+        baseUrl: codexUrl ?? (yield* address(upstream)),
+        cloak: true,
+      }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     const server = yield* Layer.build(

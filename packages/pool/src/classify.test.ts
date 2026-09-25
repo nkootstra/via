@@ -16,14 +16,20 @@ describe("classify", () => {
       429,
       {},
       codexError({ type: "usage_limit_reached", resets_at: NOW / 1000 + 3600 }),
-      Verdict.Cooldown({ until: NOW + 60 * MINUTE, reason: "usage_limit_reached" }),
+      Verdict.Cooldown({
+        until: NOW + 60 * MINUTE,
+        reason: "usage_limit_reached",
+      }),
     ],
     [
       "a later Retry-After wins over resets_at",
       429,
       { "retry-after": "7200" },
       codexError({ type: "usage_limit_reached", resets_at: NOW / 1000 + 3600 }),
-      Verdict.Cooldown({ until: NOW + 120 * MINUTE, reason: "usage_limit_reached" }),
+      Verdict.Cooldown({
+        until: NOW + 120 * MINUTE,
+        reason: "usage_limit_reached",
+      }),
     ],
     [
       "a bare 429 cools down for Retry-After",
@@ -37,42 +43,60 @@ describe("classify", () => {
       429,
       {},
       codexError({ code: "insufficient_quota" }),
-      Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: "insufficient_quota" }),
+      Verdict.Cooldown({
+        until: NOW + 30 * MINUTE,
+        reason: "insufficient_quota",
+      }),
     ],
     [
       "usage_not_included is a quota error whatever the status",
       403,
       {},
       codexError({ type: "usage_not_included" }),
-      Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: "usage_not_included" }),
+      Verdict.Cooldown({
+        until: NOW + 30 * MINUTE,
+        reason: "usage_not_included",
+      }),
     ],
     [
       "credit_balance_exhausted is a quota error whatever the status",
       400,
       {},
       codexError({ code: "credit_balance_exhausted" }),
-      Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: "credit_balance_exhausted" }),
+      Verdict.Cooldown({
+        until: NOW + 30 * MINUTE,
+        reason: "credit_balance_exhausted",
+      }),
     ],
     [
       "organization_spend_limit_exceeded is a quota error whatever the status",
       400,
       {},
       codexError({ code: "organization_spend_limit_exceeded" }),
-      Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: "organization_spend_limit_exceeded" }),
+      Verdict.Cooldown({
+        until: NOW + 30 * MINUTE,
+        reason: "organization_spend_limit_exceeded",
+      }),
     ],
     [
       "project_spend_limit_exceeded is a quota error whatever the status",
       400,
       {},
       codexError({ code: "project_spend_limit_exceeded" }),
-      Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: "project_spend_limit_exceeded" }),
+      Verdict.Cooldown({
+        until: NOW + 30 * MINUTE,
+        reason: "project_spend_limit_exceeded",
+      }),
     ],
     [
       "organization_usage_limit_exceeded is a quota error whatever the status",
       400,
       {},
       codexError({ code: "organization_usage_limit_exceeded" }),
-      Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: "organization_usage_limit_exceeded" }),
+      Verdict.Cooldown({
+        until: NOW + 30 * MINUTE,
+        reason: "organization_usage_limit_exceeded",
+      }),
     ],
     [
       "a server error cools down for a minute",

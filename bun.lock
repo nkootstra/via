@@ -40,6 +40,7 @@
       "devDependencies": {
         "@effect/platform-bun": "catalog:",
         "@effect/vitest": "catalog:",
+        "@via/cli": "workspace:*",
         "@via/codex-auth": "workspace:*",
         "@via/codex-upstream": "workspace:*",
         "@via/tsconfig": "workspace:*",
@@ -69,6 +70,7 @@
       "devDependencies": {
         "@effect/platform-bun": "catalog:",
         "@effect/vitest": "catalog:",
+        "@via/codex-upstream": "workspace:*",
         "@via/tsconfig": "workspace:*",
         "vitest": "catalog:",
       },

@@ -5,8 +5,15 @@ import { Effect } from "effect";
 import { withVia } from "./harness.ts";
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
-const response = { id: "resp_1", created_at: 1_700_000_000, model: "gpt-6-astra" };
-const created = { type: "response.created", response: { ...response, status: "in_progress" } };
+const response = {
+  id: "resp_1",
+  created_at: 1_700_000_000,
+  model: "gpt-6-astra",
+};
+const created = {
+  type: "response.created",
+  response: { ...response, status: "in_progress" },
+};
 const cutOff = () => ({ status: 200, body: sse([created]) });
 const failed = () => ({
   status: 200,
@@ -50,7 +57,11 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
           const answer = yield* via.post(path, bodies[path]);
           expect(answer.status).toBe(502);
           expect(yield* answer.json).toMatchObject({
-            error: { type: "server_error", code: "server_is_overloaded", message: "Codex is busy" },
+            error: {
+              type: "server_error",
+              code: "server_is_overloaded",
+              message: "Codex is busy",
+            },
           });
         }),
       ),
@@ -106,8 +117,10 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
   it.effect(`a ${RESPONSES} stream cut off by Codex ends in an error event`, () =>
     withVia(cutOff, (via) =>
       Effect.gen(function* () {
-        const text = yield* (yield* via.post(RESPONSES, { ...bodies[RESPONSES], stream: true }))
-          .text;
+        const text = yield* (yield* via.post(RESPONSES, {
+          ...bodies[RESPONSES],
+          stream: true,
+        })).text;
         const frames = text.trim().split("\n\n");
         expect(frames.map((frame) => /^event: (.*)$/m.exec(frame)?.[1])).toEqual([
           "response.created",
@@ -134,7 +147,12 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
               ...response,
               status: "incomplete",
               incomplete_details: { reason: "max_output_tokens" },
-              output: [{ type: "message", content: [{ type: "output_text", text: "Hel" }] }],
+              output: [
+                {
+                  type: "message",
+                  content: [{ type: "output_text", text: "Hel" }],
+                },
+              ],
               usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 },
             },
           },

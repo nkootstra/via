@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Stream } from "effect";
 import { collectResponse, UpstreamFailedError } from "./index.ts";
-import { codexFixture } from "./testing/fake-codex.ts";
+import { codexFixture } from "./testing/fixtures.ts";
 
 // Contract tests: codex's own SSE fixtures, verbatim, through via's parser.
 // Codex rebuilds a response from `response.output_item.done` events; its

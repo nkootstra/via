@@ -4,15 +4,7 @@ import { fakeIssuer } from "@via/codex-auth/testing";
 import { completedStream, fakeUpstream, type RecordedRequest } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Layer } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest, HttpServer } from "effect/unstable/http";
-import { runVia, serveVia, tempHome } from "./helpers.ts";
-
-/** A port nothing listens on right now. */
-const freePort = Effect.sync(() => {
-  const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
-  const { port } = probe;
-  probe.stop(true);
-  return port;
-});
+import { freePort, runVia, serveVia, tempHome } from "./helpers.ts";
 
 /**
  * A `via` home with one account (from a fake issuer) and one API key, whose

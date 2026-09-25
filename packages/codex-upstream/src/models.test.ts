@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { modelIds, resolveAlias } from "./index.ts";
+import { modelIds, resolveAlias } from "./models.ts";
 
 describe("the model catalog", () => {
   it("lists the models ChatGPT sign-in serves today", () => {

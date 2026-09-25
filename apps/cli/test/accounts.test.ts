@@ -1,8 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { fakeIssuer } from "@via/codex-auth/testing";
+import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
 import { completedStream, type FakeReply, fakeUpstream } from "@via/codex-upstream/testing";
-import { Effect, Layer } from "effect";
+import { Effect, FileSystem, Layer } from "effect";
 import { HttpServer } from "effect/unstable/http";
 import { runVia, tempHome } from "./helpers.ts";
 
@@ -13,15 +13,17 @@ import { runVia, tempHome } from "./helpers.ts";
 const withVia = <A, E, R>(
   body: (
     via: (...args: ReadonlyArray<string>) => ReturnType<typeof runVia>,
+    home: string,
   ) => Effect.Effect<A, E, R>,
   usage?: () => FakeReply,
+  issuerOptions?: FakeIssuerOptions,
 ) =>
   Effect.gen(function* () {
     const home = yield* tempHome;
     const upstream = yield* Layer.build(
       fakeUpstream(() => ({ status: 200, body: completedStream("hello") }), usage),
     );
-    const issuer = yield* Layer.build(fakeIssuer());
+    const issuer = yield* Layer.build(fakeIssuer(issuerOptions));
     const address = (context: typeof upstream | typeof issuer) =>
       HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
     const env = {
@@ -29,7 +31,36 @@ const withVia = <A, E, R>(
       VIA_CODEX_BASE_URL: yield* address(upstream),
       TZ: "UTC",
     };
-    return yield* body((...args) => runVia(home, args, env));
+    return yield* body((...args) => runVia(home, args, env), home);
+  });
+
+/** Writes an account straight into `home`'s auth dir, with an already-expired access token. */
+const seedExpiredAccount = (home: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    yield* fs.makeDirectory(`${home}/auth`, { recursive: true });
+    yield* fs.writeFileString(
+      `${home}/auth/dev.json`,
+      JSON.stringify({
+        id: "dev",
+        label: "dev",
+        email: "dev@example.com",
+        plan: "pro",
+        accountId: "acc-123",
+        accessToken: "at-dev",
+        refreshToken: "rt-1",
+        idToken: jwt({
+          email: "dev@example.com",
+          "https://api.openai.com/auth": {
+            chatgpt_account_id: "acc-123",
+            chatgpt_plan_type: "pro",
+          },
+        }),
+        expiresAt: 0,
+        enabled: true,
+        createdAt: "2024-01-01T00:00:00.000Z",
+      }),
+    );
   });
 
 layer(BunFileSystem.layer)("via accounts", (it) => {
@@ -117,5 +148,22 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
         }),
       () => ({ status: 403, body: "{}" }),
     ),
+  );
+
+  it.effect(
+    "status prints the account line and exits 0 when refresh hits an auth-server hiccup",
+    () =>
+      withVia(
+        (via, home) =>
+          Effect.gen(function* () {
+            yield* seedExpiredAccount(home);
+            const status = yield* via("accounts", "status");
+            expect(status.exitCode).toBe(0);
+            expect(status.stdout).toMatch(/dev\s+dev@example\.com\s+pro\s+enabled/);
+            expect(status.stdout).toContain("OpenAI auth request failed");
+          }),
+        undefined,
+        { refreshResponse: { status: 500, body: {} } },
+      ),
   );
 });

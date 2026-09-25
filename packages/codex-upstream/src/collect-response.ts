@@ -1,5 +1,6 @@
 import { Effect, Option, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
+import { TERMINAL_EVENTS } from "./terminal-events.ts";
 
 export class UpstreamFailedError extends Schema.TaggedError<UpstreamFailedError>()(
   "UpstreamFailedError",
@@ -40,8 +41,11 @@ const ItemDone = Schema.Struct({
 const Progress = Schema.Struct({ type: Schema.String });
 const StreamEvent = Schema.Union([Completed, Failed, Incomplete, ItemDone, Progress]);
 
-const isTerminal = (event: typeof StreamEvent.Type) =>
-  Schema.is(Completed)(event) || Schema.is(Failed)(event) || Schema.is(Incomplete)(event);
+const isCompleted = Schema.is(Completed);
+const isFailed = Schema.is(Failed);
+const isIncomplete = Schema.is(Incomplete);
+const isItemDone = Schema.is(ItemDone);
+const isTerminal = (event: typeof StreamEvent.Type) => TERMINAL_EVENTS.has(event.type);
 
 type Collected = {
   readonly items: ReadonlyArray<unknown>;
@@ -49,7 +53,7 @@ type Collected = {
 };
 
 const collect = (state: Collected, event: typeof StreamEvent.Type): Collected =>
-  Schema.is(ItemDone)(event)
+  isItemDone(event)
     ? { ...state, items: [...state.items, event.item] }
     : isTerminal(event)
       ? { ...state, terminal: Option.some(event) }
@@ -75,11 +79,11 @@ export const collectResponse = Effect.fn("collectResponse")(function* <E>(
   );
   if (Option.isNone(terminal)) return yield* new IncompleteStreamError();
   const event = terminal.value;
-  if (Schema.is(Failed)(event)) {
+  if (isFailed(event)) {
     const { code, message } = event.response.error;
     return yield* new UpstreamFailedError({ code, reason: message });
   }
-  if (Schema.is(Completed)(event) || Schema.is(Incomplete)(event)) {
+  if (isCompleted(event) || isIncomplete(event)) {
     const { response } = event;
     return hasOutput(response) ? response : { ...response, output: items };
   }

@@ -1,4 +1,6 @@
+import { BunFileSystem } from "@effect/platform-bun";
 import { describe, expect, it } from "@effect/vitest";
+import { codexRefreshErrorFixture } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
 import { issuedTokens, REFRESHED_EXP, refreshedTokens, withIssuer } from "./fake-issuer.ts";
 import { CodexAuth, RefreshRejectedError, type Tokens } from "./index.ts";
@@ -42,25 +44,27 @@ describe("refresh", () => {
     ),
   );
 
-  // The first four are verbatim from codex's refresh tests (see
-  // @via/codex-upstream's fixtures/refresh-errors.json): what the issuer sends.
+  for (const label of [
+    "invalid_grant",
+    "refresh_token_expired",
+    "refresh_token_reused",
+    "refresh_token_invalidated",
+  ]) {
+    it.effect(`rejects the account on codex's ${label} fixture, so it must log in again`, () =>
+      Effect.gen(function* () {
+        const refreshResponse = yield* codexRefreshErrorFixture(label);
+        yield* withIssuer({ refreshResponse }, () =>
+          Effect.gen(function* () {
+            const error = yield* Effect.flip((yield* CodexAuth).refresh(current));
+            expect(error).toEqual(new RefreshRejectedError({ code: label }));
+          }),
+        );
+      }).pipe(Effect.provide(BunFileSystem.layer)),
+    );
+  }
+
+  // The same codes in the error-object shape the issuer also uses.
   for (const [label, status, body] of [
-    ["invalid_grant", 400, { error: "invalid_grant", error_description: "refresh token expired" }],
-    [
-      "refresh_token_expired",
-      400,
-      { error: "refresh_token_expired", error_description: "refresh token has expired" },
-    ],
-    [
-      "refresh_token_reused",
-      400,
-      { error: "refresh_token_reused", error_description: "refresh token was already used" },
-    ],
-    [
-      "refresh_token_invalidated",
-      400,
-      { error: "refresh_token_invalidated", error_description: "refresh token was revoked" },
-    ],
     ["refresh_token_reused", 401, { error: { code: "refresh_token_reused", message: "reused" } }],
     [
       "refresh_token_expired",

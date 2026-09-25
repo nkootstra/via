@@ -3,19 +3,11 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { AccountStore, CodexAuth } from "@via/codex-auth";
 import { resolvePaths } from "@via/config";
 import { KeyStore } from "@via/keys";
-import { Console, Effect, Layer, Schema } from "effect";
+import { Console, Effect, Layer } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 import { accounts } from "./accounts.ts";
 import { serve } from "./serve.ts";
-
-class KeyNotFoundError extends Schema.TaggedError<KeyNotFoundError>()("KeyNotFoundError", {
-  idOrName: Schema.String,
-}) {
-  override get message() {
-    return `No key with id or name "${this.idOrName}"`;
-  }
-}
 
 const paths = resolvePaths();
 
@@ -44,9 +36,7 @@ const keysRevoke = Command.make(
   { idOrName: Argument.String("id-or-name") },
   ({ idOrName }) =>
     Effect.gen(function* () {
-      if (!(yield* (yield* KeyStore).revoke(idOrName))) {
-        return yield* new KeyNotFoundError({ idOrName });
-      }
+      yield* (yield* KeyStore).revoke(idOrName);
       yield* Console.log(`Revoked "${idOrName}".`);
     }),
 ).pipe(Command.withDescription("Revoke an API key by id or name"));

@@ -54,4 +54,18 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
       expect(yield* Effect.flip(loadConfig(file))).toBeInstanceOf(InvalidConfigError);
     }),
   );
+
+  it.effect(
+    "fails with InvalidConfigError when the config file can't be read, instead of crashing",
+    () =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const dir = yield* fs.makeTempDirectoryScoped();
+        // A directory where a file is expected: readFileString fails with a PlatformError
+        // whose reason isn't NotFound, so loadConfig must not die on it.
+        const error = yield* Effect.flip(loadConfig(dir));
+        expect(error).toBeInstanceOf(InvalidConfigError);
+        expect(error.path).toBe(dir);
+      }),
+  );
 });

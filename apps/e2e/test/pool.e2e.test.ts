@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { type CodexRequest, codexFixture, reply } from "@via/codex-upstream/testing";
+import { type CodexRequest, codexErrorFixture, reply } from "@via/codex-upstream/testing";
 import { Effect, Option, Schema } from "effect";
 import { type Codex, openai, runVia, startCodex, type Via, withVia } from "./harness.ts";
 
@@ -19,30 +19,10 @@ const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id
 
 const answerOf = (prompt: string) => `answer-for-${prompt}`;
 
-/** The HTTP errors codex's own tests expect from the backend. */
-const ErrorFixtures = Schema.fromJsonString(
-  Schema.Record(
-    Schema.String,
-    Schema.Struct({
-      status: Schema.Int,
-      headers: Schema.Record(Schema.String, Schema.String),
-      body: Schema.Unknown,
-    }),
-  ),
-);
-
 /** A verbatim codex error fixture as a reply. */
 const errorFixture = (name: string) =>
-  codexFixture("errors.json").pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(ErrorFixtures)),
-    Effect.map((fixtures) => {
-      const fixture = fixtures[name];
-      expect(fixture).toBeDefined();
-      const { status, headers, body } = fixture!;
-      return reply.error(status, body, headers);
-    }),
-    // Test fixture: a malformed errors.json is a bug in the test.
-    Effect.orDie,
+  Effect.map(codexErrorFixture(name), ({ status, headers, body }) =>
+    reply.error(status, body, headers),
   );
 
 /** The single user-message text of a Responses-shaped request body, or "". */

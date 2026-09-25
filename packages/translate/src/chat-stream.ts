@@ -54,8 +54,15 @@ const StreamEvent = Schema.Union([
   Other,
 ]);
 
+const isCreated = Schema.is(Created);
+const isTextDelta = Schema.is(TextDelta);
+const isFunctionCallAdded = Schema.is(FunctionCallAdded);
+const isArgumentsDelta = Schema.is(ArgumentsDelta);
+const isCompleted = Schema.is(Completed);
+const isFailed = Schema.is(Failed);
+const isIncomplete = Schema.is(Incomplete);
 const isTerminal = (event: typeof StreamEvent.Type) =>
-  Schema.is(Completed)(event) || Schema.is(Failed)(event) || Schema.is(Incomplete)(event);
+  isCompleted(event) || isFailed(event) || isIncomplete(event);
 
 type State = {
   readonly envelope: { id: string; object: string; created: number; model: string };
@@ -96,40 +103,40 @@ export const toChatStream = <E>(
   options: { includeUsage: boolean },
 ) => {
   const step = (state: State, event: typeof StreamEvent.Type): readonly [State, Array<string>] => {
-    if (Schema.is(Created)(event)) {
+    if (isCreated(event)) {
       const { id, created_at, model } = event.response;
       const next = { ...state, envelope: { ...state.envelope, id, created: created_at, model } };
       return [next, [chunk(next, { role: "assistant", content: "" })]];
     }
-    if (Schema.is(TextDelta)(event)) return [state, [chunk(state, { content: event.delta })]];
-    if (Schema.is(FunctionCallAdded)(event)) {
+    if (isTextDelta(event)) return [state, [chunk(state, { content: event.delta })]];
+    if (isFunctionCallAdded(event)) {
       const index = state.toolIndex.size;
       const toolIndex = new Map(state.toolIndex).set(event.output_index, index);
       const { call_id, name } = event.item;
       const call = { index, id: call_id, type: "function", function: { name, arguments: "" } };
       return [{ ...state, toolIndex }, [chunk(state, { tool_calls: [call] })]];
     }
-    if (Schema.is(ArgumentsDelta)(event)) {
+    if (isArgumentsDelta(event)) {
       const index = state.toolIndex.get(event.output_index) ?? 0;
       return [
         state,
         [chunk(state, { tool_calls: [{ index, function: { arguments: event.delta } }] })],
       ];
     }
-    if (Schema.is(Completed)(event)) {
+    if (isCompleted(event)) {
       return [
         { ...state, ended: true },
         finish(state, state.toolIndex.size > 0 ? "tool_calls" : "stop", event.response.usage),
       ];
     }
-    if (Schema.is(Incomplete)(event)) {
+    if (isIncomplete(event)) {
       const { incomplete_details, usage } = event.response;
       return [
         { ...state, ended: true },
         finish(state, incompleteFinish(incomplete_details.reason), usage),
       ];
     }
-    if (Schema.is(Failed)(event)) {
+    if (isFailed(event)) {
       const { code, message } = event.response.error;
       return [{ ...state, ended: true }, [failure(code, message)]];
     }

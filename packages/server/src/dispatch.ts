@@ -1,27 +1,13 @@
 import { AccountStore, AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
-import {
-  type AccountState,
-  classify,
-  type PoolState,
-  retryAfter,
-  select,
-  Verdict,
-} from "@via/pool";
-import { Clock, Context, Effect, Layer, Option, Ref, type Schema } from "effect";
+import { classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
+import { Clock, Effect, Option, type Schema } from "effect";
 import {
   type HttpClientResponse,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-
-/** Cooldowns and lockouts of the accounts, as learned from upstream answers. */
-export class PoolStates extends Context.Service<PoolStates, Ref.Ref<PoolState>>()(
-  "via/PoolStates",
-) {
-  static readonly layer = Layer.effect(PoolStates, Ref.make<PoolState>({}));
-}
 
 /** An error in the shape OpenAI clients expect. */
 export const openAiError = (
@@ -31,7 +17,13 @@ export const openAiError = (
   headers: Record<string, string> = {},
 ) =>
   HttpServerResponse.jsonUnsafe(
-    { error: { message, type: status >= 500 ? "server_error" : "invalid_request_error", code } },
+    {
+      error: {
+        message,
+        type: status >= 500 ? "server_error" : "invalid_request_error",
+        code,
+      },
+    },
     { status, headers },
   );
 
@@ -65,15 +57,21 @@ export const collected = (
   );
 
 /** The client's API key, if it presented a valid one. */
-export const authenticate = Effect.gen(function* () {
+const authenticate = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const [scheme, key] = (request.headers.authorization ?? "").split(" ");
   if (scheme !== "Bearer" || key === undefined) return Option.none();
   return yield* (yield* KeyStore).verify(key);
 });
 
-export const unauthenticated = () =>
-  openAiError(401, "invalid_api_key", "Missing or unknown API key");
+/** Runs `handler` only for a client with a valid API key; anyone else gets a 401. */
+export const authenticated = <A, E, R>(handler: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    if (Option.isNone(yield* authenticate)) {
+      return openAiError(401, "invalid_api_key", "Missing or unknown API key");
+    }
+    return yield* handler;
+  });
 
 const noAccountLeft = (waitMs: Option.Option<number>) =>
   Option.match(waitMs, {
@@ -84,22 +82,12 @@ const noAccountLeft = (waitMs: Option.Option<number>) =>
       }),
   });
 
-const markAccount = (states: Ref.Ref<PoolState>, id: string, state: AccountState) =>
-  Ref.update(states, (current) => ({ ...current, [id]: state }));
-
-/** A dead refresh token takes the account out of rotation until it logs in again. */
-export const lockOutAccount = (
-  states: Ref.Ref<PoolState>,
-  id: string,
-  error: RefreshRejectedError,
-) => markAccount(states, id, { status: "auth_error", reason: error.code });
-
 /**
  * Sends a Responses request to Codex through the pool, fill-first: accounts are
  * tried in order, skipping those cooling down or locked out, until one answers.
  * A successful answer goes to `onSuccess`; a client error is returned as-is.
  */
-export const dispatch = Effect.fnUntraced(function* <E, R>(
+export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   body: Record<string, unknown>,
   onSuccess: (
     upstream: HttpClientResponse.HttpClientResponse,
@@ -109,25 +97,35 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
   const tokens = yield* AccountTokens;
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
-  const mark = (id: string, state: AccountState) => markAccount(states, id, state);
-  const lockOut = (id: string) => (error: RefreshRejectedError) =>
-    lockOutAccount(states, id, error);
+  // A dead refresh token takes the account out of rotation until it logs in again.
+  const lockOut = (id: string) => (error: RefreshRejectedError) => states.lockOut(id, error.code);
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
 
   while (true) {
     const accounts = yield* store.list;
-    const state = yield* Ref.get(states);
+    const state = yield* states.get;
     const now = yield* Clock.currentTimeMillis;
     const chosen = select(accounts, state, now);
     if (Option.isNone(chosen)) return noAccountLeft(retryAfter(accounts, state, now));
 
     const fresh = yield* tokens.fresh(chosen.value).pipe(
       Effect.asSome,
-      Effect.catchTag("RefreshRejectedError", (error) =>
-        lockOut(chosen.value.id)(error).pipe(Effect.as(Option.none())),
-      ),
+      Effect.catchTags({
+        RefreshRejectedError: (error) =>
+          lockOut(chosen.value.id)(error).pipe(Effect.as(Option.none())),
+        // The issuer itself is having trouble; cool the account down rather than fail
+        // the whole request, the same way an upstream hiccup already does below.
+        AuthRequestError: () =>
+          states
+            .mark(chosen.value.id, {
+              status: "cooling",
+              until: now + 60_000,
+              reason: "auth_unavailable",
+            })
+            .pipe(Effect.as(Option.none())),
+      }),
     );
     if (Option.isNone(fresh)) continue;
     const account = fresh.value;
@@ -145,12 +143,19 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
     const text = yield* upstream.text;
     const verdict = classify(upstream.status, upstream.headers, text, now);
     if (Verdict.$is("Cooldown")(verdict)) {
-      yield* mark(account.id, { status: "cooling", until: verdict.until, reason: verdict.reason });
+      yield* states.mark(account.id, {
+        status: "cooling",
+        until: verdict.until,
+        reason: verdict.reason,
+      });
       continue;
     }
     if (Verdict.$is("Unauthorized")(verdict)) {
       if (refreshed.has(account.id)) {
-        yield* mark(account.id, { status: "auth_error", reason: "unauthorized" });
+        yield* states.mark(account.id, {
+          status: "auth_error",
+          reason: "unauthorized",
+        });
       } else {
         refreshed.add(account.id);
         yield* tokens

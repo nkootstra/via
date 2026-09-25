@@ -7,7 +7,9 @@ import { withVia } from "./harness.ts";
 
 const ok = () => ({ status: 200, body: completedStream("hello") });
 
-const ModelList = Schema.Struct({ data: Schema.Array(Schema.Struct({ id: Schema.String })) });
+const ModelList = Schema.Struct({
+  data: Schema.Array(Schema.Struct({ id: Schema.String })),
+});
 const ids = (list: unknown) =>
   Schema.decodeUnknownSync(ModelList)(list).data.map((model) => model.id);
 
@@ -92,8 +94,18 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
         expect(list).toHaveProperty(
           "data",
           expect.arrayContaining([
-            { id: "gpt-6-astra", object: "model", created: 0, owned_by: "openai" },
-            { id: "gpt-6-astra-high", object: "model", created: 0, owned_by: "openai" },
+            {
+              id: "gpt-6-astra",
+              object: "model",
+              created: 0,
+              owned_by: "openai",
+            },
+            {
+              id: "gpt-6-astra-high",
+              object: "model",
+              created: 0,
+              owned_by: "openai",
+            },
           ]),
         );
       }),
