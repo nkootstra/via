@@ -3,7 +3,7 @@ import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { chatCompletions } from "./chat-completions.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { models } from "./models.ts";
-import { logRequest } from "./request-log.ts";
+import { logRequest, withRequestId } from "./request-log.ts";
 import { responses } from "./responses.ts";
 
 /** The OpenAI-compatible HTTP API of `via serve`, keeping account states in `PoolStates`. */
@@ -15,6 +15,7 @@ export const ViaServer = {
       HttpRouter.add("GET", "/v1/models", models),
       // For a host's health checks: needs no key, and isn't logged.
       HttpRouter.add("GET", "/healthz", Effect.succeed(HttpServerResponse.text("ok"))),
+      withRequestId,
     ),
     // One line per request from `logRequest`, instead of Effect's; `via serve`
     // announces the address itself.
