@@ -16,6 +16,15 @@ layer(BunFileSystem.layer)("GET /healthz", (it) => {
     ),
   );
 
+  it.effect("gets a request ID too, even though it isn't logged", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.get("/healthz", null);
+        expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      }),
+    ),
+  );
+
   it.effect("leaves health checks out of the request log", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
