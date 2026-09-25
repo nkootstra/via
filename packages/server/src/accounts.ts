@@ -16,15 +16,25 @@ const withFreshToken = (account: Account) =>
       Effect.asSome,
       Effect.catchTags({
         RefreshRejectedError: (error) =>
-          states.lockOut(account.id, error.code).pipe(Effect.as(Option.none<Account>())),
+          Effect.logWarning(
+            `${account.label} is locked out until it logs in again (${error.code})`,
+          ).pipe(
+            Effect.andThen(states.lockOut(account.id, error.code)),
+            Effect.as(Option.none<Account>()),
+          ),
         AuthRequestError: () =>
-          states
-            .mark(account.id, {
-              status: "cooling",
-              until: now + 60_000,
-              reason: "auth_unavailable",
-            })
-            .pipe(Effect.as(Option.none<Account>())),
+          Effect.logWarning(
+            `${account.label} is cooling down until ${new Date(now + 60_000).toISOString()} (auth_unavailable)`,
+          ).pipe(
+            Effect.andThen(
+              states.mark(account.id, {
+                status: "cooling",
+                until: now + 60_000,
+                reason: "auth_unavailable",
+              }),
+            ),
+            Effect.as(Option.none<Account>()),
+          ),
       }),
     );
   });

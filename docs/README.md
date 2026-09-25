@@ -185,6 +185,21 @@ otherwise one derived from the conversation's first system and user message.
 OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
 `session_id`, and Codex in its `session_id` header.
 
+### Logs
+
+`via serve` logs one line per request once its answer has been sent: the
+model, the provider or Codex account that answered, the status, and how long
+it took. For a streamed answer, the line also says when the headers and the
+first chunk went out:
+
+```
+POST /v1/chat/completions 200 · opencode-go/deepseek-v4.1-flash via opencode-go · headers 1441ms · first chunk 1441ms · done 1936ms
+POST /v1/responses 200 · gpt-6-astra via Personal · 1520ms
+```
+
+It also warns when an account cools down, is locked out, or has its token
+rejected, and says until when.
+
 ### Tracing
 
 Set `OTEL_EXPORTER_OTLP_ENDPOINT` to an OpenTelemetry collector's OTLP/HTTP
