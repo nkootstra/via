@@ -61,9 +61,10 @@ export const runVia = (
 
 /**
  * Starts `via serve` in a subprocess that lives as long as the test's scope, and
- * succeeds with the URL it announces once it listens.
+ * succeeds with the URL it announces once it listens, and `output`, which
+ * waits for a line of its stdout containing `text`.
  */
-export const serveVia = (
+export const startVia = (
   home: string,
   args: ReadonlyArray<string>,
   env: Record<string, string> = {},
@@ -73,17 +74,28 @@ export const serveVia = (
       Effect.sync(() => spawnVia(home, ["serve", ...args], env)),
       (running) => Effect.promise(() => (running.kill(), running.exited)),
     );
-    return yield* Effect.promise(async () => {
-      let stdout = "";
-      for await (const chunk of proc.stdout.pipeThrough(new TextDecoderStream())) {
-        stdout += chunk;
-        const url = /Listening on (\S+)/.exec(stdout)?.[1];
-        if (url !== undefined) return url;
-      }
-      throw new Error(
-        `via serve exited before listening:\n${await new Response(proc.stderr).text()}`,
-      );
-    }).pipe(
+    const lines = proc.stdout.pipeThrough(new TextDecoderStream()).getReader();
+    let stdout = "";
+    const readUntil = (found: () => string | undefined) =>
+      Effect.promise(async () => {
+        for (;;) {
+          const seen = found();
+          if (seen !== undefined) return seen;
+          const chunk = await lines.read();
+          if (chunk.done) return undefined;
+          stdout += chunk.value;
+        }
+      });
+    const url = yield* readUntil(() => /Listening on (\S+)/.exec(stdout)?.[1]).pipe(
+      Effect.flatMap((listening) =>
+        listening === undefined
+          ? Effect.promise(() => new Response(proc.stderr).text()).pipe(
+              Effect.flatMap((stderr) =>
+                Effect.die(new Error(`via serve exited before listening:\n${stderr}`)),
+              ),
+            )
+          : Effect.succeed(listening),
+      ),
       // Fail a via that never starts listening here, not at the test timeout.
       Effect.timeoutOrElse({
         duration: "15 seconds",
@@ -91,4 +103,20 @@ export const serveVia = (
       }),
       realTime,
     );
+    const output = (text: string) =>
+      // Only whole lines: the last one may still be arriving.
+      readUntil(() =>
+        stdout
+          .split("\n")
+          .slice(0, -1)
+          .find((line) => line.includes(text)),
+      ).pipe(Effect.map((line) => line ?? ""));
+    return { url, output };
   });
+
+/** `startVia`, for a test that needs only the URL. */
+export const serveVia = (
+  home: string,
+  args: ReadonlyArray<string>,
+  env: Record<string, string> = {},
+) => Effect.map(startVia(home, args, env), ({ url }) => url);

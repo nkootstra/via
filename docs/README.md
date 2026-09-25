@@ -187,22 +187,21 @@ OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
 
 ### Logs
 
-`via serve` logs each request once its answer has been sent. `http.span` is
-the whole time via took, and the model, the provider or Codex account that
-answered and, for a streamed answer, when its headers and first chunk went out
-come with it:
+`via serve` logs one line per request once its answer has been sent, as
+`key=value` pairs:
 
 ```
-[18:26:23.520] INFO (#30) http.span=1875ms: Sent HTTP response {
-  "http.method": "POST",
-  "http.url": "/v1/chat/completions",
-  "http.status": 200,
-  model: "opencode-go/deepseek-v4.1-flash",
-  served_by: "opencode-go",
-  headers_ms: 1478,
-  first_chunk_ms: 1478,
-}
+timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 model=opencode-go/deepseek-v4.1-flash served_by=opencode-go headers_ms=2712 first_chunk_ms=3433
+timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 model=gpt-6-astra error=rate_limit_exceeded retry_after=120
 ```
+
+- `http.span` is the whole time via took, a stream included.
+- `model` is the model asked for, and `served_by` the provider or Codex account
+  that answered.
+- For a stream, `headers_ms` and `first_chunk_ms` say when its headers and first
+  chunk went out.
+- For an error via answers itself, `error` is its code and `retry_after` the
+  seconds until an account frees up.
 
 It also warns when an account cools down, is locked out, or has its token
 rejected, and says until when.
