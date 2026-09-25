@@ -146,6 +146,7 @@ These checks must pass:
 | Typecheck (TS 7 + Effect diagnostics)        | `bun run typecheck`                                       |
 | Test (ubuntu-latest), Test (macos-latest)    | `bun run test`                                            |
 | Build & npm smoke test                       | The binaries build and run under Node                     |
+| Docker image                                 | The image builds for amd64 and arm64 and runs as deployed |
 | PR body keeps the required template sections | The template wasn't deleted                               |
 | PR title follows type(scope) subject         | The PR title format                                       |
 | Commits follow type(scope) subject           | Every commit subject                                      |
@@ -162,3 +163,20 @@ These checks must pass:
   but the existing suite still has to pass.
 
 If your PR adds no tests, say why in the description.
+
+## Releases
+
+A maintainer releases from GitHub: **Actions → Release → Run workflow** on
+`main`, choosing whether to raise the patch, minor or major version. The
+workflow checks that CI passed for that commit, then takes the latest `vX.Y.Z`
+tag and raises it (from `v0.0.0` for the first release). It publishes the
+Docker image to `ghcr.io`, runs the image smoke test against it, and tags the
+commit with a GitHub release whose notes list the merged pull requests.
+
+Before a release, `.github/scripts/docker-smoke.sh <image> <version>` runs the
+same smoke test against a local build:
+
+```sh
+docker build --build-arg VERSION=0.0.0-dev -t via:dev .
+.github/scripts/docker-smoke.sh via:dev 0.0.0-dev
+```

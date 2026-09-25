@@ -74,3 +74,28 @@ jobs:
       - run: bun run --filter @via/e2e test
         env:
           VIA_E2E_BIN: ${{ github.workspace }}/npm/via-${{ runner.os == 'macOS' && 'darwin' || 'linux' }}-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}/bin/via
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      # Both platforms the release publishes; arm64 is cross-compiled, not emulated.
+      - name: Build for linux/amd64 and linux/arm64
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=0.0.0-ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Load the linux/amd64 image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: via:ci
+          build-args: VERSION=0.0.0-ci
+          cache-from: type=gha
+      - run: .github/scripts/docker-smoke.sh via:ci 0.0.0-ci

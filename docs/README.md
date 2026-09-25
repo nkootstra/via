@@ -63,15 +63,85 @@ reply = client.responses.create(model="gpt-6-astra-high", input="Hello")
 print(reply.output_text)
 ```
 
+## Docker
+
+Each release publishes `ghcr.io/nkootstra/via` for linux/amd64 and linux/arm64,
+tagged with its version (`0.3.1`, `0.3`) and `latest`; from 1.0.0 on also the
+major version (`1`). via keeps its accounts, keys, `config.yaml` and cooldowns
+in `/data`, so give that a volume:
+
+```sh
+docker run -d --name via --restart unless-stopped \
+  -p 127.0.0.1:8317:8317 -v via-data:/data \
+  ghcr.io/nkootstra/via:0.3.1
+
+docker exec -it via via accounts add
+docker exec via via keys create --name laptop
+```
+
+The running server picks up accounts and keys added this way without a
+restart. For [providers](#providers), put `config.yaml` in the volume and pass
+their keys as environment variables. With Compose:
+
+```yaml
+services:
+  via:
+    image: ghcr.io/nkootstra/via:0.3.1
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8317:8317
+    volumes:
+      - via-data:/data
+    environment:
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+
+volumes:
+  via-data:
+```
+
+Inside the container via listens on `0.0.0.0`; the `127.0.0.1:` in the port
+mapping keeps it off other interfaces. It speaks plain HTTP, so put a TLS proxy
+in front of it before exposing it any further. The image runs as a non-root
+user (uid 65532) without a shell.
+
+### In the cloud
+
+Any host that runs a container with a persistent disk will do, such as a VPS
+with Compose or a platform with volumes. What via needs from it:
+
+- **Exactly one instance, with a persistent volume on `/data`.** Each token
+  refresh replaces an account's refresh token and writes it to `/data`, so a
+  second instance, or a disk that is thrown away on restart, logs the accounts
+  out. That rules out scaling to more instances, and serverless hosts without
+  volumes.
+- **TLS in front.** Use the host's own, or a proxy such as Caddy, and send it
+  to port 8317. Every `/v1` route needs one of your API keys.
+- **A health check** on `GET /healthz`. It answers `200 ok` without a key and
+  isn't logged.
+- **Provider keys as the host's secrets**, passed as the environment variables
+  `config.yaml` names.
+
+The image is private while the repository is. Log the host in to ghcr.io
+with a GitHub token that has only the `read:packages` scope:
+
+```sh
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
+```
+
+Then add accounts on the host with `docker exec -it via via accounts add`; the
+device-code login needs no browser there. Or copy an existing `~/.config/via`
+into the volume, owned by uid 65532, with the files kept at `0600`.
+
 ## API
 
-Every route needs `Authorization: Bearer <key>` with a key from `via keys create`.
+Every `/v1` route needs `Authorization: Bearer <key>` with a key from `via keys create`.
 
 | Route                       | What it does                                                  |
 | --------------------------- | ------------------------------------------------------------- |
 | `POST /v1/responses`        | Passed through to the Codex backend.                          |
 | `POST /v1/chat/completions` | Translated to and from the Responses API, streaming included. |
 | `GET /v1/models`            | Lists the models Codex offers your accounts, then providers'. |
+| `GET /healthz`              | Answers `200 ok`, for health checks. Needs no key.            |
 
 A model named `<provider>/<model>` goes to that [provider](#providers) instead.
 

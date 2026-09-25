@@ -75,7 +75,8 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       );
     });
     const finish = Ref.updateAndGet(pending, (n) => n - 1).pipe(
-      Effect.flatMap((left) => (left === 0 ? log : Effect.void)),
+      // A host's health checks would drown out the requests.
+      Effect.flatMap((left) => (left === 0 && request.url !== "/healthz" ? log : Effect.void)),
     );
 
     const service = RequestLog.of({

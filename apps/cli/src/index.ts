@@ -8,6 +8,7 @@ import { Argument, CliError, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 import { accounts } from "./accounts.ts";
 import { serve } from "./serve.ts";
+import { version } from "./version.ts";
 
 const paths = resolvePaths();
 
@@ -56,7 +57,7 @@ const via = Command.make("via").pipe(
   ]),
 );
 
-Command.runWith(via, { version: "0.0.0" })(process.argv.slice(2)).pipe(
+Command.runWith(via, { version })(process.argv.slice(2)).pipe(
   Effect.provide(
     Layer.mergeAll(
       KeyStore.layer(paths.keys),
