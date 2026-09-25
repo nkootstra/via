@@ -216,6 +216,16 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("echoes a fresh request id even when no route matches", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.get("/nope-not-a-route", null);
+        expect(response.status).toBe(404);
+        expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      }),
+    ),
+  );
+
   it.effect("logs a request turned away without its model", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

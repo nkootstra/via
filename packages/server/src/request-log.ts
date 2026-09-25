@@ -1,5 +1,10 @@
 import { Clock, Context, Crypto, Effect, Option, Ref, References, Schema, Stream } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  HttpEffect,
+  HttpRouter,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
 
 /**
  * Notes, for the one line via logs about each request, what the request is
@@ -51,12 +56,26 @@ const requestId = (headers: Record<string, string>) =>
  * none is special-cased out. `HttpRouter.serve`'s own `middleware` option cannot
  * change the response that is actually sent, so this has to be a router-level
  * global middleware instead, wrapping each route's effect from the inside.
+ *
+ * `httpEffect` can fail before it ever produces a `Response` — an unmatched
+ * route or method (`HttpServerError.RouteNotFound`), or a route's own defect
+ * escaping unconverted — in which case the platform derives the response
+ * (a 404, a 500, ...) itself, further up, from the failure. The pre-response
+ * handler runs right before that response is sent regardless of whether it
+ * came from a success or a failure, so it is the one hook that still lets the
+ * header reach the client on that path; the plain `setHeader` below remains
+ * for the ordinary success path, since `logRequest` reads the header back off
+ * the value this effect resolves with, which the pre-response handler's own
+ * response never flows back into.
  */
 export const withRequestId = HttpRouter.middleware(
   (httpEffect) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const id = yield* requestId(request.headers);
+      yield* HttpEffect.appendPreResponseHandler((_request, response) =>
+        Effect.succeed(HttpServerResponse.setHeader(response, "x-request-id", id)),
+      );
       const response = yield* httpEffect.pipe(Effect.annotateLogs({ request_id: id }));
       return HttpServerResponse.setHeader(response, "x-request-id", id);
     }),
