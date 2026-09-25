@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs the image as a deployment would: `docker-smoke.sh <image> <version>`.
 # Checks the version, that state in the /data volume outlives a container, that
-# the API answers on the published port, and that `docker stop` is graceful.
+# the API and /healthz answer on the published port, and that `docker stop` is graceful.
 set -euo pipefail
 
 image=$1
@@ -34,6 +34,9 @@ for _ in $(seq 1 30); do
 done
 test "$(status -H "Authorization: Bearer $key")" = 200
 test "$(status)" = 401
+
+echo "/healthz answers without a key"
+test "$(curl -s "http://127.0.0.1:$port/healthz")" = ok
 
 echo "docker stop shuts via down without waiting for the kill"
 start=$(date +%s)
