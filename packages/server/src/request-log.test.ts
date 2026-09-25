@@ -68,6 +68,21 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs token usage for a non-streamed Codex answer to /v1/chat/completions", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/chat/completions", {
+          model: "gpt-6-astra",
+          messages: [{ role: "user", content: "hi" }],
+        });
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 10,
+          output_tokens: 2,
+        });
+      }),
+    ),
+  );
+
   it.effect("logs the cached tokens Codex reports, alongside input and output", () =>
     withVia(cachedTokens, (via) =>
       Effect.gen(function* () {
