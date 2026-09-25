@@ -11,6 +11,7 @@ import {
 } from "effect/unstable/http";
 import { accountsAllowed, nextAccount } from "./accounts.ts";
 import { ModelCatalog } from "./catalog.ts";
+import { RequestLog } from "./request-log.ts";
 
 /** An error in the shape OpenAI clients expect. */
 export const openAiError = (
@@ -69,12 +70,16 @@ export const forward = Effect.fn("forward")(function* (
   body: Record<string, unknown>,
   session: string,
 ) {
+  const log = yield* RequestLog;
+  yield* log.served({ model: `${route.provider}/${route.model}`, by: route.provider });
   return yield* (yield* Providers).send(route, path, body, session).pipe(
-    Effect.map((upstream) =>
-      HttpServerResponse.stream(upstream.stream, {
-        status: upstream.status,
-        contentType: upstream.headers["content-type"] ?? "application/json",
-      }),
+    Effect.flatMap((upstream) =>
+      Effect.map(log.timed(upstream.stream), (stream) =>
+        HttpServerResponse.stream(stream, {
+          status: upstream.status,
+          contentType: upstream.headers["content-type"] ?? "application/json",
+        }),
+      ),
     ),
     Effect.catchTag("HttpClientError", () =>
       Effect.succeed(
@@ -126,6 +131,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const tokens = yield* AccountTokens;
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
+  const log = yield* RequestLog;
   const allowed =
     typeof body.model === "string" ? yield* (yield* ModelCatalog).mayServe(body.model) : () => true;
   // A dead refresh token takes the account out of rotation until it logs in again.
@@ -141,6 +147,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       return noAccountLeft(retryAfter(yield* accountsAllowed(allowed), yield* states.get, now));
     }
     const account = next.value;
+    yield* log.served({ model: String(body.model), by: account.label });
     const sent = yield* codex.send(account, body, session).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
@@ -155,6 +162,9 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     const text = yield* upstream.text;
     const verdict = classify(upstream.status, upstream.headers, text, now);
     if (Verdict.$is("Cooldown")(verdict)) {
+      yield* Effect.logWarning(
+        `${account.label} is cooling down until ${new Date(verdict.until).toISOString()} (${verdict.reason})`,
+      );
       yield* states.mark(account.id, {
         status: "cooling",
         until: verdict.until,
@@ -164,6 +174,9 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     }
     if (Verdict.$is("Unauthorized")(verdict)) {
       if (refreshed.has(account.id)) {
+        yield* Effect.logWarning(
+          `${account.label} is out of use: Codex rejects its token even after a refresh`,
+        );
         yield* states.mark(account.id, {
           status: "auth_error",
           reason: "unauthorized",

@@ -3,6 +3,7 @@ import { HttpRouter } from "effect/unstable/http";
 import { chatCompletions } from "./chat-completions.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { models } from "./models.ts";
+import { logRequest } from "./request-log.ts";
 import { responses } from "./responses.ts";
 
 /** The OpenAI-compatible HTTP API of `via serve`, keeping account states in `PoolStates`. */
@@ -13,5 +14,7 @@ export const ViaServer = {
       HttpRouter.add("POST", "/v1/chat/completions", chatCompletions),
       HttpRouter.add("GET", "/v1/models", models),
     ),
+    // One line per request from `logRequest`, instead of Effect's.
+    { disableLogger: true, middleware: logRequest },
   ).pipe(Layer.provide(ModelCatalog.layer)),
 };

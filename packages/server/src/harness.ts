@@ -8,7 +8,7 @@ import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
-import { ConfigProvider, Effect, FileSystem, Layer } from "effect";
+import { ConfigProvider, Deferred, Effect, FileSystem, Layer, Logger } from "effect";
 import { TestClock } from "effect/testing";
 import {
   FetchHttpClient,
@@ -60,6 +60,30 @@ export type Via = {
   readonly upstreamRequests: ReadonlyArray<CodexRequest>;
   /** The fake provider behind both `openrouter/` and `opencode-go/` models. */
   readonly provider: FakeProvider;
+  /** Waits for the first line via logs that contains `text`, as `<level> <message>`. */
+  readonly logged: (text: string) => Effect.Effect<string>;
+};
+
+/** A logger that keeps every line, and `logged(text)`, which waits for one containing `text`. */
+const collectLogs = () => {
+  const lines: Array<string> = [];
+  const waiters: Array<{ text: string; line: Deferred.Deferred<string> }> = [];
+  const logger = Logger.make(({ logLevel, message }) => {
+    const line = `${logLevel} ${(Array.isArray(message) ? message : [message]).join(" ")}`;
+    lines.push(line);
+    for (const waiter of waiters.filter(({ text }) => line.includes(text))) {
+      Deferred.doneUnsafe(waiter.line, Effect.succeed(line));
+    }
+  });
+  const logged = (text: string) =>
+    Effect.suspend(() => {
+      const line = lines.find((seen) => seen.includes(text));
+      if (line !== undefined) return Effect.succeed(line);
+      const waiter = { text, line: Deferred.makeUnsafe<string>() };
+      waiters.push(waiter);
+      return Deferred.await(waiter.line);
+    });
+  return { logger, logged };
 };
 
 /**
@@ -131,8 +155,10 @@ export const withVia = <A, E>(
       yield* TestClock.adjust("1 second");
       yield* store.save(accountTokens("b"));
     }).pipe(Effect.provide(built));
+    const logs = collectLogs();
     const server = yield* Layer.build(
       ViaServer.layer.pipe(
+        Layer.provide(Logger.layer([logs.logger])),
         Layer.provide(PoolStates.layer),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(Layer.succeedContext(built)),
@@ -163,6 +189,7 @@ export const withVia = <A, E>(
         key,
         upstreamRequests: codex.requests,
         provider,
+        logged: logs.logged,
       });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });

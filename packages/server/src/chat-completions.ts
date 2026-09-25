@@ -9,6 +9,7 @@ import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { authenticated, collected, dispatch, forward, openAiError } from "./dispatch.ts";
+import { RequestLog } from "./request-log.ts";
 import { resolveSession } from "./session.ts";
 
 const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
@@ -19,6 +20,7 @@ const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
  */
 export const chatCompletions = authenticated(
   Effect.gen(function* () {
+    const log = yield* RequestLog;
     const providers = yield* Providers;
     const raw = yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option);
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
@@ -37,13 +39,13 @@ export const chatCompletions = authenticated(
     const chat = decoded.value;
     return yield* dispatch(toResponsesRequest(chat), resolveSession(headers, chat), (upstream) =>
       chat.stream === true
-        ? Effect.succeed(
-            HttpServerResponse.stream(
+        ? Effect.map(
+            log.timed(
               toChatStream(upstream.stream, {
                 includeUsage: chat.stream_options?.include_usage === true,
               }),
-              { contentType: "text/event-stream" },
             ),
+            (stream) => HttpServerResponse.stream(stream, { contentType: "text/event-stream" }),
           )
         : collected(upstream, (response) =>
             Schema.decodeUnknownEffect(CompletedResponse)(response).pipe(
