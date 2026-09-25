@@ -75,10 +75,12 @@ Every route needs `Authorization: Bearer <key>` with a key from `via keys create
 
 A model named `<provider>/<model>` goes to that [provider](#providers) instead.
 
-`/v1/models` lists what the Codex model picker shows the account via would use
-next, refreshed every five minutes, so new models appear without a via update.
-When Codex can't be asked, it lists the models via knows: `gpt-6-astra`,
-`gpt-6-sol` and `gpt-6-luna`.
+`/v1/models` lists what the Codex model picker shows your accounts, combined,
+since plans offer different models. So new models appear without a via update.
+via keeps the list and answers from it at once; once it is five minutes old, via
+fetches a new one in the background for the next request. When Codex can't be
+asked, it lists the models via knows: `gpt-6-astra`, `gpt-6-sol` and
+`gpt-6-luna`.
 
 Add an effort suffix to a model id to pick the reasoning effort, as in
 `gpt-6-astra-high`. The list shows each model with the suffixes it supports,
@@ -167,7 +169,8 @@ Prefix a model with the provider's name to use it, as in
 the prefix taken off the model, and passes the provider's answer back the same
 way, errors included. Models OpenCode Go serves only through Anthropic's
 `/messages` API don't work through via. `/v1/models` lists every provider's
-models with their prefix; a provider that can't be reached is left out.
+models with their prefix and the details the provider gives, such as
+`context_length`; a provider that can't be reached is left out.
 
 To keep a conversation on a warm prompt cache, via gives each request a session
 id: the one the client sent, in `x-opencode-session`,
