@@ -2,6 +2,7 @@ import { relayStream } from "@via/codex-upstream";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { authenticated, collected, dispatch, openAiError } from "./dispatch.ts";
+import { resolveSession } from "./session.ts";
 
 const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
 
@@ -13,7 +14,8 @@ export const responses = authenticated(
       return openAiError(400, "invalid_request", "The request body is not a JSON object");
     }
     const body = decoded.value;
-    return yield* dispatch(body, (upstream) =>
+    const { headers } = yield* HttpServerRequest.HttpServerRequest;
+    return yield* dispatch(body, resolveSession(headers, body), (upstream) =>
       body.stream === true
         ? Effect.succeed(
             HttpServerResponse.stream(relayStream(upstream.stream), {

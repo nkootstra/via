@@ -8,6 +8,7 @@ import {
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { authenticated, collected, dispatch, openAiError } from "./dispatch.ts";
+import { resolveSession } from "./session.ts";
 
 /** POST /v1/chat/completions: Chat Completions, translated to and from Responses. */
 export const chatCompletions = authenticated(
@@ -17,7 +18,8 @@ export const chatCompletions = authenticated(
       return openAiError(400, "invalid_request", "The request is not a valid chat completion");
     }
     const chat = decoded.value;
-    return yield* dispatch(toResponsesRequest(chat), (upstream) =>
+    const { headers } = yield* HttpServerRequest.HttpServerRequest;
+    return yield* dispatch(toResponsesRequest(chat), resolveSession(headers, chat), (upstream) =>
       chat.stream === true
         ? Effect.succeed(
             HttpServerResponse.stream(

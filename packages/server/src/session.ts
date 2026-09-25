@@ -6,7 +6,9 @@ type Headers = Readonly<Record<string, string | undefined>>;
 // send `x-opencode-session`; Claude Code `x-claude-code-session-id`; Codex
 // `session-id` plus `prompt_cache_key`; Cline and Roo `session_id` on their
 // Codex paths and `x-task-id`; opencode `x-session-id` to other providers.
-const sources: ReadonlyArray<(headers: Headers, body: Record<string, unknown>) => unknown> = [
+const sources: ReadonlyArray<
+  (headers: Headers, body: Readonly<Record<string, unknown>>) => unknown
+> = [
   (headers) => headers["x-opencode-session"],
   (headers) => headers["x-claude-code-session-id"],
   (headers) => headers["session-id"],
@@ -31,7 +33,7 @@ const role = (message: unknown) =>
  * system or developer message and the first user message, or for the
  * Responses API the instructions and the first input item.
  */
-const opening = (body: Record<string, unknown>) => {
+const opening = (body: Readonly<Record<string, unknown>>) => {
   const messages = Array.isArray(body["messages"]) ? body["messages"] : [];
   const input = body["input"];
   return Array.isArray(input) || typeof input === "string" || body["instructions"] !== undefined
@@ -47,7 +49,10 @@ const opening = (body: Record<string, unknown>) => {
  * on a warm prompt cache: the id the client sent, else one derived from the
  * conversation's opening, as OpenRouter does itself.
  */
-export const resolveSession = (headers: Headers, body: Record<string, unknown>): string => {
+export const resolveSession = (
+  headers: Headers,
+  body: Readonly<Record<string, unknown>>,
+): string => {
   for (const source of sources) {
     const id = source(headers, body);
     if (typeof id === "string" && id !== "") return id.length > MAX_LENGTH ? sha256(id) : id;

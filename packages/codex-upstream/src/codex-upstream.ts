@@ -79,24 +79,24 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak }: CodexUpstreamOptions) =>
     const http = yield* HttpClient.HttpClient;
     const identity = cloak ? IDENTITIES.cloaked : IDENTITIES.plain;
 
-    /** Sends a Responses request as `account`; any status comes back for the caller to judge. */
+    /**
+     * Sends a Responses request as `account` in conversation `session`, which
+     * Codex caches prompts on; any status comes back for the caller to judge.
+     */
     const send = Effect.fn("CodexUpstream.send")(function* (
       account: UpstreamAccount,
       body: ResponsesBody,
+      session: string,
     ) {
-      const sessionId =
-        typeof body.prompt_cache_key === "string"
-          ? body.prompt_cache_key
-          : yield* Effect.sync(() => crypto.randomUUID());
       return yield* HttpClientRequest.post(`${baseUrl}/codex/responses`).pipe(
         HttpClientRequest.setHeaders({
           ...identity,
           authorization: `Bearer ${account.accessToken}`,
           "chatgpt-account-id": account.accountId,
-          session_id: sessionId,
+          session_id: session,
           accept: "text/event-stream",
         }),
-        HttpClientRequest.bodyJsonUnsafe(prepareBody(body)),
+        HttpClientRequest.bodyJsonUnsafe(prepareBody({ prompt_cache_key: session, ...body })),
         http.execute,
       );
     });

@@ -101,4 +101,29 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
       }),
     ),
   );
+
+  it.effect("keeps every turn of a conversation in one Codex session", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/chat/completions", request);
+        yield* via.post("/v1/chat/completions", {
+          ...request,
+          messages: [
+            ...request.messages,
+            { role: "assistant", content: "hello" },
+            { role: "user", content: "and?" },
+          ],
+        });
+        yield* via.post("/v1/chat/completions", {
+          ...request,
+          messages: [{ role: "user", content: "another chat" }],
+        });
+        const [first, second, other] = via.upstreamRequests.map(
+          (upstream) => upstream.headers["session_id"],
+        );
+        expect(second).toBe(first);
+        expect(other).not.toBe(first);
+      }),
+    ),
+  );
 });

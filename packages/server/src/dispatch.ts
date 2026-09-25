@@ -124,6 +124,7 @@ export const nextAccount = Effect.gen(function* () {
  */
 export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   body: Record<string, unknown>,
+  session: string,
   onSuccess: (
     upstream: HttpClientResponse.HttpClientResponse,
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
@@ -145,7 +146,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       return noAccountLeft(retryAfter(yield* store.list, yield* states.get, now));
     }
     const account = next.value;
-    const sent = yield* codex.send(account, body).pipe(
+    const sent = yield* codex.send(account, body, session).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),

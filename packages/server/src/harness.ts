@@ -43,6 +43,7 @@ export type Via = {
     path: string,
     body: object,
     key?: string | null,
+    headers?: Record<string, string>,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** GETs a path from the via server, with a valid API key unless `key` says otherwise. */
   readonly get: (
@@ -127,9 +128,10 @@ export const withVia = <A, E>(
         override === null
           ? (request: HttpClientRequest.HttpClientRequest) => request
           : HttpClientRequest.bearerToken(override ?? key);
-      const post: Via["post"] = (path, json, override) =>
+      const post: Via["post"] = (path, json, override, headers = {}) =>
         HttpClientRequest.post(`${base}${path}`).pipe(
           authorize(override),
+          HttpClientRequest.setHeaders(headers),
           HttpClientRequest.bodyJsonUnsafe(json),
           http.execute,
         );
