@@ -63,6 +63,47 @@ reply = client.responses.create(model="gpt-6-astra-high", input="Hello")
 print(reply.output_text)
 ```
 
+## Docker
+
+Each release publishes `ghcr.io/nkootstra/via` for linux/amd64 and linux/arm64,
+tagged with its version (`0.3.1`, `0.3`) and `latest`; from 1.0.0 on also the
+major version (`1`). via keeps its accounts, keys, `config.yaml` and cooldowns
+in `/data`, so give that a volume:
+
+```sh
+docker run -d --name via --restart unless-stopped \
+  -p 127.0.0.1:8317:8317 -v via-data:/data \
+  ghcr.io/nkootstra/via:0.3.1
+
+docker exec -it via via accounts add
+docker exec via via keys create --name laptop
+```
+
+The running server picks up accounts and keys added this way without a
+restart. For [providers](#providers), put `config.yaml` in the volume and pass
+their keys as environment variables. With Compose:
+
+```yaml
+services:
+  via:
+    image: ghcr.io/nkootstra/via:0.3.1
+    restart: unless-stopped
+    ports:
+      - 127.0.0.1:8317:8317
+    volumes:
+      - via-data:/data
+    environment:
+      OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+
+volumes:
+  via-data:
+```
+
+Inside the container via listens on `0.0.0.0`; the `127.0.0.1:` in the port
+mapping keeps it off other interfaces. It speaks plain HTTP, so put a TLS proxy
+in front of it before exposing it any further. The image runs as a non-root
+user (uid 65532) without a shell.
+
 ## API
 
 Every route needs `Authorization: Bearer <key>` with a key from `via keys create`.
