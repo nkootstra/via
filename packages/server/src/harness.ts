@@ -122,20 +122,24 @@ export const withVia = <A, E>(
       ),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
-    const server = yield* Layer.build(
-      ViaServer.layer.pipe(
-        Layer.provide(PoolStates.layer),
-        Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
-        Layer.provideMerge(services),
-      ),
-    );
-
-    return yield* Effect.gen(function* () {
+    // The accounts exist before via starts, as they do for `via serve`.
+    const built = yield* Layer.build(services);
+    yield* Effect.gen(function* () {
       const store = yield* AccountStore;
       yield* store.save(accountTokens("a", aExpiresAt));
       // Accounts are used in the order they were added, so "a" must come first.
       yield* TestClock.adjust("1 second");
       yield* store.save(accountTokens("b"));
+    }).pipe(Effect.provide(built));
+    const server = yield* Layer.build(
+      ViaServer.layer.pipe(
+        Layer.provide(PoolStates.layer),
+        Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
+        Layer.provideMerge(Layer.succeedContext(built)),
+      ),
+    );
+
+    return yield* Effect.gen(function* () {
       const { key } = yield* (yield* KeyStore).create("test");
       const base = yield* HttpServer.addressFormattedWith(Effect.succeed);
       const http = yield* HttpClient.HttpClient;

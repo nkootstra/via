@@ -77,8 +77,8 @@ A model named `<provider>/<model>` goes to that [provider](#providers) instead.
 
 `/v1/models` lists what the Codex model picker shows your accounts, combined,
 since plans offer different models. So new models appear without a via update.
-via keeps the list and answers from it at once; once it is five minutes old, via
-fetches a new one in the background for the next request. When Codex can't be
+via fetches the list as it starts and answers from it at once; once it is five
+minutes old, via fetches a new one in the background for the next request. When Codex can't be
 asked, it lists the models via knows: `gpt-6-astra`, `gpt-6-sol` and
 `gpt-6-luna`.
 
@@ -109,6 +109,10 @@ model ids are passed through to Codex unchanged.
 
 - Accounts are used **fill-first**, in the order you added them: via stays on
   the first account until it can't serve a request.
+- Plans differ, so a model goes only to accounts whose model list includes it,
+  such as `daybreak` or `daybreak-high` to the one account that offers
+  `daybreak`. A model no account's list includes is tried on every account
+  anyway, as it may be newer than the list.
 - A rate-limit or usage-limit answer puts that account on a cooldown until the
   reset time the upstream gives, or 30 minutes if it gives none. A server error
   (5xx) cools it down for 1 minute. Either way, via retries on the next account.
@@ -116,7 +120,8 @@ model ids are passed through to Codex unchanged.
   account is taken out of use. Log in to it again with `via accounts add`, then
   restart `via serve`.
 - When no account is left, the client gets `429` with a `Retry-After` header
-  (or `503` if waiting won't help).
+  (or `503` if waiting won't help). For a model only some accounts offer, only
+  those accounts count.
 - Running cooldowns are saved in `state.json`, so a restarted `via serve` keeps
   them. Lockouts aren't saved: a restart gives a locked-out account one more try.
 

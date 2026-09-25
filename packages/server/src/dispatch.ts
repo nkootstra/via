@@ -1,19 +1,16 @@
-import {
-  type Account,
-  AccountStore,
-  AccountTokens,
-  type RefreshRejectedError,
-} from "@via/codex-auth";
+import { AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
-import { available, classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
+import { classify, PoolStates, retryAfter, Verdict } from "@via/pool";
 import { type ProviderPath, Providers, type Route } from "@via/providers";
-import { Array, Clock, Effect, Option, type Schema } from "effect";
+import { Clock, Effect, Option, type Schema } from "effect";
 import {
   type HttpClientResponse,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
+import { accountsAllowed, nextAccount } from "./accounts.ts";
+import { ModelCatalog } from "./catalog.ts";
 
 /** An error in the shape OpenAI clients expect. */
 export const openAiError = (
@@ -114,62 +111,9 @@ const noAccountLeft = (waitMs: Option.Option<number>) =>
   });
 
 /**
- * The account with an access token fresh enough to send; none when refreshing
- * fails. A dead refresh token locks the account out; an auth-server hiccup
- * cools it down for a minute.
- */
-const withFreshToken = (account: Account) =>
-  Effect.gen(function* () {
-    const tokens = yield* AccountTokens;
-    const states = yield* PoolStates;
-    const now = yield* Clock.currentTimeMillis;
-    return yield* tokens.fresh(account).pipe(
-      Effect.asSome,
-      Effect.catchTags({
-        RefreshRejectedError: (error) =>
-          states.lockOut(account.id, error.code).pipe(Effect.as(Option.none<Account>())),
-        AuthRequestError: () =>
-          states
-            .mark(account.id, {
-              status: "cooling",
-              until: now + 60_000,
-              reason: "auth_unavailable",
-            })
-            .pipe(Effect.as(Option.none<Account>())),
-      }),
-    );
-  });
-
-/**
- * The account the pool would use next, with a fresh access token: fill-first,
- * skipping accounts cooling down or locked out. None once no account can be used.
- */
-const nextAccount = Effect.gen(function* () {
-  const store = yield* AccountStore;
-  const states = yield* PoolStates;
-  while (true) {
-    const now = yield* Clock.currentTimeMillis;
-    const chosen = select(yield* store.list, yield* states.get, now);
-    if (Option.isNone(chosen)) return Option.none<Account>();
-    const fresh = yield* withFreshToken(chosen.value);
-    if (Option.isSome(fresh)) return fresh;
-  }
-});
-
-/** Every account the pool could use now, each with a fresh access token. */
-export const usableAccounts = Effect.gen(function* () {
-  const store = yield* AccountStore;
-  const states = yield* PoolStates;
-  const now = yield* Clock.currentTimeMillis;
-  const accounts = available(yield* store.list, yield* states.get, now);
-  return Array.getSomes(
-    yield* Effect.forEach(accounts, withFreshToken, { concurrency: "unbounded" }),
-  );
-});
-
-/**
  * Sends a Responses request to Codex through the pool, fill-first: accounts are
  * tried in order, skipping those cooling down or locked out, until one answers.
+ * Only accounts whose plan offers the model are tried, when via knows which do.
  * A successful answer goes to `onSuccess`; a client error is returned as-is.
  */
 export const dispatch = Effect.fn("dispatch")(function* <E, R>(
@@ -179,10 +123,11 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     upstream: HttpClientResponse.HttpClientResponse,
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
 ) {
-  const store = yield* AccountStore;
   const tokens = yield* AccountTokens;
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
+  const allowed =
+    typeof body.model === "string" ? yield* (yield* ModelCatalog).mayServe(body.model) : () => true;
   // A dead refresh token takes the account out of rotation until it logs in again.
   const lockOut = (id: string) => (error: RefreshRejectedError) => states.lockOut(id, error.code);
 
@@ -190,10 +135,10 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const refreshed = new Set<string>();
 
   while (true) {
-    const next = yield* nextAccount;
+    const next = yield* nextAccount(allowed);
     const now = yield* Clock.currentTimeMillis;
     if (Option.isNone(next)) {
-      return noAccountLeft(retryAfter(yield* store.list, yield* states.get, now));
+      return noAccountLeft(retryAfter(yield* accountsAllowed(allowed), yield* states.get, now));
     }
     const account = next.value;
     const sent = yield* codex.send(account, body, session).pipe(

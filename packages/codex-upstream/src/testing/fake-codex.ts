@@ -239,15 +239,20 @@ const Body = Schema.Record(Schema.String, Schema.Unknown);
  */
 export const startFakeCodex = Effect.gen(function* () {
   const requests: Array<CodexRequest> = [];
+  const modelRequests: Array<CodexRequest> = [];
   const shared: Array<Reply> = [];
   const perAccount = new Map<string, Array<Reply>>();
   const usageByAccount = new Map<string, { status: number; body: string }>();
   let catalog: string | undefined;
   const catalogByAccount = new Map<string, string>();
-  const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
+  const waiters: Array<{
+    list: ReadonlyArray<CodexRequest>;
+    count: number;
+    deferred: Deferred.Deferred<void>;
+  }> = [];
   let handler: ((request: CodexRequest) => Reply) | undefined;
 
-  const record = (body: Record<string, unknown>) =>
+  const record = (body: Record<string, unknown>, list: Array<CodexRequest> = requests) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const recorded = {
@@ -255,11 +260,21 @@ export const startFakeCodex = Effect.gen(function* () {
         headers: request.headers,
         body,
       };
-      requests.push(recorded);
+      list.push(recorded);
       for (const waiter of waiters) {
-        if (requests.length >= waiter.count) yield* Deferred.succeed(waiter.deferred, undefined);
+        if (waiter.list === list && list.length >= waiter.count) {
+          yield* Deferred.succeed(waiter.deferred, undefined);
+        }
       }
       return recorded;
+    });
+
+  const arrived = (list: ReadonlyArray<CodexRequest>, count: number) =>
+    Effect.gen(function* () {
+      if (list.length >= count) return;
+      const deferred = yield* Deferred.make<void>();
+      waiters.push({ list, count, deferred });
+      yield* Deferred.await(deferred);
     });
 
   const next = (request: CodexRequest): Reply => {
@@ -277,7 +292,7 @@ export const startFakeCodex = Effect.gen(function* () {
       "POST",
       "/codex/responses",
       HttpServerRequest.schemaBodyJson(Body).pipe(
-        Effect.flatMap(record),
+        Effect.flatMap((body) => record(body)),
         Effect.flatMap((request) => respond(next(request)(request))),
         // Test fixture: a body that is not JSON is a bug in the code under test.
         Effect.orDie,
@@ -299,7 +314,7 @@ export const startFakeCodex = Effect.gen(function* () {
       "GET",
       "/codex/models",
       Effect.gen(function* () {
-        const request = yield* record({});
+        const request = yield* record({}, modelRequests);
         const account = request.headers["chatgpt-account-id"];
         const body = (account === undefined ? undefined : catalogByAccount.get(account)) ?? catalog;
         return body === undefined
@@ -317,8 +332,10 @@ export const startFakeCodex = Effect.gen(function* () {
   return {
     /** Where via should send Codex traffic (`VIA_CODEX_BASE_URL`). */
     url,
-    /** Every request received so far, in order. */
+    /** Every request received so far, in order, except those for `/codex/models`. */
     requests: requests as ReadonlyArray<CodexRequest>,
+    /** Every `/codex/models` request received so far, in order. */
+    modelRequests: modelRequests as ReadonlyArray<CodexRequest>,
     /** Queues replies for any account, served in order. */
     script: (...replies: ReadonlyArray<Reply>) => void shared.push(...replies),
     /** Queues replies for one ChatGPT account, served before the shared queue. */
@@ -342,13 +359,9 @@ export const startFakeCodex = Effect.gen(function* () {
       else catalogByAccount.set(account, text);
     },
     /** Waits until at least `count` requests have arrived. */
-    received: (count: number) =>
-      Effect.gen(function* () {
-        if (requests.length >= count) return;
-        const deferred = yield* Deferred.make<void>();
-        waiters.push({ count, deferred });
-        yield* Deferred.await(deferred);
-      }),
+    received: (count: number) => arrived(requests, count),
+    /** Waits until at least `count` `/codex/models` requests have arrived. */
+    modelsReceived: (count: number) => arrived(modelRequests, count),
   };
 });
 

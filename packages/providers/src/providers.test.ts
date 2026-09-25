@@ -169,7 +169,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         { provider: "up", model: { ...qwen, id: "up/qwen/qwen3" } },
         { provider: "up", model: { id: "up/kimi-k3", object: "model" } },
       ]);
-      expect(up.requests[0]?.headers["authorization"]).toBe("Bearer sk-test");
+      expect(up.modelRequests[0]?.headers["authorization"]).toBe("Bearer sk-test");
     }),
   );
 });

@@ -186,7 +186,7 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
     }),
   );
 
-  it.effect("serves a scripted /codex/models catalog", () =>
+  it.effect("serves a scripted /codex/models catalog, recording its requests apart", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
       codex.models({ models: [{ slug: "gpt-6-astra" }] });
@@ -195,7 +195,9 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
         .execute(HttpClientRequest.get(`${codex.url}/codex/models?client_version=1.0.0`))
         .pipe(Effect.flatMap((response) => response.json));
       expect(answer).toEqual({ models: [{ slug: "gpt-6-astra" }] });
-      expect(codex.requests.at(-1)?.path).toBe("/codex/models");
+      // Kept apart, so a catalog fetched as via starts doesn't shift `requests`.
+      expect(codex.modelRequests.at(-1)?.path).toBe("/codex/models");
+      expect(codex.requests).toEqual([]);
     }),
   );
 

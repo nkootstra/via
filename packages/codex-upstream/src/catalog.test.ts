@@ -44,7 +44,7 @@ layer(BunFileSystem.layer)("CodexUpstream.models", (it) => {
       const codex = yield* startFakeCodex;
       codex.models({ models: [] });
       yield* models(codex.url);
-      const request = codex.requests.at(-1);
+      const request = codex.modelRequests.at(-1);
       expect(request?.path).toBe("/codex/models");
       expect(request?.headers).toMatchObject({
         authorization: "Bearer at-1",
