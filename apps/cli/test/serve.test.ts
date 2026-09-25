@@ -199,4 +199,24 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       }),
     ),
   );
+
+  it.effect("flushes spans it has not exported yet when it stops", () =>
+    withHome(({ home, key, env }) =>
+      Effect.gen(function* () {
+        const collector = yield* startCollector;
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+              ...env,
+              OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
+              // Far beyond the test, so only the flush at shutdown can deliver the span.
+              OTEL_BSP_SCHEDULE_DELAY: "600000",
+            });
+            expect((yield* postResponses(url, key)).status).toBe(200);
+          }),
+        );
+        yield* collector.saw("dispatch").pipe(Effect.timeout("1 second"), realTime);
+      }),
+    ),
+  );
 });
