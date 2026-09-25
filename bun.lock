@@ -120,6 +120,7 @@
       "name": "@via/pool",
       "version": "0.0.0",
       "dependencies": {
+        "@via/config": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
