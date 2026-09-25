@@ -1,5 +1,17 @@
 import { Effect, FileSystem, Schema } from "effect";
 
+/**
+ * An OpenAI-compatible provider. `baseUrl` may be left out for a provider via
+ * knows, and the API key is read from the environment variable `apiKeyEnv`.
+ */
+export const ProviderConfig = Schema.Struct({
+  baseUrl: Schema.optionalKey(Schema.String),
+  apiKeyEnv: Schema.String,
+  sessionHeader: Schema.optionalKey(Schema.String),
+});
+
+export type ProviderConfig = typeof ProviderConfig.Type;
+
 export const Config = Schema.Struct({
   host: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("127.0.0.1"))),
   port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })).pipe(
@@ -8,6 +20,9 @@ export const Config = Schema.Struct({
   codex: Schema.Struct({
     cloak: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
   }).pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
+  providers: Schema.Record(Schema.String, ProviderConfig).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({})),
+  ),
 });
 
 export type Config = typeof Config.Type;

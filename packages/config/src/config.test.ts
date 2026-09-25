@@ -18,6 +18,7 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
         host: "127.0.0.1",
         port: 8317,
         codex: { cloak: true },
+        providers: {},
       });
     }),
   );
@@ -31,7 +32,46 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
         host: "127.0.0.1",
         port: 9000,
         codex: { cloak: false },
+        providers: {},
       });
+    }),
+  );
+
+  it.effect("reads OpenAI-compatible providers", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = yield* tempFile("config.yaml");
+      yield* fs.writeFileString(
+        file,
+        [
+          "providers:",
+          "  openrouter:",
+          "    apiKeyEnv: OPENROUTER_API_KEY",
+          "  local:",
+          "    baseUrl: http://localhost:11434/v1",
+          "    apiKeyEnv: LOCAL_KEY",
+          "    sessionHeader: x-litellm-session-id",
+          "",
+        ].join("\n"),
+      );
+      expect((yield* loadConfig(file)).providers).toEqual({
+        openrouter: { apiKeyEnv: "OPENROUTER_API_KEY" },
+        local: {
+          baseUrl: "http://localhost:11434/v1",
+          apiKeyEnv: "LOCAL_KEY",
+          sessionHeader: "x-litellm-session-id",
+        },
+      });
+    }),
+  );
+
+  it.effect("rejects a provider without apiKeyEnv", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = yield* tempFile("config.yaml");
+      yield* fs.writeFileString(file, "providers:\n  openrouter: {}\n");
+      const error = yield* Effect.flip(loadConfig(file));
+      expect(error.message).toMatch(/apiKeyEnv/);
     }),
   );
 
