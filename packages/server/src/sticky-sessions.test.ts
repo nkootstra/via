@@ -12,8 +12,10 @@ const request = {
 };
 
 /** Which account (as via authenticates to Codex) sent request number `n` (1-based). */
-const accountOf = (via: { upstreamRequests: ReadonlyArray<{ headers: Record<string, unknown> }> }, n: number) =>
-  via.upstreamRequests[n - 1]?.headers.authorization;
+const accountOf = (
+  via: { upstreamRequests: ReadonlyArray<{ headers: Record<string, unknown> }> },
+  n: number,
+) => via.upstreamRequests[n - 1]?.headers.authorization;
 
 layer(BunFileSystem.layer)("sticky sessions", (it) => {
   it.effect(
