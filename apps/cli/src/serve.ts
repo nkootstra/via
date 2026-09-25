@@ -9,6 +9,7 @@ import { Command, Flag } from "effect/unstable/cli";
 import { HttpServer } from "effect/unstable/http";
 import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
 import { codexUpstream } from "./upstream.ts";
+import { version } from "./version.ts";
 
 /**
  * Exports spans over OTLP/HTTP when the standard `OTEL_EXPORTER_OTLP_ENDPOINT`
@@ -16,7 +17,7 @@ import { codexUpstream } from "./upstream.ts";
  * when `OTEL_TRACES_EXPORTER` says `otlp`, so that gets the spec's default.
  */
 const tracing = OtlpTracer.layerFromConfig({
-  resource: { serviceName: "via", serviceVersion: "0.0.0" },
+  resource: { serviceName: "via", serviceVersion: version },
 }).pipe(
   Layer.provide(OtlpSerialization.layerJson),
   Layer.provide(
