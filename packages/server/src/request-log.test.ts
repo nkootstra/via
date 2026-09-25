@@ -20,10 +20,20 @@ layer(BunFileSystem.layer)("request log", (it) => {
           messages: [],
         });
         yield* response.text;
-        const line = yield* via.logged("POST /v1/chat/completions");
-        expect(line).toMatch(
-          /^Info POST \/v1\/chat\/completions 200 · opencode-go\/kimi-k3 via opencode-go · headers \d+ms · first chunk \d+ms · done \d+ms$/,
-        );
+        expect(yield* via.logged("Sent HTTP response")).toEqual({
+          level: "Info",
+          message: "Sent HTTP response",
+          spans: ["http.span"],
+          annotations: {
+            "http.method": "POST",
+            "http.url": "/v1/chat/completions",
+            "http.status": 200,
+            model: "opencode-go/kimi-k3",
+            served_by: "opencode-go",
+            headers_ms: expect.any(Number),
+            first_chunk_ms: expect.any(Number),
+          },
+        });
       }),
     ),
   );
@@ -32,9 +42,18 @@ layer(BunFileSystem.layer)("request log", (it) => {
     withVia(ok, (via) =>
       Effect.gen(function* () {
         yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
-        expect(yield* via.logged("POST /v1/responses")).toMatch(
-          /^Info POST \/v1\/responses 200 · gpt-6-astra via a@example\.com · \d+ms$/,
-        );
+        expect(yield* via.logged("Sent HTTP response")).toEqual({
+          level: "Info",
+          message: "Sent HTTP response",
+          spans: ["http.span"],
+          annotations: {
+            "http.method": "POST",
+            "http.url": "/v1/responses",
+            "http.status": 200,
+            model: "gpt-6-astra",
+            served_by: "a@example.com",
+          },
+        });
       }),
     ),
   );
@@ -48,10 +67,13 @@ layer(BunFileSystem.layer)("request log", (it) => {
       (via) =>
         Effect.gen(function* () {
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
-          expect(yield* via.logged("a@example.com")).toMatch(
-            /^Warn a@example\.com is cooling down until \S+ \(\w+\)$/,
-          );
-          expect(yield* via.logged("POST /v1/responses")).toContain("via b@example.com");
+          expect(yield* via.logged("a@example.com")).toMatchObject({
+            level: "Warn",
+            message: expect.stringMatching(/^a@example\.com is cooling down until \S+ \(\w+\)$/),
+          });
+          expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+            served_by: "b@example.com",
+          });
         }),
     ),
   );
@@ -62,9 +84,10 @@ layer(BunFileSystem.layer)("request log", (it) => {
       (via) =>
         Effect.gen(function* () {
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
-          expect(yield* via.logged("a@example.com")).toBe(
-            "Warn a@example.com is locked out until it logs in again (invalid_grant)",
-          );
+          expect(yield* via.logged("a@example.com")).toMatchObject({
+            level: "Warn",
+            message: "a@example.com is locked out until it logs in again (invalid_grant)",
+          });
         }),
       { refreshResponse: { status: 400, body: { error: "invalid_grant" } }, aExpiresAt: 0 },
     ),
@@ -76,9 +99,12 @@ layer(BunFileSystem.layer)("request log", (it) => {
       (via) =>
         Effect.gen(function* () {
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
-          expect(yield* via.logged("a@example.com")).toMatch(
-            /^Warn a@example\.com is cooling down until \S+ \(auth_unavailable\)$/,
-          );
+          expect(yield* via.logged("a@example.com")).toMatchObject({
+            level: "Warn",
+            message: expect.stringMatching(
+              /^a@example\.com is cooling down until \S+ \(auth_unavailable\)$/,
+            ),
+          });
         }),
       { refreshResponse: { status: 500, body: { error: "server_error" } }, aExpiresAt: 0 },
     ),
@@ -91,9 +117,44 @@ layer(BunFileSystem.layer)("request log", (it) => {
       (via) =>
         Effect.gen(function* () {
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
-          expect(yield* via.logged("a@example.com")).toBe(
-            "Warn a@example.com is out of use: Codex rejects its token even after a refresh",
-          );
+          expect(yield* via.logged("a@example.com")).toMatchObject({
+            level: "Warn",
+            message: "a@example.com is out of use: Codex rejects its token even after a refresh",
+          });
+        }),
+    ),
+  );
+
+  it.effect("logs a request via turns away itself with its model and why", () =>
+    withVia(
+      () => reply.error(429, "", { "retry-after": "120" }),
+      (via) =>
+        Effect.gen(function* () {
+          // Cools both accounts down; the next request has no account to try.
+          yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
+          // Both accounts were tried, but neither served it.
+          expect((yield* via.logged("Sent HTTP response")).annotations).toEqual({
+            "http.method": "POST",
+            "http.url": "/v1/responses",
+            "http.status": 429,
+            model: "gpt-6-astra",
+            error: "rate_limit_exceeded",
+            retry_after: "120",
+          });
+          yield* via.post("/v1/chat/completions", { model: "gpt-6-sol", messages: [] });
+          expect(yield* via.logged("gpt-6-sol")).toEqual({
+            level: "Info",
+            message: "Sent HTTP response",
+            spans: ["http.span"],
+            annotations: {
+              "http.method": "POST",
+              "http.url": "/v1/chat/completions",
+              "http.status": 429,
+              model: "gpt-6-sol",
+              error: "rate_limit_exceeded",
+              retry_after: "120",
+            },
+          });
         }),
     ),
   );
@@ -102,7 +163,17 @@ layer(BunFileSystem.layer)("request log", (it) => {
     withVia(ok, (via) =>
       Effect.gen(function* () {
         yield* via.get("/v1/models", null);
-        expect(yield* via.logged("GET /v1/models")).toMatch(/^Info GET \/v1\/models 401 · \d+ms$/);
+        expect(yield* via.logged("Sent HTTP response")).toEqual({
+          level: "Info",
+          message: "Sent HTTP response",
+          spans: ["http.span"],
+          annotations: {
+            "http.method": "GET",
+            "http.url": "/v1/models",
+            "http.status": 401,
+            error: "invalid_api_key",
+          },
+        });
       }),
     ),
   );

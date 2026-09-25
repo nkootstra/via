@@ -4,7 +4,7 @@ import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
 import { ViaServer } from "@via/server";
-import { ConfigProvider, Console, Effect, Layer, Option } from "effect";
+import { ConfigProvider, Console, Effect, Layer, Logger, Option } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { HttpServer } from "effect/unstable/http";
 import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
@@ -56,6 +56,8 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
           Layer.provide(codexUpstream(config, upstreamBaseUrl)),
           Layer.provide(Providers.layer(config.providers)),
           Layer.provideMerge(tracing),
+          // One line per entry, as `key=value` pairs that grep and log tools read.
+          Layer.provide(Logger.layer([Logger.consoleLogFmt])),
         );
         return yield* HttpServer.addressFormattedWith((url) =>
           Console.log(`Listening on ${url}`),

@@ -13,7 +13,7 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { freePort, realTime, runVia, serveVia, tempHome } from "./helpers.ts";
+import { freePort, realTime, runVia, serveVia, startVia, tempHome } from "./helpers.ts";
 
 /**
  * A `via` home with one account (from a fake issuer) and one API key, whose
@@ -123,6 +123,18 @@ layer(BunFileSystem.layer)("via serve", (it) => {
           "chatgpt-account-id": "acc-123",
           originator: "via",
         });
+      }),
+    ),
+  );
+
+  it.effect("logs each request on one line, in logfmt", () =>
+    withHome(({ home, key, env }) =>
+      Effect.gen(function* () {
+        const via = yield* startVia(home, ["--port", String(yield* freePort)], env);
+        yield* postResponses(via.url, key);
+        expect(yield* via.output("Sent HTTP response")).toMatch(
+          /^timestamp=\S+ level=INFO fiber=#\d+ message="Sent HTTP response" http\.span=\d+ms http\.method=POST http\.url=\/v1\/responses http\.status=200 model=gpt-6-astra served_by=dev@example\.com$/,
+        );
       }),
     ),
   );

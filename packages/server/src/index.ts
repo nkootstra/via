@@ -14,7 +14,8 @@ export const ViaServer = {
       HttpRouter.add("POST", "/v1/chat/completions", chatCompletions),
       HttpRouter.add("GET", "/v1/models", models),
     ),
-    // One line per request from `logRequest`, instead of Effect's.
-    { disableLogger: true, middleware: logRequest },
+    // One line per request from `logRequest`, instead of Effect's; `via serve`
+    // announces the address itself.
+    { disableLogger: true, disableListenLog: true, middleware: logRequest },
   ).pipe(Layer.provide(ModelCatalog.layer)),
 };
