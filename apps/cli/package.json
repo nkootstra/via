@@ -6,6 +6,9 @@
     "via": "./src/index.ts"
   },
   "type": "module",
+  "exports": {
+    "./testing": "./test/helpers.ts"
+  },
   "scripts": {
     "test": "bun --bun vitest run --test-timeout=30000",
     "typecheck": "tsc -p ."
