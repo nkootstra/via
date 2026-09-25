@@ -77,8 +77,8 @@ A model named `<provider>/<model>` goes to that [provider](#providers) instead.
 
 `/v1/models` lists what the Codex model picker shows your accounts, combined,
 since plans offer different models. So new models appear without a via update.
-via keeps the list and answers from it at once; once it is five minutes old, via
-fetches a new one in the background for the next request. When Codex can't be
+via fetches the list as it starts and answers from it at once; once it is five
+minutes old, via fetches a new one in the background for the next request. When Codex can't be
 asked, it lists the models via knows: `gpt-6-astra`, `gpt-6-sol` and
 `gpt-6-luna`.
 
