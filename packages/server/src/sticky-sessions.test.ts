@@ -58,4 +58,45 @@ layer(BunFileSystem.layer)("sticky sessions", (it) => {
       );
     },
   );
+
+  it.effect(
+    "moves the binding to whichever account answers after the bound one fails over mid-request",
+    () => {
+      // "a" answers the session's first request, becoming its binding. It then
+      // fails over on the session's next request, so "b" answers that one instead.
+      let aCalls = 0;
+      const answer = (req: { headers: Readonly<Record<string, string | undefined>> }) => {
+        if (req.headers.authorization === "Bearer at-a") {
+          aCalls++;
+          if (aCalls === 2) return reply.error(429, { error: { code: "usage_limit_reached" } });
+        }
+        return reply.sse(completedStream("hi"));
+      };
+      return withVia(answer, (via) =>
+        Effect.gen(function* () {
+          const headers = { "x-session-id": "s1" };
+          // No binding yet: fill-first picks "a", which becomes the binding.
+          const first = yield* via.post(CHAT, request, undefined, headers);
+          expect(first.status).toBe(200);
+          expect(accountOf(via, 1)).toBe("Bearer at-a");
+
+          // Same session: "a" is preferred but fails over mid-request, so "b" answers.
+          const second = yield* via.post(CHAT, request, undefined, headers);
+          expect(second.status).toBe(200);
+          expect(via.upstreamRequests).toHaveLength(3);
+          expect(accountOf(via, 2)).toBe("Bearer at-a");
+          expect(accountOf(via, 3)).toBe("Bearer at-b");
+
+          // Let "a"'s cooldown expire, so plain fill-first would pick it again.
+          yield* TestClock.adjust("31 minutes");
+
+          // The binding moved to "b": a later request on s1 stays there, not back on "a".
+          const third = yield* via.post(CHAT, request, undefined, headers);
+          expect(third.status).toBe(200);
+          expect(via.upstreamRequests).toHaveLength(4);
+          expect(accountOf(via, 4)).toBe("Bearer at-b");
+        }),
+      );
+    },
+  );
 });
