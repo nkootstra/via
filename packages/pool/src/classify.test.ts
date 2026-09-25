@@ -1,4 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
+import { Schema } from "effect";
+import { Arbitrary } from "effect/unstable/arbitrary";
 import { classify, Verdict } from "./index.ts";
 
 const NOW = 1_700_000_000_000;
@@ -127,4 +129,47 @@ describe("classify", () => {
       expect(classify(status, headers, body, NOW)).toEqual(expected);
     });
   }
+});
+
+describe("properties", () => {
+  const QUOTA_CODE = "usage_limit_reached";
+
+  /** A 429's resets_at/Retry-After, both possibly absent and possibly already in the past. */
+  const CooldownInput = Schema.Struct({
+    hasResetsAt: Schema.Boolean,
+    resetsAtOffsetSeconds: Schema.Int.check(Schema.isBetween({ minimum: -7_200, maximum: 7_200 })),
+    hasRetryAfter: Schema.Boolean,
+    retryAfterSeconds: Schema.Int.check(Schema.isBetween({ minimum: -600, maximum: 7_200 })),
+  });
+  const inputs = Arbitrary.schema(CooldownInput);
+
+  const toVerdict = (input: typeof CooldownInput.Type) => {
+    const body = codexError({
+      type: QUOTA_CODE,
+      ...(input.hasResetsAt ? { resets_at: NOW / 1000 + input.resetsAtOffsetSeconds } : {}),
+    });
+    const headers = input.hasRetryAfter ? { "retry-after": String(input.retryAfterSeconds) } : {};
+    return classify(429, headers, body, NOW);
+  };
+
+  it.prop("a Cooldown's until is never before now", { input: inputs }, ({ input }) =>
+    Verdict.$match(toVerdict(input), {
+      Cooldown: (verdict) => verdict.until >= NOW,
+      Unauthorized: () => true,
+      PassThrough: () => true,
+    }),
+  );
+
+  it.prop(
+    "until is the later of resets_at/Retry-After, or the fixed fallback",
+    { input: inputs },
+    ({ input }) => {
+      const known = [
+        input.hasResetsAt ? NOW + input.resetsAtOffsetSeconds * SECOND : undefined,
+        input.hasRetryAfter ? NOW + input.retryAfterSeconds * SECOND : undefined,
+      ].filter((value): value is number => value !== undefined);
+      const until = Math.max(NOW, known.length > 0 ? Math.max(...known) : NOW + 30 * MINUTE);
+      expect(toVerdict(input)).toEqual(Verdict.Cooldown({ until, reason: QUOTA_CODE }));
+    },
+  );
 });
