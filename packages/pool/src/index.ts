@@ -8,3 +8,4 @@ export {
   retryAfter,
   select,
 } from "./select.ts";
+export { decideUsagePoll, pollable, type UsagePollResult, type UsageWindow } from "./usage-poll.ts";
