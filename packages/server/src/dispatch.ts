@@ -1,4 +1,9 @@
-import { AccountStore, AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
+import {
+  type Account,
+  AccountStore,
+  AccountTokens,
+  type RefreshRejectedError,
+} from "@via/codex-auth";
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import { classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
@@ -83,6 +88,36 @@ const noAccountLeft = (waitMs: Option.Option<number>) =>
   });
 
 /**
+ * The account the pool would use next, with an access token fresh enough to
+ * send: fill-first, skipping accounts cooling down or locked out. A dead refresh
+ * token locks its account out; an auth-server hiccup cools it down for a minute.
+ * None once no account can be used.
+ */
+export const nextAccount = Effect.gen(function* () {
+  const store = yield* AccountStore;
+  const tokens = yield* AccountTokens;
+  const states = yield* PoolStates;
+  while (true) {
+    const now = yield* Clock.currentTimeMillis;
+    const chosen = select(yield* store.list, yield* states.get, now);
+    if (Option.isNone(chosen)) return Option.none<Account>();
+    const { id } = chosen.value;
+    const fresh = yield* tokens.fresh(chosen.value).pipe(
+      Effect.asSome,
+      Effect.catchTags({
+        RefreshRejectedError: (error) =>
+          states.lockOut(id, error.code).pipe(Effect.as(Option.none<Account>())),
+        AuthRequestError: () =>
+          states
+            .mark(id, { status: "cooling", until: now + 60_000, reason: "auth_unavailable" })
+            .pipe(Effect.as(Option.none<Account>())),
+      }),
+    );
+    if (Option.isSome(fresh)) return fresh;
+  }
+});
+
+/**
  * Sends a Responses request to Codex through the pool, fill-first: accounts are
  * tried in order, skipping those cooling down or locked out, until one answers.
  * A successful answer goes to `onSuccess`; a client error is returned as-is.
@@ -104,31 +139,12 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const refreshed = new Set<string>();
 
   while (true) {
-    const accounts = yield* store.list;
-    const state = yield* states.get;
+    const next = yield* nextAccount;
     const now = yield* Clock.currentTimeMillis;
-    const chosen = select(accounts, state, now);
-    if (Option.isNone(chosen)) return noAccountLeft(retryAfter(accounts, state, now));
-
-    const fresh = yield* tokens.fresh(chosen.value).pipe(
-      Effect.asSome,
-      Effect.catchTags({
-        RefreshRejectedError: (error) =>
-          lockOut(chosen.value.id)(error).pipe(Effect.as(Option.none())),
-        // The issuer itself is having trouble; cool the account down rather than fail
-        // the whole request, the same way an upstream hiccup already does below.
-        AuthRequestError: () =>
-          states
-            .mark(chosen.value.id, {
-              status: "cooling",
-              until: now + 60_000,
-              reason: "auth_unavailable",
-            })
-            .pipe(Effect.as(Option.none())),
-      }),
-    );
-    if (Option.isNone(fresh)) continue;
-    const account = fresh.value;
+    if (Option.isNone(next)) {
+      return noAccountLeft(retryAfter(yield* store.list, yield* states.get, now));
+    }
+    const account = next.value;
     const sent = yield* codex.send(account, body).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
