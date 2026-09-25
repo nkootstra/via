@@ -1,17 +1,13 @@
 import { BunFileSystem } from "@effect/platform-bun";
-import { completedStream, type RecordedRequest } from "@via/codex-upstream/testing";
+import { type CodexRequest, completedStream, reply } from "@via/codex-upstream/testing";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { refreshedAccessToken, withVia } from "./harness.ts";
 
-const ok = () => ({ status: 200, body: completedStream("hello") });
-const accountOf = (request: RecordedRequest) => request.headers["chatgpt-account-id"];
-const usageLimit = (resetsAt: number) => ({
-  status: 429,
-  body: JSON.stringify({
-    error: { type: "usage_limit_reached", resets_at: resetsAt },
-  }),
-});
+const ok = () => reply.sse(completedStream("hello"));
+const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
+const usageLimit = (resetsAt: number) =>
+  reply.error(429, { error: { type: "usage_limit_reached", resets_at: resetsAt } });
 const request = { model: "gpt-6-astra", input: "hi" };
 
 layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
@@ -89,7 +85,7 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
 
   it.effect("answers 429 with Retry-After when every account is cooling down", () =>
     withVia(
-      () => ({ status: 429, headers: { "retry-after": "120" }, body: "" }),
+      () => reply.error(429, "", { "retry-after": "120" }),
       (via) =>
         Effect.gen(function* () {
           const response = yield* via.post("/v1/responses", request);
@@ -104,10 +100,7 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
 
   it.effect("returns a client error as-is, since another account would fail the same way", () =>
     withVia(
-      () => ({
-        status: 400,
-        body: JSON.stringify({ error: { message: "bad input" } }),
-      }),
+      () => reply.error(400, { error: { message: "bad input" } }),
       (via) =>
         Effect.gen(function* () {
           const response = yield* via.post("/v1/responses", request);
@@ -125,10 +118,7 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
       (received) =>
         received.headers.authorization === `Bearer ${refreshedAccessToken}`
           ? ok()
-          : {
-              status: 401,
-              body: JSON.stringify({ error: { code: "token_expired" } }),
-            },
+          : reply.error(401, { error: { code: "token_expired" } }),
       (via) =>
         Effect.gen(function* () {
           expect((yield* via.post("/v1/responses", request)).status).toBe(200);
@@ -141,12 +131,7 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     withVia(
       (received) =>
         accountOf(received) === "acc-a"
-          ? {
-              status: 401,
-              body: JSON.stringify({
-                error: { code: "account_deactivated" },
-              }),
-            }
+          ? reply.error(401, { error: { code: "account_deactivated" } })
           : ok(),
       (via) =>
         Effect.gen(function* () {
@@ -159,7 +144,7 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
 
   it.effect("locks out an account whose refresh token is rejected, and moves on", () =>
     withVia(
-      (received) => (accountOf(received) === "acc-a" ? { status: 401, body: "{}" } : ok()),
+      (received) => (accountOf(received) === "acc-a" ? reply.error(401, {}) : ok()),
       (via) =>
         Effect.gen(function* () {
           expect((yield* via.post("/v1/responses", request)).status).toBe(200);

@@ -1,16 +1,16 @@
 import { runVia, serveVia, tempHome } from "@via/cli/testing";
 import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
-import { startFakeCodex } from "@via/codex-upstream/testing";
+import { type FakeCodex, startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Layer } from "effect";
 import { HttpServer } from "effect/unstable/http";
 import OpenAI from "openai";
 
-export { freePort, realTime, type RunResult, runVia, serveVia, tempHome } from "@via/cli/testing";
+export { freePort, realTime, runVia, tempHome } from "@via/cli/testing";
 
 /** The fake Codex backend, scoped; point via at `codex.url`. */
 export const startCodex = startFakeCodex;
 
-export type Codex = Effect.Success<typeof startFakeCodex>;
+export type Codex = FakeCodex;
 
 /** The fake OpenAI issuer, scoped, as a base URL. */
 export const startIssuer = (options: FakeIssuerOptions = {}) =>
@@ -32,7 +32,7 @@ export type SeededAccount = {
  * `acc-a` and access token `at-a`. The fake issuer only knows one identity, so
  * this is how a test gets a pool of several.
  */
-export const seedAccounts = (home: string, accounts: ReadonlyArray<SeededAccount>) =>
+const seedAccounts = (home: string, accounts: ReadonlyArray<SeededAccount>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     yield* fs.makeDirectory(`${home}/auth`, { recursive: true });

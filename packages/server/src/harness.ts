@@ -3,8 +3,9 @@ import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
 import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
-import { type FakeReply, fakeUpstream, type RecordedRequest } from "@via/codex-upstream/testing";
+import { type CodexRequest, type Reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
+import { PoolStates } from "@via/pool";
 import { Effect, FileSystem, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import {
@@ -23,7 +24,7 @@ export const refreshedAccessToken = jwt({
 });
 
 /** Tokens for a ChatGPT account named `name`, valid far into the future. */
-export const accountTokens = (name: string, expiresAt = 1e15) => ({
+const accountTokens = (name: string, expiresAt = 1e15) => ({
   idToken: jwt({
     email: `${name}@example.com`,
     "https://api.openai.com/auth": {
@@ -52,19 +53,19 @@ export type Via = {
   readonly baseUrl: string;
   /** A valid API key. */
   readonly key: string;
-  /** Every request the fake Codex upstream received so far. */
-  readonly upstreamRequests: ReadonlyArray<RecordedRequest>;
+  /** Every request the fake Codex received so far. */
+  readonly upstreamRequests: ReadonlyArray<CodexRequest>;
 };
 
 /**
  * Starts via with accounts "a" and "b" (in that order) and a fresh API key.
- * The fake upstream answers each request with `reply`; the fake issuer answers the
+ * The fake Codex answers each request with `answer`'s reply; the fake issuer answers the
  * first refresh with `refreshResponse`, by default a new access token. Account "a"'s
  * access token expires at `aExpiresAt`, by default far in the future. With
- * `codexUrl`, via sends Codex traffic there instead of to the fake upstream.
+ * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
  */
 export const withVia = <A, E>(
-  reply: (request: RecordedRequest) => FakeReply,
+  answer: (request: CodexRequest) => Reply,
   body: (via: Via) => Effect.Effect<A, E>,
   {
     refreshResponse = {
@@ -86,30 +87,28 @@ export const withVia = <A, E>(
       AccountStore.layer(`${dir}/auth`),
     ).pipe(Layer.provide(BunFileSystem.layer));
 
-    const upstreamRequests: Array<RecordedRequest> = [];
-    const upstream = yield* Layer.build(
-      fakeUpstream((request) => {
-        upstreamRequests.push(request);
-        return reply(request);
-      }),
-    );
+    const codex = yield* startFakeCodex;
+    codex.respond(answer);
     const issuer = yield* Layer.build(fakeIssuer({ refreshResponse }));
-    const address = (context: typeof upstream | typeof issuer) =>
-      HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
 
     const services = Layer.mergeAll(
       AccountTokens.layer.pipe(
-        Layer.provide(CodexAuth.layer(yield* address(issuer))),
+        Layer.provide(
+          CodexAuth.layer(
+            yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(issuer)),
+          ),
+        ),
         Layer.provideMerge(stores),
       ),
       CodexUpstream.layer({
-        baseUrl: codexUrl ?? (yield* address(upstream)),
+        baseUrl: codexUrl ?? codex.url,
         cloak: true,
       }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     const server = yield* Layer.build(
       ViaServer.layer.pipe(
+        Layer.provide(PoolStates.layer),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(services),
       ),
@@ -136,6 +135,6 @@ export const withVia = <A, E>(
         );
       const get: Via["get"] = (path, override) =>
         http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
-      return yield* body({ post, get, baseUrl: base, key, upstreamRequests });
+      return yield* body({ post, get, baseUrl: base, key, upstreamRequests: codex.requests });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });

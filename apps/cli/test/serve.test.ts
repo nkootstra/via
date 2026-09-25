@@ -1,43 +1,46 @@
-import { BunFileSystem } from "@effect/platform-bun";
+import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { fakeIssuer } from "@via/codex-auth/testing";
-import { completedStream, fakeUpstream, type RecordedRequest } from "@via/codex-upstream/testing";
-import { Effect, FileSystem, Layer } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest, HttpServer } from "effect/unstable/http";
-import { freePort, runVia, serveVia, tempHome } from "./helpers.ts";
+import { type FakeCodex, reply, startFakeCodex } from "@via/codex-upstream/testing";
+import { Deferred, Effect, FileSystem, Layer, Schema } from "effect";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientRequest,
+  HttpRouter,
+  HttpServer,
+  HttpServerRequest,
+  HttpServerResponse,
+} from "effect/unstable/http";
+import { freePort, realTime, runVia, serveVia, tempHome } from "./helpers.ts";
 
 /**
  * A `via` home with one account (from a fake issuer) and one API key, whose
- * upstream is a fake Codex backend that records what it receives.
+ * upstream is a fake Codex backend that answers "hello" unless scripted otherwise.
  */
 const withHome = <A, E, R>(
   body: (setup: {
     home: string;
     key: string;
     env: Record<string, string>;
-    upstreamRequests: ReadonlyArray<RecordedRequest>;
+    codex: FakeCodex;
   }) => Effect.Effect<A, E, R>,
 ) =>
   Effect.gen(function* () {
     const home = yield* tempHome;
-    const upstreamRequests: Array<RecordedRequest> = [];
-    const upstream = yield* Layer.build(
-      fakeUpstream((request) => {
-        upstreamRequests.push(request);
-        return { status: 200, body: completedStream("hello") };
-      }),
-    );
+    const codex = yield* startFakeCodex;
+    codex.respond(() => reply.text("hello"));
     const issuer = yield* Layer.build(fakeIssuer());
-    const address = (context: typeof upstream | typeof issuer) =>
-      HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
     const env = {
-      VIA_CODEX_ISSUER: yield* address(issuer),
-      VIA_CODEX_BASE_URL: yield* address(upstream),
+      VIA_CODEX_ISSUER: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(
+        Effect.provide(issuer),
+      ),
+      VIA_CODEX_BASE_URL: codex.url,
     };
     yield* runVia(home, ["accounts", "add"], env);
     const created = yield* runVia(home, ["keys", "create", "--name", "test"]);
     const key = created.stdout.trim().split("\n").at(-1) ?? "";
-    return yield* body({ home, key, env, upstreamRequests });
+    return yield* body({ home, key, env, codex });
   });
 
 const postResponses = (url: string, key: string) =>
@@ -50,9 +53,59 @@ const postResponses = (url: string, key: string) =>
     );
   }).pipe(Effect.provide(FetchHttpClient.layer));
 
+const Traces = Schema.Struct({
+  resourceSpans: Schema.Array(
+    Schema.Struct({
+      scopeSpans: Schema.Array(
+        Schema.Struct({ spans: Schema.Array(Schema.Struct({ name: Schema.String })) }),
+      ),
+    }),
+  ),
+});
+
+/** A local OTLP/HTTP collector; `saw(name)` waits until a span called `name` arrives. */
+const startCollector = Effect.gen(function* () {
+  const names = new Set<string>();
+  const waiters: Array<{ name: string; seen: Deferred.Deferred<void> }> = [];
+  const receive = HttpServerRequest.schemaBodyJson(Traces).pipe(
+    Effect.tap((traces) =>
+      Effect.forEach(
+        traces.resourceSpans.flatMap((resource) =>
+          resource.scopeSpans.flatMap((scope) => scope.spans.map((span) => span.name)),
+        ),
+        (name) => {
+          names.add(name);
+          return Effect.forEach(
+            waiters.filter((waiter) => waiter.name === name),
+            (waiter) => Deferred.succeed(waiter.seen, undefined),
+          );
+        },
+      ),
+    ),
+    Effect.as(HttpServerResponse.empty()),
+    // Test fixture: an export that is not OTLP JSON is a bug in the code under test.
+    Effect.orDie,
+  );
+  const server = yield* Layer.build(
+    HttpRouter.serve(HttpRouter.add("POST", "/v1/traces", receive)).pipe(
+      Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
+    ),
+  );
+  return {
+    url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),
+    saw: (name: string) =>
+      Effect.gen(function* () {
+        if (names.has(name)) return;
+        const seen = yield* Deferred.make<void>();
+        waiters.push({ name, seen });
+        yield* Deferred.await(seen);
+      }),
+  };
+});
+
 layer(BunFileSystem.layer)("via serve", (it) => {
   it.effect("serves /v1/responses through the added accounts, as configured in config.yaml", () =>
-    withHome(({ home, key, env, upstreamRequests }) =>
+    withHome(({ home, key, env, codex }) =>
       Effect.gen(function* () {
         const port = yield* freePort;
         yield* (yield* FileSystem.FileSystem).writeFileString(
@@ -64,8 +117,8 @@ layer(BunFileSystem.layer)("via serve", (it) => {
 
         const response = yield* postResponses(url, key);
         expect(response.status).toBe(200);
-        expect(yield* response.json).toMatchObject({ id: "resp_1", status: "completed" });
-        expect(upstreamRequests[0]?.headers).toMatchObject({
+        expect(yield* response.json).toMatchObject({ id: "resp_fake", status: "completed" });
+        expect(codex.requests[0]?.headers).toMatchObject({
           "chatgpt-account-id": "acc-123",
           originator: "via",
         });
@@ -112,5 +165,38 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("Invalid config");
     }),
+  );
+
+  it.effect("keeps an account cooling down across a restart", () =>
+    withHome(({ home, key, env, codex }) =>
+      Effect.gen(function* () {
+        codex.script(reply.error(429, "", { "retry-after": "3600" }));
+        const port = String(yield* freePort);
+        yield* Effect.scoped(
+          Effect.gen(function* () {
+            const url = yield* serveVia(home, ["--port", port], env);
+            expect((yield* postResponses(url, key)).status).toBe(429);
+          }),
+        );
+        const url = yield* serveVia(home, ["--port", port], env);
+        expect((yield* postResponses(url, key)).status).toBe(429);
+        expect(codex.requests).toHaveLength(1);
+      }),
+    ),
+  );
+
+  it.effect("exports traces to the OTLP endpoint in the standard OpenTelemetry variables", () =>
+    withHome(({ home, key, env }) =>
+      Effect.gen(function* () {
+        const collector = yield* startCollector;
+        const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+          ...env,
+          OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
+          OTEL_BSP_SCHEDULE_DELAY: "50",
+        });
+        expect((yield* postResponses(url, key)).status).toBe(200);
+        yield* collector.saw("dispatch").pipe(Effect.timeout("10 seconds"), realTime);
+      }),
+    ),
   );
 });

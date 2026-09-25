@@ -11,6 +11,7 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@via/config": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

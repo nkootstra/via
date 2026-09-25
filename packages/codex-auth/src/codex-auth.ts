@@ -1,7 +1,7 @@
 import { Context, Duration, Effect, Layer, Option, Schema } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
-export const ISSUER = "https://auth.openai.com";
+const ISSUER = "https://auth.openai.com";
 export const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 const LOGIN_TIMEOUT = Duration.minutes(15);
 

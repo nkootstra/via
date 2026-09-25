@@ -1,34 +1,35 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
-import { completedStream, type FakeReply, fakeUpstream } from "@via/codex-upstream/testing";
+import { startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Layer } from "effect";
 import { HttpServer } from "effect/unstable/http";
 import { runVia, tempHome } from "./helpers.ts";
 
 /**
  * A `via` runner with its own home, logging in against a local fake issuer and
- * reading usage from a fake Codex backend that answers with `usage`. Times print in UTC.
+ * reading usage from a fake Codex backend, which refuses with `usageStatus` when given.
+ * Times print in UTC.
  */
 const withVia = <A, E, R>(
   body: (
     via: (...args: ReadonlyArray<string>) => ReturnType<typeof runVia>,
     home: string,
   ) => Effect.Effect<A, E, R>,
-  usage?: () => FakeReply,
+  usageStatus?: number,
   issuerOptions?: FakeIssuerOptions,
 ) =>
   Effect.gen(function* () {
     const home = yield* tempHome;
-    const upstream = yield* Layer.build(
-      fakeUpstream(() => ({ status: 200, body: completedStream("hello") }), usage),
-    );
+    const codex = yield* startFakeCodex;
+    // The account the fake issuer signs in.
+    if (usageStatus !== undefined) codex.usage("acc-123", {}, usageStatus);
     const issuer = yield* Layer.build(fakeIssuer(issuerOptions));
-    const address = (context: typeof upstream | typeof issuer) =>
-      HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
     const env = {
-      VIA_CODEX_ISSUER: yield* address(issuer),
-      VIA_CODEX_BASE_URL: yield* address(upstream),
+      VIA_CODEX_ISSUER: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(
+        Effect.provide(issuer),
+      ),
+      VIA_CODEX_BASE_URL: codex.url,
       TZ: "UTC",
     };
     return yield* body((...args) => runVia(home, args, env), home);
@@ -146,7 +147,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
           expect(status.exitCode).toBe(0);
           expect(status.stdout).toContain("ChatGPT did not report usage (HTTP 403)");
         }),
-      () => ({ status: 403, body: "{}" }),
+      403,
     ),
   );
 

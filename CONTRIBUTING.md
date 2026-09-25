@@ -26,15 +26,16 @@ bun apps/cli/src/index.ts --help   # run the CLI from source
 
 ## Commands
 
-| Command             | What it does                                                     |
-| ------------------- | ---------------------------------------------------------------- |
-| `bun run check`     | Lint, format check, typecheck and tests: everything CI gates on. |
-| `bun run test`      | Tests (`@effect/vitest`, run as `bun --bun vitest run`).         |
-| `bun run typecheck` | TypeScript 7 plus Effect diagnostics.                            |
-| `bun run lint`      | oxlint, warnings are errors.                                     |
-| `bun run format`    | oxfmt. `format:check` only checks.                               |
-| `bun run build`     | Compiles the binary for every platform package in `npm/`.        |
-| `bun run smoke`     | Installs the packed npm packages and runs them under Node.       |
+| Command             | What it does                                                           |
+| ------------------- | ---------------------------------------------------------------------- |
+| `bun run check`     | Lint, format check, knip, typecheck and tests: everything CI gates on. |
+| `bun run test`      | Tests (`@effect/vitest`, run as `bun --bun vitest run`).               |
+| `bun run typecheck` | TypeScript 7 plus Effect diagnostics.                                  |
+| `bun run lint`      | oxlint, warnings are errors.                                           |
+| `bun run format`    | oxfmt. `format:check` only checks.                                     |
+| `bun run knip`      | Finds unused files, exports and dependencies.                          |
+| `bun run build`     | Compiles the binary for every platform package in `npm/`.              |
+| `bun run smoke`     | Installs the packed npm packages and runs them under Node.             |
 
 Never use `bun test`; it's a different test runner.
 
@@ -139,17 +140,17 @@ This repo's `.claude/settings.json` already stops Claude Code from adding them.
 
 These checks must pass:
 
-| Check                                        | What it checks                            |
-| -------------------------------------------- | ----------------------------------------- |
-| Lint & format                                | `bun run lint` and `bun run format:check` |
-| Typecheck (TS 7 + Effect diagnostics)        | `bun run typecheck`                       |
-| Test (ubuntu-latest), Test (macos-latest)    | `bun run test`                            |
-| Build & npm smoke test                       | The binaries build and run under Node     |
-| PR body keeps the required template sections | The template wasn't deleted               |
-| PR title follows type(scope) subject         | The PR title format                       |
-| Commits follow type(scope) subject           | Every commit subject                      |
-| Commits are signed and verified              | Every commit shows as Verified            |
-| Commits omit AI attribution trailers         | No bot co-authors or generator footers    |
+| Check                                        | What it checks                                            |
+| -------------------------------------------- | --------------------------------------------------------- |
+| Lint & format                                | `bun run lint`, `bun run format:check` and `bun run knip` |
+| Typecheck (TS 7 + Effect diagnostics)        | `bun run typecheck`                                       |
+| Test (ubuntu-latest), Test (macos-latest)    | `bun run test`                                            |
+| Build & npm smoke test                       | The binaries build and run under Node                     |
+| PR body keeps the required template sections | The template wasn't deleted                               |
+| PR title follows type(scope) subject         | The PR title format                                       |
+| Commits follow type(scope) subject           | Every commit subject                                      |
+| Commits are signed and verified              | Every commit shows as Verified                            |
+| Commits omit AI attribution trailers         | No bot co-authors or generator footers                    |
 
 ## Tests in pull requests
 

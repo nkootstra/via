@@ -9,8 +9,9 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   pass, then refactor. Commit each green step as a small commit.
 - **YAGNI.** Build only what a test or a real need demands. No speculative
   options, config keys, or abstractions.
-- Merge gates: `bun run lint`, `bun run format:check`, `bun run typecheck`,
-  `bun run test`. CI runs the same.
+- Merge gates: `bun run lint`, `bun run format:check`, `bun run knip` (unused
+  files, exports and dependencies), `bun run typecheck`, `bun run test`. CI
+  runs the same.
 - Tests use `@effect/vitest` via `bun --bun vitest run`. Never use `bun test`.
 - Tests never call real OpenAI endpoints. Fake upstreams run as local HTTP
   servers, and base URLs are injected through layers.

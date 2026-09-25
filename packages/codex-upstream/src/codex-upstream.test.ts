@@ -1,38 +1,26 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import {
-  completedStream,
-  fakeUpstream,
-  type RecordedRequest,
-  upstreamUrl,
-} from "./fake-upstream.ts";
 import { CodexUpstream } from "./index.ts";
+import { reply, startFakeCodex } from "./testing/index.ts";
 
 const account = { accessToken: "at-1", accountId: "acc-1" };
 
-/** Sends one request through CodexUpstream and returns what the fake upstream received. */
+/** Sends one request through CodexUpstream and returns what the fake Codex received. */
 const sendAndRecord = (body: Record<string, unknown>, cloak = true) =>
   Effect.gen(function* () {
-    const received: Array<RecordedRequest> = [];
+    const codex = yield* startFakeCodex;
+    codex.script(reply.text("hello"));
     const response = yield* Effect.gen(function* () {
-      const baseUrl = yield* upstreamUrl;
-      return yield* Effect.gen(function* () {
-        return yield* (yield* CodexUpstream).send(account, body);
-      }).pipe(
-        Effect.provide(
-          CodexUpstream.layer({ baseUrl, cloak }).pipe(Layer.provide(FetchHttpClient.layer)),
-        ),
-      );
+      return yield* (yield* CodexUpstream).send(account, body);
     }).pipe(
       Effect.provide(
-        fakeUpstream((request) => {
-          received.push(request);
-          return { status: 200, body: completedStream("hello") };
-        }),
+        CodexUpstream.layer({ baseUrl: codex.url, cloak }).pipe(
+          Layer.provide(FetchHttpClient.layer),
+        ),
       ),
     );
-    return { response, request: received[0]! };
+    return { response, request: codex.requests[0]! };
   });
 
 describe("CodexUpstream.send", () => {

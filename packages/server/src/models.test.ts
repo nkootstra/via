@@ -1,11 +1,11 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, startFakeCodex } from "@via/codex-upstream/testing";
+import { completedStream, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { withVia } from "./harness.ts";
 
-const ok = () => ({ status: 200, body: completedStream("hello") });
+const ok = () => reply.sse(completedStream("hello"));
 
 const ModelList = Schema.Struct({
   data: Schema.Array(Schema.Struct({ id: Schema.String })),
@@ -58,6 +58,29 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
         {
           codexUrl: codex.url,
           refreshResponse: { status: 400, body: { error: "invalid_grant" } },
+          aExpiresAt: 0,
+        },
+      );
+    }),
+  );
+
+  it.effect("skips an account whose refresh hits an auth-server hiccup and asks the next", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models(catalog);
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.get("/v1/models");
+            expect(ids(yield* response.json)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            expect(codex.requests.map((request) => request.headers["chatgpt-account-id"])).toEqual([
+              "acc-b",
+            ]);
+          }),
+        {
+          codexUrl: codex.url,
+          refreshResponse: { status: 500, body: { error: "server_error" } },
           aExpiresAt: 0,
         },
       );

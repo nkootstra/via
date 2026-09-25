@@ -1,0 +1,9 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    "npm": {
+      "entry": ["via/bin/via.js"]
+    }
+  },
+  "ignoreDependencies": ["@effect/language-service"]
+}

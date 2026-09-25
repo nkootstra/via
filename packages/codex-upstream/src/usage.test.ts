@@ -1,53 +1,33 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import {
-  completedStream,
-  type FakeReply,
-  fakeUpstream,
-  type RecordedRequest,
-  upstreamUrl,
-  usagePayload,
-} from "./fake-upstream.ts";
 import { CodexUpstream } from "./index.ts";
+import { startFakeCodex, usagePayload } from "./testing/index.ts";
 
 const account = { accessToken: "at-1", accountId: "acc-1" };
 
-/** Asks the fake upstream, answering with `reply`, for the account's usage. */
-const usage = (reply: FakeReply) =>
+/** Asks a fake Codex, answering with `body` and `status`, for the account's usage. */
+const usage = (body: object, status = 200) =>
   Effect.gen(function* () {
-    const received: Array<RecordedRequest> = [];
+    const codex = yield* startFakeCodex;
+    codex.usage(account.accountId, body, status);
     const result = yield* Effect.gen(function* () {
-      const baseUrl = yield* upstreamUrl;
-      return yield* Effect.gen(function* () {
-        return yield* (yield* CodexUpstream).usage(account);
-      }).pipe(
-        Effect.provide(
-          CodexUpstream.layer({ baseUrl, cloak: true }).pipe(Layer.provide(FetchHttpClient.layer)),
-        ),
-        Effect.result,
-      );
+      return yield* (yield* CodexUpstream).usage(account);
     }).pipe(
       Effect.provide(
-        fakeUpstream(
-          () => ({ status: 200, body: completedStream("hello") }),
-          (request) => {
-            received.push(request);
-            return reply;
-          },
+        CodexUpstream.layer({ baseUrl: codex.url, cloak: true }).pipe(
+          Layer.provide(FetchHttpClient.layer),
         ),
       ),
+      Effect.result,
     );
-    return { result, request: received[0]! };
+    return { result, request: codex.requests[0]! };
   });
 
 describe("CodexUpstream.usage", () => {
   it.effect("reads the account's rate limit windows", () =>
     Effect.gen(function* () {
-      const { result, request } = yield* usage({
-        status: 200,
-        body: JSON.stringify(usagePayload),
-      });
+      const { result, request } = yield* usage(usagePayload);
       expect(request.headers).toMatchObject({
         authorization: "Bearer at-1",
         "chatgpt-account-id": "acc-1",
@@ -64,11 +44,8 @@ describe("CodexUpstream.usage", () => {
   it.effect("skips windows the plan does not have", () =>
     Effect.gen(function* () {
       const { result } = yield* usage({
-        status: 200,
-        body: JSON.stringify({
-          ...usagePayload,
-          rate_limit: { ...usagePayload.rate_limit, secondary_window: null },
-        }),
+        ...usagePayload,
+        rate_limit: { ...usagePayload.rate_limit, secondary_window: null },
       });
       expect(result).toMatchObject({ success: [{ windowMinutes: 300 }] });
     }),
@@ -76,7 +53,7 @@ describe("CodexUpstream.usage", () => {
 
   it.effect("fails with the status when the backend refuses", () =>
     Effect.gen(function* () {
-      const { result } = yield* usage({ status: 401, body: "{}" });
+      const { result } = yield* usage({}, 401);
       expect(result).toMatchObject({ failure: { _tag: "UsageUnavailableError", status: 401 } });
     }),
   );

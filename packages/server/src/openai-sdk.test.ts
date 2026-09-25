@@ -1,11 +1,11 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream } from "@via/codex-upstream/testing";
+import { completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect, Stream } from "effect";
 import OpenAI from "openai";
 import { type Via, withVia } from "./harness.ts";
 
-const ok = () => ({ status: 200, body: completedStream("hello") });
+const ok = () => reply.sse(completedStream("hello"));
 const client = (via: Via) => new OpenAI({ baseURL: `${via.baseUrl}/v1`, apiKey: via.key });
 
 // The official SDK is the client most scripts use, so it must accept via's answers as-is.
