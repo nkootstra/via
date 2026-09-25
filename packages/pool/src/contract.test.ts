@@ -47,9 +47,7 @@ layer(BunFileSystem.layer)("classify against codex's error fixtures", (it) => {
 
   it.effect("refreshes on a 401", () =>
     Effect.gen(function* () {
-      expect(yield* classifyFixture("unauthorized_401")).toEqual(
-        Verdict.Unauthorized(),
-      );
+      expect(yield* classifyFixture("unauthorized_401")).toEqual(Verdict.Unauthorized());
     }),
   );
 

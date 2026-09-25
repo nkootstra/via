@@ -13,9 +13,5 @@ export const ViaServer = {
       HttpRouter.add("POST", "/v1/chat/completions", chatCompletions),
       HttpRouter.add("GET", "/v1/models", models),
     ),
-  ).pipe(
-    Layer.provide(
-      ModelCatalog.layer.pipe(Layer.provideMerge(PoolStates.layer)),
-    ),
-  ),
+  ).pipe(Layer.provide(ModelCatalog.layer.pipe(Layer.provideMerge(PoolStates.layer)))),
 };

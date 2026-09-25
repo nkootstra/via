@@ -33,9 +33,7 @@ export class ModelCatalog extends Context.Service<
           const fresh = yield* tokens.fresh(account).pipe(
             Effect.asSome,
             Effect.catchTag("RefreshRejectedError", (error) =>
-              states
-                .lockOut(account.id, error.code)
-                .pipe(Effect.as(Option.none())),
+              states.lockOut(account.id, error.code).pipe(Effect.as(Option.none())),
             ),
           );
           if (Option.isSome(fresh)) return yield* codex.models(fresh.value);

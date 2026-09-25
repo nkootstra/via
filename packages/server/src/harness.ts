@@ -1,17 +1,9 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
-import {
-  type FakeIssuerOptions,
-  fakeIssuer,
-  jwt,
-} from "@via/codex-auth/testing";
+import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
-import {
-  type FakeReply,
-  fakeUpstream,
-  type RecordedRequest,
-} from "@via/codex-upstream/testing";
+import { type FakeReply, fakeUpstream, type RecordedRequest } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
 import { Effect, FileSystem, Layer } from "effect";
 import { TestClock } from "effect/testing";
@@ -103,9 +95,7 @@ export const withVia = <A, E>(
     );
     const issuer = yield* Layer.build(fakeIssuer({ refreshResponse }));
     const address = (context: typeof upstream | typeof issuer) =>
-      HttpServer.addressFormattedWith(Effect.succeed).pipe(
-        Effect.provide(context),
-      );
+      HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(context));
 
     const services = Layer.mergeAll(
       AccountTokens.layer.pipe(
@@ -145,9 +135,7 @@ export const withVia = <A, E>(
           http.execute,
         );
       const get: Via["get"] = (path, override) =>
-        http.execute(
-          HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)),
-        );
+        http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
       return yield* body({ post, get, baseUrl: base, key, upstreamRequests });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });

@@ -11,39 +11,37 @@ const request = {
 };
 
 layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
-  it.effect(
-    "answers with a chat completion, asking Codex in Responses terms",
-    () =>
-      withVia(ok, (via) =>
-        Effect.gen(function* () {
-          const response = yield* via.post("/v1/chat/completions", request);
-          expect(response.status).toBe(200);
-          expect(yield* response.json).toMatchObject({
-            object: "chat.completion",
-            model: "gpt-6-astra",
-            choices: [
-              {
-                message: { role: "assistant", content: "hello" },
-                finish_reason: "stop",
-              },
-            ],
-            usage: {
-              prompt_tokens: 10,
-              completion_tokens: 2,
-              total_tokens: 12,
+  it.effect("answers with a chat completion, asking Codex in Responses terms", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.post("/v1/chat/completions", request);
+        expect(response.status).toBe(200);
+        expect(yield* response.json).toMatchObject({
+          object: "chat.completion",
+          model: "gpt-6-astra",
+          choices: [
+            {
+              message: { role: "assistant", content: "hello" },
+              finish_reason: "stop",
             },
-          });
-          expect(via.upstreamRequests[0]?.body).toMatchObject({
-            input: [
-              {
-                type: "message",
-                role: "user",
-                content: [{ type: "input_text", text: "hi" }],
-              },
-            ],
-          });
-        }),
-      ),
+          ],
+          usage: {
+            prompt_tokens: 10,
+            completion_tokens: 2,
+            total_tokens: 12,
+          },
+        });
+        expect(via.upstreamRequests[0]?.body).toMatchObject({
+          input: [
+            {
+              type: "message",
+              role: "user",
+              content: [{ type: "input_text", text: "hi" }],
+            },
+          ],
+        });
+      }),
+    ),
   );
 
   it.effect("streams chat completion chunks to a streaming client", () =>
@@ -89,20 +87,18 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
     ),
   );
 
-  it.effect(
-    "asks Codex for the base model and effort behind a suffix alias",
-    () =>
-      withVia(ok, (via) =>
-        Effect.gen(function* () {
-          yield* via.post("/v1/chat/completions", {
-            ...request,
-            model: "gpt-6-astra-high",
-          });
-          expect(via.upstreamRequests[0]?.body).toMatchObject({
-            model: "gpt-6-astra",
-            reasoning: { effort: "high" },
-          });
-        }),
-      ),
+  it.effect("asks Codex for the base model and effort behind a suffix alias", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/chat/completions", {
+          ...request,
+          model: "gpt-6-astra-high",
+        });
+        expect(via.upstreamRequests[0]?.body).toMatchObject({
+          model: "gpt-6-astra",
+          reasoning: { effort: "high" },
+        });
+      }),
+    ),
   );
 });

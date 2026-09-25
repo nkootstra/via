@@ -42,9 +42,7 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       Effect.gen(function* () {
         const store = yield* KeyStore;
         yield* store.create("laptop");
-        expect(
-          yield* store.verify("via_notarealkeynotarealkeynotareal"),
-        ).toEqual(Option.none());
+        expect(yield* store.verify("via_notarealkeynotarealkeynotareal")).toEqual(Option.none());
       }),
     ),
   );
@@ -54,9 +52,7 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       Effect.gen(function* () {
         const store = yield* KeyStore;
         const { id } = yield* store.create("laptop");
-        expect(yield* store.list).toEqual([
-          { id, name: "laptop", createdAt: expect.any(String) },
-        ]);
+        expect(yield* store.list).toEqual([{ id, name: "laptop", createdAt: expect.any(String) }]);
       }),
     ),
   );
@@ -96,24 +92,20 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     ),
   );
 
-  it.effect(
-    "reports a stored hash that is not a SHA-256 digest as a corrupt file",
-    () =>
-      withKeyStore((file) =>
-        Effect.gen(function* () {
-          const fs = yield* FileSystem.FileSystem;
-          const stored = {
-            id: "k1",
-            name: "laptop",
-            hash: "abc",
-            createdAt: "2024-01-01T00:00:00Z",
-          };
-          yield* fs.writeFileString(file, JSON.stringify([stored]));
-          const error = yield* Effect.flip(
-            (yield* KeyStore).verify("via_anything"),
-          );
-          expect(error).toBeInstanceOf(CorruptFileError);
-        }),
-      ),
+  it.effect("reports a stored hash that is not a SHA-256 digest as a corrupt file", () =>
+    withKeyStore((file) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const stored = {
+          id: "k1",
+          name: "laptop",
+          hash: "abc",
+          createdAt: "2024-01-01T00:00:00Z",
+        };
+        yield* fs.writeFileString(file, JSON.stringify([stored]));
+        const error = yield* Effect.flip((yield* KeyStore).verify("via_anything"));
+        expect(error).toBeInstanceOf(CorruptFileError);
+      }),
+    ),
   );
 });

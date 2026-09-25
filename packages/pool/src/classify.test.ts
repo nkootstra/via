@@ -9,13 +9,7 @@ const codexError = (error: object) => JSON.stringify({ error });
 
 describe("classify", () => {
   const cases: ReadonlyArray<
-    [
-      name: string,
-      status: number,
-      headers: Record<string, string>,
-      body: string,
-      Verdict,
-    ]
+    [name: string, status: number, headers: Record<string, string>, body: string, Verdict]
   > = [
     [
       "usage_limit_reached cools down until the reported reset",

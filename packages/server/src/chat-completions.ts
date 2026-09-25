@@ -12,15 +12,9 @@ import { authenticated, collected, dispatch, openAiError } from "./dispatch.ts";
 /** POST /v1/chat/completions: Chat Completions, translated to and from Responses. */
 export const chatCompletions = authenticated(
   Effect.gen(function* () {
-    const decoded = yield* HttpServerRequest.schemaBodyJson(ChatRequest).pipe(
-      Effect.option,
-    );
+    const decoded = yield* HttpServerRequest.schemaBodyJson(ChatRequest).pipe(Effect.option);
     if (Option.isNone(decoded)) {
-      return openAiError(
-        400,
-        "invalid_request",
-        "The request is not a valid chat completion",
-      );
+      return openAiError(400, "invalid_request", "The request is not a valid chat completion");
     }
     const chat = decoded.value;
     return yield* dispatch(toResponsesRequest(chat), (upstream) =>
@@ -35,9 +29,7 @@ export const chatCompletions = authenticated(
           )
         : collected(upstream, (response) =>
             Schema.decodeUnknownEffect(CompletedResponse)(response).pipe(
-              Effect.map((completed) =>
-                HttpServerResponse.jsonUnsafe(toChatCompletion(completed)),
-              ),
+              Effect.map((completed) => HttpServerResponse.jsonUnsafe(toChatCompletion(completed))),
             ),
           ),
     );

@@ -13,9 +13,7 @@ describe("select", () => {
   });
 
   it("skips disabled accounts", () => {
-    expect(select([{ ...a, enabled: false }, b], {}, NOW)).toEqual(
-      Option.some(b),
-    );
+    expect(select([{ ...a, enabled: false }, b], {}, NOW)).toEqual(Option.some(b));
   });
 
   it("skips an account that is cooling down", () => {
@@ -43,9 +41,7 @@ describe("select", () => {
     const state: PoolState = {
       b: { status: "cooling", until: NOW + 1, reason: "quota" },
     };
-    expect(select([{ ...a, enabled: false }, b], state, NOW)).toEqual(
-      Option.none(),
-    );
+    expect(select([{ ...a, enabled: false }, b], state, NOW)).toEqual(Option.none());
   });
 });
 
@@ -56,17 +52,13 @@ describe("retryAfter", () => {
       b: { status: "cooling", until: NOW + 2_000, reason: "quota" },
       c: { status: "cooling", until: NOW + 1_000, reason: "quota" },
     };
-    expect(retryAfter([a, b, { ...c, enabled: false }], state, NOW)).toEqual(
-      Option.some(2_000),
-    );
+    expect(retryAfter([a, b, { ...c, enabled: false }], state, NOW)).toEqual(Option.some(2_000));
   });
 
   it("is none when no account will recover by waiting", () => {
     const state: PoolState = {
       a: { status: "auth_error", reason: "invalid_grant" },
     };
-    expect(retryAfter([a, { ...b, enabled: false }], state, NOW)).toEqual(
-      Option.none(),
-    );
+    expect(retryAfter([a, { ...b, enabled: false }], state, NOW)).toEqual(Option.none());
   });
 });

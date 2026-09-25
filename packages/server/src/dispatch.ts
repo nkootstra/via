@@ -1,8 +1,4 @@
-import {
-  AccountStore,
-  AccountTokens,
-  type RefreshRejectedError,
-} from "@via/codex-auth";
+import { AccountStore, AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import { classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
@@ -50,8 +46,7 @@ export const collected = (
   collectResponse(upstream.stream).pipe(
     Effect.flatMap(onResponse),
     Effect.catchTags({
-      UpstreamFailedError: (error) =>
-        Effect.succeed(openAiError(502, error.code, error.reason)),
+      UpstreamFailedError: (error) => Effect.succeed(openAiError(502, error.code, error.reason)),
       IncompleteStreamError: (error) =>
         Effect.succeed(openAiError(502, "upstream_incomplete", error.message)),
       HttpClientError: () => Effect.succeed(unreadable),
@@ -80,8 +75,7 @@ export const authenticated = <A, E, R>(handler: Effect.Effect<A, E, R>) =>
 
 const noAccountLeft = (waitMs: Option.Option<number>) =>
   Option.match(waitMs, {
-    onNone: () =>
-      openAiError(503, "no_accounts", "No enabled account can serve requests"),
+    onNone: () => openAiError(503, "no_accounts", "No enabled account can serve requests"),
     onSome: (ms) =>
       openAiError(429, "rate_limit_exceeded", "Every account is cooling down", {
         "retry-after": String(Math.ceil(ms / 1000)),
@@ -104,8 +98,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
   // A dead refresh token takes the account out of rotation until it logs in again.
-  const lockOut = (id: string) => (error: RefreshRejectedError) =>
-    states.lockOut(id, error.code);
+  const lockOut = (id: string) => (error: RefreshRejectedError) => states.lockOut(id, error.code);
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
@@ -115,8 +108,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     const state = yield* states.get;
     const now = yield* Clock.currentTimeMillis;
     const chosen = select(accounts, state, now);
-    if (Option.isNone(chosen))
-      return noAccountLeft(retryAfter(accounts, state, now));
+    if (Option.isNone(chosen)) return noAccountLeft(retryAfter(accounts, state, now));
 
     const fresh = yield* tokens.fresh(chosen.value).pipe(
       Effect.asSome,
@@ -143,11 +135,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),
     );
     if (Option.isNone(sent)) {
-      return openAiError(
-        502,
-        "upstream_unavailable",
-        "Codex could not be reached",
-      );
+      return openAiError(502, "upstream_unavailable", "Codex could not be reached");
     }
     const upstream = sent.value;
     if (upstream.status === 200) return yield* onSuccess(upstream);

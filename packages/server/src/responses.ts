@@ -8,15 +8,9 @@ const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
 /** POST /v1/responses: the Responses API, passed through to Codex. */
 export const responses = authenticated(
   Effect.gen(function* () {
-    const decoded = yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(
-      Effect.option,
-    );
+    const decoded = yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option);
     if (Option.isNone(decoded)) {
-      return openAiError(
-        400,
-        "invalid_request",
-        "The request body is not a JSON object",
-      );
+      return openAiError(400, "invalid_request", "The request body is not a JSON object");
     }
     const body = decoded.value;
     return yield* dispatch(body, (upstream) =>

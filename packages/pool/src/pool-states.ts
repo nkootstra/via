@@ -9,9 +9,7 @@ export interface PoolStatesShape {
 }
 
 /** Cooldowns and lockouts of the accounts, as learned from upstream answers. */
-export class PoolStates extends Context.Service<PoolStates, PoolStatesShape>()(
-  "via/PoolStates",
-) {
+export class PoolStates extends Context.Service<PoolStates, PoolStatesShape>()("via/PoolStates") {
   static readonly layer = Layer.effect(
     PoolStates,
     Effect.gen(function* () {
