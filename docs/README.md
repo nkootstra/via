@@ -50,14 +50,14 @@ Point any OpenAI client at it:
 curl http://127.0.0.1:8317/v1/chat/completions \
   -H "Authorization: Bearer $VIA_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"model": "gpt-5.5", "messages": [{"role": "user", "content": "Hello"}]}'
+  -d '{"model": "gpt-6-astra", "messages": [{"role": "user", "content": "Hello"}]}'
 ```
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(base_url="http://127.0.0.1:8317/v1", api_key="via_...")
-reply = client.responses.create(model="gpt-5.5-high", input="Hello")
+reply = client.responses.create(model="gpt-6-astra-high", input="Hello")
 print(reply.output_text)
 ```
 
@@ -69,11 +69,17 @@ Every route needs `Authorization: Bearer <key>` with a key from `via keys create
 | --------------------------- | ------------------------------------------------------------- |
 | `POST /v1/responses`        | Passed through to the Codex backend.                          |
 | `POST /v1/chat/completions` | Translated to and from the Responses API, streaming included. |
-| `GET /v1/models`            | Lists the models below.                                       |
+| `GET /v1/models`            | Lists the models Codex offers your accounts.                  |
 
-Models: `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex`. Add `-low`,
-`-medium`, `-high` or `-xhigh` to a model id to pick the reasoning effort, as in
-`gpt-5.5-high`.
+`/v1/models` lists what the Codex model picker shows the account via would use
+next, refreshed every five minutes, so new models appear without a via update.
+When Codex can't be asked, it lists the models via knows: `gpt-6-astra`,
+`gpt-6-sol` and `gpt-6-luna`.
+
+Add an effort suffix to a model id to pick the reasoning effort, as in
+`gpt-6-astra-high`. The list shows each model with the suffixes it supports,
+from `-none`, `-low`, `-medium`, `-high`, `-xhigh`, `-max` and `-ultra`. Other
+model ids are passed through to Codex unchanged.
 
 ## Commands
 

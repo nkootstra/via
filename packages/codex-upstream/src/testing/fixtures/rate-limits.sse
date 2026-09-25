@@ -1,0 +1,12 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp-1"}}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","item":{"type":"function_call","call_id":"user-input-call","name":"request_user_input","arguments":"{\"questions\":[{\"id\":\"confirm_path\",\"header\":\"Confirm\",\"question\":\"Proceed with the plan?\",\"options\":[{\"label\":\"Yes (Recommended)\",\"description\":\"Continue the current plan.\"},{\"label\":\"No\",\"description\":\"Stop and revisit the approach.\"}]}]}"}}
+
+event: codex.rate_limits
+data: {"type":"codex.rate_limits","plan_type":"plus","rate_limits":{"allowed":true,"limit_reached":false,"primary":{"used_percent":42,"window_minutes":60,"reset_at":1700000000},"secondary":null},"code_review_rate_limits":null,"credits":null,"promo":null}
+
+event: response.completed
+data: {"type":"response.completed","response":{"id":"resp-1","usage":{"input_tokens":0,"input_tokens_details":null,"output_tokens":0,"output_tokens_details":null,"total_tokens":0}}}
+

@@ -1,0 +1,34 @@
+{
+  "invalid_grant": {
+    "status": 400,
+    "body": {
+      "error": "invalid_grant",
+      "error_description": "refresh token expired"
+    },
+    "client_message": null
+  },
+  "refresh_token_expired": {
+    "status": 400,
+    "body": {
+      "error": "refresh_token_expired",
+      "error_description": "refresh token has expired"
+    },
+    "client_message": "Your access token could not be refreshed because your refresh token has expired. Please log out and sign in again."
+  },
+  "refresh_token_reused": {
+    "status": 400,
+    "body": {
+      "error": "refresh_token_reused",
+      "error_description": "refresh token was already used"
+    },
+    "client_message": "Your access token could not be refreshed because your refresh token was already used. Please log out and sign in again."
+  },
+  "refresh_token_invalidated": {
+    "status": 400,
+    "body": {
+      "error": "refresh_token_invalidated",
+      "error_description": "refresh token was revoked"
+    },
+    "client_message": "Your access token could not be refreshed because your refresh token was revoked. Please log out and sign in again."
+  }
+}

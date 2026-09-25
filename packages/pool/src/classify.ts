@@ -14,13 +14,22 @@ export const Verdict = Data.taggedEnum<Verdict>();
 const QUOTA_FALLBACK = Duration.minutes(30);
 const TRANSIENT_COOLDOWN = Duration.minutes(1);
 
-const QUOTA_CODES = new Set(["usage_limit_reached", "insufficient_quota", "usage_not_included"]);
+// Codex's own error mapping treats all of these as an exhausted account.
+const QUOTA_CODES = new Set([
+  "usage_limit_reached",
+  "insufficient_quota",
+  "usage_not_included",
+  "credit_balance_exhausted",
+  "organization_spend_limit_exceeded",
+  "project_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+]);
 
 const CodexErrorBody = Schema.fromJsonString(
   Schema.Struct({
     error: Schema.Struct({
       type: Schema.optionalKey(Schema.String),
-      code: Schema.optionalKey(Schema.String),
+      code: Schema.optionalKey(Schema.NullOr(Schema.String)),
       resets_at: Schema.optionalKey(Schema.Finite),
     }),
   }),

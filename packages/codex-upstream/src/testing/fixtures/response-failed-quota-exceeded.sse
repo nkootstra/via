@@ -1,0 +1,6 @@
+event: response.created
+data: {"type":"response.created","response":{"id":"resp-1"}}
+
+event: response.failed
+data: {"type":"response.failed","response":{"id":"resp-1","error":{"code":"insufficient_quota","message":"You exceeded your current quota, please check your plan and billing details."}}}
+

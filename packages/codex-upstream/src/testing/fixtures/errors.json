@@ -1,0 +1,58 @@
+{
+  "usage_limit_reached": {
+    "status": 429,
+    "headers": {
+      "x-codex-primary-used-percent": "100.0",
+      "x-codex-secondary-used-percent": "87.5",
+      "x-codex-primary-over-secondary-limit-percent": "95.0",
+      "x-codex-primary-window-minutes": "15",
+      "x-codex-secondary-window-minutes": "60",
+      "x-codex-credits-has-credits": "true",
+      "x-codex-credits-unlimited": "false",
+      "x-codex-credits-balance": "",
+      "x-codex-rate-limit-reached-type": "workspace_member_usage_limit_reached"
+    },
+    "body": {
+      "error": {
+        "type": "usage_limit_reached",
+        "message": "limit reached",
+        "resets_at": 1704067242,
+        "plan_type": "pro"
+      }
+    }
+  },
+  "unauthorized_401": {
+    "status": 401,
+    "headers": {
+      "x-request-id": "req-401",
+      "cf-ray": "ray-401",
+      "x-openai-authorization-error": "missing_authorization_header",
+      "x-error-json": "eyJlcnJvciI6eyJjb2RlIjoidG9rZW5fZXhwaXJlZCJ9fQ=="
+    },
+    "body": {
+      "detail": "Unauthorized"
+    }
+  },
+  "server_overloaded_503": {
+    "status": 503,
+    "headers": {
+      "Retry-After": "1"
+    },
+    "body": {
+      "error": {
+        "code": "server_is_overloaded"
+      }
+    }
+  },
+  "internal_server_error_500": {
+    "status": 500,
+    "headers": {},
+    "body": {
+      "error": {
+        "message": "Internal server error",
+        "type": "server_error",
+        "code": null
+      }
+    }
+  }
+}

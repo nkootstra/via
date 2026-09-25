@@ -1,5 +1,5 @@
 import { AccountStore, AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
-import { CodexUpstream } from "@via/codex-upstream";
+import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import {
   type AccountState,
@@ -9,7 +9,7 @@ import {
   select,
   Verdict,
 } from "@via/pool";
-import { Clock, Context, Effect, Layer, Option, Ref } from "effect";
+import { Clock, Context, Effect, Layer, Option, Ref, type Schema } from "effect";
 import {
   type HttpClientResponse,
   HttpServerRequest,
@@ -31,8 +31,37 @@ export const openAiError = (
   headers: Record<string, string> = {},
 ) =>
   HttpServerResponse.jsonUnsafe(
-    { error: { message, type: "invalid_request_error", code } },
+    { error: { message, type: status >= 500 ? "server_error" : "invalid_request_error", code } },
     { status, headers },
+  );
+
+const unreadable = openAiError(
+  502,
+  "upstream_incomplete",
+  "The Codex stream broke off or could not be read",
+);
+
+/**
+ * Reads a Codex stream to its final response for a non-streaming client, and
+ * answers a response that failed or broke off with a 502.
+ */
+export const collected = (
+  upstream: HttpClientResponse.HttpClientResponse,
+  onResponse: (
+    response: Record<string, unknown>,
+  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, Schema.SchemaError>,
+) =>
+  collectResponse(upstream.stream).pipe(
+    Effect.flatMap(onResponse),
+    Effect.catchTags({
+      UpstreamFailedError: (error) => Effect.succeed(openAiError(502, error.code, error.reason)),
+      IncompleteStreamError: (error) =>
+        Effect.succeed(openAiError(502, "upstream_incomplete", error.message)),
+      HttpClientError: () => Effect.succeed(unreadable),
+      Retry: () => Effect.succeed(unreadable),
+      SchemaError: () => Effect.succeed(unreadable),
+      SseError: () => Effect.succeed(unreadable),
+    }),
   );
 
 /** The client's API key, if it presented a valid one. */
@@ -55,6 +84,16 @@ const noAccountLeft = (waitMs: Option.Option<number>) =>
       }),
   });
 
+const markAccount = (states: Ref.Ref<PoolState>, id: string, state: AccountState) =>
+  Ref.update(states, (current) => ({ ...current, [id]: state }));
+
+/** A dead refresh token takes the account out of rotation until it logs in again. */
+export const lockOutAccount = (
+  states: Ref.Ref<PoolState>,
+  id: string,
+  error: RefreshRejectedError,
+) => markAccount(states, id, { status: "auth_error", reason: error.code });
+
 /**
  * Sends a Responses request to Codex through the pool, fill-first: accounts are
  * tried in order, skipping those cooling down or locked out, until one answers.
@@ -70,11 +109,9 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
   const tokens = yield* AccountTokens;
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
-  const mark = (id: string, state: AccountState) =>
-    Ref.update(states, (current) => ({ ...current, [id]: state }));
-  // A dead refresh token takes the account out of rotation until it logs in again.
+  const mark = (id: string, state: AccountState) => markAccount(states, id, state);
   const lockOut = (id: string) => (error: RefreshRejectedError) =>
-    mark(id, { status: "auth_error", reason: error.code });
+    lockOutAccount(states, id, error);
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
@@ -94,7 +131,15 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
     );
     if (Option.isNone(fresh)) continue;
     const account = fresh.value;
-    const upstream = yield* codex.send(account, body);
+    const sent = yield* codex.send(account, body).pipe(
+      Effect.asSome,
+      // Codex is unreachable for every account alike, so there is no one to fail over to.
+      Effect.catchTag("HttpClientError", () => Effect.succeedNone),
+    );
+    if (Option.isNone(sent)) {
+      return openAiError(502, "upstream_unavailable", "Codex could not be reached");
+    }
+    const upstream = sent.value;
     if (upstream.status === 200) return yield* onSuccess(upstream);
 
     const text = yield* upstream.text;

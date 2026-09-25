@@ -105,8 +105,12 @@ export const fakeIssuer = ({
           );
           if (refreshTokenUsed) {
             return HttpServerResponse.jsonUnsafe(
-              { error: { code: "refresh_token_reused", message: "reused" } },
-              { status: 401 },
+              // The issuer's real answer, as codex's own tests record it.
+              {
+                error: "refresh_token_reused",
+                error_description: "refresh token was already used",
+              },
+              { status: 400 },
             );
           }
           refreshTokenUsed = true;

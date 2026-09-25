@@ -15,7 +15,7 @@ layer(BunFileSystem.layer)("the openai SDK", (it) => {
       Effect.gen(function* () {
         const completion = yield* Effect.promise(() =>
           client(via).chat.completions.create({
-            model: "gpt-5.5",
+            model: "gpt-6-astra",
             messages: [{ role: "user", content: "hi" }],
           }),
         );
@@ -29,7 +29,7 @@ layer(BunFileSystem.layer)("the openai SDK", (it) => {
       Effect.gen(function* () {
         const chunks = yield* Effect.promise(() =>
           client(via).chat.completions.create({
-            model: "gpt-5.5",
+            model: "gpt-6-astra",
             messages: [{ role: "user", content: "hi" }],
             stream: true,
           }),
@@ -47,7 +47,7 @@ layer(BunFileSystem.layer)("the openai SDK", (it) => {
     withVia(ok, (via) =>
       Effect.gen(function* () {
         const response = yield* Effect.promise(() =>
-          client(via).responses.create({ model: "gpt-5.5", input: "hi" }),
+          client(via).responses.create({ model: "gpt-6-astra", input: "hi" }),
         );
         expect(response.output_text).toBe("hello");
       }),
@@ -58,7 +58,7 @@ layer(BunFileSystem.layer)("the openai SDK", (it) => {
     withVia(ok, (via) =>
       Effect.gen(function* () {
         const page = yield* Effect.promise(() => client(via).models.list());
-        expect(page.data.map((model) => model.id)).toContain("gpt-5.5-high");
+        expect(page.data.map((model) => model.id)).toContain("gpt-6-astra-high");
       }),
     ),
   );

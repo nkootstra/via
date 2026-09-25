@@ -1,4 +1,3 @@
-import { collectResponse } from "@via/codex-upstream";
 import {
   ChatRequest,
   CompletedResponse,
@@ -8,7 +7,7 @@ import {
 } from "@via/translate";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { authenticate, dispatch, openAiError, unauthenticated } from "./dispatch.ts";
+import { authenticate, collected, dispatch, openAiError, unauthenticated } from "./dispatch.ts";
 
 /** POST /v1/chat/completions: Chat Completions, translated to and from Responses. */
 export const chatCompletions = Effect.gen(function* () {
@@ -28,9 +27,10 @@ export const chatCompletions = Effect.gen(function* () {
             { contentType: "text/event-stream" },
           ),
         )
-      : collectResponse(upstream.stream).pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(CompletedResponse)),
-          Effect.map((response) => HttpServerResponse.jsonUnsafe(toChatCompletion(response))),
+      : collected(upstream, (response) =>
+          Schema.decodeUnknownEffect(CompletedResponse)(response).pipe(
+            Effect.map((completed) => HttpServerResponse.jsonUnsafe(toChatCompletion(completed))),
+          ),
         ),
   );
 });
