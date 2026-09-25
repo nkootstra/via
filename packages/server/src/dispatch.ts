@@ -84,6 +84,16 @@ const noAccountLeft = (waitMs: Option.Option<number>) =>
       }),
   });
 
+const markAccount = (states: Ref.Ref<PoolState>, id: string, state: AccountState) =>
+  Ref.update(states, (current) => ({ ...current, [id]: state }));
+
+/** A dead refresh token takes the account out of rotation until it logs in again. */
+export const lockOutAccount = (
+  states: Ref.Ref<PoolState>,
+  id: string,
+  error: RefreshRejectedError,
+) => markAccount(states, id, { status: "auth_error", reason: error.code });
+
 /**
  * Sends a Responses request to Codex through the pool, fill-first: accounts are
  * tried in order, skipping those cooling down or locked out, until one answers.
@@ -99,11 +109,9 @@ export const dispatch = Effect.fnUntraced(function* <E, R>(
   const tokens = yield* AccountTokens;
   const codex = yield* CodexUpstream;
   const states = yield* PoolStates;
-  const mark = (id: string, state: AccountState) =>
-    Ref.update(states, (current) => ({ ...current, [id]: state }));
-  // A dead refresh token takes the account out of rotation until it logs in again.
+  const mark = (id: string, state: AccountState) => markAccount(states, id, state);
   const lockOut = (id: string) => (error: RefreshRejectedError) =>
-    mark(id, { status: "auth_error", reason: error.code });
+    lockOutAccount(states, id, error);
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();

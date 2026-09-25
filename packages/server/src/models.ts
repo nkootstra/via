@@ -3,7 +3,7 @@ import { CodexUpstream, modelIds } from "@via/codex-upstream";
 import { select } from "@via/pool";
 import { Cache, Clock, Context, Effect, Exit, Layer, Option, Ref } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
-import { authenticate, PoolStates, unauthenticated } from "./dispatch.ts";
+import { authenticate, lockOutAccount, PoolStates, unauthenticated } from "./dispatch.ts";
 
 /** The model ids `/v1/models` lists. */
 export class ModelCatalog extends Context.Service<
@@ -23,13 +23,21 @@ export class ModelCatalog extends Context.Service<
       const codex = yield* CodexUpstream;
       const states = yield* PoolStates;
       const ask = Effect.gen(function* () {
-        const chosen = select(
-          yield* store.list,
-          yield* Ref.get(states),
-          yield* Clock.currentTimeMillis,
-        );
-        const account = yield* tokens.fresh(yield* Effect.fromOption(chosen));
-        return yield* codex.models(account);
+        while (true) {
+          const chosen = select(
+            yield* store.list,
+            yield* Ref.get(states),
+            yield* Clock.currentTimeMillis,
+          );
+          const account = yield* Effect.fromOption(chosen);
+          const fresh = yield* tokens.fresh(account).pipe(
+            Effect.asSome,
+            Effect.catchTag("RefreshRejectedError", (error) =>
+              lockOutAccount(states, account.id, error).pipe(Effect.as(Option.none())),
+            ),
+          );
+          if (Option.isSome(fresh)) return yield* codex.models(fresh.value);
+        }
       });
       const cache = yield* Cache.makeWith(() => ask, {
         capacity: 1,
