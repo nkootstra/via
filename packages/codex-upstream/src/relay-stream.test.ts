@@ -47,7 +47,19 @@ describe("relayStream", () => {
       const text = yield* relayed(
         bytes(sse([created])).pipe(Stream.concat(Stream.fail("connection reset"))),
       );
+      expect(text).toBe(sse([created]) + text.slice(sse([created]).length));
+      expect(text.match(/event: error/g)).toHaveLength(1);
       expect(lastFrame(text)).toContain('"code":"upstream_incomplete"');
+    }),
+  );
+
+  it.effect("stops at the terminal event, ignoring whatever breaks after it", () =>
+    Effect.gen(function* () {
+      const text = sse([created, completed]);
+      const relayedText = yield* relayed(
+        bytes(text).pipe(Stream.concat(Stream.fail("connection reset"))),
+      );
+      expect(relayedText).toBe(text);
     }),
   );
 });

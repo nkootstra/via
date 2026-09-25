@@ -25,11 +25,14 @@ export const relayStream = <E>(body: Stream.Stream<Uint8Array, E>) =>
   body.pipe(
     Stream.decodeText,
     Stream.pipeThroughChannel(Sse.decode()),
+    // Nothing after the terminal event is read, so a late break can't taint it.
+    Stream.takeUntil((event) => TERMINAL.has(event.event)),
+    // A read that fails ends the stream here, so `onHalt` reports it once.
+    Stream.ignore,
     Stream.mapAccum(
       () => false,
       (ended, event) => [ended || TERMINAL.has(event.event), [Sse.encoder.write(event)]],
       { onHalt: (ended) => (ended ? [] : [incomplete]) },
     ),
-    Stream.orElseSucceed(() => incomplete),
     Stream.encodeText,
   );
