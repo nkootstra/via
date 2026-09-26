@@ -15,6 +15,8 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 - Tests use `@effect/vitest` via `bun --bun vitest run`. Never use `bun test`.
 - Tests never call real OpenAI endpoints. Fake upstreams run as local HTTP
   servers, and base URLs are injected through layers.
+- Pure, invariant-heavy logic (the pool's selection and cooldown rules) ships
+  with property tests (`it.prop`/`it.effect.prop`), not just examples.
 
 ## Commits & PRs
 

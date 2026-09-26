@@ -11,6 +11,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { authenticated, collected, dispatch, forward, openAiError } from "./dispatch.ts";
 import { RequestLog } from "./request-log.ts";
 import { resolveSession } from "./session.ts";
+import { spotUsage } from "./token-usage.ts";
 
 const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
 
@@ -45,7 +46,7 @@ export const chatCompletions = authenticated(
       chat.stream === true
         ? Effect.map(
             log.timed(
-              toChatStream(upstream.stream, {
+              toChatStream(spotUsage(upstream.stream, true, log.usage), {
                 includeUsage: chat.stream_options?.include_usage === true,
               }),
             ),

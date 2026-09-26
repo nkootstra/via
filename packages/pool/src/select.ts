@@ -28,12 +28,23 @@ export const available = <A extends PoolAccount>(
   now: number,
 ): ReadonlyArray<A> => accounts.filter(isAvailable(state, now));
 
-/** Fill-first: the first enabled account, in order, that is neither cooling nor locked out. */
+/**
+ * Fill-first: the first enabled account, in order, that is neither cooling nor
+ * locked out — unless `preferred` names one of `accounts` and it is available,
+ * in which case that account wins so its conversation stays on a warm cache.
+ */
 export const select = <A extends PoolAccount>(
   accounts: ReadonlyArray<A>,
   state: PoolState,
   now: number,
-): Option.Option<A> => Array.findFirst(accounts, isAvailable(state, now));
+  preferred: Option.Option<string> = Option.none(),
+): Option.Option<A> => {
+  const isAvail = isAvailable(state, now);
+  const sticky = Option.flatMap(preferred, (id) =>
+    Array.findFirst(accounts, (account) => account.id === id && isAvail(account)),
+  );
+  return Option.orElse(sticky, () => Array.findFirst(accounts, isAvail));
+};
 
 /** Milliseconds until an enabled account leaves its cooldown; none if waiting will not help. */
 export const retryAfter = (

@@ -6,6 +6,10 @@ import { Effect } from "effect";
 import { withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
+const cachedTokens = () =>
+  reply.sse(
+    'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"cached_tokens":4}}}}\n\n',
+  );
 
 const aRequestId = expect.stringMatching(/^[0-9a-f-]{36}$/);
 
@@ -56,7 +60,114 @@ layer(BunFileSystem.layer)("request log", (it) => {
             "http.status": 200,
             model: "gpt-6-astra",
             served_by: "a@example.com",
+            input_tokens: 10,
+            output_tokens: 2,
           },
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs token usage for a non-streamed Codex answer to /v1/chat/completions", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/chat/completions", {
+          model: "gpt-6-astra",
+          messages: [{ role: "user", content: "hi" }],
+        });
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 10,
+          output_tokens: 2,
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs the cached tokens Codex reports, alongside input and output", () =>
+    withVia(cachedTokens, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 10,
+          output_tokens: 2,
+          cached_tokens: 4,
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs token usage for a streamed Codex answer to /v1/responses", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.post("/v1/responses", {
+          model: "gpt-6-astra",
+          input: "hi",
+          stream: true,
+        });
+        yield* response.text;
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 10,
+          output_tokens: 2,
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs token usage for a streamed Codex answer to /v1/chat/completions", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "gpt-6-astra",
+          messages: [{ role: "user", content: "hi" }],
+          stream: true,
+        });
+        yield* response.text;
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 10,
+          output_tokens: 2,
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs the token usage a streamed provider answer reports", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.sse(
+            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3}}\n\ndata: [DONE]\n\n',
+          ),
+        );
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          stream: true,
+          messages: [],
+        });
+        yield* response.text;
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 7,
+          output_tokens: 3,
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs the token usage a non-streamed provider answer reports", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.json({
+            choices: [{ message: { role: "assistant", content: "hi" } }],
+            usage: { prompt_tokens: 5, completion_tokens: 1 },
+          }),
+        );
+        yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          messages: [],
+        });
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 5,
+          output_tokens: 1,
         });
       }),
     ),

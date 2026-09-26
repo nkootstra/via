@@ -5,6 +5,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { authenticated, collected, dispatch, forward, openAiError } from "./dispatch.ts";
 import { RequestLog } from "./request-log.ts";
 import { resolveSession } from "./session.ts";
+import { spotUsage } from "./token-usage.ts";
 
 const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
 
@@ -23,8 +24,9 @@ export const responses = authenticated(
     if (Option.isSome(route)) return yield* forward(route.value, "/responses", body, session);
     return yield* dispatch(body, session, (upstream) =>
       body.stream === true
-        ? Effect.map(log.timed(relayStream(upstream.stream)), (stream) =>
-            HttpServerResponse.stream(stream, { contentType: "text/event-stream" }),
+        ? Effect.map(
+            log.timed(relayStream(spotUsage(upstream.stream, true, log.usage))),
+            (stream) => HttpServerResponse.stream(stream, { contentType: "text/event-stream" }),
           )
         : collected(upstream, (response) =>
             Effect.succeed(HttpServerResponse.jsonUnsafe(response)),

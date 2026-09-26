@@ -5,6 +5,7 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
+import type { TokenUsage } from "./token-usage.ts";
 
 /**
  * Notes, for the one line via logs about each request, what the request is
@@ -19,6 +20,8 @@ export class RequestLog extends Context.Service<
     readonly served: (by: string) => Effect.Effect<void>;
     /** Records the error code of an answer via gives itself, such as `rate_limit_exceeded`. */
     readonly refused: (code: string) => Effect.Effect<void>;
+    /** Records the token usage the upstream reported for the answer. */
+    readonly usage: (usage: TokenUsage) => Effect.Effect<void>;
     /** `stream`, timed: the line waits for it to end and says when its first chunk came. */
     readonly timed: <A, E, R>(
       stream: Stream.Stream<A, E, R>,
@@ -82,6 +85,17 @@ export const withRequestId = HttpRouter.middleware(
   { global: true },
 );
 
+/** The usage annotations for a request's log line — absent when none was reported. */
+const usageAnnotations = (usage: Option.Option<TokenUsage>) =>
+  Option.match(usage, {
+    onNone: () => ({}),
+    onSome: (u) => ({
+      input_tokens: u.inputTokens,
+      output_tokens: u.outputTokens,
+      ...(u.cachedTokens === undefined ? {} : { cached_tokens: u.cachedTokens }),
+    }),
+  });
+
 /**
  * Runs `app` for one request and then logs it as Effect's own request log does
  * ("Sent HTTP response" in an `http.span`), adding the model, who served it,
@@ -97,6 +111,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     const model = yield* Ref.make(Option.none<string>());
     const served = yield* Ref.make(Option.none<string>());
     const refused = yield* Ref.make(Option.none<string>());
+    const usage = yield* Ref.make(Option.none<TokenUsage>());
     const retryAfter = yield* Ref.make(Option.none<string>());
     const requestIdRef = yield* Ref.make("");
     const streamed = yield* Ref.make(false);
@@ -128,6 +143,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
           ...noted("served_by", yield* Ref.get(served)),
           ...noted("error", yield* Ref.get(refused)),
           ...noted("retry_after", yield* Ref.get(retryAfter)),
+          ...usageAnnotations(yield* Ref.get(usage)),
           ...timings,
         }),
         // As Effect's own request log does, but the span lasts until the answer is sent.
@@ -143,6 +159,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       asked: (name) => Ref.set(model, Option.some(name)),
       served: (by) => Ref.set(served, Option.some(by)),
       refused: (code) => Ref.set(refused, Option.some(code)),
+      usage: (found) => Ref.set(usage, Option.some(found)),
       timed: (stream) =>
         Effect.as(
           Effect.all([Ref.set(streamed, true), Ref.update(pending, (n) => n + 1)]),

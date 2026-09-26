@@ -53,7 +53,8 @@ export const classify = (
   if ((code !== undefined && QUOTA_CODES.has(code)) || status === 429) {
     const known = [resetsAt, retryAt].flatMap(Option.toArray);
     const until = known.length > 0 ? Math.max(...known) : now + Duration.toMillis(QUOTA_FALLBACK);
-    return Verdict.Cooldown({ until, reason: code ?? "rate_limited" });
+    // A stale resets_at/Retry-After from upstream must not shorten the cooldown to nothing.
+    return Verdict.Cooldown({ until: Math.max(now, until), reason: code ?? "rate_limited" });
   }
   if (status >= 500 || code === "server_is_overloaded") {
     return Verdict.Cooldown({
