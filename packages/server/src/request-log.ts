@@ -131,12 +131,10 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         Effect.as(
           Effect.all([Ref.set(streamed, true), Ref.update(pending, (n) => n + 1)]),
           stream.pipe(
-            Stream.tap(() =>
+            // Only the first chunk is timed; `tap` would run an effect for every chunk.
+            Stream.onFirst(() =>
               Effect.flatMap(Clock.currentTimeMillis, (now) =>
-                Ref.update(
-                  firstChunk,
-                  Option.orElse(() => Option.some(now)),
-                ),
+                Ref.set(firstChunk, Option.some(now)),
               ),
             ),
             Stream.ensuring(finish),
