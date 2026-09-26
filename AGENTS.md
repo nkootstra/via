@@ -18,6 +18,13 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 - Pure, invariant-heavy logic (the pool's selection and cooldown rules) ships
   with property tests (`it.prop`/`it.effect.prop`), not just examples.
 
+## Versions
+
+- Never write a version by hand: not in a `package.json`, code or docs. The
+  release's git tag is the only source. `package.json` versions stay `0.0.0`;
+  the build stamps them with `npm/set-version.ts`, and code that needs the
+  version is handed the CLI's (`apps/cli/src/version.ts`). Docs use `latest`.
+
 ## Commits & PRs
 
 - PR titles and commit subjects read `type(scope): subject`, e.g.
