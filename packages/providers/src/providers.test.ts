@@ -16,7 +16,7 @@ const withProviders = <A, E, R>(
     return yield* body(yield* Providers);
   }).pipe(
     Effect.provide(
-      Providers.layer(configs).pipe(
+      Providers.layer(configs, "1.2.3").pipe(
         Layer.provide(FetchHttpClient.layer),
         Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
       ),
@@ -71,7 +71,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
           path: "/chat/completions",
           headers: expect.objectContaining({
             authorization: "Bearer sk-test",
-            "user-agent": expect.stringMatching(/^via\//),
+            "user-agent": "via/1.2.3",
           }),
           body: { model: "qwen/qwen3", temperature: 0.2, messages: [] },
         }),

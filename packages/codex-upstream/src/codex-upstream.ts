@@ -10,7 +10,7 @@ const IDENTITIES = {
     originator: "codex-tui",
     "user-agent": `codex-tui/${CODEX_TUI_VERSION} (Mac OS 26.5.2; arm64) iTerm.app/3.6.11 (codex-tui; ${CODEX_TUI_VERSION})`,
   },
-  plain: { originator: "via", "user-agent": "via/0.0.0" },
+  plain: (version: string) => ({ originator: "via", "user-agent": `via/${version}` }),
 };
 
 export type UpstreamAccount = { readonly accessToken: string; readonly accountId: string };
@@ -19,6 +19,8 @@ export type CodexUpstreamOptions = {
   readonly baseUrl?: string;
   /** Present requests as the official Codex TUI. */
   readonly cloak: boolean;
+  /** via's own version, which it says it is when it doesn't cloak. */
+  readonly version: string;
 };
 
 export class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableError>()(
@@ -74,10 +76,10 @@ export type UsageWindow = {
   readonly resetsAt: number;
 };
 
-const make = ({ baseUrl = CODEX_BASE_URL, cloak }: CodexUpstreamOptions) =>
+const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
-    const identity = cloak ? IDENTITIES.cloaked : IDENTITIES.plain;
+    const identity = cloak ? IDENTITIES.cloaked : IDENTITIES.plain(version);
 
     /**
      * Sends a Responses request as `account` in conversation `session`, which
