@@ -15,7 +15,7 @@ const sendAndRecord = (body: Record<string, unknown>, cloak = true, session = "c
       return yield* (yield* CodexUpstream).send(account, body, session);
     }).pipe(
       Effect.provide(
-        CodexUpstream.layer({ baseUrl: codex.url, cloak }).pipe(
+        CodexUpstream.layer({ baseUrl: codex.url, cloak, version: "1.2.3" }).pipe(
           Layer.provide(FetchHttpClient.layer),
         ),
       ),
@@ -54,11 +54,11 @@ describe("CodexUpstream.send", () => {
     }),
   );
 
-  it.effect("identifies as via when cloaking is off", () =>
+  it.effect("identifies as this version of via when cloaking is off", () =>
     Effect.gen(function* () {
       const { request } = yield* sendAndRecord({ model: "gpt-6-astra" }, false);
       expect(request.headers.originator).toBe("via");
-      expect(request.headers["user-agent"]).toMatch(/^via\//);
+      expect(request.headers["user-agent"]).toBe("via/1.2.3");
     }),
   );
 

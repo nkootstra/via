@@ -153,8 +153,9 @@ export const withVia = <A, E>(
       CodexUpstream.layer({
         baseUrl: codexUrl ?? codex.url,
         cloak: true,
+        version: "0.0.0",
       }),
-      Providers.layer({ openrouter: providerConfig, "opencode-go": providerConfig }).pipe(
+      Providers.layer({ openrouter: providerConfig, "opencode-go": providerConfig }, "0.0.0").pipe(
         Layer.provide(
           ConfigProvider.layer(ConfigProvider.fromUnknown({ PROVIDER_KEY: "sk-provider" })),
         ),

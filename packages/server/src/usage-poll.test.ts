@@ -97,7 +97,7 @@ const withPoll = <A, E>(
         Layer.provide(options.authLayer ?? CodexAuth.layer("http://127.0.0.1:1")),
         Layer.provideMerge(AccountStore.layer(`${dir}/auth`)),
       ),
-      CodexUpstream.layer({ baseUrl: codex.url, cloak: true }),
+      CodexUpstream.layer({ baseUrl: codex.url, cloak: true, version: "0.0.0" }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
     const built = yield* Layer.build(services);
 

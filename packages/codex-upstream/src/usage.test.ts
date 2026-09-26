@@ -15,7 +15,7 @@ const usage = (body: object, status = 200) =>
       return yield* (yield* CodexUpstream).usage(account);
     }).pipe(
       Effect.provide(
-        CodexUpstream.layer({ baseUrl: codex.url, cloak: true }).pipe(
+        CodexUpstream.layer({ baseUrl: codex.url, cloak: true, version: "0.0.0" }).pipe(
           Layer.provide(FetchHttpClient.layer),
         ),
       ),

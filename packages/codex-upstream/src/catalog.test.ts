@@ -10,7 +10,9 @@ const account = { accessToken: "at-1", accountId: "acc-1" };
 const models = (url: string) =>
   Effect.flatMap(CodexUpstream, (codex) => codex.models(account)).pipe(
     Effect.provide(
-      CodexUpstream.layer({ baseUrl: url, cloak: true }).pipe(Layer.provide(FetchHttpClient.layer)),
+      CodexUpstream.layer({ baseUrl: url, cloak: true, version: "0.0.0" }).pipe(
+        Layer.provide(FetchHttpClient.layer),
+      ),
     ),
   );
 

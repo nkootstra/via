@@ -55,7 +55,7 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
           Layer.provide(PoolStates.layerFile(statePath)),
           Layer.provide(AccountTokens.layer),
           Layer.provide(codexUpstream(config, upstreamBaseUrl)),
-          Layer.provide(Providers.layer(config.providers)),
+          Layer.provide(Providers.layer(config.providers, version)),
           Layer.provideMerge(tracing),
           // One line per entry, as `key=value` pairs that grep and log tools read.
           Layer.provide(Logger.layer([Logger.consoleLogFmt])),

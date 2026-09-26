@@ -80,7 +80,7 @@ export interface ProvidersShape {
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
 }
 
-const make = (configs: Record<string, ProviderConfig>) =>
+const make = (configs: Record<string, ProviderConfig>, version: string) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
     const providers = new Map<string, Provider>();
@@ -104,7 +104,7 @@ const make = (configs: Record<string, ProviderConfig>) =>
     const authorized = (provider: Provider, request: HttpClientRequest.HttpClientRequest) =>
       request.pipe(
         HttpClientRequest.bearerToken(Redacted.value(provider.apiKey)),
-        HttpClientRequest.setHeader("user-agent", "via/0.0.0"),
+        HttpClientRequest.setHeader("user-agent", `via/${version}`),
       );
 
     const list = (name: string, provider: Provider) =>
@@ -155,7 +155,10 @@ const make = (configs: Record<string, ProviderConfig>) =>
 
 /** The OpenAI-compatible providers configured in config.yaml. */
 export class Providers extends Context.Service<Providers, ProvidersShape>()("via/Providers") {
-  /** Reads each provider's API key from the environment variable its config names. */
-  static readonly layer = (configs: Record<string, ProviderConfig>) =>
-    Layer.effect(Providers, make(configs));
+  /**
+   * Reads each provider's API key from the environment variable its config
+   * names, and says it is `via/<version>`.
+   */
+  static readonly layer = (configs: Record<string, ProviderConfig>, version: string) =>
+    Layer.effect(Providers, make(configs, version));
 }
