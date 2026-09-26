@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { AccountStore } from "@via/codex-auth";
+import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "@via/keys";
 import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
 import {
   HttpApi,
@@ -7,6 +8,7 @@ import {
   HttpApiEndpoint,
   HttpApiGroup,
   HttpApiMiddleware,
+  HttpApiSchema,
   HttpApiSecurity,
 } from "effect/unstable/httpapi";
 
@@ -19,6 +21,16 @@ const AdminAccount = Schema.Struct({
   enabled: Schema.Boolean,
   createdAt: Schema.String,
 });
+
+/** A client API key as the admin API lists it: never the key itself. */
+const AdminKey = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  createdAt: Schema.String,
+});
+
+/** A newly created client API key; the only time the key is shown. */
+const CreatedKey = Schema.Struct({ id: Schema.String, name: Schema.String, key: Schema.String });
 
 class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",
@@ -37,7 +49,26 @@ class AccountsGroup extends HttpApiGroup.make("accounts")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
-class AdminApi extends HttpApi.make("via-admin").add(AccountsGroup) {}
+class KeysGroup extends HttpApiGroup.make("keys")
+  .add(HttpApiEndpoint.get("list", "/keys", { success: Schema.Array(AdminKey) }))
+  .add(
+    HttpApiEndpoint.post("create", "/keys", {
+      // A plain fields object would make this a form body; a Struct makes it JSON.
+      payload: Schema.Struct({ name: Schema.String }),
+      success: CreatedKey.pipe(HttpApiSchema.status(201)),
+      error: DuplicateKeyNameError.pipe(HttpApiSchema.status(409)),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.delete("revoke", "/keys/:idOrName", {
+      params: { idOrName: Schema.String },
+      error: KeyNotFoundError.pipe(HttpApiSchema.status(404)),
+    }),
+  )
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
+class AdminApi extends HttpApi.make("via-admin").add(AccountsGroup).add(KeysGroup) {}
 
 /** `VIA_ADMIN_KEY` is set, but too short to withstand guessing. */
 class AdminKeyTooShortError extends Schema.TaggedError<AdminKeyTooShortError>()(
@@ -84,6 +115,26 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
   ),
 );
 
+// The key file is via's own; one it can't read or write is a bug, not a request error.
+const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
+  handlers
+    .handle("list", () =>
+      Effect.gen(function* () {
+        return yield* (yield* KeyStore).list;
+      }).pipe(Effect.orDie),
+    )
+    .handle("create", ({ payload }) =>
+      Effect.gen(function* () {
+        return yield* (yield* KeyStore).create(payload.name);
+      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+    )
+    .handle("revoke", ({ params }) =>
+      Effect.gen(function* () {
+        yield* (yield* KeyStore).revoke(params.idOrName);
+      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+    ),
+);
+
 /**
  * The admin API under `/admin`, behind `VIA_ADMIN_KEY`. Without that key the
  * routes are not registered at all, so `/admin` answers 404 like any unknown path.
@@ -95,7 +146,7 @@ export const adminRoutes = Layer.unwrap(
     const { length } = Redacted.value(adminKey.value);
     if (length < 32) return yield* new AdminKeyTooShortError({ length });
     return HttpApiBuilder.layer(AdminApi).pipe(
-      Layer.provide(accounts),
+      Layer.provide([accounts, keys]),
       Layer.provide(authorization(adminKey.value)),
     );
   }),
