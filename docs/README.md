@@ -274,7 +274,7 @@ OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
 `key=value` pairs:
 
 ```
-timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" request_id=592f9436-3ad2-4e0f-a239-d4803bdb9925 http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 model=opencode-go/deepseek-v4.1-flash served_by=opencode-go input_tokens=812 output_tokens=194 headers_ms=2712 first_chunk_ms=3433
+timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" request_id=592f9436-3ad2-4e0f-a239-d4803bdb9925 http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 model=opencode-go/deepseek-v4.1-flash served_by=opencode-go input_tokens=812 output_tokens=194 headers_ms=2712 first_chunk_ms=3433 stream_end=completed
 timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" request_id=2a374005-22ec-40ed-a5e5-1dfa5aa6a807 http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 model=gpt-6-astra error=rate_limit_exceeded retry_after=120
 ```
 
@@ -290,7 +290,9 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   reported for an answered request, and `cached_tokens` joins them when the
   upstream reports a cache hit. Absent usage stays absent, never a zero.
 - For a stream, `headers_ms` and `first_chunk_ms` say when its headers and first
-  chunk went out.
+  chunk went out, and `stream_end` how it ended: `completed`, `client_aborted`
+  (the client went away first) or `failed` (it broke off, such as when the
+  upstream dropped the connection).
 - For an error via answers itself, `error` is its code and `retry_after` the
   seconds until an account frees up.
 

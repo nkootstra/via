@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { completedStream, reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Effect } from "effect";
+import { Effect, Stream } from "effect";
 import { withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
@@ -39,7 +39,46 @@ layer(BunFileSystem.layer)("request log", (it) => {
             served_by: "opencode-go",
             headers_ms: expect.any(Number),
             first_chunk_ms: expect.any(Number),
+            stream_end: "completed",
           },
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs a streamed answer the client stopped reading as client_aborted", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.sseThenHang('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
+        );
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          stream: true,
+          messages: [],
+        });
+        yield* response.stream.pipe(Stream.take(1), Stream.runDrain);
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          stream_end: "client_aborted",
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs a streamed answer the upstream broke off as failed", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.sseThenDrop('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
+        );
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          stream: true,
+          messages: [],
+        });
+        yield* response.stream.pipe(Stream.runDrain, Effect.ignore);
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          stream_end: "failed",
         });
       }),
     ),
