@@ -11,6 +11,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { authenticated, collected, dispatch, forward, openAiError } from "./dispatch.ts";
 import { RequestLog } from "./request-log.ts";
 import { resolveSession } from "./session.ts";
+import { withSharedPrefix } from "./shared-prefix.ts";
 import { spotUsage } from "./token-usage.ts";
 
 const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
@@ -23,7 +24,10 @@ export const chatCompletions = authenticated(
   Effect.gen(function* () {
     const log = yield* RequestLog;
     const providers = yield* Providers;
-    const raw = yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option);
+    const raw = Option.map(
+      yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option),
+      withSharedPrefix,
+    );
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const route = Option.flatMap(raw, (body) => providers.route(body.model));
     if (Option.isSome(raw) && Option.isSome(route)) {

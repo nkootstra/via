@@ -117,4 +117,25 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
       }),
     ),
   );
+
+  it.effect("moves opencode's session line out of the system prompt a provider is sent", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.json(completion));
+        yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          messages: [
+            { role: "system", content: "<env>\n  Current conversation session ID: ses_a\n</env>" },
+            { role: "user", content: "hi" },
+          ],
+        });
+        expect(via.provider.requests[0]?.body).toMatchObject({
+          messages: [
+            { role: "system", content: "<env>\n</env>" },
+            { role: "user", content: "Current conversation session ID: ses_a\n\nhi" },
+          ],
+        });
+      }),
+    ),
+  );
 });

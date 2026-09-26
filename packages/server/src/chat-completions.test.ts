@@ -126,4 +126,29 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
       }),
     ),
   );
+
+  it.effect("moves opencode's session line out of the instructions Codex is sent", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/chat/completions", {
+          model: "gpt-6-astra",
+          messages: [
+            { role: "system", content: "<env>\n  Current conversation session ID: ses_a\n</env>" },
+            { role: "user", content: "hi" },
+          ],
+        });
+        expect(via.upstreamRequests[0]?.body).toMatchObject({
+          instructions: "<env>\n</env>",
+          input: [
+            {
+              role: "user",
+              content: [
+                { type: "input_text", text: "Current conversation session ID: ses_a\n\nhi" },
+              ],
+            },
+          ],
+        });
+      }),
+    ),
+  );
 });
