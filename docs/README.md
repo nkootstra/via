@@ -66,14 +66,18 @@ print(reply.output_text)
 ## Docker
 
 Each release publishes `ghcr.io/nkootstra/via` for linux/amd64 and linux/arm64,
-tagged with its version (`0.2.0`, `0.2`) and `latest`; from 1.0.0 on also the
-major version (`1`). via keeps its accounts, keys, `config.yaml` and cooldowns
-in `/data`, so give that a volume:
+tagged with its version (`X.Y.Z` and `X.Y`) and `latest`; from 1.0.0 on also
+the major version (`X`). The examples use `latest`; to upgrade only when you
+choose to, pin a version from the
+[releases](https://github.com/nkootstra/via/releases) instead.
+
+via keeps its accounts, keys, `config.yaml` and cooldowns in `/data`, so give
+that a volume:
 
 ```sh
 docker run -d --name via --restart unless-stopped \
   -p 127.0.0.1:8317:8317 -v via-data:/data \
-  ghcr.io/nkootstra/via:0.2.0
+  ghcr.io/nkootstra/via:latest
 
 docker exec -it via via accounts add
 docker exec via via keys create --name laptop
@@ -86,7 +90,7 @@ their keys as environment variables. With Compose:
 ```yaml
 services:
   via:
-    image: ghcr.io/nkootstra/via:0.2.0
+    image: ghcr.io/nkootstra/via:latest
     restart: unless-stopped
     ports:
       - 127.0.0.1:8317:8317

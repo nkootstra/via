@@ -173,6 +173,11 @@ tag and raises it (from `v0.0.0` for the first release). It publishes the
 Docker image to `ghcr.io`, runs the image smoke test against it, and tags the
 commit with a GitHub release whose notes list the merged pull requests.
 
+That tag is the only place a version is written down. Every `package.json` in
+the repository stays at `0.0.0`: the build runs `npm/set-version.ts` to stamp
+the release's version on the packages users get, and code that needs it, such
+as a user agent, is handed the CLI's. Docs name no version, so none go stale.
+
 Before a release, `.github/scripts/docker-smoke.sh <image> <version>` runs the
 same smoke test against a local build:
 
