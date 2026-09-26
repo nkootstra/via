@@ -3,7 +3,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { AccountStore, CodexAuth } from "@via/codex-auth";
 import { resolvePaths } from "@via/config";
 import { KeyStore } from "@via/keys";
-import { Console, Effect, Layer } from "effect";
+import { Console, Effect, Layer, Option, Schema } from "effect";
 import { Argument, CliError, Command, Flag } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 import { accounts } from "./accounts.ts";
@@ -11,6 +11,15 @@ import { serve } from "./serve.ts";
 import { version } from "./version.ts";
 
 const paths = resolvePaths();
+
+const Described = Schema.Struct({ message: Schema.String });
+
+/** A defect's message when it has one, else the defect itself as text. */
+const defectMessage = (defect: unknown) =>
+  Option.match(Schema.decodeUnknownOption(Described)(defect), {
+    onNone: () => String(defect),
+    onSome: ({ message }) => message,
+  });
 
 const keysCreate = Command.make(
   "create",
@@ -71,5 +80,7 @@ Command.runWith(via, { version })(process.argv.slice(2)).pipe(
   Effect.tapError((error) =>
     CliError.isCliError(error) ? Effect.void : Console.error(`error: ${error.message}`),
   ),
+  // A defect, such as Bun failing to listen on a port in use, gets the same one line.
+  Effect.tapDefect((defect) => Console.error(`error: ${defectMessage(defect)}`)),
   BunRuntime.runMain({ disableErrorReporting: true }),
 );
