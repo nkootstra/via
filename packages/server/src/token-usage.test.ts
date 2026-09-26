@@ -94,6 +94,37 @@ describe("spotUsage", () => {
     }),
   );
 
+  it.effect("reports the usage of an SSE event split across chunks", () =>
+    Effect.gen(function* () {
+      const text =
+        'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\ndata: [DONE]\n\n';
+      const reported: Array<unknown> = [];
+      // The split falls inside the "usage" key itself.
+      const at = text.indexOf("usage") + 2;
+      const stream = spotUsage(
+        Stream.make(bytes(text.slice(0, at)), bytes(text.slice(at))),
+        true,
+        (usage) => Effect.sync(() => reported.push(usage)),
+      );
+      yield* Stream.runDrain(stream);
+      expect(reported).toEqual([{ inputTokens: 10, outputTokens: 2 }]);
+    }),
+  );
+
+  it.effect("reports only the final chunk's usage when earlier chunks carry a null one", () =>
+    Effect.gen(function* () {
+      const text =
+        'data: {"choices":[{"delta":{"content":"hi"}}],"usage":null}\n\n' +
+        'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\ndata: [DONE]\n\n';
+      const reported: Array<unknown> = [];
+      const stream = spotUsage(Stream.make(bytes(text)), true, (usage) =>
+        Effect.sync(() => reported.push(usage)),
+      );
+      yield* Stream.runDrain(stream);
+      expect(reported).toEqual([{ inputTokens: 10, outputTokens: 2 }]);
+    }),
+  );
+
   it.effect("does not break the stream on a malformed event", () =>
     Effect.gen(function* () {
       const text = "event: response.completed\ndata: {not json\n\ndata: [DONE]\n\n";
