@@ -7,6 +7,8 @@ import { withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
 
+const aRequestId = expect.stringMatching(/^[0-9a-f-]{36}$/);
+
 layer(BunFileSystem.layer)("request log", (it) => {
   it.effect("logs a provider's streamed answer once it has been sent, with its timings", () =>
     withVia(ok, (via) =>
@@ -25,6 +27,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           message: "Sent HTTP response",
           spans: ["http.span"],
           annotations: {
+            request_id: aRequestId,
             "http.method": "POST",
             "http.url": "/v1/chat/completions",
             "http.status": 200,
@@ -47,6 +50,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           message: "Sent HTTP response",
           spans: ["http.span"],
           annotations: {
+            request_id: aRequestId,
             "http.method": "POST",
             "http.url": "/v1/responses",
             "http.status": 200,
@@ -67,12 +71,17 @@ layer(BunFileSystem.layer)("request log", (it) => {
       (via) =>
         Effect.gen(function* () {
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
-          expect(yield* via.logged("a@example.com")).toMatchObject({
+          const warning = yield* via.logged("a@example.com");
+          expect(warning).toMatchObject({
             level: "Warn",
             message: expect.stringMatching(/^a@example\.com is cooling down until \S+ \(\w+\)$/),
+            annotations: { request_id: aRequestId },
           });
-          expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          const sent = yield* via.logged("Sent HTTP response");
+          expect(sent.annotations).toMatchObject({
             served_by: "b@example.com",
+            // Retrying on the second account keeps the same ID as the warning above.
+            request_id: warning.annotations["request_id"],
           });
         }),
     ),
@@ -134,6 +143,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
           // Both accounts were tried, but neither served it.
           expect((yield* via.logged("Sent HTTP response")).annotations).toEqual({
+            request_id: aRequestId,
             "http.method": "POST",
             "http.url": "/v1/responses",
             "http.status": 429,
@@ -147,6 +157,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
             message: "Sent HTTP response",
             spans: ["http.span"],
             annotations: {
+              request_id: aRequestId,
               "http.method": "POST",
               "http.url": "/v1/chat/completions",
               "http.status": 429,
@@ -159,6 +170,80 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("keeps a client-sent request ID, lower-cased, and echoes it on the response", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.post(
+          "/v1/responses",
+          { model: "gpt-6-astra", input: "hi" },
+          undefined,
+          { "x-request-id": "550E8400-E29B-41D4-A716-446655440000" },
+        );
+        expect(response.headers["x-request-id"]).toBe("550e8400-e29b-41d4-a716-446655440000");
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          request_id: "550e8400-e29b-41d4-a716-446655440000",
+        });
+      }),
+    ),
+  );
+
+  it.effect("generates a fresh UUID request ID when the client sends none", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
+        expect(response.headers["x-request-id"]).toMatch(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        );
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          request_id: response.headers["x-request-id"],
+        });
+      }),
+    ),
+  );
+
+  it.effect("generates a fresh UUID request ID when the client sends the header twice", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const first = "550e8400-e29b-41d4-a716-446655440000";
+        const second = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+        const response = yield* via.post(
+          "/v1/responses",
+          { model: "gpt-6-astra", input: "hi" },
+          undefined,
+          { "x-request-id": [first, second] },
+        );
+        expect(response.headers["x-request-id"]).not.toBe(first);
+        expect(response.headers["x-request-id"]).not.toBe(second);
+        expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      }),
+    ),
+  );
+
+  it.effect("generates a fresh UUID request ID when the client's is not a valid UUID", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.post(
+          "/v1/responses",
+          { model: "gpt-6-astra", input: "hi" },
+          undefined,
+          { "x-request-id": "not-a-uuid" },
+        );
+        expect(response.headers["x-request-id"]).not.toBe("not-a-uuid");
+        expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      }),
+    ),
+  );
+
+  it.effect("echoes a fresh request id even when no route matches", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.get("/nope-not-a-route", null);
+        expect(response.status).toBe(404);
+        expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
+      }),
+    ),
+  );
+
   it.effect("logs a request turned away without its model", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
@@ -168,6 +253,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           message: "Sent HTTP response",
           spans: ["http.span"],
           annotations: {
+            request_id: aRequestId,
             "http.method": "GET",
             "http.url": "/v1/models",
             "http.status": 401,

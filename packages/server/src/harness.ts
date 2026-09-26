@@ -45,7 +45,7 @@ export type Via = {
     path: string,
     body: object,
     key?: string | null,
-    headers?: Record<string, string>,
+    headers?: Record<string, string | ReadonlyArray<string>>,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** GETs a path from the via server, with a valid API key unless `key` says otherwise. */
   readonly get: (
