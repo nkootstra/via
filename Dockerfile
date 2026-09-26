@@ -9,7 +9,7 @@ ARG VERSION=0.0.0
 WORKDIR /src
 COPY . .
 RUN bun install --frozen-lockfile --ignore-scripts
-RUN bun -e 'const file = "apps/cli/package.json"; const pkg = await Bun.file(file).json(); pkg.version = process.env.VERSION; await Bun.write(file, JSON.stringify(pkg, null, 2));'
+RUN bun npm/set-version.ts "$VERSION"
 # Baseline x64 runs on CPUs without AVX2 too, as some servers have.
 RUN target=$([ "$TARGETARCH" = arm64 ] && echo linux-arm64 || echo linux-x64-baseline) \
  && bun build apps/cli/src/index.ts --compile --minify --target=bun-$target --outfile /out/via \

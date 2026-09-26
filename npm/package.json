@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "build": "bun build.ts",
-    "smoke": "bun --bun vitest run",
+    "smoke": "bun --bun vitest run smoke",
+    "test": "bun --bun vitest run set-version",
     "typecheck": "tsc -p ."
   },
   "devDependencies": {
