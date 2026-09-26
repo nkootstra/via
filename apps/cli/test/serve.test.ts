@@ -183,6 +183,34 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
+  it.effect("serves the admin API behind VIA_ADMIN_KEY", () =>
+    withHome(({ home, env }) =>
+      Effect.gen(function* () {
+        const adminKey = "admin-key-that-is-long-enough-000";
+        const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+          ...env,
+          VIA_ADMIN_KEY: adminKey,
+        });
+        const response = yield* HttpClient.get(`${url}/admin/accounts`, {
+          headers: { authorization: `Bearer ${adminKey}` },
+        }).pipe(Effect.provide(FetchHttpClient.layer));
+        expect(response.status).toBe(200);
+        expect(yield* response.json).toMatchObject([{ email: "dev@example.com" }]);
+      }),
+    ),
+  );
+
+  it.effect("refuses to start with an admin key shorter than 32 characters", () =>
+    Effect.gen(function* () {
+      const port = String(yield* freePort);
+      const result = yield* runVia(yield* tempHome, ["serve", "--port", port], {
+        VIA_ADMIN_KEY: "short",
+      });
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("VIA_ADMIN_KEY must be at least 32 characters; it has 5");
+    }),
+  );
+
   it.effect("refuses to start with an invalid config.yaml", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;

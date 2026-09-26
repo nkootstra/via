@@ -108,7 +108,8 @@ const collectLogs = () => {
  * access token expires at `aExpiresAt`, by default far in the future. With
  * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
  * Models prefixed `openrouter/` and `opencode-go/` go to a fake provider, or
- * to `providerUrl` when it is given.
+ * to `providerUrl` when it is given. With `adminKey`, via serves the admin API
+ * behind that key; the environment's `VIA_ADMIN_KEY` is never read.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -121,10 +122,12 @@ export const withVia = <A, E>(
     aExpiresAt,
     codexUrl,
     providerUrl,
+    adminKey,
   }: Pick<FakeIssuerOptions, "refreshResponse"> & {
     aExpiresAt?: number;
     codexUrl?: string;
     providerUrl?: string;
+    adminKey?: string;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -175,6 +178,11 @@ export const withVia = <A, E>(
     const server = yield* Layer.build(
       ViaServer.layer.pipe(
         Layer.provide(Logger.layer([logs.logger])),
+        Layer.provide(
+          ConfigProvider.layer(
+            ConfigProvider.fromUnknown(adminKey === undefined ? {} : { VIA_ADMIN_KEY: adminKey }),
+          ),
+        ),
         Layer.provide(PoolStates.layer),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(Layer.succeedContext(built)),
