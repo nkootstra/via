@@ -1,7 +1,8 @@
 // Test-only: a scriptable OpenAI-compatible provider, such as OpenRouter or
 // OpenCode Go, that records every request it receives.
 import { BunHttpServer } from "@effect/platform-bun";
-import { Deferred, Effect, Layer, Schema } from "effect";
+import { Deferred, Effect, Layer, Schema, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import {
   HttpRouter,
   HttpServer,
@@ -16,7 +17,13 @@ export type ProviderRequest = {
   body: Record<string, unknown>;
 };
 
-type Answer = { status: number; contentType: string; body: string };
+type Answer = {
+  status: number;
+  contentType: string;
+  body: string;
+  /** What the stream does after `body`: stays open, or breaks off. It ends by default. */
+  ending?: "hang" | "drop";
+};
 
 export type ProviderReply = (request: ProviderRequest) => Answer;
 
@@ -29,6 +36,14 @@ export const providerReply = {
   sse:
     (body: string): ProviderReply =>
     () => ({ status: 200, contentType: "text/event-stream", body }),
+  /** A raw SSE body that then never ends, so only the client can end it. */
+  sseThenHang:
+    (body: string): ProviderReply =>
+    () => ({ status: 200, contentType: "text/event-stream", body, ending: "hang" }),
+  /** A raw SSE body after which the connection breaks off. */
+  sseThenDrop:
+    (body: string): ProviderReply =>
+    () => ({ status: 200, contentType: "text/event-stream", body, ending: "drop" }),
 };
 
 const unscripted: ProviderReply = providerReply.json(
@@ -60,8 +75,24 @@ export const startFakeProvider = Effect.gen(function* () {
           body,
         };
         requests.push(recorded);
-        const { status, contentType, body: text } = handler(recorded);
-        return HttpServerResponse.text(text, { status, contentType });
+        const { status, contentType, body: text, ending } = handler(recorded);
+        if (ending === undefined) return HttpServerResponse.text(text, { status, contentType });
+        // Bun ends a response cleanly, not with a reset, when its stream fails before the
+        // first chunk is flushed, so the drop waits until `body` has gone out.
+        const rest =
+          ending === "hang"
+            ? Stream.never
+            : Stream.fromEffect(
+                Effect.andThen(
+                  // Real time: tests run on a TestClock that nothing advances here.
+                  TestClock.withLive(Effect.sleep("50 millis")),
+                  Effect.die("fake provider: connection dropped"),
+                ),
+              );
+        return HttpServerResponse.stream(
+          Stream.concat(Stream.make(new TextEncoder().encode(text)), rest),
+          { status, contentType },
+        );
       }),
     ),
     // Test fixture: a body that is not JSON is a bug in the code under test.

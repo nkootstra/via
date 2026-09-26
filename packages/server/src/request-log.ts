@@ -1,4 +1,16 @@
-import { Clock, Context, Crypto, Effect, Option, Ref, References, Schema, Stream } from "effect";
+import {
+  Cause,
+  Clock,
+  Context,
+  Crypto,
+  Effect,
+  Exit,
+  Option,
+  Ref,
+  References,
+  Schema,
+  Stream,
+} from "effect";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import type { TokenUsage } from "./token-usage.ts";
 
@@ -27,6 +39,18 @@ export class RequestLog extends Context.Service<
 /** `{ [key]: value }` for a value that was noted, else nothing. */
 const noted = (key: string, value: Option.Option<string>) =>
   Option.match(value, { onNone: () => ({}), onSome: (text) => ({ [key]: text }) });
+
+/**
+ * How a streamed answer ended: sent in full, stopped by the client going away
+ * (which interrupts the stream), or broken off by an error, such as the
+ * upstream dropping the connection.
+ */
+const streamEnd = (exit: Exit.Exit<unknown, unknown>) =>
+  Exit.isSuccess(exit)
+    ? "completed"
+    : Cause.hasInterruptsOnly(exit.cause)
+      ? "client_aborted"
+      : "failed";
 
 /** A textual UUID (any version), the shape a client's `x-request-id` must have to be kept. */
 const RequestIdHeader = Schema.String.pipe(Schema.check(Schema.isUUID()));
@@ -83,6 +107,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     const retryAfter = yield* Ref.make(Option.none<string>());
     const streamed = yield* Ref.make(false);
     const firstChunk = yield* Ref.make(Option.none<number>());
+    const ended = yield* Ref.make(Option.none<string>());
     // The line waits for both the response and, when there is one, its stream.
     const pending = yield* Ref.make(1);
     const status = yield* Ref.make(0);
@@ -98,6 +123,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
               onNone: () => ({}),
               onSome: (at) => ({ first_chunk_ms: at - start }),
             }),
+            ...noted("stream_end", yield* Ref.get(ended)),
           }
         : {};
       yield* Effect.log("Sent HTTP response").pipe(
@@ -137,7 +163,9 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
                 Ref.set(firstChunk, Option.some(now)),
               ),
             ),
-            Stream.ensuring(finish),
+            Stream.onExit((exit) =>
+              Effect.andThen(Ref.set(ended, Option.some(streamEnd(exit))), finish),
+            ),
           ),
         ),
     });
