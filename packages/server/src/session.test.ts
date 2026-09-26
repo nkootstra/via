@@ -6,9 +6,12 @@ const chat = (...messages: ReadonlyArray<{ role: string; content: unknown }>) =>
   messages,
 });
 
+const subAgent = (id: string) => ({ "x-session-id": id, "x-parent-session-id": "ses_parent" });
+
 describe("resolveSession", () => {
   it("takes the first session id a client sent, in order of precedence", () => {
     const all = {
+      "x-parent-session-id": "parent",
       "x-opencode-session": "opencode",
       "x-claude-code-session-id": "claude",
       "session-id": "codex",
@@ -19,6 +22,7 @@ describe("resolveSession", () => {
     };
     const body = { session_id: "body", prompt_cache_key: "cache" };
     const order = [
+      ["x-parent-session-id", "parent"],
       ["x-opencode-session", "opencode"],
       ["x-claude-code-session-id", "claude"],
       ["session-id", "codex"],
@@ -37,6 +41,12 @@ describe("resolveSession", () => {
       else if (source === "body prompt_cache_key") delete remaining["prompt_cache_key"];
       else delete headers[source];
     }
+  });
+
+  it("gives opencode's sub-agents their parent's session, so they share one prompt cache", () => {
+    expect(resolveSession(subAgent("ses_child1"), {})).toBe("ses_parent");
+    expect(resolveSession(subAgent("ses_child2"), {})).toBe("ses_parent");
+    expect(resolveSession({ "x-session-id": "ses_parent" }, {})).toBe("ses_parent");
   });
 
   it("gives every turn of one chat the same id and other chats another", () => {
