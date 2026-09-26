@@ -1,10 +1,5 @@
 import { Clock, Context, Crypto, Effect, Option, Ref, References, Schema, Stream } from "effect";
-import {
-  HttpEffect,
-  HttpRouter,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import type { TokenUsage } from "./token-usage.ts";
 
 /**
@@ -51,40 +46,6 @@ const requestId = (headers: Record<string, string>) =>
     return yield* crypto.randomUUIDv4.pipe(Effect.orDie);
   });
 
-/**
- * Global router middleware: gives every request a correlation ID (the client's
- * `x-request-id`, kept when valid, else a fresh UUIDv4), annotates every log made
- * while handling it (so a cooldown warning ties back to its request), and echoes
- * it as `x-request-id` on the response — every route, `/healthz` included, since
- * none is special-cased out. `HttpRouter.serve`'s own `middleware` option cannot
- * change the response that is actually sent, so this has to be a router-level
- * global middleware instead, wrapping each route's effect from the inside.
- *
- * `httpEffect` can fail before it ever produces a `Response` — an unmatched
- * route or method (`HttpServerError.RouteNotFound`), or a route's own defect
- * escaping unconverted — in which case the platform derives the response
- * (a 404, a 500, ...) itself, further up, from the failure. The pre-response
- * handler runs right before that response is sent regardless of whether it
- * came from a success or a failure, so it is the one hook that still lets the
- * header reach the client on that path; the plain `setHeader` below remains
- * for the ordinary success path, since `logRequest` reads the header back off
- * the value this effect resolves with, which the pre-response handler's own
- * response never flows back into.
- */
-export const withRequestId = HttpRouter.middleware(
-  (httpEffect) =>
-    Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const id = yield* requestId(request.headers);
-      yield* HttpEffect.appendPreResponseHandler((_request, response) =>
-        Effect.succeed(HttpServerResponse.setHeader(response, "x-request-id", id)),
-      );
-      const response = yield* httpEffect.pipe(Effect.annotateLogs({ request_id: id }));
-      return HttpServerResponse.setHeader(response, "x-request-id", id);
-    }),
-  { global: true },
-);
-
 /** The usage annotations for a request's log line — absent when none was reported. */
 const usageAnnotations = (usage: Option.Option<TokenUsage>) =>
   Option.match(usage, {
@@ -99,21 +60,27 @@ const usageAnnotations = (usage: Option.Option<TokenUsage>) =>
 /**
  * Runs `app` for one request and then logs it as Effect's own request log does
  * ("Sent HTTP response" in an `http.span`), adding the model, who served it,
- * the request's correlation ID (see `withRequestId`), and, for an error via
- * answers itself, its code and any `Retry-After`. A streamed answer is logged
- * once the stream ends, so `http.span` covers it, with when its headers and its
- * first chunk were sent.
+ * and, for an error via answers itself, its code and any `Retry-After`. A
+ * streamed answer is logged once the stream ends, so `http.span` covers it,
+ * with when its headers and its first chunk were sent.
+ *
+ * It also gives every request a correlation ID (see `requestId`), which
+ * annotates every log made while handling it, so a cooldown warning ties back
+ * to its request, and goes back as `x-request-id`. Both the header and the
+ * status are taken in a pre-response handler: that runs on the response
+ * actually sent, including one the platform derives from a failure, such as
+ * a 404 for no matching route or a 500 for a defect.
  */
 export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
+    const id = yield* requestId(request.headers);
     const start = yield* Clock.currentTimeMillis;
     const model = yield* Ref.make(Option.none<string>());
     const served = yield* Ref.make(Option.none<string>());
     const refused = yield* Ref.make(Option.none<string>());
     const usage = yield* Ref.make(Option.none<TokenUsage>());
     const retryAfter = yield* Ref.make(Option.none<string>());
-    const requestIdRef = yield* Ref.make("");
     const streamed = yield* Ref.make(false);
     const firstChunk = yield* Ref.make(Option.none<number>());
     // The line waits for both the response and, when there is one, its stream.
@@ -135,7 +102,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         : {};
       yield* Effect.log("Sent HTTP response").pipe(
         Effect.annotateLogs({
-          request_id: yield* Ref.get(requestIdRef),
+          request_id: id,
           "http.method": request.method,
           "http.url": request.url,
           "http.status": yield* Ref.get(status),
@@ -177,17 +144,20 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         ),
     });
 
-    return yield* app.pipe(
-      Effect.provideService(RequestLog, service),
-      Effect.tap((response) =>
+    yield* HttpEffect.appendPreResponseHandler((_request, response) =>
+      Effect.as(
         Effect.all([
           Ref.set(status, response.status),
           Ref.set(retryAfter, Option.fromNullishOr(response.headers["retry-after"])),
-          // withRequestId, a global router middleware, already set this on `response`.
-          Ref.set(requestIdRef, response.headers["x-request-id"] ?? ""),
           Effect.flatMap(Clock.currentTimeMillis, (now) => Ref.set(headersAt, now)),
         ]),
+        HttpServerResponse.setHeader(response, "x-request-id", id),
       ),
+    );
+
+    return yield* app.pipe(
+      Effect.provideService(RequestLog, service),
+      Effect.annotateLogs({ request_id: id }),
       Effect.ensuring(finish),
     );
   });

@@ -10,7 +10,7 @@ capacity; when one hits its rate limit, via moves on to the next. It can also
 pass requests on to OpenAI-compatible providers such as OpenRouter and
 OpenCode Go.
 
-> **Status:** pre-release (`0.0.0`). Commands and file formats may still change.
+> **Status:** early (`0.x`). Commands and file formats may still change before 1.0.
 
 ## Platforms
 
@@ -66,14 +66,14 @@ print(reply.output_text)
 ## Docker
 
 Each release publishes `ghcr.io/nkootstra/via` for linux/amd64 and linux/arm64,
-tagged with its version (`0.3.1`, `0.3`) and `latest`; from 1.0.0 on also the
+tagged with its version (`0.2.0`, `0.2`) and `latest`; from 1.0.0 on also the
 major version (`1`). via keeps its accounts, keys, `config.yaml` and cooldowns
 in `/data`, so give that a volume:
 
 ```sh
 docker run -d --name via --restart unless-stopped \
   -p 127.0.0.1:8317:8317 -v via-data:/data \
-  ghcr.io/nkootstra/via:0.3.1
+  ghcr.io/nkootstra/via:0.2.0
 
 docker exec -it via via accounts add
 docker exec via via keys create --name laptop
@@ -86,7 +86,7 @@ their keys as environment variables. With Compose:
 ```yaml
 services:
   via:
-    image: ghcr.io/nkootstra/via:0.3.1
+    image: ghcr.io/nkootstra/via:0.2.0
     restart: unless-stopped
     ports:
       - 127.0.0.1:8317:8317

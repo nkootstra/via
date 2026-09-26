@@ -355,6 +355,19 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs a request no route matches with the id it answered with", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.get("/nope-not-a-route", null);
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          request_id: response.headers["x-request-id"],
+          "http.url": "/nope-not-a-route",
+          "http.status": 404,
+        });
+      }),
+    ),
+  );
+
   it.effect("logs a request turned away without its model", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
