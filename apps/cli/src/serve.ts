@@ -4,25 +4,43 @@ import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
 import { UsagePoll, ViaServer } from "@via/server";
-import { ConfigProvider, Console, Effect, Layer, Logger, Option } from "effect";
+import { Config, ConfigProvider, Console, Effect, Layer, Logger, Option, References } from "effect";
 import { Command, Flag } from "effect/unstable/cli";
-import { HttpServer } from "effect/unstable/http";
+import { HttpClient, HttpServer } from "effect/unstable/http";
 import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
 import { codexUpstream } from "./upstream.ts";
 import { version } from "./version.ts";
 
 /**
  * Exports spans over OTLP/HTTP when the standard `OTEL_EXPORTER_OTLP_ENDPOINT`
- * variables name a collector; without one it does nothing. Effect only exports
- * when `OTEL_TRACES_EXPORTER` says `otlp`, so that gets the spec's default.
+ * variables name a collector. Effect only exports when `OTEL_TRACES_EXPORTER`
+ * says `otlp`, so that gets the spec's default.
  */
-const tracing = OtlpTracer.layerFromConfig({
+const exporting = OtlpTracer.layerFromConfig({
   resource: { serviceName: "via", serviceVersion: version },
 }).pipe(
   Layer.provide(OtlpSerialization.layerJson),
   Layer.provide(
     ConfigProvider.layerAdd(ConfigProvider.fromUnknown({ OTEL_TRACES_EXPORTER: "otlp" })),
   ),
+);
+
+/**
+ * Without a collector, spans would be built for every request and go nowhere,
+ * and upstreams would still be sent `traceparent` and `b3` headers, so tracing
+ * is off instead.
+ */
+const off = Layer.mergeAll(
+  Layer.succeed(References.TracerEnabled, false),
+  Layer.succeed(HttpClient.TracerPropagationEnabled, false),
+);
+
+const tracing = Layer.unwrap(
+  Effect.gen(function* () {
+    const traces = yield* Config.option(Config.String("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"));
+    const all = yield* Config.option(Config.String("OTEL_EXPORTER_OTLP_ENDPOINT"));
+    return Option.isSome(traces) || Option.isSome(all) ? exporting : off;
+  }),
 );
 
 /**

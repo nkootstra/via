@@ -233,6 +233,35 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     ),
   );
 
+  it.effect("sends upstreams no trace headers when no OTLP endpoint is set", () =>
+    withHome(({ home, key, env, codex }) =>
+      Effect.gen(function* () {
+        const provider = yield* startFakeProvider;
+        provider.respond(providerReply.json({ id: "chatcmpl-local" }));
+        yield* (yield* FileSystem.FileSystem).writeFileString(
+          `${home}/config.yaml`,
+          `providers:\n  local:\n    baseUrl: ${provider.url}\n    apiKeyEnv: LOCAL_KEY\n`,
+        );
+        const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+          ...env,
+          LOCAL_KEY: "sk-local",
+        });
+        const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+        yield* HttpClientRequest.post(`${url}/v1/chat/completions`).pipe(
+          HttpClientRequest.bearerToken(key),
+          HttpClientRequest.bodyJsonUnsafe({ model: "local/qwen3", messages: [] }),
+          http.execute,
+        );
+        expect((yield* postResponses(url, key)).status).toBe(200);
+        for (const headers of [provider.requests[0]?.headers, codex.requests[0]?.headers]) {
+          expect(headers).toBeDefined();
+          expect(headers).not.toHaveProperty("traceparent");
+          expect(headers).not.toHaveProperty("b3");
+        }
+      }),
+    ),
+  );
+
   it.effect(
     "forwards a provider's model with the API key from the variable config.yaml names",
     () =>
