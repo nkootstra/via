@@ -52,6 +52,11 @@ export type Via = {
     path: string,
     key?: string | null,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
+  /** DELETEs a path on the via server, with a valid API key unless `key` says otherwise. */
+  readonly delete: (
+    path: string,
+    key?: string | null,
+  ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** The via server's URL, e.g. `http://127.0.0.1:1234`. */
   readonly baseUrl: string;
   /** A valid API key. */
@@ -206,9 +211,12 @@ export const withVia = <A, E>(
         );
       const get: Via["get"] = (path, override) =>
         http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
+      const del: Via["delete"] = (path, override) =>
+        http.execute(HttpClientRequest.delete(`${base}${path}`).pipe(authorize(override)));
       return yield* body({
         post,
         get,
+        delete: del,
         baseUrl: base,
         key,
         upstreamRequests: codex.requests,
