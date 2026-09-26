@@ -110,6 +110,14 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
+  it.effect("sends the body as JSON", () =>
+    Effect.gen(function* () {
+      const request = yield* sent("local", { model: "local/m", messages: [] });
+      expect(request?.headers["content-type"]).toBe("application/json");
+      expect(request?.body).toEqual({ model: "m", messages: [] });
+    }),
+  );
+
   it.effect("sends OpenCode Go the session in x-opencode-session", () =>
     Effect.gen(function* () {
       const request = yield* sent("opencode-go", { model: "opencode-go/m" });

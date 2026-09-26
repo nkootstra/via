@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
@@ -98,7 +98,12 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
           session_id: session,
           accept: "text/event-stream",
         }),
-        HttpClientRequest.bodyJsonUnsafe(prepareBody({ prompt_cache_key: session, ...body })),
+        // A raw string goes to fetch as-is; bodyJsonUnsafe would copy it into bytes first.
+        HttpClientRequest.setBody(
+          HttpBody.raw(JSON.stringify(prepareBody({ prompt_cache_key: session, ...body })), {
+            contentType: "application/json",
+          }),
+        ),
         http.execute,
       );
     });
