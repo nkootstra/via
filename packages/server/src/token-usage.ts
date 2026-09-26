@@ -70,19 +70,25 @@ const usageFromPayload = (payload: typeof EventPayload.Type): Option.Option<Toke
     : Option.orElse(usageOf(nested), () => usageOf(payload.usage));
 };
 
-const decodePayload = Schema.decodeEffect(Schema.fromJsonString(EventPayload));
+const decodePayload = Schema.decodeUnknownOption(Schema.fromJsonString(EventPayload));
 
-/** The usage a raw JSON chunk of text carries, if any — never a decode failure. */
-const usageIn = (text: string): Effect.Effect<Option.Option<TokenUsage>> =>
-  decodePayload(text).pipe(
-    Effect.map(usageFromPayload),
-    Effect.orElseSucceed(() => Option.none()),
-  );
+/**
+ * The usage a raw JSON chunk of text carries, if any — never a decode failure.
+ * Text without a `"usage"` key can't carry any, so it isn't parsed: most SSE
+ * events of an answer are deltas without one.
+ */
+const usageIn = (text: string): Option.Option<TokenUsage> =>
+  text.includes('"usage"') ? Option.flatMap(decodePayload(text), usageFromPayload) : Option.none();
 
-const reportIfSome = (
-  found: Option.Option<TokenUsage>,
+/** Reports each usage found, then passes `chunks` on; no effect runs when none was found. */
+const reportAll = <A>(
+  found: ReadonlyArray<TokenUsage>,
   report: (usage: TokenUsage) => Effect.Effect<void>,
-) => Option.match(found, { onNone: () => Effect.void, onSome: report });
+  chunks: A,
+): Effect.Effect<A> =>
+  found.length === 0
+    ? Effect.succeed(chunks)
+    : Effect.as(Effect.forEach(found, report, { discard: true }), chunks);
 
 /**
  * Taps a Server-Sent Events byte stream for the usage a `response.completed`
@@ -94,25 +100,23 @@ const spotSse = <E>(
   report: (usage: TokenUsage) => Effect.Effect<void>,
 ): Stream.Stream<Uint8Array, E> =>
   // Built fresh inside `Effect.sync` so each *run* of the returned stream (not
-  // each call to `spotSse`) gets its own decoder/parser/buffer — a Stream is a
+  // each call to `spotSse`) gets its own decoder/parser — a Stream is a
   // repeatable description, and must be safe to run more than once.
   Stream.unwrap(
     Effect.sync(() => {
       const decoder = new TextDecoder();
-      let pending: Array<string> = [];
+      let found: Array<TokenUsage> = [];
       const parser = Sse.makeParser((event) => {
-        if (!Sse.Retry.is(event)) pending.push(event.data);
+        if (Sse.Retry.is(event)) return;
+        const usage = usageIn(event.data);
+        if (Option.isSome(usage)) found.push(usage.value);
       });
       return body.pipe(
-        Stream.mapEffect((chunk) => {
-          parser.feed(decoder.decode(chunk, { stream: true }));
-          const events = pending;
-          pending = [];
-          return Effect.forEach(
-            events,
-            (data) => Effect.flatMap(usageIn(data), (found) => reportIfSome(found, report)),
-            { discard: true },
-          ).pipe(Effect.as(chunk));
+        Stream.mapArrayEffect((chunks) => {
+          for (const chunk of chunks) parser.feed(decoder.decode(chunk, { stream: true }));
+          const spotted = found;
+          found = [];
+          return reportAll(spotted, report, chunks);
         }),
       );
     }),
@@ -127,29 +131,23 @@ const spotJson = <E>(
   body: Stream.Stream<Uint8Array, E>,
   report: (usage: TokenUsage) => Effect.Effect<void>,
 ): Stream.Stream<Uint8Array, E> =>
-  // Same reason as `spotSse`: a fresh decoder/buffer/flag per run, not per call.
+  // Same reason as `spotSse`: a fresh decoder/buffer per run, not per call.
   Stream.unwrap(
     Effect.sync(() => {
       const decoder = new TextDecoder();
       let text = "";
-      let reported = false;
       return body.pipe(
-        Stream.mapEffect((chunk) => {
-          text += decoder.decode(chunk, { stream: true });
-          if (reported) return Effect.succeed(chunk);
-          return Effect.flatMap(usageIn(text), (found) =>
-            Effect.as(
-              reportIfSome(found, report).pipe(
-                Effect.tap(() =>
-                  Effect.sync(() => {
-                    reported = Option.isSome(found);
-                  }),
-                ),
-              ),
-              chunk,
-            ),
-          );
+        Stream.mapArray((chunks) => {
+          for (const chunk of chunks) text += decoder.decode(chunk, { stream: true });
+          return chunks;
         }),
+        // Parsed once, when the body is complete, not again with every chunk.
+        Stream.onEnd(
+          Effect.suspend(() => {
+            text += decoder.decode();
+            return reportAll(Option.toArray(usageIn(text)), report, undefined);
+          }),
+        ),
       );
     }),
   );
