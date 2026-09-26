@@ -42,6 +42,7 @@ describe("CodexUpstream.send", () => {
         input: "hi",
         stream: false,
       });
+      expect(request.headers["content-type"]).toBe("application/json");
       expect(request.body).toMatchObject({ model: "gpt-6-astra", stream: true, store: false });
     }),
   );

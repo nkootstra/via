@@ -1,6 +1,7 @@
 import type { ProviderConfig } from "@via/config";
 import { Config, Context, Effect, identity, Layer, Option, Redacted, Schema } from "effect";
 import {
+  HttpBody,
   HttpClient,
   type HttpClientError,
   HttpClientRequest,
@@ -142,10 +143,16 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
           typeof provider.session === "object"
             ? HttpClientRequest.setHeader(provider.session.header, session)
             : identity,
-          HttpClientRequest.bodyJsonUnsafe(
-            provider.session === "body"
-              ? { prompt_cache_key: session, ...body, model: route.model, session_id: session }
-              : { ...body, model: route.model },
+          // A raw string goes to fetch as-is; bodyJsonUnsafe would copy it into bytes first.
+          HttpClientRequest.setBody(
+            HttpBody.raw(
+              JSON.stringify(
+                provider.session === "body"
+                  ? { prompt_cache_key: session, ...body, model: route.model, session_id: session }
+                  : { ...body, model: route.model },
+              ),
+              { contentType: "application/json" },
+            ),
           ),
           http.execute,
         );
