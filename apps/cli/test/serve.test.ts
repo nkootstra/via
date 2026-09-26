@@ -170,6 +170,19 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     ),
   );
 
+  it.effect("says so when its port is already in use", () =>
+    Effect.gen(function* () {
+      const taken = yield* Layer.build(BunHttpServer.layer({ hostname: "127.0.0.1", port: 0 }));
+      const url = yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(
+        Effect.provide(taken),
+      );
+      const port = new URL(url).port;
+      const result = yield* runVia(yield* tempHome, ["serve", "--port", port]);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toMatch(new RegExp(`^error: .*port ${port}.* in use`, "m"));
+    }),
+  );
+
   it.effect("refuses to start with an invalid config.yaml", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;
