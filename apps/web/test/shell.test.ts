@@ -1,37 +1,27 @@
 // @vitest-environment node
 import { createHash } from "node:crypto";
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { themeScript, themeScriptHash } from "@via/ui";
 import { createBuilder } from "vite";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
 
-const outDir = mkdtempSync(join(tmpdir(), "via-web-build-"));
-
-const client = join(outDir, "client");
+// Start prerenders the shell from its server build in `dist/server`, so the
+// build goes where `vite build` puts it.
+const client = join(root, "dist", "client");
 
 const read = (file: string) => readFileSync(join(client, file), "utf8");
 
 // The production build, as via will serve it: a static SPA shell and assets.
 describe("the built SPA shell", () => {
   beforeAll(async () => {
-    const builder = await createBuilder({
-      root,
-      logLevel: "silent",
-      environments: {
-        client: { build: { outDir: client } },
-        ssr: { build: { outDir: join(outDir, "server") } },
-      },
-    });
+    const builder = await createBuilder({ root, logLevel: "silent" });
 
     await builder.buildApp();
   }, 120_000);
-
-  afterAll(() => rmSync(outDir, { recursive: true, force: true }));
 
   it("runs the theme script in the head, before the app, and its CSP hash matches", () => {
     const shell = read("_shell.html");
