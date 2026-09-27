@@ -1,11 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Badge, EmptyState, Input, Skeleton } from "@via/ui";
 import { colors, fonts, radii, space, text } from "@via/ui/tokens.stylex";
 import { Schema } from "effect";
 import { useDeferredValue, useState } from "react";
-import { modelsQuery, warm } from "../../api/admin.ts";
+import { modelsQuery } from "../../api/admin.ts";
 import type { Model } from "../../api/types.ts";
 import { CodexIcon, ModelsIcon, ProviderLogo, SearchIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -13,7 +13,8 @@ import { providerName } from "../../lib/provider-name.ts";
 
 export const Route = createFileRoute("/_app/models")({
   head: () => ({ meta: [{ title: "Models · via" }] }),
-  loader: ({ context }) => warm(context.queryClient, modelsQuery),
+  loader: ({ context }) => context.queryClient.ensureQueryData(modelsQuery),
+  pendingComponent: ModelsLoading,
   component: Models,
 });
 
@@ -87,11 +88,28 @@ const ownerOf = (model: Model) => {
 const contextOf = (model: Model) =>
   hasContext(model) ? `${Math.round(model.context_length / 1_000)}k context` : undefined;
 
+const title = "Models";
+
+const description =
+  "What clients can ask for at /v1/models: Codex's models through the pool, and each provider's own.";
+
+function ModelsLoading() {
+  return (
+    <Page title={title} description={description}>
+      <div aria-busy="true" aria-label="Loading models" {...stylex.props(styles.grid)}>
+        {[0, 1, 2, 3, 4, 5].map((index) => (
+          <Skeleton key={index} height="44px" />
+        ))}
+      </div>
+    </Page>
+  );
+}
+
 function Models() {
-  const models = useQuery(modelsQuery);
+  const models = useSuspenseQuery(modelsQuery);
   const [search, setSearch] = useState("");
   const query = useDeferredValue(search.trim().toLowerCase());
-  const list = models.data ?? [];
+  const list = models.data;
   const matches = list.filter((model) => model.id.toLowerCase().includes(query));
   const groups = Map.groupBy(matches, ownerOf);
 
@@ -101,17 +119,8 @@ function Models() {
   );
 
   return (
-    <Page
-      title="Models"
-      description="What clients can ask for at /v1/models: Codex's models through the pool, and each provider's own."
-    >
-      {models.isPending ? (
-        <div aria-busy="true" aria-label="Loading models" {...stylex.props(styles.grid)}>
-          {[0, 1, 2, 3, 4, 5].map((index) => (
-            <Skeleton key={index} height="44px" />
-          ))}
-        </div>
-      ) : list.length === 0 ? (
+    <Page title={title} description={description}>
+      {list.length === 0 ? (
         <EmptyState
           icon={<ModelsIcon size={18} />}
           title="No models to list"

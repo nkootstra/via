@@ -1,5 +1,7 @@
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
+import { AdminState as ViaState } from "@via/server/admin-api";
+import { Schema } from "effect";
 import userEvent from "@testing-library/user-event";
 import type { RequestHandler } from "msw";
 import { setupServer } from "msw/node";
@@ -34,4 +36,16 @@ export function renderApp(
   render(<RouterProvider router={router} />, { container: document, baseElement: document.body });
 
   return { state, router, user };
+}
+
+/**
+ * Puts `state` in the page as via's shell does for a signed-in page: JSON in a
+ * `#via-state` script, which the app reads when it starts.
+ */
+export function embed(state: typeof ViaState.Type) {
+  const script = document.createElement("script");
+  script.type = "application/json";
+  script.id = "via-state";
+  script.textContent = Schema.encodeSync(Schema.fromJsonString(ViaState))(state);
+  document.head.append(script);
 }

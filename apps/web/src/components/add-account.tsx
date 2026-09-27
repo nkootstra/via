@@ -22,7 +22,7 @@ import {
 } from "@via/ui";
 import { colors, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
-import { addOpencodeGo, loginStatus, startLogin } from "../api/admin.ts";
+import { addOpencodeGo, loginStatusQuery, startLogin } from "../api/admin.ts";
 import type { Account, StartedLogin } from "../api/types.ts";
 import { CodexIcon, ExternalIcon, ProviderLogo } from "./icons.tsx";
 
@@ -158,13 +158,7 @@ function AddAccountDialog({
   const toast = useToast();
   const login = start.data;
 
-  const status = useQuery({
-    queryKey: ["login", login?.id],
-    queryFn: () => loginStatus(login?.id ?? ""),
-    enabled: login !== undefined,
-    refetchInterval: (query) => (query.state.data?.status === "pending" ? 2_000 : false),
-    gcTime: 0,
-  });
+  const status = useQuery(loginStatusQuery(login?.id));
 
   const outcome = status.data;
 

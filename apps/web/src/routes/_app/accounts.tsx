@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { accountColumns } from "../../components/account-columns.ts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   AlertDialog,
@@ -34,13 +34,8 @@ import {
 } from "@via/ui";
 import { colors, text, weights } from "@via/ui/tokens.stylex";
 import { useState } from "react";
-import {
-  accountsQuery,
-  opencodeGoQuery,
-  removeAccount,
-  updateAccount,
-  warm,
-} from "../../api/admin.ts";
+import { accountsQuery, opencodeGoQuery, removeAccount, updateAccount } from "../../api/admin.ts";
+import { useLiveOptions } from "../../api/live.ts";
 import type { Account } from "../../api/types.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
 import {
@@ -58,10 +53,12 @@ import { formatDate } from "../../lib/time.ts";
 
 export const Route = createFileRoute("/_app/accounts")({
   head: () => ({ meta: [{ title: "Accounts · via" }] }),
-  loader: ({ context }) => {
-    warm(context.queryClient, accountsQuery);
-    warm(context.queryClient, opencodeGoQuery);
-  },
+  loader: ({ context: { queryClient } }) =>
+    Promise.all([
+      queryClient.ensureQueryData(accountsQuery),
+      queryClient.ensureQueryData(opencodeGoQuery),
+    ]),
+  pendingComponent: AccountsLoading,
   component: Accounts,
 });
 
@@ -202,10 +199,30 @@ function RemoveDialog({
 
 type Open = { readonly dialog: "rename" | "remove"; readonly account: Account } | null;
 
+const title = "Accounts";
+
+const description =
+  "The ChatGPT accounts and OpenCode Go keys via pools. Disable one to keep it out of rotation without losing it.";
+
+/** The page while its data is on its way, which only a page without the shell's state waits for. */
+function AccountsLoading() {
+  return (
+    <Page title={title} description={description}>
+      <Panel>
+        <div {...stylex.props(styles.who)} aria-busy="true" aria-label="Loading accounts">
+          <Skeleton height="20px" />
+          <Skeleton height="20px" />
+          <Skeleton height="20px" />
+        </div>
+      </Panel>
+    </Page>
+  );
+}
+
 function Accounts() {
   const queryClient = useQueryClient();
   const toast = useToast();
-  const accounts = useQuery(accountsQuery);
+  const accounts = useSuspenseQuery({ ...accountsQuery, ...useLiveOptions() });
   const [open, setOpen] = useState<Open>(null);
   const add = useAddAccount();
 
@@ -234,24 +251,12 @@ function Accounts() {
     </Button>
   );
 
-  const list = accounts.data ?? [];
+  const list = accounts.data;
 
   return (
-    <Page
-      title="Accounts"
-      description="The ChatGPT accounts and OpenCode Go keys via pools. Disable one to keep it out of rotation without losing it."
-      actions={addButton}
-    >
+    <Page title={title} description={description} actions={addButton}>
       <Section title="Codex" icon={<CodexIcon size={16} />}>
-        {accounts.isPending ? (
-          <Panel>
-            <div {...stylex.props(styles.who)} aria-busy="true" aria-label="Loading accounts">
-              <Skeleton height="20px" />
-              <Skeleton height="20px" />
-              <Skeleton height="20px" />
-            </div>
-          </Panel>
-        ) : list.length === 0 ? (
+        {list.length === 0 ? (
           <EmptyState
             icon={<AccountsIcon size={18} />}
             title="No accounts yet"

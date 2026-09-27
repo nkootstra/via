@@ -1,12 +1,16 @@
 import "virtual:via-theme.css";
 import "../app.css";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
+import type { LiveUpdates } from "../api/live.ts";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { themeScript, ToastProvider } from "@via/ui";
 import type { ReactNode } from "react";
 import { ErrorScreen } from "../components/error-screen.tsx";
 
-export const Route = createRootRouteWithContext<{ readonly queryClient: QueryClient }>()({
+export const Route = createRootRouteWithContext<{
+  readonly queryClient: QueryClient;
+  readonly live: LiveUpdates;
+}>()({
   head: () => ({
     meta: [
       { charSet: "utf-8" },

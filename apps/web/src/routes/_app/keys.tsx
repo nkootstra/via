@@ -1,5 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
   AlertDialog,
@@ -27,7 +27,8 @@ import {
 } from "@via/ui";
 import { colors, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { useState } from "react";
-import { createKey, keysQuery, revokeKey, warm } from "../../api/admin.ts";
+import { createKey, keysQuery, revokeKey } from "../../api/admin.ts";
+import { useLiveOptions } from "../../api/live.ts";
 import type { Key } from "../../api/types.ts";
 import { KeyIcon, PlusIcon, TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, VisuallyHidden } from "../../components/page.tsx";
@@ -35,7 +36,8 @@ import { formatDate, formatTimestamp, timeAgo, useNow } from "../../lib/time.ts"
 
 export const Route = createFileRoute("/_app/keys")({
   head: () => ({ meta: [{ title: "Keys · via" }] }),
-  loader: ({ context }) => warm(context.queryClient, keysQuery),
+  loader: ({ context }) => context.queryClient.ensureQueryData(keysQuery),
+  pendingComponent: KeysLoading,
   component: Keys,
 });
 
@@ -255,10 +257,29 @@ function LastUsed({ at }: { readonly at: string | null }) {
 
 type Open = { readonly dialog: "create" } | { readonly dialog: "revoke"; readonly key: Key } | null;
 
+const title = "Keys";
+
+const description = "The API keys clients use to call via. Each is shown once, when you create it.";
+
+function KeysLoading() {
+  return (
+    <Page title={title} description={description}>
+      <Panel>
+        <div aria-busy="true" aria-label="Loading keys" {...stylex.props(styles.loading)}>
+          <Skeleton height="20px" />
+          <Skeleton height="20px" />
+        </div>
+      </Panel>
+    </Page>
+  );
+}
+
 function Keys() {
-  const keys = useQuery(keysQuery);
+  // While via pushes the state, the keys needn't be asked for.
+  const live = useLiveOptions();
+  const keys = useSuspenseQuery({ ...keysQuery, ...live });
   const [open, setOpen] = useState<Open>(null);
-  const list = keys.data ?? [];
+  const list = keys.data;
 
   const createButton = (
     <Button onClick={() => setOpen({ dialog: "create" })}>
@@ -269,18 +290,11 @@ function Keys() {
 
   return (
     <Page
-      title="Keys"
-      description="The API keys clients use to call via. Each is shown once, when you create it."
+      title={title}
+      description={description}
       actions={list.length > 0 ? createButton : undefined}
     >
-      {keys.isPending ? (
-        <Panel>
-          <div aria-busy="true" aria-label="Loading keys" {...stylex.props(styles.loading)}>
-            <Skeleton height="20px" />
-            <Skeleton height="20px" />
-          </div>
-        </Panel>
-      ) : list.length === 0 ? (
+      {list.length === 0 ? (
         <EmptyState
           icon={<KeyIcon size={18} />}
           title="No keys yet"

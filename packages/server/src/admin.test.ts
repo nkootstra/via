@@ -234,7 +234,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       ok,
       (via) =>
         Effect.gen(function* () {
-          const spec = Schema.decodeUnknownSync(
+          const spec = yield* Schema.decodeUnknownEffect(
             Schema.Struct({
               paths: Schema.Struct({
                 "/admin/events": Schema.Struct({

@@ -23,7 +23,7 @@ import {
 } from "effect/unstable/httpapi";
 
 /** An account as the admin API shows it: everything but its tokens. */
-export const AdminAccount = Schema.Struct({
+const AdminAccount = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   email: Schema.String,
@@ -124,7 +124,7 @@ const OpencodeGoUsage = Schema.Union([
  * The latest usage via has, without waiting for any: an account it has none for
  * yet is left out. `refreshing` says it is asking for newer usage now.
  */
-export const Usage = Schema.Struct({
+const Usage = Schema.Struct({
   accounts: Schema.Array(AccountUsage),
   opencodeGo: Schema.Array(OpencodeGoUsage),
   refreshing: Schema.Boolean,
@@ -159,7 +159,7 @@ const PoolProvider = Schema.Struct({ name: Schema.String, state: ProviderState }
  * Everything that serves requests: the ChatGPT accounts, the OpenCode Go
  * accounts, and the configured providers.
  */
-export const Pool = Schema.Struct({
+const Pool = Schema.Struct({
   accounts: Schema.Array(PoolAccount),
   opencodeGo: Schema.Array(PoolAccount),
   providers: Schema.Array(PoolProvider),
