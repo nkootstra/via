@@ -105,6 +105,19 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     ),
   );
 
+  it.effect("an id finds its own account, even when another account has it as its label", () =>
+    withAccountStore(() =>
+      Effect.gen(function* () {
+        const store = yield* AccountStore;
+        const a = yield* store.save(tokensFor("a@example.com", "acc-a"));
+        yield* TestClock.adjust("1 second");
+        const b = yield* store.save(tokensFor("b@example.com", "acc-b"));
+        yield* store.setLabel(a.id, b.id);
+        expect(yield* store.find(b.id)).toEqual(b);
+      }),
+    ),
+  );
+
   it.effect("fails with AccountNotFoundError for an unknown account", () =>
     withAccountStore(() =>
       Effect.gen(function* () {
