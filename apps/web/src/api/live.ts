@@ -9,20 +9,25 @@ import type { QueryClient } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
 import { Option, Predicate } from "effect";
 import { useEffect, useSyncExternalStore } from "react";
+import { builtVersion } from "../version.ts";
 import { applyState, parseState } from "./state.ts";
 
 export type LiveUpdates = ReturnType<typeof createLiveUpdates>;
 
 export function createLiveUpdates(queryClient: QueryClient) {
   let open = false;
+  let updated = false;
   const listeners = new Set<() => void>();
+
+  const notify = () => {
+    for (const listener of listeners) listener();
+  };
 
   const setOpen = (value: boolean) => {
     if (open === value) return;
 
     open = value;
-
-    for (const listener of listeners) listener();
+    notify();
   };
 
   return {
@@ -36,6 +41,12 @@ export function createLiveUpdates(queryClient: QueryClient) {
         Option.map(parseState(event.data), (state) => {
           applyState(queryClient, state);
           setOpen(true);
+
+          // via restarted on another build, and the browser reconnected to it.
+          if (state.version !== builtVersion && !updated) {
+            updated = true;
+            notify();
+          }
         });
       });
 
@@ -53,6 +64,8 @@ export function createLiveUpdates(queryClient: QueryClient) {
     },
     /** Whether via is pushing the state now. */
     isOpen: () => open,
+    /** Whether via said it runs another version than this page was built with. */
+    isUpdated: () => updated,
   };
 }
 
@@ -77,4 +90,11 @@ export function useLiveOptions() {
   const { live } = useRouteContext({ from: "__root__" });
 
   return useSyncExternalStore(live.subscribe, live.isOpen) ? pushed : {};
+}
+
+/** Whether via runs another version than this page was built with, so the page is out of date. */
+export function useViaUpdated() {
+  const { live } = useRouteContext({ from: "__root__" });
+
+  return useSyncExternalStore(live.subscribe, live.isUpdated);
 }

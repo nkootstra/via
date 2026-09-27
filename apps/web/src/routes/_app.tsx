@@ -2,6 +2,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { sessionQuery } from "../api/admin.ts";
 import { useLiveUpdates } from "../api/live.ts";
 import { Dashboard, pageAt } from "../components/app-shell.tsx";
+import { UpdatePrompt } from "../components/update-prompt.tsx";
 
 export const Route = createFileRoute("/_app")({
   // Every dashboard page needs a session; without one, sign in and come back. A
@@ -21,9 +22,17 @@ export const Route = createFileRoute("/_app")({
   component: SignedIn,
 });
 
-/** The dashboard, kept live from `/admin/events` for as long as it's open. */
+/**
+ * The dashboard, kept live from `/admin/events` for as long as it's open, and
+ * told when via was updated under it.
+ */
 function SignedIn() {
   useLiveUpdates();
 
-  return <Dashboard />;
+  return (
+    <>
+      <Dashboard />
+      <UpdatePrompt />
+    </>
+  );
 }

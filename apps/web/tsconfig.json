@@ -5,5 +5,13 @@
     "types": ["bun", "vite/client"],
     "jsx": "react-jsx"
   },
-  "include": ["src", "test", "scripts", "embedded.d.ts", "vite.config.ts", "vitest.config.ts"]
+  "include": [
+    "src",
+    "test",
+    "scripts",
+    "embedded.d.ts",
+    "vite.config.ts",
+    "vitest.config.ts",
+    "via-version.ts"
+  ]
 }

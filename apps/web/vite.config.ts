@@ -3,6 +3,7 @@ import { stylexPlugin } from "@via/ui/stylex-plugin";
 import { themePlugin } from "@via/ui/theme-plugin";
 import viteReact from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import { viaVersion } from "./via-version.ts";
 
 // The admin UI: a static SPA that via serves at /ui. In dev, /admin goes to a
 // running via, `VIA_DEV_ADMIN_URL` or the default port. The proxy keeps the
@@ -10,6 +11,7 @@ import { defineConfig } from "vite";
 // passes for cookie-signed changes.
 export default defineConfig({
   base: "/ui/",
+  define: viaVersion,
   plugins: [
     stylexPlugin(),
     themePlugin(),
