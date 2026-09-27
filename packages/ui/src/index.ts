@@ -39,3 +39,13 @@ export {
   type TabsListProps,
   type TabsProps,
 } from "./tabs.tsx";
+
+export {
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuSeparator,
+  MenuTrigger,
+  type MenuContentProps,
+  type MenuItemProps,
+} from "./menu.tsx";

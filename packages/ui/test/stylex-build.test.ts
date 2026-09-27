@@ -53,8 +53,9 @@ describe("a production build with the StyleX unplugin", () => {
 
   it("defines every token either package uses, so their defineVars hashes agree", () => {
     const [css = ""] = assets(".css");
-    const used = new Set([...css.matchAll(/var\((--[\w-]+)/g)].map(([, name]) => name));
-    const defined = new Set([...css.matchAll(/(--[\w-]+):/g)].map(([, name]) => name));
+    // StyleX names its variables `--x<hash>`; Base UI sets its own at runtime.
+    const used = new Set([...css.matchAll(/var\((--x\w+)\)/g)].map(([, name]) => name));
+    const defined = new Set([...css.matchAll(/(--x\w+):/g)].map(([, name]) => name));
 
     expect(used.size).toBeGreaterThan(0);
     expect([...used].filter((name) => !defined.has(name))).toEqual([]);
