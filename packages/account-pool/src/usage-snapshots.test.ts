@@ -6,7 +6,7 @@ import { CodexUpstream } from "@via/codex-upstream";
 import { startFakeCodex } from "@via/codex-upstream/testing";
 import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { startFakeProvider } from "@via/providers/testing";
-import { Clock, Effect, Fiber, FileSystem, Layer, Redacted, Schedule } from "effect";
+import { Clock, Effect, Fiber, FileSystem, Layer, Redacted, Schedule, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
 import { UsageSnapshots } from "./usage-snapshots.ts";
@@ -102,6 +102,24 @@ describe("UsageSnapshots", () => {
         expect(
           stored.opencodeGo.map(({ account, ...rest }) => ({ label: account.label, ...rest })),
         ).toEqual([{ label: "go-1", fetchedAt: now, windows: [] }]);
+      }),
+    ),
+  );
+
+  it.effect("signals at once, then when a refresh starts and once what it fetched is kept", () =>
+    withSnapshots(({ snapshots }) =>
+      Effect.gen(function* () {
+        const seen = yield* snapshots.changes.pipe(
+          Stream.mapEffect(() => Effect.map(snapshots.get, (kept) => kept.accounts.length)),
+          Stream.take(3),
+          Stream.runCollect,
+          Effect.forkChild,
+        );
+
+        yield* Effect.yieldNow;
+        yield* snapshots.refresh;
+
+        expect(yield* Fiber.join(seen)).toEqual([0, 0, 2]);
       }),
     ),
   );
