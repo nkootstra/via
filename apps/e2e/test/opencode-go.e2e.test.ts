@@ -55,11 +55,11 @@ layer(BunFileSystem.layer)("opencode Go accounts", (it) => {
 
       expect(yield* ask).toEqual({ id: "chatcmpl-second", choices: [] });
       expect(yield* ask).toEqual({ id: "chatcmpl-second", choices: [] });
-      expect(provider.requests.map(({ headers }) => headers["authorization"])).toEqual([
-        "Bearer sk-go-first",
-        "Bearer sk-go-second",
-        "Bearer sk-go-second",
-      ]);
+      // The usage poll's first pass, at startup, may already have seen the first key used
+      // up and rested it; if not, its 429 does. Either way it is tried at most once, first.
+      const used = provider.requests.map(({ headers }) => headers["authorization"]);
+      const tried = used[0] === "Bearer sk-go-first" ? used.slice(1) : used;
+      expect(tried).toEqual(["Bearer sk-go-second", "Bearer sk-go-second"]);
 
       const status = yield* runVia(home, ["accounts", "status"], { ...env, TZ: "UTC" });
       expect(status.stdout).toMatch(/…irst {2}enabled {2}exhausted until .* \(weekly\)/);
