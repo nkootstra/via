@@ -15,6 +15,8 @@ const b = { id: "b", enabled: true };
 
 const NOW = 1_000_000;
 
+const isExhausted = (window: UsageWindow) => window.usedPercent >= 100 && window.resetsAt > NOW;
+
 describe("pollable", () => {
   it("keeps an enabled account with no known state", () => {
     expect(pollable([a], {})).toEqual([a]);
@@ -167,6 +169,38 @@ describe("properties", () => {
       expect(effectiveUntil >= state.until).toBe(true);
 
       return true;
+    },
+  );
+
+  it.prop(
+    "a change cools until the latest exhausted reset, which is still ahead",
+    { windows: windowSpecs, current: currentSpecs },
+    ({ windows, current }) => {
+      const usage = toWindows(windows);
+      const result = decideUsagePoll(usage, toCurrent(current), NOW);
+
+      if (!result.changed) return true;
+      const exhausted = usage.filter(isExhausted);
+
+      return (
+        result.until > NOW &&
+        exhausted.some((window) => window.resetsAt === result.until) &&
+        exhausted.every((window) => window.resetsAt <= result.until)
+      );
+    },
+  );
+
+  it.prop(
+    "leaves an account alone only when no exhausted window resets past its cooldown",
+    { windows: windowSpecs, current: currentSpecs },
+    ({ windows, current }) => {
+      const usage = toWindows(windows);
+      const state = toCurrent(current);
+
+      if (decideUsagePoll(usage, state, NOW).changed || state?.status === "auth_error") return true;
+      const until = state?.status === "cooling" ? state.until : NOW;
+
+      return usage.filter(isExhausted).every((window) => window.resetsAt <= until);
     },
   );
 
