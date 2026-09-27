@@ -1133,6 +1133,29 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("finds the live session among stale ones a browser still sends", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          // A browser that signed in before the cookie's path widened from /admin to /
+          // keeps that old cookie, and sends it first to /admin: the more specific path.
+          const cookie = `via_session=from-before; ${yield* sessionCookie(via)}`;
+          expect((yield* via.get("/admin/session", null, { cookie })).status).toBe(200);
+          expect((yield* via.get("/admin/accounts", null, { cookie })).status).toBe(200);
+          expect(
+            (yield* via.patch(
+              `/admin/accounts/${yield* accountId(via, "a")}`,
+              { label: "work" },
+              null,
+              fromTheUi(via, cookie),
+            )).status,
+          ).toBe(200);
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("takes a change on a session cookie only from via's own origin with x-via-csrf", () =>
     withVia(
       ok,

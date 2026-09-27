@@ -6,6 +6,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
 import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
+import { hasLiveSession, signOutAll } from "./session-cookie.ts";
 import {
   adminAccounts,
   adminOpencodeGo,
@@ -70,10 +71,11 @@ const authorization = Layer.effect(
 
           return yield* handler;
         }),
-      session: (handler, { credential }) =>
+      session: (handler) =>
         Effect.gen(function* () {
-          if (!(yield* sessions.verify(credential))) return yield* invalid;
           const request = yield* HttpServerRequest.HttpServerRequest;
+
+          if (!(yield* hasLiveSession(sessions, request))) return yield* invalid;
 
           if (!reads.has(request.method) && !fromOwnPage(request)) {
             return yield* new Forbidden({
@@ -118,9 +120,7 @@ const sessions = HttpApiBuilder.group(AdminApi, "session", (handlers) =>
       .handle("get", () => Effect.void)
       .handle("signOut", () =>
         Effect.gen(function* () {
-          const token = (yield* HttpServerRequest.HttpServerRequest).cookies[session.key];
-
-          if (token !== undefined) yield* admin.signOut(Redacted.make(token));
+          yield* signOutAll(admin, yield* HttpServerRequest.HttpServerRequest);
           yield* setSessionCookie("", 0);
         }),
       );

@@ -1,9 +1,10 @@
-import { Effect, FileSystem, Layer, Redacted, Schema } from "effect";
+import { Effect, FileSystem, Layer, Schema } from "effect";
 import { HttpRouter, type HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { AdminState, session } from "./admin-api.ts";
+import { AdminState } from "./admin-api.ts";
 import { AdminSessions } from "./admin-sessions.ts";
 import { adminState, type StateOptions } from "./admin-state.ts";
 import { RequestLog } from "./request-log.ts";
+import { hasLiveSession } from "./session-cookie.ts";
 
 /** The admin UI's build, as `@via/web/embedded` gives it: files on disk, or in the binary. */
 export type EmbeddedUi = {
@@ -66,12 +67,7 @@ const inScript = (json: string) =>
 const signedIn = (
   sessions: AdminSessions["Service"],
   request: HttpServerRequest.HttpServerRequest,
-) =>
-  Effect.gen(function* () {
-    const token = request.cookies[session.key];
-
-    return token !== undefined && (yield* sessions.verify(Redacted.make(token)));
-  });
+) => hasLiveSession(sessions, request);
 
 /**
  * The admin UI at `/ui`: the build's files, read into memory once, at their
