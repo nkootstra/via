@@ -90,6 +90,32 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs a streamed answer the client abandoned before reading any of it", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.sseThenHang('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
+        );
+
+        // Aborted as soon as the headers arrive, so the body is never read.
+        const abort = new AbortController();
+        yield* Effect.promise(() =>
+          fetch(`${via.baseUrl}/v1/chat/completions`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${via.key}`, "content-type": "application/json" },
+            body: JSON.stringify({ model: "opencode-go/kimi-k3", stream: true, messages: [] }),
+            signal: abort.signal,
+          }),
+        );
+        abort.abort();
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          "http.status": 200,
+          stream_end: "client_aborted",
+        });
+      }),
+    ),
+  );
+
   it.effect("logs a streamed answer the upstream broke off as failed", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
