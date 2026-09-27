@@ -45,6 +45,10 @@ const AdminKey = Schema.Struct({
   id: Schema.String,
   name: Schema.String,
   createdAt: Schema.String,
+  lastUsedAt: Schema.NullOr(Schema.String).annotate({
+    description:
+      "When a client last used the key; null if never. It survives a restart to within a minute.",
+  }),
 });
 
 /** A newly created client API key; the only time the key is shown. */
