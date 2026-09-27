@@ -194,6 +194,23 @@ describe("properties", () => {
     },
   );
 
+  it.prop(
+    "when nothing is available, waiting retryAfter frees an account, and a millisecond less does not",
+    { specs },
+    ({ specs: values }) => {
+      const { accounts, state } = build(values);
+
+      if (Option.isSome(select(accounts, state, NOW))) return true;
+
+      return Option.match(retryAfter(accounts, state, NOW), {
+        onNone: () => Option.isNone(select(accounts, state, Number.MAX_SAFE_INTEGER)),
+        onSome: (wait) =>
+          Option.isSome(select(accounts, state, NOW + wait)) &&
+          Option.isNone(select(accounts, state, NOW + wait - 1)),
+      });
+    },
+  );
+
   /** Which built account (if any) to name as `preferred`, and whether to misspell its id. */
   const Preferred = Schema.Struct({
     index: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 7 })),
