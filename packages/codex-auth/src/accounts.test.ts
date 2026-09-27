@@ -1,9 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { CorruptFileError } from "@via/config";
-import { Effect, FileSystem } from "effect";
+import { Context, Effect, FileSystem, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { tokensFor } from "./testing/index.ts";
+import { seedAccount, tokensFor } from "./testing/index.ts";
 import { AccountNotFoundError, AccountStore } from "./index.ts";
 
 const withAccountStore = <A, E>(
@@ -72,6 +72,47 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
         expect(yield* store.list).toEqual([{ ...first, label: "work", refreshToken: "rt-new" }]);
       }),
     ),
+  );
+
+  it.effect("a label change in one process during a token refresh in another keeps both", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const authDir = `${yield* fs.makeTempDirectoryScoped()}/auth`;
+      const names = ["a", "b", "c", "d", "e", "f"];
+      yield* Effect.forEach(names, (name) => seedAccount(authDir, name));
+
+      // Two layers are two stores, each with its own in-process lock, as `via accounts label`
+      // and a running `via serve` refreshing tokens are.
+      const storeAt = Layer.build(AccountStore.layer(authDir)).pipe(
+        Effect.map(Context.get(AccountStore)),
+      );
+
+      const cli = yield* storeAt;
+      const serve = yield* storeAt;
+
+      // Live time: a store waiting on the other's lock file polls for it in real time.
+      yield* TestClock.withLive(
+        Effect.forEach(
+          names,
+          (name) =>
+            Effect.all(
+              [
+                cli.setLabel(name, `work-${name}`),
+                serve.saveRefreshed(name, tokensFor(name, { refreshToken: "rt-new" })),
+              ],
+              { concurrency: "unbounded", discard: true },
+            ),
+          { concurrency: "unbounded", discard: true },
+        ),
+      );
+
+      // Every seeded account has the same createdAt, so list's order among them is arbitrary.
+      const accounts = (yield* serve.list).toSorted((a, b) => a.id.localeCompare(b.id));
+
+      expect(accounts.map((a) => [a.label, a.refreshToken])).toEqual(
+        names.map((name) => [`work-${name}`, "rt-new"]),
+      );
+    }),
   );
 
   it.effect("lists accounts in the order they were added", () =>
