@@ -3,8 +3,9 @@ import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import { classify, PoolStates, retryAfter, Verdict } from "@via/pool";
 import { type ProviderPath, Providers, type Route } from "@via/providers";
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, identity, Option, Schema, type Stream } from "effect";
 import {
+  type HttpClientError,
   type HttpClientResponse,
   HttpServerRequest,
   HttpServerResponse,
@@ -74,6 +75,26 @@ export const collected = (
   );
 
 /**
+ * A response relaying `upstream`'s body through `relay` as it comes, with the
+ * token usage it reports and the time of its first chunk noted in the
+ * request's log line.
+ */
+export const relayed = <E>(
+  upstream: HttpClientResponse.HttpClientResponse,
+  options: { readonly status?: number; readonly contentType: string },
+  relay: (
+    body: Stream.Stream<Uint8Array, HttpClientError.HttpClientError>,
+  ) => Stream.Stream<Uint8Array, E>,
+) =>
+  Effect.gen(function* () {
+    const log = yield* RequestLog;
+    const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
+    const body = yield* log.timed(relay(spotUsage(upstream.stream, sse, log.usage)));
+
+    return HttpServerResponse.stream(body, options);
+  });
+
+/**
  * Sends a request for a provider's model to that provider and pipes its answer
  * back as it comes, errors included.
  */
@@ -88,17 +109,16 @@ export const forward = Effect.fn("forward")(function* (
   yield* log.served(route.provider);
 
   return yield* (yield* Providers).send(route, path, body, session).pipe(
-    Effect.flatMap((upstream) => {
-      const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
-      const tapped = spotUsage(upstream.stream, sse, log.usage);
-
-      return Effect.map(log.timed(tapped), (stream) =>
-        HttpServerResponse.stream(stream, {
+    Effect.flatMap((upstream) =>
+      relayed(
+        upstream,
+        {
           status: upstream.status,
           contentType: upstream.headers["content-type"] ?? "application/json",
-        }),
-      );
-    }),
+        },
+        identity,
+      ),
+    ),
     Effect.catchTag("HttpClientError", () =>
       openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
     ),

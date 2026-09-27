@@ -8,11 +8,17 @@ import {
 import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { authenticated, collected, dispatch, forward, modelOf, openAiError } from "./dispatch.ts";
-import { RequestLog } from "./request-log.ts";
+import {
+  authenticated,
+  collected,
+  dispatch,
+  forward,
+  modelOf,
+  openAiError,
+  relayed,
+} from "./dispatch.ts";
 import { resolveSession } from "./session.ts";
 import { withSharedPrefix } from "./shared-prefix.ts";
-import { spotUsage } from "./token-usage.ts";
 
 /**
  * POST /v1/chat/completions: Chat Completions, translated to and from Responses
@@ -20,7 +26,6 @@ import { spotUsage } from "./token-usage.ts";
  */
 export const chatCompletions = authenticated(
   Effect.gen(function* () {
-    const log = yield* RequestLog;
     const providers = yield* Providers;
 
     const raw = Option.map(
@@ -56,13 +61,8 @@ export const chatCompletions = authenticated(
 
     return yield* dispatch(toResponsesRequest(chat), resolveSession(headers, body), (upstream) =>
       chat.stream === true
-        ? Effect.map(
-            log.timed(
-              toChatStream(spotUsage(upstream.stream, true, log.usage), {
-                includeUsage: chat.stream_options?.include_usage === true,
-              }),
-            ),
-            (stream) => HttpServerResponse.stream(stream, { contentType: "text/event-stream" }),
+        ? relayed(upstream, { contentType: "text/event-stream" }, (events) =>
+            toChatStream(events, { includeUsage: chat.stream_options?.include_usage === true }),
           )
         : collected(upstream, (response) =>
             Schema.decodeUnknownEffect(CompletedResponse)(response).pipe(
