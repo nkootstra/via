@@ -1,8 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply } from "@via/codex-upstream/testing";
-import { Clock, Effect, Schema } from "effect";
+import { Clock, Effect, Fiber, Schema } from "effect";
 import { TestClock } from "effect/testing";
+import type { HttpClientResponse } from "effect/unstable/http";
 import { type Via, ok, withVia } from "./testing/harness.ts";
 import { LoginNotFoundError } from "./admin-api.ts";
 
@@ -63,6 +64,40 @@ const coolingA = (request: CodexRequest) =>
     ? reply.error(429, "", { "retry-after": "120" })
     : ok();
 
+/**
+ * Runs `request`, moving the test clock on until it ends: via answers a wrong
+ * admin key only after a delay, which the test clock would otherwise never end.
+ */
+const clocked = <A, E>(request: Effect.Effect<A, E>) =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(request);
+    yield* TestClock.withLive(Effect.sleep("2 millis")).pipe(
+      Effect.andThen(TestClock.adjust("1 second")),
+      Effect.repeat({ until: () => fiber.pollUnsafe() !== undefined }),
+    );
+
+    return yield* Fiber.join(fiber);
+  });
+
+/** Signs in to the admin API with `key`, as the admin UI does. */
+const signIn = (via: Via, key: string, headers: Record<string, string> = {}) =>
+  clocked(via.post("/admin/session", { key }, null, headers));
+
+/** The attributes of the cookie a response sets, `name=value` first. */
+const setCookie = (response: HttpClientResponse.HttpClientResponse) =>
+  (response.headers["set-cookie"] ?? "").split("; ");
+
+/** Signs in with the admin key, and answers the `Cookie` header that sends its session back. */
+const sessionCookie = (via: Via) =>
+  Effect.map(signIn(via, adminKey), (response) => setCookie(response)[0] ?? "");
+
+/** What a request from the admin UI sends along with its session cookie. */
+const fromTheUi = (via: Via, cookie: string) => ({
+  cookie,
+  origin: via.baseUrl,
+  "x-via-csrf": "1",
+});
+
 layer(BunFileSystem.layer)("admin API", (it) => {
   it.effect("does not exist without VIA_ADMIN_KEY", () =>
     withVia(ok, (via) =>
@@ -91,6 +126,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           );
           expect(Object.values(spec.components.securitySchemes)).toEqual([
             { type: "http", scheme: "bearer" },
+            { type: "apiKey", name: "via_session", in: "cookie" },
           ]);
         }),
       { adminKey },
@@ -648,6 +684,172 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           expect((yield* via.get("/admin/models")).status).toBe(401);
         }),
       { adminKey },
+    ),
+  );
+
+  it.effect("signs in with the admin key, setting a session cookie scripts can't read", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* signIn(via, adminKey);
+          expect(response.status).toBe(204);
+          const [pair, ...attributes] = setCookie(response);
+          expect(pair).toMatch(/^via_session=[\w-]{43}$/);
+          expect(attributes.toSorted()).toEqual([
+            "HttpOnly",
+            "Max-Age=43200",
+            "Path=/admin",
+            "SameSite=Strict",
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("marks the session cookie Secure when the browser signs in over HTTPS", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* signIn(via, adminKey, { origin: "https://via.example.com" });
+          expect(setCookie(response)).toContain("Secure");
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("refuses a wrong admin key, and logs the failure without it", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* signIn(via, "wrong-key-with-a-guess-in-it");
+          expect(response.status).toBe(401);
+          expect(response.headers["set-cookie"]).toBeUndefined();
+          yield* via.logged("Failed admin sign-in");
+          expect(JSON.stringify(via.logs)).not.toContain("wrong-key-with-a-guess-in-it");
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("refuses every sign-in for a while after ten wrong keys in a minute", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const wrong = yield* clocked(
+            Effect.forEach(
+              Array.from({ length: 10 }),
+              () => via.post("/admin/session", { key: "wrong" }, null),
+              { concurrency: "unbounded" },
+            ),
+          );
+
+          expect(wrong.map(({ status }) => status)).toEqual(Array.from({ length: 10 }, () => 401));
+          expect((yield* signIn(via, adminKey)).status).toBe(429);
+          yield* TestClock.adjust("1 minute");
+          expect((yield* signIn(via, adminKey)).status).toBe(204);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("lets a session cookie in where the admin key goes", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.get("/admin/session", null)).status).toBe(401);
+          const cookie = yield* sessionCookie(via);
+          expect((yield* via.get("/admin/session", null, { cookie })).status).toBe(200);
+          expect((yield* via.get("/admin/session", adminKey)).status).toBe(200);
+          const accounts = yield* via.get("/admin/accounts", null, { cookie });
+          expect(accounts.status).toBe(200);
+          expect(yield* accounts.json).toEqual([account("a"), account("b")]);
+          expect(
+            (yield* via.get("/admin/accounts", null, { cookie: "via_session=made-up" })).status,
+          ).toBe(401);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("takes a change on a session cookie only from via's own origin with x-via-csrf", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const path = `/admin/accounts/${yield* accountId(via, "a")}`;
+          const cookie = yield* sessionCookie(via);
+          const change = { label: "work" };
+
+          const refused: ReadonlyArray<Record<string, string>> = [
+            { cookie },
+            { cookie, "x-via-csrf": "1" },
+            { cookie, origin: via.baseUrl },
+            { cookie, origin: "https://evil.example.com", "x-via-csrf": "1" },
+            { cookie, origin: via.baseUrl, "x-via-csrf": "0" },
+          ];
+
+          for (const headers of refused) {
+            expect((yield* via.patch(path, change, null, headers)).status).toBe(403);
+            expect((yield* via.delete(path, null, headers)).status).toBe(403);
+          }
+
+          expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([
+            account("a"),
+            account("b"),
+          ]);
+          const changed = yield* via.patch(path, change, null, fromTheUi(via, cookie));
+          expect(changed.status).toBe(200);
+          expect(yield* changed.json).toEqual({ ...account("a"), label: "work" });
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("signs out, ending the session and expiring its cookie", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const cookie = yield* sessionCookie(via);
+          const response = yield* via.delete("/admin/session", null, fromTheUi(via, cookie));
+          expect(response.status).toBe(204);
+          expect(setCookie(response)).toEqual(
+            expect.arrayContaining(["via_session=", "Max-Age=0"]),
+          );
+          expect((yield* via.get("/admin/session", null, { cookie })).status).toBe(401);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("logs neither the admin key nor a session cookie", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const cookie = yield* sessionCookie(via);
+          yield* via.get("/admin/accounts", null, { cookie });
+          yield* via.delete("/admin/session", null, fromTheUi(via, cookie));
+          yield* via.logged("DELETE");
+          const logs = JSON.stringify(via.logs);
+          expect(logs).toContain("/admin/session");
+          expect(logs).not.toContain(adminKey);
+          expect(logs).not.toContain(cookie.slice("via_session=".length));
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("has no sign-in without VIA_ADMIN_KEY", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        expect((yield* via.post("/admin/session", { key: adminKey }, null)).status).toBe(404);
+      }),
     ),
   );
 });
