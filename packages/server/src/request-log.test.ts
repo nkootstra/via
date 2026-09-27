@@ -49,6 +49,28 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs a streamed answer that sent nothing without a first-chunk time", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.sse(""));
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          stream: true,
+          messages: [],
+        });
+
+        yield* response.text;
+        const { annotations } = yield* via.logged("Sent HTTP response");
+        expect(annotations).toMatchObject({
+          headers_ms: expect.any(Number),
+          stream_end: "completed",
+        });
+        expect(annotations).not.toHaveProperty("first_chunk_ms");
+      }),
+    ),
+  );
+
   it.effect("logs a streamed answer the client stopped reading as client_aborted", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
