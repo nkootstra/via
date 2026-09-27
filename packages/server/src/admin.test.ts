@@ -258,17 +258,23 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect("serves an API reference page for the spec", () =>
-    withVia(
-      ok,
-      (via) =>
-        Effect.gen(function* () {
-          const response = yield* via.get("/admin/docs", null);
-          expect(response.status).toBe(200);
-          expect(response.headers["content-type"]).toMatch(/^text\/html/);
-        }),
-      { adminKey },
-    ),
+  it.effect(
+    "serves an API reference page for the spec",
+    () =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.get("/admin/docs", null);
+            expect(response.status).toBe(200);
+            expect(response.headers["content-type"]).toMatch(/^text\/html/);
+          }),
+        { adminKey },
+      ),
+    // The first request for the page loads Scalar's inlined script, which takes a
+    // loaded CI runner longer than the default 5 s; the reference-page tests after it
+    // are fast.
+    30_000,
   );
 
   it.effect("keeps the reference page to system fonts instead of Scalar's web fonts", () =>
