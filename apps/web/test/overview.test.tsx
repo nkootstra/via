@@ -335,6 +335,8 @@ describe("the overview's usage", () => {
     const { user } = renderApp("/", { pool, usage });
     await card("work");
     await user.click(screen.getByRole("button", { name: "Sign out" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Sign out of via?" });
+    await user.click(within(dialog).getByRole("button", { name: "Sign out" }));
     await screen.findByRole("heading", { name: "Sign in" });
     cleanup();
 

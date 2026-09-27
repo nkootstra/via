@@ -2,7 +2,20 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
-import { Button, NavItem, NavList, ThemeSwitch } from "@via/ui";
+import {
+  AlertDialog,
+  AlertDialogContent,
+  AlertDialogTrigger,
+  Button,
+  DialogClose,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  NavItem,
+  NavList,
+  ThemeSwitch,
+} from "@via/ui";
 import { colors, fonts, space, text } from "@via/ui/tokens.stylex";
 import { useSyncExternalStore, type ReactNode } from "react";
 import { signOut } from "../api/admin.ts";
@@ -122,6 +135,7 @@ function Pages({ orientation }: { readonly orientation: "vertical" | "horizontal
   );
 }
 
+/** Sign out, once the viewer confirms: signing back in needs the admin key. */
 function SignOut() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -135,17 +149,38 @@ function SignOut() {
   });
 
   return (
-    <Button
-      variant="ghost-destructive"
-      size="compact"
-      loading={mutation.isPending}
-      aria-label="Sign out"
-      xstyle={styles.signOut}
-      onClick={() => mutation.mutate()}
-    >
-      <SignOutIcon size={15} />
-      <span {...stylex.props(styles.signOutLabel)}>Sign out</span>
-    </Button>
+    <AlertDialog>
+      <AlertDialogTrigger
+        render={
+          <Button
+            variant="ghost-destructive"
+            size="compact"
+            aria-label="Sign out"
+            xstyle={styles.signOut}
+          >
+            <SignOutIcon size={15} />
+            <span {...stylex.props(styles.signOutLabel)}>Sign out</span>
+          </Button>
+        }
+      />
+      <AlertDialogContent>
+        <DialogHeader>
+          <DialogTitle>Sign out of via?</DialogTitle>
+          <DialogDescription>You'll need the admin key to sign in again.</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
+          <Button
+            variant="destructive"
+            loading={mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            <SignOutIcon size={15} />
+            Sign out
+          </Button>
+        </DialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
 
