@@ -23,6 +23,7 @@
     "@via/pool": "workspace:*",
     "@via/providers": "workspace:*",
     "@via/server": "workspace:*",
+    "@via/web": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

@@ -7,14 +7,22 @@
     },
     "@via/web#build": {
       "dependsOn": ["^build"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/*/src/**",
+        "$TURBO_ROOT$/packages/*/*.ts",
+        "$TURBO_ROOT$/packages/*/package.json",
+        "$TURBO_ROOT$/bun.lock"
+      ],
       "outputs": ["dist/**"]
     },
     "@via/npm#build": {
-      "dependsOn": ["^build"],
+      "dependsOn": ["^build", "@via/web#build"],
       "inputs": [
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/cli/package.json",
+        "$TURBO_ROOT$/apps/web/dist/**",
         "$TURBO_ROOT$/packages/*/src/**",
         "$TURBO_ROOT$/packages/*/package.json",
         "$TURBO_ROOT$/bun.lock"
@@ -30,8 +38,21 @@
     "test": {
       "dependsOn": ["^topo"]
     },
+    "@via/web#test": {
+      "dependsOn": ["^topo", "build"]
+    },
+    "@via/cli#test": {
+      "dependsOn": ["^topo", "@via/web#build"]
+    },
+    "@via/e2e#test": {
+      "dependsOn": ["^topo", "@via/web#build"]
+    },
     "smoke": {
       "cache": false
+    },
+    "@via/npm#smoke": {
+      "cache": false,
+      "dependsOn": ["@via/web#build"]
     }
   }
 }

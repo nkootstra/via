@@ -3,6 +3,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { AccountStore, CodexAuth } from "@via/codex-auth";
 import { resolvePaths } from "@via/config";
 import { KeyStore } from "@via/keys";
+import { ui } from "@via/web/embedded";
 import { Config, Console, Effect, Layer, Option, Schema } from "effect";
 import { CliError, Command } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
@@ -47,6 +48,7 @@ const main = Effect.gen(function* () {
         statePath: paths.state,
         upstreamBaseUrl: codexBaseUrl,
         adminKey: Option.getOrUndefined(env.adminKey),
+        ui,
       }),
     ]),
   );
