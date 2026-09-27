@@ -1,1 +1,1 @@
-{}
+{ "ignorePatterns": [".claude/**", "tools/oxlint/anti-slop/**"] }
