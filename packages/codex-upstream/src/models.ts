@@ -11,7 +11,7 @@ const isEffort = (effort: string): effort is (typeof EFFORTS)[number] =>
  * The models the Codex backend serves to ChatGPT sign-in, with the efforts each
  * supports: what via lists when it cannot ask Codex itself.
  */
-const BUNDLED: ReadonlyArray<CatalogModel> = [
+export const BUNDLED: ReadonlyArray<CatalogModel> = [
   { model: "gpt-6-astra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
   { model: "gpt-6-sol", efforts: ["none", "low", "medium", "high", "xhigh", "max", "ultra"] },
   { model: "gpt-6-luna", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },

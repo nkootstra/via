@@ -1,5 +1,6 @@
 // Test-only: Codex stream, usage and catalog payloads, for tests that need the raw bytes.
 import type { Schema } from "effect";
+import { BUNDLED } from "../models.ts";
 
 /** A Responses stream event, named by its `type`. */
 export type CodexEvent = { type: string } & Schema.JsonObject;
@@ -52,34 +53,14 @@ export const usagePayload = {
   },
 };
 
-const levels = (efforts: ReadonlyArray<string>) =>
-  efforts.map((effort) => ({ effort, description: `${effort} effort` }));
-
 /** A `/codex/models` answer listing the models via bundles, with the same efforts. */
 export const modelsPayload = {
-  models: [
-    {
-      slug: "gpt-6-astra",
-      visibility: "list",
-      supported_reasoning_levels: levels(["low", "medium", "high", "xhigh", "max", "ultra"]),
-    },
-    {
-      slug: "gpt-6-sol",
-      visibility: "list",
-      supported_reasoning_levels: levels([
-        "none",
-        "low",
-        "medium",
-        "high",
-        "xhigh",
-        "max",
-        "ultra",
-      ]),
-    },
-    {
-      slug: "gpt-6-luna",
-      visibility: "list",
-      supported_reasoning_levels: levels(["none", "low", "medium", "high", "xhigh", "max"]),
-    },
-  ],
+  models: BUNDLED.map(({ model, efforts }) => ({
+    slug: model,
+    visibility: "list",
+    supported_reasoning_levels: efforts.map((effort) => ({
+      effort,
+      description: `${effort} effort`,
+    })),
+  })),
 };
