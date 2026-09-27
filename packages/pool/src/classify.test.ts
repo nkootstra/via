@@ -157,6 +157,38 @@ describe("properties", () => {
     return classify(429, headers, body, NOW);
   };
 
+  /** A failed response with no reset hints: only its status and error code vary. */
+  const Failure = Schema.Struct({
+    status: Schema.Int.check(Schema.isBetween({ minimum: 400, maximum: 599 })),
+    code: Schema.Literals([
+      "usage_limit_reached",
+      "insufficient_quota",
+      "server_is_overloaded",
+      "invalid_request_error",
+      "none",
+    ]),
+  });
+
+  it.prop(
+    "a quota code or 429 outranks a 5xx or overload, which outranks a 401",
+    { failure: Arbitrary.schema(Failure) },
+    ({ failure: { status, code } }) => {
+      const body = code === "none" ? "" : codexError({ code });
+      const named = code === "none" ? undefined : code;
+
+      const expected =
+        status === 429 || code === "usage_limit_reached" || code === "insufficient_quota"
+          ? Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: named ?? "rate_limited" })
+          : status >= 500 || code === "server_is_overloaded"
+            ? Verdict.Cooldown({ until: NOW + MINUTE, reason: named ?? `upstream_${status}` })
+            : status === 401
+              ? Verdict.Unauthorized()
+              : Verdict.PassThrough();
+
+      expect(classify(status, {}, body, NOW)).toEqual(expected);
+    },
+  );
+
   it.prop("a Cooldown's until is never before now", { input: inputs }, ({ input }) =>
     Verdict.$match(toVerdict(input), {
       Cooldown: (verdict) => verdict.until >= NOW,
