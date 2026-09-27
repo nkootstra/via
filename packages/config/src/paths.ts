@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import { join } from "node:path";
 
 type Paths = {
@@ -9,8 +8,15 @@ type Paths = {
   state: string;
 };
 
-export function resolvePaths(env: Record<string, string | undefined> = process.env): Paths {
-  const home = env.VIA_HOME ?? join(homedir(), ".config", "via");
+/**
+ * Where via keeps its files: `VIA_HOME` from `env` when set, else `.config/via`
+ * under `userHome`. The caller reads both from the environment.
+ */
+export function resolvePaths(
+  env: { readonly VIA_HOME?: string | undefined },
+  userHome: string,
+): Paths {
+  const home = env.VIA_HOME ?? join(userHome, ".config", "via");
 
   return {
     home,

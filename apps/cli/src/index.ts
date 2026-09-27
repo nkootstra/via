@@ -3,18 +3,23 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { AccountStore, CodexAuth } from "@via/codex-auth";
 import { resolvePaths } from "@via/config";
 import { KeyStore } from "@via/keys";
-import { Console, Effect, Layer, Option, Schema } from "effect";
+import { Config, Console, Effect, Layer, Option, Schema } from "effect";
 import { CliError, Command } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
+import { homedir } from "node:os";
 import { accounts } from "./accounts.ts";
 import { keys } from "./keys.ts";
 import { serve } from "./serve.ts";
 import { version } from "./version.ts";
 
-const paths = resolvePaths();
-
-// Points serve and accounts status at a fake Codex backend in tests.
-const codexBaseUrl = process.env.VIA_CODEX_BASE_URL;
+/** Everything via reads from its environment, read here and nowhere else. */
+const Environment = Config.all({
+  home: Config.option(Config.String("VIA_HOME")),
+  // Points serve and accounts status at a fake Codex backend in tests.
+  codexBaseUrl: Config.option(Config.String("VIA_CODEX_BASE_URL")),
+  // Points logins at a fake issuer in tests.
+  codexIssuer: Config.option(Config.String("VIA_CODEX_ISSUER")),
+});
 
 const Described = Schema.Struct({ message: Schema.String });
 
@@ -25,24 +30,32 @@ const defectMessage = (cause: unknown) =>
     onSome: ({ message }) => message,
   });
 
-const via = Command.make("via").pipe(
-  Command.withDescription("Pool Codex subscriptions behind one OpenAI-compatible endpoint"),
-  Command.withSubcommands([
-    accounts(paths.config, codexBaseUrl),
-    keys,
-    serve(paths.config, paths.state, codexBaseUrl),
-  ]),
-);
+const main = Effect.gen(function* () {
+  const env = yield* Environment;
+  const paths = resolvePaths({ VIA_HOME: Option.getOrUndefined(env.home) }, homedir());
+  const codexBaseUrl = Option.getOrUndefined(env.codexBaseUrl);
 
-Command.runWith(via, { version })(process.argv.slice(2)).pipe(
-  Effect.provide(
-    Layer.mergeAll(
-      KeyStore.layer(paths.keys),
-      AccountStore.layer(paths.authDir),
-      // VIA_CODEX_ISSUER points logins at a fake issuer in tests.
-      CodexAuth.layer(process.env.VIA_CODEX_ISSUER),
-    ).pipe(Layer.provideMerge(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer))),
-  ),
+  const via = Command.make("via").pipe(
+    Command.withDescription("Pool Codex subscriptions behind one OpenAI-compatible endpoint"),
+    Command.withSubcommands([
+      accounts(paths.config, codexBaseUrl),
+      keys,
+      serve(paths.config, paths.state, codexBaseUrl),
+    ]),
+  );
+
+  return yield* Command.runWith(via, { version })(process.argv.slice(2)).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        KeyStore.layer(paths.keys),
+        AccountStore.layer(paths.authDir),
+        CodexAuth.layer(Option.getOrUndefined(env.codexIssuer)),
+      ).pipe(Layer.provideMerge(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer))),
+    ),
+  );
+});
+
+main.pipe(
   // CLI boundary: a failure becomes one line on stderr and exit code 1, not a logged stack
   // trace. Parse errors are skipped because the CLI has already rendered them with help.
   Effect.tapError((error) =>
