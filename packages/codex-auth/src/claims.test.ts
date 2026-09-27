@@ -32,7 +32,8 @@ describe("decodeIdToken", () => {
   it.effect("rejects a string that is not a JWT", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(decodeIdToken("not-a-jwt"));
-      expect(error).toBeInstanceOf(InvalidIdTokenError);
+      expect(error).toEqual(new InvalidIdTokenError({ reason: "not a JWT" }));
+      expect(error.message).toBe("Invalid ID token: not a JWT");
     }),
   );
 });
