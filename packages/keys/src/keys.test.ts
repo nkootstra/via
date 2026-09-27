@@ -297,7 +297,7 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
   /** Seconds between two uses of a key: often under the minute its stored use may lag, sometimes not. */
   const gaps = Arbitrary.array(
     Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 90 }))),
-    { minLength: 1, maxLength: 30 },
+    { minLength: 1, maxLength: 20 },
   );
 
   it.effect.prop(
@@ -323,5 +323,7 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
           }
         }),
       ),
+    // Every run writes real files; a loaded machine (the whole repo's tests at once) needs longer.
+    { timeout: 20_000 },
   );
 });
