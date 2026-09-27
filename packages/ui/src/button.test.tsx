@@ -41,4 +41,27 @@ describe("Button", () => {
 
     expect(screen.getByRole("button", { name: "Close" })).toBeDefined();
   });
+
+  it("draws a destructive action in its own variants, still named by its label", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn();
+    render(
+      <>
+        <Button variant="destructive" onClick={onClick}>
+          Revoke key
+        </Button>
+        <Button variant="ghost-destructive" aria-label="Sign out">
+          <svg aria-hidden="true" />
+        </Button>
+      </>,
+    );
+
+    const revoke = screen.getByRole("button", { name: "Revoke key" });
+    expect(revoke.getAttribute("data-variant")).toBe("destructive");
+    expect(screen.getByRole("button", { name: "Sign out" }).getAttribute("data-variant")).toBe(
+      "ghost-destructive",
+    );
+    await user.click(revoke);
+    expect(onClick).toHaveBeenCalledOnce();
+  });
 });

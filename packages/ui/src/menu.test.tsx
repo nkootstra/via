@@ -17,7 +17,7 @@ function AccountActions({
         <MenuItem label="Rename" onClick={onRename} />
         <MenuItem label="Disable" disabled />
         <MenuSeparator />
-        <MenuItem label="Remove" onClick={onRemove} />
+        <MenuItem label="Remove" destructive onClick={onRemove} />
       </MenuContent>
     </Menu>
   );
@@ -67,6 +67,30 @@ describe("Menu", () => {
     expect(onRemove).toHaveBeenCalledOnce();
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(document.activeElement).toBe(trigger);
+  });
+
+  it("marks a destructive item, and tints the highlight only while it is lit", async () => {
+    const user = userEvent.setup();
+    render(<AccountActions onRename={vi.fn()} onRemove={vi.fn()} />);
+    screen.getByRole("button", { name: "Actions" }).focus();
+    await user.keyboard("{ArrowDown}");
+    const menu = await screen.findByRole("menu");
+    const remove = screen.getByRole("menuitem", { name: "Remove" });
+    expect(remove.hasAttribute("data-destructive")).toBe(true);
+    expect(screen.getByRole("menuitem", { name: "Rename" }).hasAttribute("data-destructive")).toBe(
+      false,
+    );
+
+    const tinted = () => menu.querySelector("[data-highlight][data-destructive]") !== null;
+    await waitFor(() => expect(menu.querySelector("[data-highlight]")).not.toBeNull());
+    expect(tinted()).toBe(false);
+
+    await user.keyboard("{ArrowDown}{ArrowDown}");
+    await waitFor(() => expect(document.activeElement).toBe(remove));
+    await waitFor(() => expect(tinted()).toBe(true));
+
+    await user.keyboard("{ArrowUp}");
+    await waitFor(() => expect(tinted()).toBe(false));
   });
 
   it("closes on Escape", async () => {

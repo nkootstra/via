@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cssVariable, darkScheme, lightScheme, themeStylesheet } from "./palette.ts";
+import { cssVariable, darkScheme, lightScheme, themeStylesheet, type Scheme } from "./palette.ts";
 import { colors, shadows } from "./tokens.stylex.ts";
 
 const css = themeStylesheet();
@@ -58,5 +58,63 @@ describe("cssVariable", () => {
   it("kebab-cases a key, splitting off its digits", () => {
     expect(cssVariable("mutedForeground")).toBe("--via-muted-foreground");
     expect(cssVariable("shadow3")).toBe("--via-shadow-3");
+  });
+});
+
+/** A `#RRGGBB` or `rgb(r g b / a)` colour as 0-255 channels and an alpha. */
+const parse = (color: string) => {
+  const hex = /^#([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(color);
+
+  if (hex !== null) return { rgb: hex.slice(1).map((part) => Number.parseInt(part, 16)), alpha: 1 };
+  const [r = 0, g = 0, b = 0, alpha = 1] = (color.match(/[\d.]+/g) ?? []).map(Number);
+
+  return { rgb: [r, g, b], alpha };
+};
+
+/** `color` painted over the opaque `ground`. */
+const over = (color: string, ground: string) => {
+  const top = parse(color);
+  const bottom = parse(ground).rgb;
+
+  return top.rgb.map((channel, i) => channel * top.alpha + (bottom[i] ?? 0) * (1 - top.alpha));
+};
+
+const luminance = (rgb: ReadonlyArray<number>) => {
+  const [r = 0, g = 0, b = 0] = rgb.map((channel) => {
+    const c = channel / 255;
+
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  });
+
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+
+/** The WCAG contrast ratio of two opaque colours. */
+const contrast = (a: ReadonlyArray<number>, b: ReadonlyArray<number>) => {
+  const [light, dark] = [luminance(a), luminance(b)].toSorted((x, y) => y - x);
+
+  return ((light ?? 0) + 0.05) / ((dark ?? 0) + 0.05);
+};
+
+describe.each([
+  ["light", lightScheme],
+  ["dark", darkScheme],
+] satisfies ReadonlyArray<[string, Scheme]>)("the %s destructive colours", (_, scheme) => {
+  const opaque = (color: string, ground = scheme.surface3) => over(color, ground);
+
+  it("put text on a destructive button, resting or hovered, at AA contrast", () => {
+    const text = opaque(scheme.destructiveForeground);
+    expect(contrast(text, opaque(scheme.destructiveSolid))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(text, opaque(scheme.destructiveHover))).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("keep destructive text at AA on the page, a surface and the destructive tint", () => {
+    const text = opaque(scheme.destructive);
+    expect(contrast(text, opaque(scheme.background))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(text, opaque(scheme.surface3))).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(text, opaque(scheme.destructiveSurface))).toBeGreaterThanOrEqual(4.5);
+    expect(
+      contrast(text, opaque(scheme.destructiveSurface, scheme.background)),
+    ).toBeGreaterThanOrEqual(4.5);
   });
 });

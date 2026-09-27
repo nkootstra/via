@@ -27,7 +27,15 @@ export const lightScheme = {
   mutedForeground: "#737373",
   accent: "#E5E5E5",
   border: "color-mix(in oklab, #171717 12%, transparent)",
-  destructive: "#EF4444",
+  // Destructive red: text and icons at AA on any surface and on the tint; a
+  // solid fill, with a darker hover, that carries white text at AA; and a tint
+  // that marks a lit destructive row. The dark scheme's text red is too light
+  // to carry white, so the fill is a colour of its own.
+  destructive: "#C81E1E",
+  destructiveSolid: "#C81E1E",
+  destructiveHover: "#A51A1A",
+  destructiveForeground: "#FFFFFF",
+  destructiveSurface: "rgb(200 30 30 / 0.08)",
   destructiveLight: "#FEF2F2",
   // Surface-relative overlays: they tint whatever elevation they sit on.
   hover: "rgb(0 0 0 / 0.04)",
@@ -52,6 +60,10 @@ export const darkScheme: Scheme = {
   accent: "#525252",
   border: "color-mix(in oklab, #F5F5F5 12%, transparent)",
   destructive: "#F87171",
+  destructiveSolid: "#DC2626",
+  destructiveHover: "#B91C1C",
+  destructiveForeground: "#FFFFFF",
+  destructiveSurface: "rgb(248 113 113 / 0.12)",
   destructiveLight: "#450A0A",
   hover: "rgb(255 255 255 / 0.06)",
   active: "rgb(255 255 255 / 0.1)",

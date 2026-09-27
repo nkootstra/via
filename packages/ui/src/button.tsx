@@ -11,7 +11,18 @@ import * as stylex from "@stylexjs/stylex";
 import type { ComponentProps, ReactNode } from "react";
 import { colors, durations, radii, space, text } from "./tokens.stylex.ts";
 
-export type ButtonVariant = "primary" | "secondary" | "tertiary" | "ghost";
+/**
+ * `destructive` is the solid red of an action that destroys something, such as
+ * a confirm button; `ghost-destructive` is a quiet one, such as signing out,
+ * that turns red only when hovered, focused or pressed.
+ */
+export type ButtonVariant =
+  | "primary"
+  | "secondary"
+  | "tertiary"
+  | "ghost"
+  | "destructive"
+  | "ghost-destructive";
 
 export type ButtonSize = "default" | "compact" | "icon" | "icon-compact";
 
@@ -33,6 +44,8 @@ export interface ButtonProps extends Omit<
 const primaryHover = `color-mix(in oklab, ${colors.foreground} 90%, ${colors.background})`;
 
 const primaryPress = `color-mix(in oklab, ${colors.foreground} 80%, ${colors.background})`;
+
+const destructivePress = `color-mix(in oklab, ${colors.destructiveHover} 85%, black)`;
 
 const secondaryHover = `color-mix(in oklab, ${colors.accent} 80%, ${colors.background})`;
 
@@ -100,6 +113,23 @@ const styles = stylex.create({
       ":hover": colors.foreground,
     },
   },
+  // A ring set off from the red by a gap of page colour, where the blue
+  // hairline alone would be lost against it.
+  destructive: {
+    color: colors.destructiveForeground,
+    boxShadow: {
+      default: null,
+      ":focus-visible": `0 0 0 2px ${colors.background}, 0 0 0 3px ${colors.focusRing}`,
+    },
+  },
+  "ghost-destructive": {
+    color: {
+      default: colors.mutedForeground,
+      ":hover": colors.destructive,
+      ":focus-visible": colors.destructive,
+      ":active": colors.destructive,
+    },
+  },
   surface: {
     position: "absolute",
     inset: space.px,
@@ -161,6 +191,32 @@ const styles = stylex.create({
       [stylex.when.ancestor(":active")]: `0 0 0 0px ${colors.active}`,
     },
   },
+  destructiveSurface: {
+    backgroundColor: {
+      default: colors.destructiveSolid,
+      [stylex.when.ancestor(":hover")]: colors.destructiveHover,
+      [stylex.when.ancestor(":active")]: destructivePress,
+    },
+    boxShadow: {
+      default: `0 0 0 1px ${colors.destructiveSolid}`,
+      [stylex.when.ancestor(":hover")]: `0 0 0 1px ${colors.destructiveHover}`,
+      [stylex.when.ancestor(":active")]: `0 0 0 0px ${destructivePress}`,
+    },
+  },
+  ghostDestructiveSurface: {
+    backgroundColor: {
+      default: "transparent",
+      [stylex.when.ancestor(":hover")]: colors.destructiveSurface,
+      [stylex.when.ancestor(":focus-visible")]: colors.destructiveSurface,
+      [stylex.when.ancestor(":active")]: colors.destructiveSurface,
+    },
+    boxShadow: {
+      default: "0 0 0 1px transparent",
+      [stylex.when.ancestor(":hover")]: `0 0 0 1px ${colors.destructiveSurface}`,
+      [stylex.when.ancestor(":focus-visible")]: `0 0 0 1px ${colors.destructiveSurface}`,
+      [stylex.when.ancestor(":active")]: `0 0 0 0px ${colors.destructiveSurface}`,
+    },
+  },
   content: {
     position: "relative",
     display: "inline-flex",
@@ -201,6 +257,8 @@ const surfaces = {
   secondary: styles.secondarySurface,
   tertiary: styles.tertiarySurface,
   ghost: styles.ghostSurface,
+  destructive: styles.destructiveSurface,
+  "ghost-destructive": styles.ghostDestructiveSurface,
 } as const;
 
 /** The spinner: a figure eight traced by a dash that runs and breathes. */
@@ -241,6 +299,7 @@ export function Button({
     <BaseButton
       {...props}
       disabled={inert}
+      data-variant={variant}
       aria-busy={loading || undefined}
       {...stylex.props(
         stylex.defaultMarker(),
