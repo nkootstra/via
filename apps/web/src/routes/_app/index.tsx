@@ -326,7 +326,7 @@ function Overview() {
   const pool = useQuery(poolQuery);
   const usage = useQuery(usageQuery);
   const accounts = useQuery(accountsQuery);
-  const list = pool.data ?? [];
+  const list = pool.data?.accounts ?? [];
   const enabled = list.filter((account) => account.enabled);
 
   const count = (status: PoolAccount["state"]["status"]) =>

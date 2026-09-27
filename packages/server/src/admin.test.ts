@@ -52,6 +52,15 @@ const settled = (via: Via, id: string) =>
     }),
   );
 
+/** Decodes `GET /admin/pool`'s answer: its accounts and providers, each with a state. */
+const poolOf = (response: HttpClientResponse.HttpClientResponse) =>
+  Effect.flatMap(
+    response.json,
+    Schema.decodeUnknownEffect(
+      Schema.Struct({ accounts: Schema.Array(Schema.Json), providers: Schema.Array(Schema.Json) }),
+    ),
+  );
+
 /** Codex rate-limits account "a" for two minutes, and answers account "b" with a 401. */
 const coolingAndUnauthorized = (request: CodexRequest) =>
   request.headers["chatgpt-account-id"] === "acc-a"
@@ -582,7 +591,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
           const response = yield* via.get("/admin/pool", adminKey);
           expect(response.status).toBe(200);
-          expect(yield* response.json).toEqual([
+          expect((yield* poolOf(response)).accounts).toEqual([
             {
               id: expect.any(String),
               label: "a@example.com",
@@ -612,7 +621,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
         Effect.gen(function* () {
           yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
           yield* TestClock.adjust("2 minutes");
-          expect(yield* (yield* via.get("/admin/pool", adminKey)).json).toEqual([
+          expect((yield* poolOf(yield* via.get("/admin/pool", adminKey))).accounts).toEqual([
             {
               id: expect.any(String),
               label: "a@example.com",
@@ -641,14 +650,82 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             { enabled: false },
             adminKey,
           );
-          const pool = yield* (yield* via.get("/admin/pool", adminKey)).json;
-          expect(pool).toEqual([
+          const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
+          expect(pool.accounts).toEqual([
             expect.objectContaining({ label: "a@example.com", enabled: false }),
             expect.objectContaining({ label: "b@example.com", enabled: true }),
           ]);
         }),
       { adminKey },
     ),
+  );
+
+  it.effect(
+    "shows each provider next to the accounts: exhausted until a used-up window resets",
+    () =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const now = yield* Clock.currentTimeMillis;
+            const reset = new Date(now + 3_600_000).toISOString();
+            via.provider.usage({
+              usage: {
+                rolling: { status: "ok", percent: 40, resetsAt: reset },
+                weekly: { status: "rate-limited", percent: 100, resetsAt: reset },
+              },
+            });
+            const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
+            expect(pool.providers).toEqual([
+              { name: "openrouter", state: { status: "available" } },
+              {
+                name: "opencode-go",
+                state: { status: "exhausted", until: reset, window: "weekly" },
+              },
+            ]);
+          }),
+        { adminKey },
+      ),
+  );
+
+  it.effect("shows a provider whose usage can't be read as unavailable, saying why", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.usage({ error: "unauthorized" }, 401);
+          const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
+          expect(pool.providers).toContainEqual({
+            name: "opencode-go",
+            state: {
+              status: "unavailable",
+              reason: "opencode-go did not report usage (HTTP 401)",
+            },
+          });
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect(
+    "asks a provider for its usage at most once a minute, however often the pool is read",
+    () =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            via.provider.usage({ usage: {} });
+            yield* via.get("/admin/pool", adminKey);
+            yield* TestClock.adjust("59 seconds");
+            yield* via.get("/admin/pool", adminKey);
+            expect(via.provider.usageRequests).toHaveLength(1);
+
+            yield* TestClock.adjust("1 second");
+            yield* via.get("/admin/pool", adminKey);
+            expect(via.provider.usageRequests).toHaveLength(2);
+          }),
+        { adminKey },
+      ),
   );
 
   it.effect("lists the models /v1/models lists", () =>

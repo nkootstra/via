@@ -1,6 +1,6 @@
 import { type Account, AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
-import { Providers } from "@via/providers";
+import { Providers, providerState } from "@via/providers";
 import { Clock, type Duration, Effect, Layer, Redacted, Schema } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
@@ -252,24 +252,41 @@ const poolState = (state: PoolState, id: string, now: number) => {
 };
 
 const pool = HttpApiBuilder.group(AdminApi, "pool", (handlers) =>
-  handlers.handle("get", () =>
-    Effect.gen(function* () {
-      const all = yield* (yield* AccountStore).list.pipe(
-        // The account files are via's own; one it can't read is a bug, not a request error.
-        Effect.orDie,
-      );
+  Effect.gen(function* () {
+    const providers = yield* Providers;
+    // A page shows the pool refreshing every few seconds; the providers' budgets
+    // move slowly, and asking each of them that often would be rude.
+    const providerUsage = yield* Effect.cachedWithTTL(providers.usage, "1 minute");
 
-      const state = yield* (yield* PoolStates).get;
-      const now = yield* Clock.currentTimeMillis;
+    return handlers.handle("get", () =>
+      Effect.gen(function* () {
+        const all = yield* (yield* AccountStore).list.pipe(
+          // The account files are via's own; one it can't read is a bug, not a request error.
+          Effect.orDie,
+        );
 
-      return all.map(({ id, label, enabled }) => ({
-        id,
-        label,
-        enabled,
-        state: poolState(state, id, now),
-      }));
-    }),
-  ),
+        const state = yield* (yield* PoolStates).get;
+        const reports = yield* providerUsage;
+        const now = yield* Clock.currentTimeMillis;
+
+        return {
+          accounts: all.map(({ id, label, enabled }) => ({
+            id,
+            label,
+            enabled,
+            state: poolState(state, id, now),
+          })),
+          providers: providers.names.map((name) => ({
+            name,
+            state: providerState(
+              reports.find(({ provider }) => provider === name),
+              now,
+            ),
+          })),
+        };
+      }),
+    );
+  }),
 );
 
 const models = HttpApiBuilder.group(AdminApi, "models", (handlers) =>

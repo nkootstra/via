@@ -4,7 +4,7 @@
 // for an API client.
 import { AccountNotFoundError, AuthRequestError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
-import { ProviderUsage } from "@via/providers/schemas";
+import { ProviderState, ProviderUsage } from "@via/providers/schemas";
 import { Schema } from "effect";
 import {
   HttpApi,
@@ -88,6 +88,19 @@ const PoolAccount = Schema.Struct({
   label: Schema.String,
   enabled: Schema.Boolean,
   state: PoolAccountState,
+});
+
+/**
+ * A configured provider next to the accounts. Requests for its models go straight
+ * to it, so its state only says whether its budget has room: exhausted when a
+ * usage window is used up, unavailable when its usage can't be read.
+ */
+const PoolProvider = Schema.Struct({ name: Schema.String, state: ProviderState });
+
+/** Everything that serves requests: the pool's accounts, and the configured providers. */
+const Pool = Schema.Struct({
+  accounts: Schema.Array(PoolAccount),
+  providers: Schema.Array(PoolProvider),
 });
 
 /** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
@@ -220,7 +233,7 @@ class UsageGroup extends HttpApiGroup.make("usage")
   .prefix("/admin") {}
 
 class PoolGroup extends HttpApiGroup.make("pool")
-  .add(HttpApiEndpoint.get("get", "/pool", { success: Schema.Array(PoolAccount) }))
+  .add(HttpApiEndpoint.get("get", "/pool", { success: Pool }))
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 

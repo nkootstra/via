@@ -58,7 +58,7 @@ const card = async (name: string) => screen.findByRole("article", { name });
 
 describe("the overview", () => {
   it("shows each account's state and usage windows", async () => {
-    renderApp("/", { pool: [...pool], usage });
+    renderApp("/", { pool: { accounts: [...pool], providers: [] }, usage });
 
     const work = await card("work");
     expect(within(work).getByText("Available")).toBeDefined();
@@ -76,7 +76,7 @@ describe("the overview", () => {
 
   it("counts a cooldown down every second", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
-    renderApp("/", { pool: [...pool], usage });
+    renderApp("/", { pool: { accounts: [...pool], providers: [] }, usage });
 
     const home = await card("home");
     expect(within(home).getByText("Cooling down")).toBeDefined();
@@ -91,7 +91,7 @@ describe("the overview", () => {
   });
 
   it("shows each provider's windows, or why it has none", async () => {
-    renderApp("/", { pool: [...pool], usage });
+    renderApp("/", { pool: { accounts: [...pool], providers: [] }, usage });
 
     const go = await card("opencode-go");
     expect(within(go).getByRole("meter", { name: "monthly" })).toBeDefined();

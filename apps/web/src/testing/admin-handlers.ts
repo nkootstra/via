@@ -9,7 +9,7 @@ import { AdminApi, LoginNotFoundError, Unauthorized } from "@via/server/admin-ap
 import { AccountNotFoundError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
 import { Schema } from "effect";
-import type { Account, Key, LoginStatus, Model, PoolAccount, Usage } from "../api/types.ts";
+import type { Account, Key, LoginStatus, Model, Pool, Usage } from "../api/types.ts";
 import { http, HttpResponse, type JsonBodyType, type PathParams } from "msw";
 
 const { accounts, keys, usage, pool, models } = AdminApi.groups;
@@ -57,7 +57,7 @@ export interface AdminState {
   readonly logins: Map<string, Array<LoginStatus>>;
   /** The statuses the next started login will go through. */
   nextLogin: Array<LoginStatus>;
-  pool: Array<PoolAccount>;
+  pool: Pool;
   usage: Usage;
   models: Array<Model>;
   /** Every request the fake received, as "METHOD /path". */
@@ -80,7 +80,7 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     keys: [],
     logins: new Map(),
     nextLogin: [{ status: "pending" }],
-    pool: [],
+    pool: { accounts: [], providers: [] },
     usage: { accounts: [], providers: [] },
     models: [],
     requests: [],
