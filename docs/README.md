@@ -335,6 +335,10 @@ The page is the admin key's reach in a browser, so give it the same care:
 
 `<account>` matches an account's id, label or email.
 
+Adding a ChatGPT account that is already in the pool signs it in again: via
+replaces its tokens and keeps its label and whether it's enabled, rather than
+adding it twice. Adding an OpenCode Go key via already has is refused.
+
 `via accounts add --provider opencode-go` asks for the key without echoing it,
 or reads it from standard input when that isn't a terminal, so a script can
 pipe it in: `via accounts add --provider opencode-go < key.txt`. It never takes
@@ -358,8 +362,10 @@ the key as an argument, which would end up in your shell history. `list` and
   reset time the upstream gives, or 30 minutes if it gives none. A server error
   (5xx) cools it down for 1 minute. Either way, via retries on the next account.
 - A 401 makes via refresh the account's token and retry once. If that fails, the
-  account is taken out of use. Log in to it again with `via accounts add`, then
-  restart `via serve`.
+  account is locked out: taken out of use until it signs in again. Sign it in
+  from the web UI's **Add account** and it's back in rotation at once. With
+  `via accounts add` instead, restart `via serve`: the CLI can't reach the
+  running server's lockouts. A login lifts only a lockout, never a cooldown.
 - When no account is left, the client gets `429` with a `Retry-After` header
   (or `503` if waiting won't help). For a model only some accounts offer, only
   those accounts count.
