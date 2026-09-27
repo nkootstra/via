@@ -1,15 +1,5 @@
 import type { ProviderConfig } from "@via/config";
-import {
-  Config,
-  Context,
-  Effect,
-  identity,
-  Layer,
-  Option,
-  Predicate,
-  Redacted,
-  Schema,
-} from "effect";
+import { Config, Context, Effect, identity, Layer, Option, Predicate, Schema } from "effect";
 import {
   HttpBody,
   HttpClient,
@@ -132,7 +122,7 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         client: HttpClient.mapRequest(http, (request) =>
           request.pipe(
             HttpClientRequest.prependUrl(baseUrl),
-            HttpClientRequest.bearerToken(Redacted.value(apiKey)),
+            HttpClientRequest.bearerToken(apiKey),
             HttpClientRequest.setHeader("user-agent", `via/${version}`),
           ),
         ),
