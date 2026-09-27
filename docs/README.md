@@ -269,10 +269,12 @@ minute however often the page refreshes. Each entry in `GET /admin/usage` says w
 [server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html)
 that pushes the admin state instead of making you poll. Each event is named
 `state` and carries all of it as JSON: `pool` and `usage` as the routes above
-answer them, `accounts` and `keys` as their lists do, and `session: true`. The
-first comes as soon as you connect; after that, one comes whenever something
-in it changes: an account or key is added, changed or removed, a cooldown or
-lockout starts, a cooldown runs out, or a usage fetch starts or ends. Changes
+answer them, `accounts`, `opencodeGo` (keys masked) and `keys` as their lists
+do, `models`, `version` (the running via's) and `session: true`. The first
+comes as soon as you connect; after that, one comes whenever something in it
+changes: an account, OpenCode Go key or API key is added, changed or removed,
+an API key is used for the first time in a minute, a cooldown or lockout starts
+or is lifted, a cooldown runs out, or a usage fetch starts or ends. Changes
 that come together (within about 200 ms) arrive as one event, and a state the
 same as the last one isn't sent again. A `: keepalive` comment keeps a quiet
 stream open. Changes another process makes, such as `via accounts label`,
@@ -329,6 +331,10 @@ a lockout, new usage or a change made in another tab shows up the moment via
 knows it. If that stream drops, the page asks every few seconds instead until
 the browser reconnects. The state in the page is the viewer's, so via tells
 browsers and proxies not to cache it.
+
+When via restarts on a new version while the page is open, the page
+reconnects, notices that it was built for the old one, and says "via was
+updated. Reload to get the new version." until you reload it.
 
 The page is the admin key's reach in a browser, so give it the same care:
 
