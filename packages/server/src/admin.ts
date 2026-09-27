@@ -4,7 +4,7 @@ import { Providers, providerState } from "@via/providers";
 import { Clock, type Duration, Effect, Layer, Redacted, Schema } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
-import { accountUsage } from "@via/account-pool";
+import { UsageSnapshots } from "@via/account-pool";
 import { type PoolState, PoolStates } from "@via/pool";
 import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
@@ -197,39 +197,49 @@ const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
     ),
 );
 
-/** What ChatGPT says `account` has used, asked live, as `via accounts status` does. */
-const reportedUsage = (account: Account) =>
-  Effect.gen(function* () {
-    const windows = yield* accountUsage(account);
+const iso = (millis: number) => new Date(millis).toISOString();
 
-    return {
-      id: account.id,
-      label: account.label,
-      windows: windows.map(({ windowMinutes, usedPercent, resetsAt }) => ({
-        windowMinutes,
-        usedPercent,
-        resetsAt: new Date(resetsAt).toISOString(),
-      })),
-    };
-  }).pipe(
-    // One account's usage failing, for whatever reason, doesn't hide the others'.
-    Effect.catch((error) =>
-      Effect.succeed({ id: account.id, label: account.label, error: error.message }),
-    ),
-  );
+/**
+ * The latest usage via has, answered at once: the usage poll and a snapshot a
+ * minute old or missing refresh it in the background.
+ */
+const latestUsage = Effect.flatMap(UsageSnapshots, (snapshots) => snapshots.latest).pipe(
+  // The account files are via's own; one it can't read is a bug, not a request error.
+  Effect.orDie,
+);
 
 const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
   handlers.handle("get", () =>
     Effect.gen(function* () {
-      const all = yield* (yield* AccountStore).list.pipe(
-        // The account files are via's own; one it can't read is a bug, not a request error.
-        Effect.orDie,
-      );
+      const latest = yield* latestUsage;
+      const { providers } = latest;
 
-      // One account at a time, so this never bursts requests at ChatGPT.
       return {
-        accounts: yield* Effect.forEach(all, reportedUsage),
-        providers: yield* (yield* Providers).usage,
+        accounts: latest.accounts.map((entry) => {
+          const { id, label } = entry.account;
+          const fetchedAt = iso(entry.fetchedAt);
+
+          return "error" in entry
+            ? { id, label, fetchedAt, error: entry.error }
+            : {
+                id,
+                label,
+                fetchedAt,
+                windows: entry.windows.map(({ windowMinutes, usedPercent, resetsAt }) => ({
+                  windowMinutes,
+                  usedPercent,
+                  resetsAt: iso(resetsAt),
+                })),
+              };
+        }),
+        providers:
+          providers === undefined
+            ? []
+            : providers.reports.map((report) => ({
+                ...report,
+                fetchedAt: iso(providers.fetchedAt),
+              })),
+        refreshing: latest.refreshing,
       };
     }),
   ),
@@ -254,9 +264,6 @@ const poolState = (state: PoolState, id: string, now: number) => {
 const pool = HttpApiBuilder.group(AdminApi, "pool", (handlers) =>
   Effect.gen(function* () {
     const providers = yield* Providers;
-    // A page shows the pool refreshing every few seconds; the providers' budgets
-    // move slowly, and asking each of them that often would be rude.
-    const providerUsage = yield* Effect.cachedWithTTL(providers.usage, "1 minute");
 
     return handlers.handle("get", () =>
       Effect.gen(function* () {
@@ -266,7 +273,9 @@ const pool = HttpApiBuilder.group(AdminApi, "pool", (handlers) =>
         );
 
         const state = yield* (yield* PoolStates).get;
-        const reports = yield* providerUsage;
+        // A page shows the pool refreshing every few seconds; the providers' budgets
+        // move slowly, so their states come from the same usage `/admin/usage` answers.
+        const reports = (yield* latestUsage).providers?.reports ?? [];
         const now = yield* Clock.currentTimeMillis;
 
         return {

@@ -1,6 +1,6 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
-import { AccountPool } from "@via/account-pool";
+import { AccountPool, UsageSnapshots } from "@via/account-pool";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
 import {
   type FakeIssuerOptions,
@@ -220,6 +220,7 @@ export const withVia = <A, E>(
         ui,
       }).pipe(
         Layer.provide(AccountPool.layer),
+        Layer.provide(UsageSnapshots.layer),
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provide(PoolStates.layer),
         Layer.provide(BunFileSystem.layer),

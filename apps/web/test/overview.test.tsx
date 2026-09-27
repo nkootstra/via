@@ -44,21 +44,25 @@ const providers = [
 
 const pool = { accounts: [...accounts], providers: [...providers] };
 
+const fetchedAt = "2026-09-27T11:59:30.000Z";
+
 const usage = {
   accounts: [
     {
       id: "acc-1",
       label: "work",
+      fetchedAt,
       windows: [
         { windowMinutes: 300, usedPercent: 42, resetsAt: "2026-09-27T14:00:00.000Z" },
         { windowMinutes: 10_080, usedPercent: 81, resetsAt: "2026-10-01T09:00:00.000Z" },
       ],
     },
-    { id: "acc-2", label: "home", error: "ChatGPT didn't answer" },
+    { id: "acc-2", label: "home", fetchedAt, error: "ChatGPT didn't answer" },
   ],
   providers: [
     {
       provider: "opencode-go",
+      fetchedAt,
       windows: [
         { window: "rolling", status: "ok", usedPercent: 40, resetsAt: "2026-09-27T16:00:00.000Z" },
         {
@@ -70,8 +74,9 @@ const usage = {
         { window: "monthly", status: "ok", usedPercent: 12, resetsAt: "2026-10-01T00:00:00.000Z" },
       ],
     },
-    { provider: "local", error: "local did not report usage (HTTP 401)" },
+    { provider: "local", fetchedAt, error: "local did not report usage (HTTP 401)" },
   ],
+  refreshing: false,
 };
 
 const card = async (name: string) => screen.findByRole("article", { name });
@@ -106,12 +111,14 @@ describe("the overview", () => {
           {
             id: "acc-1",
             label: "work",
+            fetchedAt,
             windows: [
               { windowMinutes: 10_080, usedPercent: 30, resetsAt: "2026-10-01T09:00:00.000Z" },
             ],
           },
         ],
         providers: [],
+        refreshing: false,
       },
     });
 

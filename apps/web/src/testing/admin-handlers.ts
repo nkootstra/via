@@ -81,7 +81,7 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     logins: new Map(),
     nextLogin: [{ status: "pending" }],
     pool: { accounts: [], providers: [] },
-    usage: { accounts: [], providers: [] },
+    usage: { accounts: [], providers: [], refreshing: false },
     models: [],
     requests: [],
     ...seed,
