@@ -5,7 +5,15 @@ import { renderApp } from "./app.tsx";
 const models = [
   { id: "gpt-5.5", object: "model", created: 0, owned_by: "openai" },
   { id: "gpt-5.5-mini", object: "model", created: 0, owned_by: "openai" },
-  { id: "kimi-k2", object: "model", created: 0, owned_by: "opencode-go", context_length: 262_144 },
+  // As via serves a provider's model: its id prefixed with the provider's name, while
+  // `owned_by` is whatever the provider says.
+  {
+    id: "opencode-go/kimi-k2",
+    object: "model",
+    created: 0,
+    owned_by: "opencode",
+    context_length: 262_144,
+  },
 ];
 
 describe("the models page", () => {
@@ -17,7 +25,7 @@ describe("the models page", () => {
     expect(within(codex).getByText("gpt-5.5-mini")).toBeDefined();
 
     const provider = screen.getByRole("region", { name: "opencode-go" });
-    expect(within(provider).getByText("kimi-k2")).toBeDefined();
+    expect(within(provider).getByText("opencode-go/kimi-k2")).toBeDefined();
     expect(within(provider).getByText("262k context")).toBeDefined();
 
     const regions = screen
