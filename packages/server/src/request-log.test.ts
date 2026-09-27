@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { completedStream, reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Effect, Stream } from "effect";
+import { Deferred, Effect, Stream } from "effect";
 import { withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
@@ -68,15 +68,25 @@ layer(BunFileSystem.layer)("request log", (it) => {
   it.effect("logs a streamed answer the upstream broke off as failed", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
+        // The upstream breaks off only once the client has the first chunk, so via has
+        // already answered 200 and the failure can only reach the stream.
+        const received = yield* Deferred.make<void>();
         via.provider.respond(
-          providerReply.sseThenDrop('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
+          providerReply.sseThenDrop(
+            'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n',
+            Deferred.await(received),
+          ),
         );
         const response = yield* via.post("/v1/chat/completions", {
           model: "opencode-go/kimi-k3",
           stream: true,
           messages: [],
         });
-        yield* response.stream.pipe(Stream.runDrain, Effect.ignore);
+        yield* response.stream.pipe(
+          Stream.tap(() => Deferred.succeed(received, undefined)),
+          Stream.runDrain,
+          Effect.ignore,
+        );
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
           stream_end: "failed",
         });
