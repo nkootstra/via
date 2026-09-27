@@ -1,5 +1,15 @@
 import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
-import { Context, DateTime, Effect, FileSystem, Layer, Option, Schema, Semaphore } from "effect";
+import {
+  Context,
+  DateTime,
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Schema,
+  Semaphore,
+} from "effect";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { DuplicateKeyNameError, KeyNotFoundError } from "./errors.ts";
 
@@ -9,8 +19,14 @@ const StoredKeys = Schema.Array(
     name: Schema.String,
     hash: Schema.String.check(Schema.isPattern(/^[0-9a-f]{64}$/)),
     createdAt: Schema.String,
+    // Absent until the key is first used, and in files written before via recorded it.
+    lastUsedAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
   }),
 );
+
+// How far a key's stored last use may lag its real one. Verifying a key is on every
+// request's path, so it rewrites the file at most this often per key, not each time.
+const PERSIST_EVERY = Duration.minutes(1);
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 
@@ -32,6 +48,12 @@ const randomString = (length: number) =>
 // A key carries about 190 random bits, so a fast, unsalted SHA-256 is enough to make the
 // stored hash useless for recovering it; a password KDF would only slow down every request.
 const hash = (key: string) => createHash("sha256").update(key).digest();
+
+/** The later of two times, either of which may be unknown. */
+const latest = (a: DateTime.Utc | undefined, b: DateTime.Utc | undefined) =>
+  a === undefined || b === undefined
+    ? Option.fromNullishOr(a ?? b)
+    : Option.some(DateTime.max(a, b));
 
 const make = (path: string) =>
   Effect.gen(function* () {
@@ -63,8 +85,24 @@ const make = (path: string) =>
       return { id, name, key };
     }, serialized);
 
+    // Each key's last use in this process, which is ahead of the file's by up to PERSIST_EVERY,
+    // and when this process last decided to write it, which keeps concurrent uses of a key
+    // from queueing up to write the same minute.
+    const lastUsed = new Map<string, DateTime.Utc>();
+    const persisted = new Map<string, DateTime.Utc>();
+
     const list = read.pipe(
-      Effect.map((keys) => keys.map(({ id, name, createdAt }) => ({ id, name, createdAt }))),
+      Effect.map((keys) =>
+        keys.map(({ id, name, createdAt, lastUsedAt }) => ({
+          id,
+          name,
+          createdAt,
+          lastUsedAt: latest(lastUsedAt, lastUsed.get(id)).pipe(
+            Option.map(DateTime.formatIso),
+            Option.getOrNull,
+          ),
+        })),
+      ),
     );
 
     const revoke = Effect.fn("KeyStore.revoke")(function* (idOrName: string) {
@@ -76,6 +114,20 @@ const make = (path: string) =>
       yield* write(keys.filter((k) => k !== target));
     }, serialized);
 
+    // Re-reads under the lock, so a key revoked since `verify` read the file stays revoked. A
+    // failed write is only logged: the key did verify, and the next use a minute on retries it.
+    const persistLastUse = (id: string, at: DateTime.Utc) =>
+      serialized(
+        Effect.gen(function* () {
+          const keys = yield* read;
+
+          if (!keys.some((k) => k.id === id)) return;
+          yield* write(keys.map((k) => (k.id === id ? { ...k, lastUsedAt: at } : k)));
+        }),
+      ).pipe(
+        Effect.catch((error) => Effect.logWarning("Could not record a key's last use", error)),
+      );
+
     const verify = Effect.fn("KeyStore.verify")(function* (key: string) {
       const candidate = hash(key);
 
@@ -83,7 +135,21 @@ const make = (path: string) =>
         timingSafeEqual(candidate, Buffer.from(k.hash, "hex")),
       );
 
-      return Option.fromNullishOr(match).pipe(Option.map(({ id, name }) => ({ id, name })));
+      if (match === undefined) return Option.none();
+      const now = yield* DateTime.now;
+      lastUsed.set(match.id, now);
+
+      const stale = Option.match(latest(match.lastUsedAt, persisted.get(match.id)), {
+        onNone: () => true,
+        onSome: (at) => Duration.isGreaterThanOrEqualTo(DateTime.distance(at, now), PERSIST_EVERY),
+      });
+
+      if (stale) {
+        persisted.set(match.id, now);
+        yield* persistLastUse(match.id, now);
+      }
+
+      return Option.some({ id: match.id, name: match.name });
     });
 
     return { create, list, revoke, verify };
