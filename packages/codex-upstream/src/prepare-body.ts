@@ -4,8 +4,17 @@ import { resolveAlias } from "./models.ts";
 /** A Responses API request body; only the fields via rewrites are known. */
 export type ResponsesBody = Schema.JsonObject;
 
-// The Codex backend rejects these with "Unsupported parameter: <name>".
-const UNSUPPORTED = ["max_output_tokens", "temperature", "top_p", "previous_response_id"];
+// The Codex backend rejects these with "Unsupported parameter: <name>". Clients and SDKs
+// send them by default, so they're dropped rather than turned into a 400.
+const UNSUPPORTED = [
+  "max_output_tokens",
+  "temperature",
+  "top_p",
+  "previous_response_id",
+  "user",
+  "metadata",
+  "context_management",
+];
 
 const ENCRYPTED_REASONING = "reasoning.encrypted_content";
 
