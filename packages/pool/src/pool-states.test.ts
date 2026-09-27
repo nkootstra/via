@@ -184,6 +184,43 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
       }),
   );
 
+  /** One write to an account's state: a cooldown until `until` for `reason`, or a lockout. */
+  const Mark = Schema.Struct({
+    kind: Schema.Literals(["cooling", "auth_error"]),
+    // A narrow range, so marks often tie with the running cooldown.
+    until: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 })),
+    reason: Schema.Literals(["usage_limit_reached", "server_error"]),
+  });
+
+  const marks = Arbitrary.array(Arbitrary.schema(Mark), { minLength: 1, maxLength: 8 });
+
+  it.effect.prop(
+    "coolDown only lengthens a cooldown, never touches a lockout, and says whether it changed",
+    { marks },
+    ({ marks: values }) =>
+      Effect.gen(function* () {
+        const states = yield* PoolStates;
+
+        for (const mark of values) {
+          if (mark.kind === "auth_error") {
+            yield* states.lockOut("acc-a", "invalid_grant");
+            continue;
+          }
+
+          const before = (yield* states.get)["acc-a"];
+
+          const lengthens =
+            before === undefined || (before.status === "cooling" && before.until < mark.until);
+
+          expect(yield* states.coolDown("acc-a", mark.until, mark.reason)).toBe(lengthens);
+
+          expect((yield* states.get)["acc-a"]).toEqual(
+            lengthens ? { status: "cooling", until: mark.until, reason: mark.reason } : before,
+          );
+        }
+      }).pipe(Effect.provide(PoolStates.layer)),
+  );
+
   /** One write to an account's state: a cooldown until `until`, or a lockout. */
   const Write = Schema.Struct({
     kind: Schema.Literals(["cooling", "auth_error"]),
