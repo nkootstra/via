@@ -38,6 +38,16 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     ),
   );
 
+  it.effect("keeps the key file readable only by the owner", () =>
+    withKeyStore((file) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        yield* (yield* KeyStore).create("laptop");
+        expect((yield* fs.stat(file)).mode & 0o777).toBe(0o600);
+      }),
+    ),
+  );
+
   it.effect("rejects unknown keys", () =>
     withKeyStore(() =>
       Effect.gen(function* () {
