@@ -1,3 +1,10 @@
+import {
+  isTerminalEvent,
+  ResponseCompleted,
+  ResponseFailed,
+  ResponseIncomplete,
+  streamIncomplete,
+} from "@via/codex-upstream";
 import { Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import { chatUsage, finishReason, toolCall, Usage } from "./chat-response.ts";
@@ -29,19 +36,12 @@ const ArgumentsDelta = Schema.Struct({
 });
 
 const Completed = Schema.Struct({
-  type: Schema.Literal("response.completed"),
+  ...ResponseCompleted.fields,
   response: Schema.Struct({ usage: Usage }),
 });
 
-const Failed = Schema.Struct({
-  type: Schema.Literal("response.failed"),
-  response: Schema.Struct({
-    error: Schema.Struct({ code: Schema.String, message: Schema.String }),
-  }),
-});
-
 const Incomplete = Schema.Struct({
-  type: Schema.Literal("response.incomplete"),
+  ...ResponseIncomplete.fields,
   response: Schema.Struct({
     incomplete_details: Schema.Struct({ reason: Schema.String }),
     usage: Schema.optionalKey(Usage),
@@ -57,7 +57,7 @@ const StreamEvent = Schema.Union([
   FunctionCallAdded,
   ArgumentsDelta,
   Completed,
-  Failed,
+  ResponseFailed,
   Incomplete,
   Other,
 ]);
@@ -88,12 +88,11 @@ const isArgumentsDelta = isEvent(ArgumentsDelta);
 
 const isCompleted = isEvent(Completed);
 
-const isFailed = isEvent(Failed);
+const isFailed = isEvent(ResponseFailed);
 
 const isIncomplete = isEvent(Incomplete);
 
-const isTerminal = (event: typeof StreamEvent.Type) =>
-  isCompleted(event) || isFailed(event) || isIncomplete(event);
+const isTerminal = (event: typeof StreamEvent.Type) => isTerminalEvent(event.type);
 
 type State = {
   /** The chunk envelope as JSON, left open for the fields that follow it. */
@@ -125,10 +124,7 @@ const chunk = (state: State, delta: Schema.JsonObject, reason: string | null = n
 const failure = (code: string, message: string) =>
   data({ error: { message, type: "server_error", code } });
 
-const incomplete = failure(
-  "upstream_incomplete",
-  "The Codex stream ended before the response completed",
-);
+const incomplete = failure(streamIncomplete.code, streamIncomplete.message);
 
 /**
  * Rewrites a Responses SSE stream into a Chat Completions SSE stream. A

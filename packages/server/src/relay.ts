@@ -1,4 +1,4 @@
-import { collectResponse } from "@via/codex-upstream";
+import { collectResponse, streamIncomplete } from "@via/codex-upstream";
 import { Effect, Option, type Schema, type Stream } from "effect";
 import {
   type HttpClientError,
@@ -11,7 +11,7 @@ import { spotUsage, usageOf } from "./token-usage.ts";
 
 const unreadable = openAiError(
   502,
-  "upstream_incomplete",
+  streamIncomplete.code,
   "The Codex stream broke off or could not be read",
 );
 
@@ -37,7 +37,7 @@ export const collected = (
     Effect.flatMap(onResponse),
     Effect.catchTags({
       UpstreamFailedError: (error) => openAiError(502, error.code, error.reason),
-      IncompleteStreamError: (error) => openAiError(502, "upstream_incomplete", error.message),
+      IncompleteStreamError: (error) => openAiError(502, streamIncomplete.code, error.message),
     }),
     // The body broke off, was not SSE, or held an event that is not a Responses one.
     Effect.catch(() => unreadable),

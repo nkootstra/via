@@ -1,3 +1,4 @@
+import { ResponsesUsage } from "@via/codex-upstream";
 import { Schema } from "effect";
 
 const OutputText = Schema.Struct({ type: Schema.Literal("output_text"), text: Schema.String });
@@ -17,11 +18,8 @@ const FunctionCallItem = Schema.Struct({
 // Reasoning and other items have no Chat Completions counterpart.
 const OtherItem = Schema.Struct({ type: Schema.String });
 
-export const Usage = Schema.Struct({
-  input_tokens: Schema.Finite,
-  output_tokens: Schema.Finite,
-  total_tokens: Schema.Finite,
-});
+/** Responses usage with the total, which Chat Completions reports. */
+export const Usage = Schema.Struct({ ...ResponsesUsage.fields, total_tokens: Schema.Finite });
 
 export const CompletedResponse = Schema.Struct({
   id: Schema.String,
