@@ -66,6 +66,13 @@ describe("the keys page", () => {
         .getAllByRole("columnheader")
         .map((header) => header.textContent),
     ).toEqual(["Name", "Id", "Created", "Last used", "Actions"]);
+    // Narrow screens drop the id and creation date, keeping the name, last use and Revoke.
+    expect(
+      within(screen.getByRole("table", { name: "Keys" }))
+        .getAllByRole("columnheader")
+        .filter((header) => header.hasAttribute("data-secondary"))
+        .map((header) => header.textContent),
+    ).toEqual(["Id", "Created"]);
 
     const used = within(await rowOf("laptop")).getByText("3 min ago");
     expect(used.tagName).toBe("TIME");

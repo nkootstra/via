@@ -294,8 +294,8 @@ function Keys() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
-                  <TableHead>Id</TableHead>
-                  <TableHead>Created</TableHead>
+                  <TableHead secondary>Id</TableHead>
+                  <TableHead secondary>Created</TableHead>
                   <TableHead>Last used</TableHead>
                   <TableHead>
                     <VisuallyHidden>Actions</VisuallyHidden>
@@ -313,10 +313,10 @@ function Keys() {
                         {key.name}
                       </span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell secondary>
                       <span {...stylex.props(styles.id)}>{key.id}</span>
                     </TableCell>
-                    <TableCell>
+                    <TableCell secondary>
                       <span {...stylex.props(styles.date)}>{formatDate(key.createdAt)}</span>
                     </TableCell>
                     <TableCell>
