@@ -165,6 +165,22 @@ export const Pool = Schema.Struct({
   providers: Schema.Array(PoolProvider),
 });
 
+/**
+ * Everything the admin UI's pages show that via knows without asking anyone: the
+ * pool, the latest usage, the ChatGPT and OpenCode Go accounts (keys masked), and
+ * the API keys. A signed-in page gets it in its shell, and `GET /admin/events`
+ * sends it again whenever it changes. `session` says the page is signed in, which
+ * it always is when it gets this.
+ */
+export const AdminState = Schema.Struct({
+  session: Schema.Literal(true),
+  pool: Pool,
+  usage: Usage,
+  accounts: Schema.Array(AdminAccount),
+  opencodeGo: Schema.Array(AdminOpencodeGoAccount),
+  keys: Schema.Array(AdminKey),
+});
+
 /** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 

@@ -1,5 +1,8 @@
-import { Effect, FileSystem, Layer } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { Effect, FileSystem, Layer, Redacted, Schema } from "effect";
+import { HttpRouter, type HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { AdminState, session } from "./admin-api.ts";
+import { AdminSessions } from "./admin-sessions.ts";
+import { adminState, type OpencodeGoEnvironment } from "./admin-state.ts";
 import { RequestLog } from "./request-log.ts";
 
 /** The admin UI's build, as `@via/web/embedded` gives it: files on disk, or in the binary. */
@@ -46,26 +49,65 @@ const HASHED = "/ui/assets/";
  */
 const climbs = (path: string) => /(^|\/)\.\.(\/|$)|%2e|%2f|%5c|\\/i.test(path);
 
+const encodeState = Schema.encodeEffect(Schema.fromJsonString(AdminState));
+
+/**
+ * JSON as the text of an HTML `<script>`: `<`, `>` and `&` escaped, so no string
+ * in it can end the script or open a comment, and U+2028 and U+2029, which some
+ * parsers take for line ends. JSON reads each escape back as the same character.
+ */
+const inScript = (json: string) =>
+  json.replace(
+    /[<>&\u2028\u2029]/g,
+    (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+  );
+
+/** Whether `request` carries a live session's cookie, which counts as using the session. */
+const signedIn = (
+  sessions: AdminSessions["Service"],
+  request: HttpServerRequest.HttpServerRequest,
+) =>
+  Effect.gen(function* () {
+    const token = request.cookies[session.key];
+
+    return token !== undefined && (yield* sessions.verify(Redacted.make(token)));
+  });
+
 /**
  * The admin UI at `/ui`: the build's files, read into memory once, at their
  * paths, and the SPA shell for every other page, so a deep link or a reload
  * lands on the app, which routes it. A missing file under `/ui/assets/` is a
  * 404 rather than the shell: it's a script or stylesheet a stale page asks
- * for, which HTML can't stand in for.
+ * for, which HTML can't stand in for. A signed-in page's shell carries the
+ * admin state, so the page paints it without asking via for anything.
  */
-export const uiRoutes = (ui: EmbeddedUi) =>
+export const uiRoutes = (ui: EmbeddedUi, environment: OpencodeGoEnvironment | undefined) =>
   Layer.unwrap(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
+      // The admin API's sessions, which the admin routes provide to this layer only.
+      const sessions = yield* AdminSessions;
       const headers = securityHeaders(ui.scriptHashes);
+      const html = yield* fs.readFileString(ui.shell);
+      // Which shell a page gets depends on its cookie, so a cache must tell them apart.
+      const page = { ...headers, "content-type": "text/html; charset=utf-8", vary: "Cookie" };
 
-      const shell = HttpServerResponse.uint8Array(yield* fs.readFile(ui.shell), {
-        headers: {
-          ...headers,
-          "content-type": "text/html; charset=utf-8",
-          "cache-control": "no-cache",
-        },
+      const shell = HttpServerResponse.text(html, {
+        headers: { ...page, "cache-control": "no-cache" },
       });
+
+      /**
+       * The shell with `state` in it, as inert JSON the app reads before its first
+       * render. The state is the viewer's, so no cache may keep it.
+       */
+      const withState = (state: string) =>
+        HttpServerResponse.text(
+          html.replace(
+            "</head>",
+            `<script type="application/json" id="via-state">${inScript(state)}</script></head>`,
+          ),
+          { headers: { ...page, "cache-control": "no-store" } },
+        );
 
       const assets = new Map(
         yield* Effect.forEach(ui.assets, ({ path, file, contentType }) =>
@@ -97,9 +139,14 @@ export const uiRoutes = (ui: EmbeddedUi) =>
           // A page load fetches every file; its one line in the log is the shell's.
           if (asset !== undefined) return yield* Effect.as((yield* RequestLog).unlogged, asset);
 
-          return path.startsWith(HASHED)
-            ? HttpServerResponse.empty({ status: 404, headers })
-            : shell;
+          if (path.startsWith(HASHED)) return HttpServerResponse.empty({ status: 404, headers });
+
+          if (!(yield* signedIn(sessions, request))) return shell;
+
+          // via builds the state itself, so failing to encode it is a bug.
+          return withState(
+            yield* Effect.orDie(Effect.flatMap(adminState(environment), encodeState)),
+          );
         }),
       );
     }),

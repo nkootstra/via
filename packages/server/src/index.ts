@@ -7,7 +7,7 @@ import { models } from "./models.ts";
 import { logRequest } from "./request-log.ts";
 import { responses } from "./responses.ts";
 import { SessionBindings } from "./session-bindings.ts";
-import { type EmbeddedUi, uiRoutes } from "./ui.ts";
+import type { EmbeddedUi } from "./ui.ts";
 
 export type { OpencodeGoEnvironment } from "./admin.ts";
 
@@ -33,11 +33,8 @@ export const ViaServer = {
         HttpRouter.add("GET", "/v1/models", models),
         // For a host's health checks: needs no key, and isn't logged.
         HttpRouter.add("GET", "/healthz", Effect.succeed(HttpServerResponse.text("ok"))),
-        adminRoutes(options.adminKey, options.opencodeGoEnvironment),
         // Like the admin API, the page for it is only there with the key.
-        options.adminKey === undefined || options.ui === undefined
-          ? Layer.empty
-          : uiRoutes(options.ui),
+        adminRoutes(options.adminKey, options.ui, options.opencodeGoEnvironment),
       ),
       // One line per request from `logRequest`, instead of Effect's; `via serve`
       // announces the address itself.
