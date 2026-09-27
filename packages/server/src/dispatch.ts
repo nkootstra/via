@@ -1,4 +1,4 @@
-import { AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
+import { AccountTokens } from "@via/codex-auth";
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import { classify, PoolStates, retryAfter, Verdict } from "@via/pool";
@@ -187,9 +187,6 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     ? yield* (yield* ModelCatalog).mayServe(model.value)
     : () => true;
 
-  // A dead refresh token takes the account out of rotation until it logs in again.
-  const lockOut = (id: string) => (error: RefreshRejectedError) => states.lockOut(id, error.code);
-
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
   // The account that answered this session last time, if via still remembers it:
@@ -253,9 +250,19 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
         });
       } else {
         refreshed.add(account.id);
-        yield* tokens
-          .refreshRejected(account.id, account.accessToken)
-          .pipe(Effect.catchTag("RefreshRejectedError", lockOut(account.id)));
+        yield* tokens.refreshRejected(account.id, account.accessToken).pipe(
+          Effect.catchTags({
+            // A dead refresh token takes the account out of rotation until it logs in again.
+            RefreshRejectedError: (error) => states.lockOut(account.id, error.code),
+            // An auth-server hiccup cools it down for a minute, as it does before a send.
+            AuthRequestError: () =>
+              states.mark(account.id, {
+                status: "cooling",
+                until: now + 60_000,
+                reason: "auth_unavailable",
+              }),
+          }),
+        );
       }
 
       continue;

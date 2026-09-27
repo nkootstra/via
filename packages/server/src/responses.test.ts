@@ -176,6 +176,19 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     ),
   );
 
+  it.effect("cools down an account whose refresh after a 401 hits an auth-server hiccup", () =>
+    withVia(
+      (received) => (accountOf(received) === "acc-a" ? reply.error(401, {}) : ok()),
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
+        }),
+      { refreshResponse: { status: 500, body: {} } },
+    ),
+  );
+
   it.effect("skips an expired account whose refresh token is rejected", () =>
     withVia(
       ok,
