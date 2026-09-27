@@ -1,6 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply } from "@via/codex-upstream/testing";
+import { providerReply } from "@via/providers/testing";
 import { Clock, Effect, Fiber, Schedule, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import type { HttpClientResponse } from "effect/unstable/http";
@@ -57,7 +58,11 @@ const poolOf = (response: HttpClientResponse.HttpClientResponse) =>
   Effect.flatMap(
     response.json,
     Schema.decodeUnknownEffect(
-      Schema.Struct({ accounts: Schema.Array(Schema.Json), providers: Schema.Array(Schema.Json) }),
+      Schema.Struct({
+        accounts: Schema.Array(Schema.Json),
+        opencodeGo: Schema.Array(Schema.Json),
+        providers: Schema.Array(Schema.Json),
+      }),
     ),
   );
 
@@ -132,7 +137,7 @@ const decodeUsageSpec = Schema.decodeUnknownSync(
                       accounts: Schema.Struct({
                         items: Schema.Struct({ anyOf: Schema.Array(Required) }),
                       }),
-                      providers: Schema.Struct({
+                      opencodeGo: Schema.Struct({
                         items: Schema.Struct({ anyOf: Schema.Array(Required) }),
                       }),
                     }),
@@ -211,11 +216,11 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           const usage =
             spec.paths["/admin/usage"].get.responses["200"].content["application/json"].schema;
 
-          expect(usage.required).toEqual(["accounts", "providers", "refreshing"]);
+          expect(usage.required).toEqual(["accounts", "opencodeGo", "refreshing"]);
 
           for (const entry of [
             ...usage.properties.accounts.items.anyOf,
-            ...usage.properties.providers.items.anyOf,
+            ...usage.properties.opencodeGo.items.anyOf,
           ]) {
             expect(entry.required).toContain("fetchedAt");
           }
@@ -639,7 +644,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
         Effect.gen(function* () {
           const response = yield* via.get("/admin/usage", adminKey);
           expect(response.status).toBe(200);
-          expect(yield* response.json).toEqual({ accounts: [], providers: [], refreshing: true });
+          expect(yield* response.json).toEqual({ accounts: [], opencodeGo: [], refreshing: true });
           yield* eventually(
             Effect.sync(() => usageLookups(via).length),
             (lookups) => lookups === 2,
@@ -649,7 +654,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect("reports every account's and provider's usage, or why it is unavailable", () =>
+  it.effect("reports every ChatGPT and opencode Go account's usage, or why it is unavailable", () =>
     withVia(
       ok,
       (via) =>
@@ -680,9 +685,10 @@ layer(BunFileSystem.layer)("admin API", (it) => {
                 error: "ChatGPT did not report usage (HTTP 403)",
               },
             ],
-            providers: [
+            opencodeGo: [
               {
-                provider: "opencode-go",
+                id: expect.any(String),
+                label: "go-1",
                 fetchedAt,
                 windows: [
                   {
@@ -785,52 +791,52 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect(
-    "shows each provider next to the accounts: exhausted until a used-up window resets",
-    () =>
-      withVia(
-        ok,
-        (via) =>
-          Effect.gen(function* () {
-            const now = yield* Clock.currentTimeMillis;
-            const reset = new Date(now + 3_600_000).toISOString();
-            via.provider.usage({
-              usage: {
-                rolling: { status: "ok", percent: 40, resetsAt: reset },
-                weekly: { status: "rate-limited", percent: 100, resetsAt: reset },
-              },
-            });
-            yield* settledUsage(via);
-            const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
-            expect(pool.providers).toEqual([
-              { name: "openrouter", state: { status: "available" } },
-              {
-                name: "opencode-go",
-                state: { status: "exhausted", until: reset, window: "weekly" },
-              },
-            ]);
-          }),
-        { adminKey },
-      ),
-  );
-
-  it.effect("shows a provider whose usage can't be read as unavailable, saying why", () =>
+  it.effect("shows each configured provider with its own key next to the accounts", () =>
     withVia(
       ok,
       (via) =>
         Effect.gen(function* () {
-          via.provider.usage({ error: "unauthorized" }, 401);
-          yield* settledUsage(via);
           const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
-          expect(pool.providers).toContainEqual({
-            name: "opencode-go",
-            state: {
-              status: "unavailable",
-              reason: "opencode-go did not report usage (HTTP 401)",
-            },
-          });
+          expect(pool.providers).toEqual([{ name: "openrouter", state: { status: "available" } }]);
         }),
       { adminKey },
+    ),
+  );
+
+  it.effect("shows each opencode Go account's pool state, cooling while rate limited", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          via.provider.respond(
+            providerReply.byKey({
+              "sk-provider": providerReply.rateLimited({ "retry-after": "60" }),
+              "sk-provider-2": providerReply.json({ id: "resp_go" }),
+            }),
+          );
+          yield* via.post("/v1/responses", { model: "opencode-go/kimi-k3", input: "hi" });
+          const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
+          expect(pool.opencodeGo).toEqual([
+            {
+              id: expect.any(String),
+              label: "go-1",
+              enabled: true,
+              state: {
+                status: "cooling",
+                until: new Date(now + 60_000).toISOString(),
+                reason: "rate_limited",
+              },
+            },
+            {
+              id: expect.any(String),
+              label: "go-2",
+              enabled: true,
+              state: { status: "available" },
+            },
+          ]);
+        }),
+      { adminKey, opencodeGoKeys: ["sk-provider", "sk-provider-2"] },
     ),
   );
 
@@ -869,7 +875,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
   );
 
   it.effect(
-    "asks a provider for its usage at most once a minute, however often the pool and usage are read",
+    "asks opencode Go for an account's usage at most once a minute, however often usage is read",
     () =>
       withVia(
         ok,
@@ -888,7 +894,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             expect(via.provider.usageRequests).toHaveLength(1);
 
             yield* TestClock.adjust("6 seconds");
-            yield* via.get("/admin/pool", adminKey);
+            yield* via.get("/admin/usage", adminKey);
             yield* eventually(
               Effect.sync(() => via.provider.usageRequests.length),
               (requests) => requests === 2,

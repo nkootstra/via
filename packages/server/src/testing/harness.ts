@@ -18,7 +18,7 @@ import {
 } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
-import { Providers } from "@via/providers";
+import { OpencodeGoAccounts, OpencodeGoPool, Providers } from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import {
   Deferred,
@@ -79,7 +79,10 @@ export type Via = {
   readonly upstreamRequests: ReadonlyArray<CodexRequest>;
   /** Sets an account's `/wham/usage` answer on the fake Codex, by ChatGPT account id. */
   readonly codexUsage: (account: string, body: Schema.Json, status?: number) => void;
-  /** The fake provider behind both `openrouter/` and `opencode-go/` models. */
+  /**
+   * The fake provider behind both `openrouter/` and `opencode-go/` models;
+   * OpenRouter's key is `sk-provider`, and opencode Go's are its accounts'.
+   */
   readonly provider: FakeProvider;
   /** Waits for the first line via logs whose message or annotations contain `text`. */
   readonly logged: (text: string) => Effect.Effect<LogLine>;
@@ -139,7 +142,9 @@ const collectLogs = () => {
  * access token expires at `aExpiresAt`, by default far in the future. With
  * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
  * Models prefixed `openrouter/` and `opencode-go/` go to a fake provider, or
- * to `providerUrl` when it is given. With `adminKey`, via serves the admin API
+ * to `providerUrl` when it is given; opencode Go has an account for each of
+ * `opencodeGoKeys`, labelled `go-1`, `go-2` and so on, and `opencodeGoVariable`
+ * says which key its deprecated environment variable still holds. With `adminKey`, via serves the admin API
  * behind that key, and with `ui` as well, the admin UI. Device-code logins
  * go to the fake issuer, with its `pendingPolls` and `interval`.
  */
@@ -162,8 +167,12 @@ export const withVia = <A, E>(
     ui,
     pendingPolls = 0,
     interval = "0",
+    opencodeGoKeys = ["sk-provider"],
+    opencodeGoVariable,
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
+    opencodeGoKeys?: ReadonlyArray<string>;
+    opencodeGoVariable?: { variable: string; apiKey: string };
     codexUrl?: string;
     providerUrl?: string;
     adminKey?: string;
@@ -177,6 +186,7 @@ export const withVia = <A, E>(
     const stores = Layer.mergeAll(
       KeyStore.layer(`${dir}/keys.json`),
       AccountStore.layer(`${dir}/auth`),
+      OpencodeGoAccounts.layer(`${dir}/opencode-go.json`),
     ).pipe(Layer.provide(BunFileSystem.layer));
 
     const codex = yield* startFakeCodex;
@@ -198,9 +208,9 @@ export const withVia = <A, E>(
       }),
       Providers.layer({
         providers: { openrouter: providerConfig, "opencode-go": providerConfig },
-        apiKeys: { openrouter: providerKey, "opencode-go": providerKey },
+        apiKeys: { openrouter: providerKey },
         version: "0.0.0",
-      }),
+      }).pipe(Layer.provideMerge(stores)),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     // The accounts exist before via starts, as they do for `via serve`.
@@ -214,6 +224,12 @@ export const withVia = <A, E>(
       // And an account a test adds comes after both: the list is ordered by when each
       // was added, and one added at the same instant as "b" would sort by file order.
       yield* TestClock.adjust("1 second");
+      const opencodeGo = yield* OpencodeGoAccounts;
+
+      for (const [index, apiKey] of opencodeGoKeys.entries()) {
+        yield* TestClock.adjust("1 second");
+        yield* opencodeGo.add(Redacted.make(apiKey), `go-${index + 1}`);
+      }
     }).pipe(Effect.provide(built));
     const logs = collectLogs();
 
@@ -221,8 +237,15 @@ export const withVia = <A, E>(
       ViaServer.layer({
         adminKey: adminKey === undefined ? undefined : Redacted.make(adminKey),
         ui,
+        opencodeGoEnvironment:
+          opencodeGoVariable === undefined
+            ? undefined
+            : {
+                variable: opencodeGoVariable.variable,
+                apiKey: Redacted.make(opencodeGoVariable.apiKey),
+              },
       }).pipe(
-        Layer.provide(AccountPool.layer),
+        Layer.provide(Layer.mergeAll(AccountPool.layer, OpencodeGoPool.layer)),
         Layer.provide(UsageSnapshots.layer),
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provide(PoolStates.layer),

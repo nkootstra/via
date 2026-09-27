@@ -20,6 +20,7 @@ type Answer = {
   status: number;
   contentType: string;
   body: string;
+  headers?: Readonly<Record<string, string>>;
   /**
    * What the stream does after `body`: stays open, or breaks off once `drop` completes.
    * It ends by default.
@@ -29,11 +30,33 @@ type Answer = {
 
 export type ProviderReply = (request: ProviderRequest) => Answer;
 
+const unscripted: ProviderReply = () => ({
+  status: 599,
+  contentType: "application/json",
+  body: JSON.stringify({ error: { message: "fake provider: unscripted" } }),
+});
+
+/** The API key a request was sent with, from its `authorization` header. */
+const keyOf = (request: ProviderRequest) =>
+  request.headers["authorization"]?.replace(/^Bearer /, "");
+
 export const providerReply = {
-  /** A JSON body, a chat completion or an error. */
+  /** A JSON body, a chat completion or an error, with any extra `headers`. */
   json:
-    (body: Schema.Json, status = 200): ProviderReply =>
-    () => ({ status, contentType: "application/json", body: JSON.stringify(body) }),
+    (body: Schema.Json, status = 200, headers: Record<string, string> = {}): ProviderReply =>
+    () => ({ status, contentType: "application/json", body: JSON.stringify(body), headers }),
+  /** A 429 with an OpenAI error, as a key over its limits gets, and `headers` such as Retry-After. */
+  rateLimited: (headers: Record<string, string> = {}): ProviderReply =>
+    providerReply.json(
+      { error: { message: "rate limited", type: "rate_limit_error" } },
+      429,
+      headers,
+    ),
+  /** Answers each request as `replies` says for the API key it was sent with, else as `otherwise`. */
+  byKey:
+    (replies: Readonly<Record<string, ProviderReply>>, otherwise = unscripted): ProviderReply =>
+    (request) =>
+      (replies[keyOf(request) ?? ""] ?? otherwise)(request),
   /** A raw SSE body. */
   sse:
     (body: string): ProviderReply =>
@@ -51,11 +74,6 @@ export const providerReply = {
     () => ({ status: 200, contentType: "text/event-stream", body, ending: { drop } }),
 };
 
-const unscripted: ProviderReply = providerReply.json(
-  { error: { message: "fake provider: unscripted" } },
-  599,
-);
-
 const Body = Schema.JsonObject;
 
 /**
@@ -69,6 +87,7 @@ export const startFakeProvider = Effect.gen(function* () {
   let modelList: ReadonlyArray<Schema.JsonObject> | undefined;
   const modelRequests: Array<ProviderRequest> = [];
   let usageAnswer = { status: 500, body: "" };
+  const usageByKey = new Map<string, { status: number; body: string }>();
   const usageRequests: Array<ProviderRequest> = [];
   const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
 
@@ -90,9 +109,11 @@ export const startFakeProvider = Effect.gen(function* () {
   const answer = HttpServerRequest.schemaBodyJson(Body).pipe(
     Effect.flatMap((body) => record(requests, body)),
     Effect.map((request) => {
-      const { status, contentType, body, ending } = handler(request);
+      const { status, contentType, body, headers = {}, ending } = handler(request);
 
-      if (ending === undefined) return HttpServerResponse.text(body, { status, contentType });
+      if (ending === undefined) {
+        return HttpServerResponse.text(body, { status, contentType, headers });
+      }
 
       const rest =
         ending === "hang"
@@ -132,12 +153,11 @@ export const startFakeProvider = Effect.gen(function* () {
     HttpRouter.add(
       "GET",
       "/usage",
-      Effect.map(record(usageRequests, {}), () =>
-        HttpServerResponse.text(usageAnswer.body, {
-          status: usageAnswer.status,
-          contentType: "application/json",
-        }),
-      ),
+      Effect.map(record(usageRequests, {}), (request) => {
+        const { status, body } = usageByKey.get(keyOf(request) ?? "") ?? usageAnswer;
+
+        return HttpServerResponse.text(body, { status, contentType: "application/json" });
+      }),
     ),
   );
 
@@ -163,6 +183,9 @@ export const startFakeProvider = Effect.gen(function* () {
     /** Answers `GET /usage` with `body`, as OpenCode Go does; until then, it answers 500. */
     usage: (body: Schema.Json, status = 200) =>
       void (usageAnswer = { status, body: JSON.stringify(body) }),
+    /** Answers `GET /usage` sent with `apiKey` with `body`, whatever `usage` says. */
+    usageFor: (apiKey: string, body: Schema.Json, status = 200) =>
+      void usageByKey.set(apiKey, { status, body: JSON.stringify(body) }),
     /** Waits until at least `count` `GET /models` requests have arrived. */
     modelsReceived: (count: number) =>
       Effect.gen(function* () {

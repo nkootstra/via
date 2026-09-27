@@ -37,7 +37,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
             "http.url": "/v1/chat/completions",
             "http.status": 200,
             model: "opencode-go/kimi-k3",
-            served_by: "opencode-go",
+            served_by: "go-1",
             headers_ms: expect.any(Number),
             first_chunk_ms: expect.any(Number),
             stream_end: "completed",
@@ -162,7 +162,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
 
         expect(response.status).toBe(204);
         const { annotations } = yield* via.logged("Sent HTTP response");
-        expect(annotations).toMatchObject({ "http.status": 204, served_by: "opencode-go" });
+        expect(annotations).toMatchObject({ "http.status": 204, served_by: "go-1" });
         expect(annotations).not.toHaveProperty("stream_end");
       }),
     ),

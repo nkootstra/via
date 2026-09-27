@@ -3,6 +3,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { AccountStore, CodexAuth } from "@via/codex-auth";
 import { resolvePaths } from "@via/config";
 import { KeyStore } from "@via/keys";
+import { OpencodeGoAccounts } from "@via/providers";
 import { ui } from "@via/web/embedded";
 import { Config, Console, Effect, Layer, Option, Schema } from "effect";
 import { CliError, Command } from "effect/unstable/cli";
@@ -58,6 +59,7 @@ const main = Effect.gen(function* () {
       Layer.mergeAll(
         KeyStore.layer(paths.keys),
         AccountStore.layer(paths.authDir),
+        OpencodeGoAccounts.layer(paths.opencodeGo),
         CodexAuth.layer(Option.getOrUndefined(env.codexIssuer)),
       ).pipe(Layer.provideMerge(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer))),
     ),

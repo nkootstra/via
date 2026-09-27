@@ -13,6 +13,7 @@
     "@via/cli": "workspace:*",
     "@via/codex-auth": "workspace:*",
     "@via/codex-upstream": "workspace:*",
+    "@via/providers": "workspace:*",
     "@via/tsconfig": "workspace:*",
     "effect": "catalog:",
     "openai": "^7.23.0",

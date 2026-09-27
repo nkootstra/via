@@ -6,6 +6,7 @@ type Paths = {
   keys: string;
   authDir: string;
   state: string;
+  opencodeGo: string;
 };
 
 /**
@@ -24,5 +25,6 @@ export function resolvePaths(
     keys: join(home, "keys.json"),
     authDir: join(home, "auth"),
     state: join(home, "state.json"),
+    opencodeGo: join(home, "opencode-go.json"),
   };
 }

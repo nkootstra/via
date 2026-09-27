@@ -4,7 +4,7 @@ import { startFakeIssuer, tokensFor } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
 import { startFakeCodex } from "@via/codex-upstream/testing";
 import { PoolStates } from "@via/pool";
-import { Providers } from "@via/providers";
+import { OpencodeGoAccounts, OpencodeGoPool, Providers } from "@via/providers";
 import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
@@ -66,7 +66,9 @@ const withPoll = <A, E>(
         Layer.provideMerge(AccountStore.layer(`${dir}/auth`)),
       ),
       CodexUpstream.layer({ baseUrl: codex.url, cloak: true, version: "0.0.0" }),
-      Providers.layer({ providers: {}, apiKeys: {}, version: "0.0.0" }),
+      Providers.layer({ providers: {}, apiKeys: {}, version: "0.0.0" }).pipe(
+        Layer.provideMerge(OpencodeGoAccounts.layer(`${dir}/opencode-go.json`)),
+      ),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     const built = yield* Layer.build(services);
@@ -80,7 +82,7 @@ const withPoll = <A, E>(
 
     const runtime = yield* Layer.build(
       UsagePoll.layer.pipe(
-        Layer.provide(AccountPool.layer),
+        Layer.provide(Layer.mergeAll(AccountPool.layer, OpencodeGoPool.layer)),
         Layer.provide(UsageSnapshots.layer),
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provideMerge(PoolStates.layer),

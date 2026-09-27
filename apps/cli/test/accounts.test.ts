@@ -4,7 +4,7 @@ import type { FakeIssuerOptions } from "@via/codex-auth/testing";
 import { startFakeCodex } from "@via/codex-upstream/testing";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import { Effect } from "effect";
-import { freePort, seedAccounts, viaHome, writeConfig } from "./helpers.ts";
+import { freePort, runVia, seedAccounts, viaHome, writeConfig } from "./helpers.ts";
 
 /**
  * A home with its own fake Codex backend, whose account logs in through a fake
@@ -86,6 +86,67 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const { via } = yield* setup();
       yield* via("accounts", "add");
       expect((yield* via("accounts", "remove", "dev@example.com")).exitCode).toBe(0);
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
+  it.effect("add --provider opencode-go stores the key it reads from stdin", () =>
+    Effect.gen(function* () {
+      const { home, env, via } = yield* setup();
+
+      const added = yield* runVia(
+        home,
+        ["accounts", "add", "--provider", "opencode-go"],
+        env,
+        "sk-go-secret-1234\n",
+      );
+
+      expect(added.exitCode).toBe(0);
+      expect(added.stdout).toBe('Added opencode Go key …1234 as "opencode Go …1234".\n');
+      const listed = yield* via("accounts", "list");
+      expect(listed.stdout).toMatch(
+        /^\w+ {2}opencode Go …1234 {2}opencode-go {2}…1234 {2}enabled$/m,
+      );
+      expect(listed.stdout).not.toContain("secret");
+    }),
+  );
+
+  it.effect("add --provider opencode-go refuses an empty key", () =>
+    Effect.gen(function* () {
+      const { home, env } = yield* setup();
+      const added = yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "");
+      expect(added.exitCode).toBe(1);
+      expect(added.stderr).toBe("error: No opencode Go API key was given\n");
+    }),
+  );
+
+  it.effect("add --provider opencode-go refuses a key it already stores", () =>
+    Effect.gen(function* () {
+      const { home, env } = yield* setup();
+      const args = ["accounts", "add", "--provider", "opencode-go"];
+      yield* runVia(home, args, env, "sk-go-1234");
+      const again = yield* runVia(home, args, env, "sk-go-1234");
+      expect(again.exitCode).toBe(1);
+      expect(again.stderr).toBe(
+        'error: That opencode Go key is already stored, as "opencode Go …1234"\n',
+      );
+    }),
+  );
+
+  it.effect("label, disable, enable and remove an opencode Go account", () =>
+    Effect.gen(function* () {
+      const { home, env, via } = yield* setup();
+      yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "sk-go-1234");
+      expect((yield* via("accounts", "label", "opencode Go …1234", "go")).exitCode).toBe(0);
+      yield* via("accounts", "disable", "go");
+      expect((yield* via("accounts", "list")).stdout).toMatch(
+        /go {2}opencode-go {2}…1234 {2}disabled/,
+      );
+      yield* via("accounts", "enable", "go");
+      expect((yield* via("accounts", "list")).stdout).toMatch(
+        /go {2}opencode-go {2}…1234 {2}enabled/,
+      );
+      expect((yield* via("accounts", "remove", "go")).exitCode).toBe(0);
       expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
     }),
   );
@@ -204,36 +265,41 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
-  it.effect("status shows each provider like an account, its windows lined up with theirs", () =>
-    Effect.gen(function* () {
-      const provider = yield* startFakeProvider;
-      provider.usage({
-        usage: {
-          rolling: { status: "ok", percent: 0, resetsAt: "2026-09-26T23:40:07.697Z" },
-          weekly: { status: "ok", percent: 26, resetsAt: "2026-09-28T00:00:00.000Z" },
-        },
-      });
-      const { via, home } = yield* setup({ env: { GO_KEY: "sk-go" } });
-      yield* configureOpenCodeGo(home, provider);
-      yield* via("accounts", "add");
-      const status = yield* via("accounts", "status");
-      expect(status.exitCode).toBe(0);
-      expect(status.stdout).toMatch(/5h\s+12% used/);
-      expect(status.stdout).toMatch(/^opencode-go {2}provider {2}available$/m);
-      expect(status.stdout).toMatch(/rolling\s+0% used\s+resets 2026-09-26 23:40/);
-      expect(status.stdout).toMatch(/weekly\s+26% used\s+resets 2026-09-28 00:00/);
+  it.effect(
+    "status shows each opencode Go account like a ChatGPT one, their windows lined up",
+    () =>
+      Effect.gen(function* () {
+        const provider = yield* startFakeProvider;
+        provider.usage({
+          usage: {
+            rolling: { status: "ok", percent: 0, resetsAt: "2026-09-26T23:40:07.697Z" },
+            weekly: { status: "ok", percent: 26, resetsAt: "2026-09-28T00:00:00.000Z" },
+          },
+        });
+        const { via, home } = yield* setup({ env: { GO_KEY: "sk-go" } });
+        yield* configureOpenCodeGo(home, provider);
+        yield* via("accounts", "add");
+        const status = yield* via("accounts", "status");
+        expect(status.exitCode).toBe(0);
+        expect(status.stdout).toMatch(/5h\s+12% used/);
+        expect(status.stdout).toMatch(
+          /^\w+ {2}opencode Go \(imported\) {2}opencode-go {2}…k-go {2}enabled {2}available$/m,
+        );
+        expect(status.stdout).not.toContain("sk-go");
+        expect(status.stdout).toMatch(/rolling\s+0% used\s+resets 2026-09-26 23:40/);
+        expect(status.stdout).toMatch(/weekly\s+26% used\s+resets 2026-09-28 00:00/);
 
-      const columns = status.stdout
-        .split("\n")
-        .filter((line) => line.includes("% used"))
-        .map((line) => line.indexOf("% used"));
+        const columns = status.stdout
+          .split("\n")
+          .filter((line) => line.includes("% used"))
+          .map((line) => line.indexOf("% used"));
 
-      expect(columns).toHaveLength(4);
-      expect(new Set(columns).size).toBe(1);
-    }),
+        expect(columns).toHaveLength(4);
+        expect(new Set(columns).size).toBe(1);
+      }),
   );
 
-  it.effect("status shows a provider with a used-up window as exhausted until it resets", () =>
+  it.effect("status shows an opencode Go account with a used-up window as exhausted", () =>
     Effect.gen(function* () {
       const provider = yield* startFakeProvider;
       provider.usage({
@@ -247,7 +313,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(0);
       expect(status.stdout).toMatch(
-        /^opencode-go {2}provider {2}exhausted until 2099-01-04 00:00 \(weekly\)$/m,
+        /opencode-go {2}…k-go {2}enabled {2}exhausted until 2099-01-04 00:00 \(weekly\)$/m,
       );
       expect(status.stdout).toMatch(/weekly\s+100% used\s+resets 2099-01-04 00:00/);
     }),
@@ -267,7 +333,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
-  it.effect("status says when a provider's usage is unavailable", () =>
+  it.effect("status says when an opencode Go account's usage is unavailable", () =>
     Effect.gen(function* () {
       // The fake answers its usage endpoint with a 500 until told otherwise.
       const provider = yield* startFakeProvider;
@@ -276,7 +342,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(0);
       expect(status.stdout).toMatch(
-        /^opencode-go {2}provider {2}unavailable: opencode-go did not report usage \(HTTP 500\)$/m,
+        /…k-go {2}enabled {2}unavailable: opencode-go did not report usage \(HTTP 500\)$/m,
       );
     }),
   );
@@ -285,12 +351,15 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     Effect.gen(function* () {
       const provider = yield* startFakeProvider;
       const { via, home } = yield* setup();
-      yield* configureOpenCodeGo(home, provider);
+      yield* writeConfig(
+        home,
+        `providers:\n  local:\n    baseUrl: ${provider.url}\n    apiKeyEnv: LOCAL_KEY\n`,
+      );
       yield* via("accounts", "add");
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(0);
       expect(status.stdout).toMatch(/5h\s+12% used/);
-      expect(status.stdout).toContain("reads its API key from GO_KEY, which is not set");
+      expect(status.stdout).toContain("reads its API key from LOCAL_KEY, which is not set");
     }),
   );
 

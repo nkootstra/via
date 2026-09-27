@@ -403,6 +403,50 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
+  it.effect("imports opencode Go's key from its variable once, warning that it is deprecated", () =>
+    Effect.gen(function* () {
+      const { home, key, env } = yield* loggedIn;
+      const provider = yield* startFakeProvider;
+      provider.respond(providerReply.json({ id: "chatcmpl-go" }));
+      yield* writeConfig(
+        home,
+        `providers:\n  opencode-go:\n    baseUrl: ${provider.url}\n    apiKeyEnv: GO_KEY\n`,
+      );
+      const withKey = { ...env, GO_KEY: "sk-go-env" };
+
+      for (const _ of [1, 2]) {
+        const via = yield* startVia(home, ["--port", "0"], withKey);
+        expect(yield* via.output("level=WARN")).toContain(
+          "GO_KEY is deprecated: via keeps opencode Go keys as accounts now",
+        );
+
+        const response = yield* post(via.url, key, "/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          messages: [],
+        });
+
+        expect(yield* response.json).toEqual({ id: "chatcmpl-go" });
+        yield* via.stop;
+      }
+
+      expect(provider.requests.map(({ headers }) => headers["authorization"])).toEqual([
+        "Bearer sk-go-env",
+        "Bearer sk-go-env",
+      ]);
+      const listed = (yield* runVia(home, ["accounts", "list"], env)).stdout;
+      expect(listed.match(/opencode Go \(imported\)/g)).toHaveLength(1);
+    }),
+  );
+
+  it.effect("serves opencode Go without a key in its variable, and does not warn", () =>
+    Effect.gen(function* () {
+      const { home, env } = yield* loggedIn;
+      yield* writeConfig(home, "providers:\n  opencode-go:\n    apiKeyEnv: VIA_TEST_UNSET_KEY\n");
+      const via = yield* startVia(home, ["--port", "0"], env);
+      expect(yield* via.stop).not.toContain("deprecated");
+    }),
+  );
+
   it.effect("refuses to start when a provider's API key variable is not set", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;

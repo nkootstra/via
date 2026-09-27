@@ -14,12 +14,15 @@ const namesModel = Schema.is(Schema.Struct({ model: Schema.String }));
 export const modelOf = (body: Schema.JsonObject) =>
   namesModel(body) ? Option.some(body.model) : Option.none();
 
-/** The answer once no account can serve: 429 while some cool down, else 503. */
-const noAccountLeft = (waitMs: Option.Option<number>) =>
+/**
+ * The answer once no `kind` of account can serve: 429 while some cool down,
+ * else 503.
+ */
+export const noAccountLeft = (waitMs: Option.Option<number>, kind = "account") =>
   Option.match(waitMs, {
-    onNone: () => openAiError(503, "no_accounts", "No enabled account can serve requests"),
+    onNone: () => openAiError(503, "no_accounts", `No enabled ${kind} can serve requests`),
     onSome: (ms) =>
-      openAiError(429, "rate_limit_exceeded", "Every account is cooling down", {
+      openAiError(429, "rate_limit_exceeded", `Every ${kind} is cooling down`, {
         "retry-after": String(Math.ceil(ms / 1000)),
       }),
   });
