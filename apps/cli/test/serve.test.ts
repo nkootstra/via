@@ -247,21 +247,26 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
-  it.effect("exports traces to the OTLP endpoint in the standard OpenTelemetry variables", () =>
-    Effect.gen(function* () {
-      const { home, key, env } = yield* loggedIn;
-      const collector = yield* startCollector;
+  for (const [variable, endpoint] of [
+    ["OTEL_EXPORTER_OTLP_ENDPOINT", (collector: string) => collector],
+    ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", (collector: string) => `${collector}/v1/traces`],
+  ] as const) {
+    it.effect(`exports traces to the OTLP endpoint ${variable} names`, () =>
+      Effect.gen(function* () {
+        const { home, key, env } = yield* loggedIn;
+        const collector = yield* startCollector;
 
-      const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
-        ...env,
-        OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
-        OTEL_BSP_SCHEDULE_DELAY: "50",
-      });
+        const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+          ...env,
+          [variable]: endpoint(collector.url),
+          OTEL_BSP_SCHEDULE_DELAY: "50",
+        });
 
-      expect((yield* postResponses(url, key)).status).toBe(200);
-      yield* collector.saw("dispatch").pipe(Effect.timeout("10 seconds"), realTime);
-    }),
-  );
+        expect((yield* postResponses(url, key)).status).toBe(200);
+        yield* collector.saw("dispatch").pipe(Effect.timeout("10 seconds"), realTime);
+      }),
+    );
+  }
 
   it.effect("flushes spans it has not exported yet when it stops", () =>
     Effect.gen(function* () {
