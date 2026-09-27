@@ -1,12 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { type Via, withVia } from "./harness.ts";
+import { type Via, ok, withVia } from "./harness.ts";
 import { LoginNotFoundError } from "./logins.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
 
 const adminKey = "admin-key-that-is-long-enough-000";
 

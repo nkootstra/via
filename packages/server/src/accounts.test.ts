@@ -1,14 +1,11 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import type { Account } from "@via/codex-auth";
-import { completedStream, reply } from "@via/codex-upstream/testing";
 import { PoolStates } from "@via/pool";
 import { Effect, Logger } from "effect";
 import { TestClock } from "effect/testing";
 import { coolDown } from "./accounts.ts";
-import { withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { ok, withVia } from "./harness.ts";
 
 const account: Account = {
   id: "id-a",
