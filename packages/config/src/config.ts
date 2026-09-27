@@ -47,7 +47,7 @@ export const loadConfig = Effect.fn("loadConfig")(function* (path: string) {
   );
 
   const raw = yield* Effect.try({
-    try: (): unknown => Bun.YAML.parse(text) ?? {},
+    try: () => Bun.YAML.parse(text) ?? {},
     catch: (cause) => new InvalidConfigError({ path, reason: String(cause) }),
   });
 

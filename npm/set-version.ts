@@ -12,7 +12,10 @@ if (version === undefined || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version))
 
 const PLATFORMS = ["via-darwin-arm64", "via-darwin-x64", "via-linux-arm64", "via-linux-x64"];
 
-const stamp = async (file: string, change: (pkg: Record<string, unknown>) => void) => {
+const stamp = async (
+  file: string,
+  change: (pkg: { optionalDependencies?: Record<string, string> }) => void,
+) => {
   const path = `${root}/${file}`;
   const pkg = await Bun.file(path).json();
   pkg.version = version;

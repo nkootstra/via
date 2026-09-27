@@ -93,9 +93,9 @@ const initial = (): State => ({
   ended: false,
 });
 
-const data = (payload: unknown) => `data: ${JSON.stringify(payload)}\n\n`;
+const data = (payload: Schema.Json) => `data: ${JSON.stringify(payload)}\n\n`;
 
-const chunk = (state: State, delta: object, finishReason: string | null = null) =>
+const chunk = (state: State, delta: Schema.JsonObject, finishReason: string | null = null) =>
   data({ ...state.envelope, choices: [{ index: 0, delta, finish_reason: finishReason }] });
 
 // Chat Completions has no failure event; clients such as the openai SDK raise
