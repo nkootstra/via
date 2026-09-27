@@ -1,15 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import {
-  type CodexRequest,
-  completedStream,
-  reply,
-  startFakeCodex,
-} from "@via/codex-upstream/testing";
+import { type CodexRequest, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
-import { withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { ok, withVia } from "./harness.ts";
 
 const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
 

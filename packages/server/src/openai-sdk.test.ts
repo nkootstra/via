@@ -1,11 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect, Stream } from "effect";
 import OpenAI from "openai";
-import { type Via, withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { type Via, ok, withVia } from "./harness.ts";
 
 const client = (via: Via) => new OpenAI({ baseURL: `${via.baseUrl}/v1`, apiKey: via.key });
 

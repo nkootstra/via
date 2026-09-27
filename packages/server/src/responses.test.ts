@@ -1,10 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
+import { refreshedTokens } from "@via/codex-auth/testing";
 import { type CodexRequest, completedStream, reply, sse } from "@via/codex-upstream/testing";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
-import { refreshedAccessToken, withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { ok, withVia } from "./harness.ts";
 
 const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
 
@@ -151,7 +150,7 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
   it.effect("refreshes a rejected access token and retries with the same account", () =>
     withVia(
       (received) =>
-        received.headers.authorization === `Bearer ${refreshedAccessToken}`
+        received.headers.authorization === `Bearer ${refreshedTokens.access_token}`
           ? ok()
           : reply.error(401, { error: { code: "token_expired" } }),
       (via) =>

@@ -1,13 +1,11 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, reply, startFakeCodex } from "@via/codex-upstream/testing";
+import { startFakeCodex } from "@via/codex-upstream/testing";
 import { startFakeProvider } from "@via/providers/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { HttpClientResponse } from "effect/unstable/http";
-import { type Via, withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { type Via, ok, withVia } from "./harness.ts";
 
 const ModelList = Schema.Struct({
   data: Schema.Array(Schema.Struct({ id: Schema.String })),

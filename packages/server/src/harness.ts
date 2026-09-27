@@ -1,9 +1,20 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
-import { type FakeIssuerOptions, jwt, startFakeIssuer, tokensFor } from "@via/codex-auth/testing";
+import {
+  type FakeIssuerOptions,
+  refreshedTokens,
+  startFakeIssuer,
+  tokensFor,
+} from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
-import { type CodexRequest, type Reply, startFakeCodex } from "@via/codex-upstream/testing";
+import {
+  type CodexRequest,
+  completedStream,
+  type Reply,
+  reply,
+  startFakeCodex,
+} from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
@@ -28,11 +39,8 @@ import {
 } from "effect/unstable/http";
 import { ViaServer } from "./index.ts";
 
-/** The access token the fake issuer hands out when any account refreshes. */
-export const refreshedAccessToken = jwt({
-  exp: 2_000_000_000,
-  refreshed: true,
-});
+/** Codex's answer to a request that goes well: "hello", as a completed stream. */
+export const ok = () => reply.sse(completedStream("hello"));
 
 export type Via = {
   /** POSTs JSON to the via server, with a valid API key unless `key` says otherwise. */
@@ -134,7 +142,11 @@ export const withVia = <A, E>(
   {
     refreshResponse = {
       status: 200,
-      body: { access_token: refreshedAccessToken, refresh_token: "rt-2" },
+      // Without an id token, so each refreshed account keeps its own identity.
+      body: {
+        access_token: refreshedTokens.access_token,
+        refresh_token: refreshedTokens.refresh_token,
+      },
     },
     aExpiresAt,
     codexUrl,
