@@ -72,7 +72,7 @@ const collectLogs = () => {
  * from token expiry unless `tokens` says otherwise. `body` gets the saved
  * `account` (its `id` is random, so tests read it from here rather than
  * assuming one), the fake Codex (to script `/wham/usage`), the pool's
- * `PoolStates`, and `start`, the clock time (this suite's `TestClock` is
+ * `PoolStates`, the account files' `authDir`, and `start`, the clock time (this suite's `TestClock` is
  * shared and cumulative across tests, so `start` is how a test finds where
  * its own poll's first interval will land, and how `tokens` computes an
  * `expiresAt`/`refreshToken` relative to it rather than as a bare literal).
@@ -85,6 +85,7 @@ const withPoll = <A, E>(
     states: PoolStates["Service"];
     logged: (text: string) => Effect.Effect<void>;
     start: number;
+    authDir: string;
   }) => Effect.Effect<A, E>,
   options: {
     authLayer?: Layer.Layer<CodexAuth, never, HttpClient.HttpClient>;
@@ -124,7 +125,14 @@ const withPoll = <A, E>(
     return yield* Effect.gen(function* () {
       const states = yield* PoolStates;
 
-      return yield* body({ account, codex, states, logged: logs.logged, start });
+      return yield* body({
+        account,
+        codex,
+        states,
+        logged: logs.logged,
+        start,
+        authDir: `${dir}/auth`,
+      });
     }).pipe(Effect.provide(runtime));
     // Debug-level lines are filtered out by default; the poll's "nothing changed"
     // and "could not poll" lines are the deterministic sync point tests wait on.
@@ -254,5 +262,26 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
           fakeIssuer({ refreshResponse: { status: 400, body: { error: "invalid_grant" } } }),
         ),
       ),
+  );
+
+  it.effect("warns when a pass cannot read the accounts, and still runs the next pass", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+
+      yield* withPoll("a", ({ account, codex, logged, authDir }) =>
+        Effect.gen(function* () {
+          yield* fs.writeFileString(`${authDir}/broken.json`, "not json");
+          yield* TestClock.adjust("15 minutes");
+          yield* logged("usage poll pass failed");
+          expect(codex.requests).toHaveLength(0);
+
+          yield* fs.remove(`${authDir}/broken.json`);
+          codex.usage("acc-a", {}, 401);
+          yield* TestClock.adjust("15 minutes");
+          yield* logged(`Could not poll ${account.label}'s usage`);
+          expect(codex.requests).toHaveLength(1);
+        }),
+      );
+    }),
   );
 });
