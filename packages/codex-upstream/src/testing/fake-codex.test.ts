@@ -5,7 +5,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/
 import { startFakeCodex } from "./fake-codex.ts";
 import { codexErrorFixture, codexFixture } from "./fixtures.ts";
 import { reply } from "./replies.ts";
-import { usagePayload } from "./streams.ts";
+import { sseFrames, usagePayload } from "./streams.ts";
 
 const post = (url: string, account: string, body: Schema.JsonObject = { model: "gpt-6-astra" }) =>
   Effect.gen(function* () {
@@ -20,7 +20,7 @@ const post = (url: string, account: string, body: Schema.JsonObject = { model: "
     return { status: response.status, headers: response.headers, text: yield* response.text };
   }).pipe(Effect.provide(FetchHttpClient.layer));
 
-const events = (text: string) => [...text.matchAll(/^event: (.+)$/gm)].map((match) => match[1]);
+const events = (text: string) => sseFrames(text).map((frame) => frame.event);
 
 layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
   it.effect("answers a scripted text reply with the full Responses event sequence", () =>

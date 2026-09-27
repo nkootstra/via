@@ -1,11 +1,10 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { reply } from "@via/codex-upstream/testing";
+import { reply, sseFrames } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
 import {
   chat,
   decodeJson,
-  frames,
   json,
   launchVia,
   openai,
@@ -35,7 +34,7 @@ const postText = (via: Via, path: string, body: Schema.JsonObject) =>
   post(via, path, body).pipe(Effect.flatMap((response) => Effect.promise(() => response.text())));
 
 /** Chat Completions SSE: the `data` of each block, the last one literally `[DONE]`. */
-const chatData = (text: string) => frames(text).map((frame) => frame.data);
+const chatData = (text: string) => sseFrames(text).map((frame) => frame.data);
 
 const ChatChunk = Schema.Struct({
   choices: Schema.Array(
@@ -347,7 +346,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
       const text = yield* Effect.promise(() => response.text());
       expect(text).not.toContain("[DONE]");
-      const events = frames(text);
+      const events = sseFrames(text);
       expect(events[0]?.event).toBe("response.created");
       expect(events.at(-1)?.event).toBe("response.completed");
 

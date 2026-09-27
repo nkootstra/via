@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { sseFrames } from "@via/codex-upstream/testing";
 import { Effect, Predicate, Schema, Stream } from "effect";
 import { CompletedResponse, toChatCompletion } from "./chat-response.ts";
 import { toChatStream } from "./chat-stream.ts";
@@ -42,11 +43,7 @@ const chatEventsOf = <E>(body: Stream.Stream<Uint8Array, E>, options = { include
     Stream.decodeText,
     Stream.mkString,
     Effect.map((text) =>
-      text
-        .split("\n\n")
-        .filter((block) => block !== "")
-        .map((block) => block.replace(/^data: /, ""))
-        .map((data) => (data === "[DONE]" ? data : decodeEvent(data))),
+      sseFrames(text).map(({ data }) => (data === "[DONE]" ? data : decodeEvent(data))),
     ),
   );
 

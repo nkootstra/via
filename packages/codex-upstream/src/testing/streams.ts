@@ -9,6 +9,19 @@ export type CodexEvent = { type: string } & Schema.JsonObject;
 export const sse = (events: ReadonlyArray<CodexEvent>) =>
   events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
 
+/**
+ * An SSE body's frames, in order: `event` names a Responses stream event, and a
+ * Chat Completions frame has only `data`.
+ */
+export const sseFrames = (text: string) =>
+  text
+    .split(/\n\n+/)
+    .filter((frame) => frame.trim() !== "")
+    .map((frame) => ({
+      event: /^event: (.*)$/m.exec(frame)?.[1],
+      data: /^data: (.*)$/m.exec(frame)?.[1] ?? "",
+    }));
+
 const response = {
   id: "resp_1",
   object: "response",

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Stream } from "effect";
-import { sse } from "./testing/streams.ts";
+import { sse, sseFrames } from "./testing/streams.ts";
 import { relayStream } from "./relay-stream.ts";
 
 const created = { type: "response.created", response: { id: "resp_1" } };
@@ -12,7 +12,7 @@ const bytes = (text: string) => Stream.make(new TextEncoder().encode(text));
 const relayed = <E>(body: Stream.Stream<Uint8Array, E>) =>
   relayStream(body).pipe(Stream.decodeText, Stream.mkString);
 
-const lastFrame = (text: string) => text.trim().split("\n\n").at(-1) ?? "";
+const lastFrame = (text: string) => sseFrames(text).at(-1);
 
 describe("relayStream", () => {
   it.effect("passes a complete stream through unchanged", () =>
@@ -36,8 +36,8 @@ describe("relayStream", () => {
   it.effect("ends a stream cut off before its terminal event with an error event", () =>
     Effect.gen(function* () {
       const last = lastFrame(yield* relayed(bytes(sse([created]))));
-      expect(last).toMatch(/^event: error\ndata: /);
-      expect(JSON.parse(last.replace(/^event: error\ndata: /, ""))).toMatchObject({
+      expect(last?.event).toBe("error");
+      expect(JSON.parse(last?.data ?? "")).toMatchObject({
         type: "error",
         code: "upstream_incomplete",
         message: expect.any(String),
@@ -52,8 +52,8 @@ describe("relayStream", () => {
       );
 
       expect(text).toBe(sse([created]) + text.slice(sse([created]).length));
-      expect(text.match(/event: error/g)).toHaveLength(1);
-      expect(lastFrame(text)).toContain('"code":"upstream_incomplete"');
+      expect(sseFrames(text).filter((frame) => frame.event === "error")).toHaveLength(1);
+      expect(lastFrame(text)?.data).toContain('"code":"upstream_incomplete"');
     }),
   );
 
