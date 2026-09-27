@@ -1,19 +1,9 @@
-import { fileURLToPath } from "node:url";
-import stylex from "@stylexjs/unplugin";
 import { defineConfig } from "vitest/config";
+import { stylexPlugin } from "./test/stylex.ts";
 
 // Components call `stylex.create`, which only works once compiled, so tests
-// run the same unplugin transform the app build uses. `dev: false` keeps it
-// on the extraction path: class names in the markup, no runtime <style>
-// injection. The module resolution matches apps/web's, so `defineVars`
-// hashes agree across packages.
-const plugin = stylex.vite({
-  dev: false,
-  unstable_moduleResolution: {
-    type: "commonJS",
-    rootDir: fileURLToPath(new URL("../..", import.meta.url)),
-  },
-});
+// run the same unplugin transform the app build uses.
+const plugin = stylexPlugin();
 
 export default defineConfig({
   // The plugin's dev-server hook polls on an interval that it clears only when
