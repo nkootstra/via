@@ -61,7 +61,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect("publishes its OpenAPI spec without the admin key", () =>
+  it.effect("publishes its OpenAPI spec with a lowercase bearer scheme without the admin key", () =>
     withVia(
       ok,
       (via) =>
@@ -73,7 +73,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             expect.arrayContaining(["/admin/accounts", "/admin/keys", "/admin/usage"]),
           );
           expect(Object.values(spec.components.securitySchemes)).toEqual([
-            { type: "http", scheme: "Bearer" },
+            { type: "http", scheme: "bearer" },
           ]);
         }),
       { adminKey },

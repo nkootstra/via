@@ -100,10 +100,16 @@ class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   { httpApiStatus: 401 },
 ) {}
 
+/**
+ * Bearer auth, spelled `bearer` in the spec: `HttpApiSecurity.bearer` says `Bearer`,
+ * which Scalar's API client mistakes for Basic auth. Headers match either way.
+ */
+const bearer = HttpApiSecurity.http({ scheme: "bearer" });
+
 /** Lets a request through only with `Authorization: Bearer <VIA_ADMIN_KEY>`. */
 class AdminAuthorization extends HttpApiMiddleware.Service<AdminAuthorization>()(
   "via/AdminAuthorization",
-  { security: { bearer: HttpApiSecurity.bearer }, error: Unauthorized },
+  { security: { bearer }, error: Unauthorized },
 ) {}
 
 class AccountsGroup extends HttpApiGroup.make("accounts")
