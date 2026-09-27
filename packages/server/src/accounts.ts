@@ -8,37 +8,35 @@ import { Array, Clock, Effect, Option } from "effect";
  * cools it down for a minute.
  */
 const withFreshToken = (account: Account) =>
-  Effect.gen(function* () {
-    const tokens = yield* AccountTokens;
-    const states = yield* PoolStates;
-    const now = yield* Clock.currentTimeMillis;
-
-    return yield* tokens.fresh(account).pipe(
-      Effect.asSome,
-      Effect.catchTags({
-        RefreshRejectedError: (error) =>
-          Effect.logWarning(
+  Effect.flatMap(AccountTokens, (tokens) => tokens.fresh(account)).pipe(
+    Effect.asSome,
+    // Only a failed refresh needs the pool's states or the time.
+    Effect.catchTags({
+      RefreshRejectedError: (error) =>
+        Effect.gen(function* () {
+          yield* Effect.logWarning(
             `${account.label} is locked out until it logs in again (${error.code})`,
-          ).pipe(
-            Effect.andThen(states.lockOut(account.id, error.code)),
-            Effect.as(Option.none<Account>()),
-          ),
-        AuthRequestError: () =>
-          Effect.logWarning(
-            `${account.label} is cooling down until ${new Date(now + 60_000).toISOString()} (auth_unavailable)`,
-          ).pipe(
-            Effect.andThen(
-              states.mark(account.id, {
-                status: "cooling",
-                until: now + 60_000,
-                reason: "auth_unavailable",
-              }),
-            ),
-            Effect.as(Option.none<Account>()),
-          ),
-      }),
-    );
-  });
+          );
+          yield* (yield* PoolStates).lockOut(account.id, error.code);
+
+          return Option.none<Account>();
+        }),
+      AuthRequestError: () =>
+        Effect.gen(function* () {
+          const until = (yield* Clock.currentTimeMillis) + 60_000;
+          yield* Effect.logWarning(
+            `${account.label} is cooling down until ${new Date(until).toISOString()} (auth_unavailable)`,
+          );
+          yield* (yield* PoolStates).mark(account.id, {
+            status: "cooling",
+            until,
+            reason: "auth_unavailable",
+          });
+
+          return Option.none<Account>();
+        }),
+    }),
+  );
 
 /** The accounts `allowed` lets serve a request, in the order they were added. */
 export const accountsAllowed = (allowed: (accountId: string) => boolean) =>
@@ -56,7 +54,7 @@ export const accountsAllowed = (allowed: (accountId: string) => boolean) =>
  */
 export const nextAccount = (
   allowed: (accountId: string) => boolean,
-  preferred: Option.Option<string> = Option.none(),
+  preferred: Option.Option<string>,
 ) =>
   Effect.gen(function* () {
     const states = yield* PoolStates;
