@@ -165,10 +165,13 @@ const Pool = Schema.Struct({
   providers: Schema.Array(PoolProvider),
 });
 
+/** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
+const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
+
 /**
  * Everything the admin UI's pages show that via knows without asking anyone: the
- * pool, the latest usage, the ChatGPT and OpenCode Go accounts (keys masked), and
- * the API keys. A signed-in page gets it in its shell, and `GET /admin/events`
+ * pool, the latest usage, the ChatGPT and OpenCode Go accounts (keys masked), the
+ * API keys and the models. A signed-in page gets it in its shell, and `GET /admin/events`
  * sends it again whenever it changes. `session` says the page is signed in, which
  * it always is when it gets this.
  */
@@ -179,6 +182,7 @@ export const AdminState = Schema.Struct({
   accounts: Schema.Array(AdminAccount),
   opencodeGo: Schema.Array(AdminOpencodeGoAccount),
   keys: Schema.Array(AdminKey),
+  models: Schema.Array(Model),
 });
 
 /** The one event `GET /admin/events` sends: the whole admin state, as JSON. */
@@ -186,9 +190,6 @@ export const StateEvent = Schema.Struct({
   event: Schema.Literal("state"),
   data: Schema.fromJsonString(AdminState),
 });
-
-/** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
-const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 
 /** No login with this id was started since the server did; the admin API answers it as a 404. */
 export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()(

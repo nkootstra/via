@@ -14,6 +14,7 @@ import {
 } from "@via/providers";
 import { Clock, Effect, Redacted } from "effect";
 import type { AdminState } from "./admin-api.ts";
+import { ModelCatalog } from "./catalog.ts";
 
 export const withoutTokens = ({ id, label, email, plan, enabled, createdAt }: Account) => ({
   id,
@@ -149,7 +150,7 @@ export const adminOpencodeGo = (environment: OpencodeGoEnvironment | undefined) 
     listed.map((account) => opencodeGoAccount(account, environment)),
   );
 
-/** The admin state now: what the routes above answer, and the keys, all at once. */
+/** The admin state now: what the routes above answer, the keys and the models, all at once. */
 export const adminState = (environment: OpencodeGoEnvironment | undefined) =>
   Effect.gen(function* () {
     const listed = yield* accounts;
@@ -162,5 +163,6 @@ export const adminState = (environment: OpencodeGoEnvironment | undefined) =>
       accounts: listed.map(withoutTokens),
       opencodeGo: listedGo.map((account) => opencodeGoAccount(account, environment)),
       keys: yield* keys,
+      models: yield* (yield* ModelCatalog).list,
     } satisfies typeof AdminState.Type;
   });

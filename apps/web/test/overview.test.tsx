@@ -1,4 +1,4 @@
-import { act, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
 import { embed, renderApp } from "./app.tsx";
@@ -318,7 +318,8 @@ const viaState = {
   usage,
   accounts: accounts.map(({ id, label }) => account({ id, label })),
   opencodeGo: opencodeGo.map(({ id, label }) => opencodeGoAccount({ id, label })),
-  keys: [],
+  keys: [{ id: "key-1", name: "laptop", createdAt: fetchedAt, lastUsedAt: fetchedAt }],
+  models: [{ id: "gpt-5.5", object: "model", created: 0, owned_by: "openai" }],
 } as const;
 
 /** `viaState`, with "work" cooling down for a minute. */
@@ -352,6 +353,22 @@ describe("the overview, live", () => {
     expect(within(await card("home")).getByText("home@example.com")).toBeDefined();
     expect(state.requests).toEqual([]);
     expect(document.getElementById("via-state")).toBeNull();
+  });
+
+  it("renders every page from the state the shell carries, asking via for nothing", async () => {
+    for (const [path, heading, shown] of [
+      ["/accounts", "Accounts", "work@example.com"],
+      ["/keys", "Keys", "laptop"],
+      ["/models", "Models", "gpt-5.5"],
+    ] as const) {
+      embed(viaState);
+      const { state } = renderApp(path, { pool, usage });
+
+      expect(await screen.findByRole("heading", { name: heading, level: 1 })).toBeDefined();
+      expect(await screen.findByText(shown)).toBeDefined();
+      expect(state.requests).toEqual([]);
+      cleanup();
+    }
   });
 
   it("shows what via pushes as it happens, without asking", async () => {

@@ -6,6 +6,7 @@ import { colors, fonts, radii, space, text } from "@via/ui/tokens.stylex";
 import { Schema } from "effect";
 import { useDeferredValue, useState } from "react";
 import { modelsQuery } from "../../api/admin.ts";
+import { useLiveOptions } from "../../api/live.ts";
 import type { Model } from "../../api/types.ts";
 import { CodexIcon, ModelsIcon, ProviderLogo, SearchIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -106,7 +107,7 @@ function ModelsLoading() {
 }
 
 function Models() {
-  const models = useSuspenseQuery(modelsQuery);
+  const models = useSuspenseQuery({ ...modelsQuery, ...useLiveOptions() });
   const [search, setSearch] = useState("");
   const query = useDeferredValue(search.trim().toLowerCase());
   const list = models.data;

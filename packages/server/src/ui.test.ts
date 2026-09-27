@@ -212,6 +212,7 @@ layer(BunFileSystem.layer)("the admin UI at /ui", (it) => {
         ]);
         expect(state.keys.map(({ name }) => name)).toEqual(["test"]);
         expect(state.opencodeGo.map(({ key }) => key)).toEqual(["…ider"]);
+        expect(state.models.length).toBeGreaterThan(0);
         expect(html).not.toContain("sk-provider");
         expect(html).not.toContain("refreshToken");
         expect(html).not.toContain("accessToken");

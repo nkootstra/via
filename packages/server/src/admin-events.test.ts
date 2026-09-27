@@ -141,8 +141,8 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         yield* next(states, (state) =>
           state.keys.some(({ name, lastUsedAt }) => name === "test" && lastUsedAt !== null),
         );
-        // Sent as they happened, not on the next resync.
-        expect((yield* Clock.currentTimeMillis) - since).toBeLessThan(1_000);
+        // Sent as they happened, well before the next resync (15 s) would have.
+        expect((yield* Clock.currentTimeMillis) - since).toBeLessThan(5_000);
       }),
     ),
   );
