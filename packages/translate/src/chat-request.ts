@@ -4,7 +4,10 @@ const TextPart = Schema.Struct({ type: Schema.Literal("text"), text: Schema.Stri
 
 const ImagePart = Schema.Struct({
   type: Schema.Literal("image_url"),
-  image_url: Schema.Struct({ url: Schema.String }),
+  image_url: Schema.Struct({
+    url: Schema.String,
+    detail: Schema.optionalKey(Schema.Literals(["auto", "low", "high"])),
+  }),
 });
 
 const UserPart = Schema.Union([TextPart, ImagePart]);
@@ -117,7 +120,11 @@ const isJsonSchemaFormat = Schema.is(JsonSchemaFormat);
 const userPart = (part: typeof UserPart.Type) =>
   isTextPart(part)
     ? { type: "input_text", text: part.text }
-    : { type: "input_image", image_url: part.image_url.url };
+    : {
+        type: "input_image",
+        image_url: part.image_url.url,
+        ...(part.image_url.detail && { detail: part.image_url.detail }),
+      };
 
 /** The Responses input items a chat message becomes; instructions become none. */
 const inputItems = (message: typeof Message.Type): ReadonlyArray<Schema.JsonObject> => {

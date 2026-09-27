@@ -68,6 +68,28 @@ describe("toResponsesRequest", () => {
     ]);
   });
 
+  it("carries an image's detail over", () => {
+    expect(
+      translate({
+        model: "gpt-6-astra",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: "https://x.test/a.png", detail: "low" } },
+            ],
+          },
+        ],
+      }).input,
+    ).toEqual([
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_image", image_url: "https://x.test/a.png", detail: "low" }],
+      },
+    ]);
+  });
+
   it("turns assistant tool calls and tool results into function call items", () => {
     expect(
       translate({
