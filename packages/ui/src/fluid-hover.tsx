@@ -65,41 +65,43 @@ function relativeRect(item: Element, container: HTMLElement): ItemRect {
   };
 }
 
-export interface FluidHover<C extends HTMLElement> {
+export interface FluidHover<C extends HTMLElement, K> {
   /** The list's positioned container: the highlight's offset parent. */
   readonly containerRef: RefObject<C | null>;
-  /** A ref callback that registers the item at `index`. */
-  readonly register: (index: number) => (element: HTMLElement | null) => void;
+  /** A ref callback that registers the item under `key`. */
+  readonly register: (key: K) => (element: HTMLElement | null) => void;
   /** The lit item and its rect, or null. */
-  readonly active: { readonly index: number; readonly rect: ItemRect } | null;
-  /** Lights an item (keyboard focus) or none. */
-  readonly light: (index: number | null) => void;
+  readonly active: { readonly key: K; readonly rect: ItemRect } | null;
+  /** Lights an item (keyboard focus moved to it) or none. */
+  readonly light: (key: K | null) => void;
   readonly handlers: {
     readonly onPointerMove: (event: PointerEvent) => void;
     readonly onPointerLeave: () => void;
   };
 }
 
-export function useFluidHover<C extends HTMLElement>(axis: Axis): FluidHover<C> {
+/** Items register under a key: a row's index, a tab's value. */
+export function useFluidHover<C extends HTMLElement, K>(axis: Axis): FluidHover<C, K> {
   const containerRef = useRef<C>(null);
-  const items = useRef<Array<HTMLElement | undefined>>([]);
-  const [active, setActive] = useState<FluidHover<C>["active"]>(null);
+  const items = useRef(new Map<K, HTMLElement>());
+  const [active, setActive] = useState<FluidHover<C, K>["active"]>(null);
 
   const register = useCallback(
-    (index: number) => (element: HTMLElement | null) => {
-      items.current[index] = element ?? undefined;
+    (key: K) => (element: HTMLElement | null) => {
+      if (element === null) items.current.delete(key);
+      else items.current.set(key, element);
     },
     [],
   );
 
-  const light = useCallback((index: number | null) => {
+  const light = useCallback((key: K | null) => {
     const container = containerRef.current;
-    const item = index === null ? undefined : items.current[index];
+    const item = key === null ? undefined : items.current.get(key);
 
     setActive(
-      index === null || item === undefined || container === null
+      key === null || item === undefined || container === null
         ? null
-        : { index, rect: relativeRect(item, container) },
+        : { key, rect: relativeRect(item, container) },
     );
   }, []);
 
@@ -116,14 +118,18 @@ export function useFluidHover<C extends HTMLElement>(axis: Axis): FluidHover<C> 
         y: event.clientY - box.top - container.clientTop + container.scrollTop,
       };
 
-      const rects = Array.from(items.current, (item) =>
-        item === undefined ? undefined : relativeRect(item, container),
+      const entries = Array.from(items.current, ([key, item]) => ({
+        key,
+        rect: relativeRect(item, container),
+      }));
+
+      const index = pickNearest(
+        axis,
+        pointer,
+        entries.map((entry) => entry.rect),
       );
 
-      const index = pickNearest(axis, pointer, rects);
-      const rect = index === null ? undefined : rects[index];
-
-      setActive(index === null || rect === undefined ? null : { index, rect });
+      setActive(index === null ? null : (entries[index] ?? null));
     },
     [axis],
   );

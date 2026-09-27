@@ -56,8 +56,8 @@ const RowContext = createContext(false);
 export type TableProps = Omit<ComponentProps<"table">, "className" | "style">;
 
 export function Table(props: TableProps) {
-  const { containerRef, register, active, handlers } = useFluidHover<HTMLDivElement>("y");
-  const state = { register, activeIndex: active?.index ?? null };
+  const { containerRef, register, active, handlers } = useFluidHover<HTMLDivElement, number>("y");
+  const state = { register, activeIndex: active?.key ?? null };
 
   return (
     <TableContext value={state}>
