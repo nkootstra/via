@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
-import { chat, json, launchVia, openai, post, startCodex, type Via } from "./harness.ts";
+import { chat, frames, json, launchVia, openai, post, startCodex, type Via } from "./harness.ts";
 
 // Everything that should just work: both endpoints, streaming and not, tool
 // calls, usage accounting, model listing, and the upstream shape via forwards.
@@ -28,25 +28,8 @@ const decodeJson = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
 const postText = (via: Via, path: string, body: Schema.JsonObject) =>
   post(via, path, body).pipe(Effect.flatMap((response) => Effect.promise(() => response.text())));
 
-/** Chat Completions SSE: `data: <json>\n\n` blocks, last one literally `[DONE]`. */
-const parseChatSse = (text: string): ReadonlyArray<string> =>
-  text
-    .split("\n\n")
-    .filter((block) => block.length > 0)
-    .map((block) => block.replace(/^data: /, ""));
-
-/** Responses API SSE: `event: <name>\ndata: <json>\n\n` blocks, no trailing `[DONE]`. */
-type SseEvent = { readonly event: string; readonly data: string };
-
-const parseResponsesSse = (text: string): ReadonlyArray<SseEvent> =>
-  text
-    .split("\n\n")
-    .filter((block) => block.length > 0)
-    .map((block) => {
-      const [eventLine = "", dataLine = ""] = block.split("\n");
-
-      return { event: eventLine.replace(/^event: /, ""), data: dataLine.replace(/^data: /, "") };
-    });
+/** Chat Completions SSE: the `data` of each block, the last one literally `[DONE]`. */
+const chatData = (text: string) => frames(text).map((frame) => frame.data);
 
 const ChatChunk = Schema.Struct({
   choices: Schema.Array(
@@ -99,7 +82,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
 
       expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
       const text = yield* Effect.promise(() => response.text());
-      const blocks = parseChatSse(text);
+      const blocks = chatData(text);
       expect(blocks.at(-1)).toBe("[DONE]");
       const chunks = blocks.slice(0, -1).map((block) => decodeJson(ChatChunk)(block));
       expect(chunks[0]?.choices[0]).toMatchObject({
@@ -159,7 +142,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
         stream_options: { include_usage: true },
       });
 
-      const blocks = parseChatSse(text);
+      const blocks = chatData(text);
       expect(blocks.at(-1)).toBe("[DONE]");
 
       const usageChunk = decodeJson(
@@ -358,7 +341,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
       const text = yield* Effect.promise(() => response.text());
       expect(text).not.toContain("[DONE]");
-      const events = parseResponsesSse(text);
+      const events = frames(text);
       expect(events[0]?.event).toBe("response.created");
       expect(events.at(-1)?.event).toBe("response.completed");
 

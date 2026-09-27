@@ -5,6 +5,7 @@ import { Deferred, Effect, Fiber } from "effect";
 import {
   chat,
   type Codex,
+  frames,
   freePort,
   json,
   launchVia,
@@ -39,17 +40,6 @@ const read = (response: Response) =>
       () => ({ text: "", reset: true }),
     ),
   );
-
-type Frame = { event: string | undefined; data: string };
-
-const frames = (text: string): ReadonlyArray<Frame> =>
-  text
-    .split("\n\n")
-    .filter((block) => block.trim() !== "")
-    .map((block) => ({
-      event: /^event: (.*)$/m.exec(block)?.[1],
-      data: /^data: (.*)$/m.exec(block)?.[1] ?? "",
-    }));
 
 /** A normal request on the same via still succeeds. */
 const stillServes = (via: Via, codex: Codex) =>

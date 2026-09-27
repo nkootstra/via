@@ -79,6 +79,19 @@ export const post = (
     }),
   );
 
+/**
+ * An SSE body's blocks: `event` names a Responses API event, and a Chat
+ * Completions block has only `data`.
+ */
+export const frames = (text: string) =>
+  text
+    .split("\n\n")
+    .filter((block) => block.trim() !== "")
+    .map((block) => ({
+      event: /^event: (.*)$/m.exec(block)?.[1],
+      data: /^data: (.*)$/m.exec(block)?.[1] ?? "",
+    }));
+
 /** A response's JSON body. */
 export const json = (response: Response) => Effect.promise(() => response.json());
 
