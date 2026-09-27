@@ -42,7 +42,15 @@ const styles = stylex.create({
     transitionDuration: durations.fast,
   },
   cellActive: { color: colors.foreground },
+  secondary: {
+    display: { default: "none", "@media (min-width: 640px)": "table-cell" },
+  },
 });
+
+interface ColumnProps {
+  /** A column narrow screens can do without: hidden below 640px, so the rest fit. */
+  readonly secondary?: boolean;
+}
 
 interface TableState {
   readonly register: (index: number) => (element: HTMLElement | null) => void;
@@ -106,12 +114,30 @@ export function TableRow({ index, ...props }: TableRowProps) {
   );
 }
 
-export function TableHead(props: Omit<ComponentProps<"th">, "className" | "style">) {
-  return <th {...props} {...stylex.props(styles.head)} />;
+export function TableHead({
+  secondary = false,
+  ...props
+}: Omit<ComponentProps<"th">, "className" | "style"> & ColumnProps) {
+  return (
+    <th
+      {...props}
+      data-secondary={secondary ? "" : undefined}
+      {...stylex.props(styles.head, secondary && styles.secondary)}
+    />
+  );
 }
 
-export function TableCell(props: Omit<ComponentProps<"td">, "className" | "style">) {
+export function TableCell({
+  secondary = false,
+  ...props
+}: Omit<ComponentProps<"td">, "className" | "style"> & ColumnProps) {
   const active = use(RowContext);
 
-  return <td {...props} {...stylex.props(styles.cell, active && styles.cellActive)} />;
+  return (
+    <td
+      {...props}
+      data-secondary={secondary ? "" : undefined}
+      {...stylex.props(styles.cell, active && styles.cellActive, secondary && styles.secondary)}
+    />
+  );
 }
