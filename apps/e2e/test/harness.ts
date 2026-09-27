@@ -1,7 +1,13 @@
 import { createKey, type SeededAccount, seedAccounts, serveVia, viaHome } from "@via/cli/testing";
 import type { FakeIssuerOptions } from "@via/codex-auth/testing";
-import { type FakeCodex, startFakeCodex } from "@via/codex-upstream/testing";
-import { Effect } from "effect";
+import {
+  type CodexRequest,
+  codexErrorFixture,
+  type FakeCodex,
+  reply,
+  startFakeCodex,
+} from "@via/codex-upstream/testing";
+import { Effect, Predicate, type Schema } from "effect";
 import OpenAI from "openai";
 
 export { freePort, realTime, runVia, startIssuer, tempHome } from "@via/cli/testing";
@@ -44,3 +50,44 @@ export const launchVia = (options: {
 /** The official SDK, pointed at via. */
 export const openai = (via: Via) =>
   new OpenAI({ baseURL: `${via.url}/v1`, apiKey: via.key, maxRetries: 0 });
+
+/** A chat completion for `content` through the SDK. */
+export const chat = (via: Via, content: string) =>
+  Effect.promise(() =>
+    openai(via).chat.completions.create({
+      model: "gpt-6-astra",
+      messages: [{ role: "user", content }],
+    }),
+  );
+
+/**
+ * POSTs `body` to via with its API key, for what the SDK hides or can't send:
+ * an object goes as JSON, a string as it is.
+ */
+export const post = (
+  via: Via,
+  path: string,
+  body: Schema.JsonObject | string,
+  signal?: AbortSignal,
+) =>
+  Effect.promise(() =>
+    fetch(`${via.url}${path}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${via.key}` },
+      body: Predicate.isString(body) ? body : JSON.stringify(body),
+      ...(signal !== undefined && { signal }),
+    }),
+  );
+
+/** A response's JSON body. */
+export const json = (response: Response) => Effect.promise(() => response.json());
+
+/** The Responses requests Codex received, in order, leaving out usage lookups. */
+export const responsesOf = (codex: Codex): ReadonlyArray<CodexRequest> =>
+  codex.requests.filter((request) => request.path === "/codex/responses");
+
+/** One of codex's recorded error answers, verbatim, as a reply. */
+export const errorFixture = (name: string) =>
+  Effect.map(codexErrorFixture(name), ({ status, headers, body }) =>
+    reply.error(status, body, headers),
+  );

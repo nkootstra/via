@@ -3,13 +3,15 @@ import { expect, layer } from "@effect/vitest";
 import { codexFixture, type Reply, reply } from "@via/codex-upstream/testing";
 import { Deferred, Effect, Fiber } from "effect";
 import {
+  chat,
   type Codex,
   freePort,
-  openai,
+  json,
+  launchVia,
+  post,
   realTime,
   startCodex,
   type Via,
-  launchVia,
 } from "./harness.ts";
 
 // Faults a real Codex connection produces, and what a client must see for
@@ -28,17 +30,6 @@ const chatBody = (stream: boolean) => ({
 });
 
 const responsesBody = (stream: boolean) => ({ model: MODEL, stream, input: "ping" });
-
-// The SDK can't send a broken body or show raw frames, so faults go through fetch.
-const post = (via: Via, path: string, body: string, signal?: AbortSignal) =>
-  Effect.promise(() =>
-    fetch(`${via.url}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${via.key}` },
-      body,
-      ...(signal !== undefined && { signal }),
-    }),
-  );
 
 /** The whole body, or the reason reading it failed (a reset is a finding). */
 const read = (response: Response) =>
@@ -65,12 +56,7 @@ const stillServes = (via: Via, codex: Codex) =>
   Effect.gen(function* () {
     codex.script(reply.text("pong"));
 
-    const completion = yield* Effect.promise(() =>
-      openai(via).chat.completions.create({
-        model: MODEL,
-        messages: [{ role: "user", content: "ping" }],
-      }),
-    ).pipe(Effect.timeout("5 seconds"), realTime);
+    const completion = yield* chat(via, "ping").pipe(Effect.timeout("5 seconds"), realTime);
 
     expect(completion.choices[0]?.message.content).toBe("pong");
   });
@@ -104,7 +90,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
     it.effect(`a chat stream Codex ${name} ends in an error chunk, not [DONE]`, () =>
       faulted(fault, (via) =>
         Effect.gen(function* () {
-          const outcome = yield* read(yield* post(via, CHAT, JSON.stringify(chatBody(true))));
+          const outcome = yield* read(yield* post(via, CHAT, chatBody(true)));
           expect(outcome.reset).toBe(false);
           const all = frames(outcome.text);
           expect(all.filter((frame) => frame.data.startsWith('{"error"'))).toHaveLength(1);
@@ -124,9 +110,9 @@ layer(BunFileSystem.layer)("resilience", (it) => {
       it.effect(`a non-streaming ${path} Codex ${name} answers 502 ${code}`, () =>
         faulted(fault, (via) =>
           Effect.gen(function* () {
-            const response = yield* post(via, path, JSON.stringify(body));
+            const response = yield* post(via, path, body);
             expect(response.status).toBe(502);
-            expect(yield* Effect.promise(() => response.json())).toMatchObject({
+            expect(yield* json(response)).toMatchObject({
               error: { type: "server_error", code, message: expect.any(String) },
             });
           }),
@@ -142,9 +128,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
     it.effect(`a Responses stream Codex ${name} ends in an error event`, () =>
       faulted(fault, (via) =>
         Effect.gen(function* () {
-          const outcome = yield* read(
-            yield* post(via, RESPONSES, JSON.stringify(responsesBody(true))),
-          );
+          const outcome = yield* read(yield* post(via, RESPONSES, responsesBody(true)));
 
           expect(outcome.reset).toBe(false);
           const all = frames(outcome.text);
@@ -165,9 +149,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
       const fixture = yield* codexFixture("response-failed-context-length.sse");
       yield* faulted(reply.sse(fixture), (via) =>
         Effect.gen(function* () {
-          const outcome = yield* read(
-            yield* post(via, RESPONSES, JSON.stringify(responsesBody(true))),
-          );
+          const outcome = yield* read(yield* post(via, RESPONSES, responsesBody(true)));
 
           expect(frames(outcome.text).at(-1)?.event).toBe("response.failed");
         }),
@@ -182,9 +164,9 @@ layer(BunFileSystem.layer)("resilience", (it) => {
         const via = yield* launchVia({ upstream: closed });
 
         for (const _ of [1, 2]) {
-          const response = yield* post(via, path, JSON.stringify(chatBody(false)));
+          const response = yield* post(via, path, chatBody(false));
           expect(response.status).toBe(502);
-          expect(yield* Effect.promise(() => response.json())).toMatchObject({
+          expect(yield* json(response)).toMatchObject({
             error: { type: "server_error", code: "upstream_unavailable" },
           });
         }
@@ -200,7 +182,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
           Effect.gen(function* () {
             const response = yield* post(via, path, body);
             expect(response.status).toBe(400);
-            expect(yield* Effect.promise(() => response.json())).toMatchObject({
+            expect(yield* json(response)).toMatchObject({
               error: { type: "invalid_request_error", code: "invalid_request" },
             });
             expect(codex.requests).toHaveLength(0);
@@ -214,7 +196,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
     faulted(reply.stalled(reply.text("pong"), 3), (via, codex) =>
       Effect.gen(function* () {
         const abort = new AbortController();
-        const response = yield* post(via, CHAT, JSON.stringify(chatBody(true)), abort.signal);
+        const response = yield* post(via, CHAT, chatBody(true), abort.signal);
         const reader = response.body!.getReader();
         yield* Effect.promise(() => reader.read());
         abort.abort();
@@ -231,12 +213,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
       codex.script(reply.held(gate, reply.text("late")));
       const via = yield* launchVia({ upstream: codex.url });
 
-      const pending = yield* Effect.promise(() =>
-        openai(via).chat.completions.create({
-          model: MODEL,
-          messages: [{ role: "user", content: "ping" }],
-        }),
-      ).pipe(Effect.forkChild);
+      const pending = yield* chat(via, "ping").pipe(Effect.forkChild);
 
       yield* codex.received(1);
       yield* Deferred.succeed(gate, undefined);

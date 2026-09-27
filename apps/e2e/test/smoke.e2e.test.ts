@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { reply } from "@via/codex-upstream/testing";
-import { openai, startCodex, launchVia } from "./harness.ts";
+import { chat, launchVia, openai, startCodex } from "./harness.ts";
 
 // The whole product in one breath: login, key, serve, and a real OpenAI client
 // talking to it, with the fake Codex backend behind it.
@@ -13,12 +13,7 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
       upstream.script(reply.text("pong"));
       const via = yield* launchVia({ upstream: upstream.url });
 
-      const completion = yield* Effect.promise(() =>
-        openai(via).chat.completions.create({
-          model: "gpt-6-astra",
-          messages: [{ role: "user", content: "ping" }],
-        }),
-      );
+      const completion = yield* chat(via, "ping");
 
       expect(completion.choices[0]?.message.content).toBe("pong");
       expect(upstream.requests).toHaveLength(1);

@@ -1,15 +1,21 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { type CodexRequest, codexErrorFixture, reply } from "@via/codex-upstream/testing";
+import { type CodexRequest, reply } from "@via/codex-upstream/testing";
 import { Effect, Option, Schema } from "effect";
-import { type Codex, openai, runVia, startCodex, type Via, launchVia } from "./harness.ts";
+import {
+  chat,
+  type Codex,
+  errorFixture,
+  json,
+  launchVia,
+  post,
+  responsesOf,
+  runVia,
+  startCodex,
+} from "./harness.ts";
 
 // The pool suite drives a real `via serve` against the fake Codex backend,
 // scripting each account's answers through its `chatgpt-account-id`.
-
-/** The Responses requests Codex received, in order. */
-const responsesOf = (codex: Codex) =>
-  codex.requests.filter((request) => request.path === "/codex/responses");
 
 /** The ChatGPT account of every Responses request, in order. */
 const accountsOf = (codex: Codex) =>
@@ -18,12 +24,6 @@ const accountsOf = (codex: Codex) =>
 const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
 
 const answerOf = (prompt: string) => `answer-for-${prompt}`;
-
-/** A verbatim codex error fixture as a reply. */
-const errorFixture = (name: string) =>
-  Effect.map(codexErrorFixture(name), ({ status, headers, body }) =>
-    reply.error(status, body, headers),
-  );
 
 /** The single user-message text of a Responses-shaped request body, or "". */
 const PromptBody = Schema.Struct({
@@ -38,25 +38,6 @@ const promptOf = (request: CodexRequest): string =>
   decodePromptBody(request.body).pipe(
     Option.map((decoded) => decoded.input[0]?.content[0]?.text ?? ""),
     Option.getOrElse(() => ""),
-  );
-
-/** A chat completion for `content`, with a fresh API key and no SDK retries. */
-const chat = (via: Via, content: string) =>
-  Effect.promise(() =>
-    openai(via).chat.completions.create({
-      model: "gpt-6-astra",
-      messages: [{ role: "user", content }],
-    }),
-  );
-
-/** A raw POST, for tests that need the response status and headers the SDK hides. */
-const post = (via: Via, path: string, body: Schema.Json) =>
-  Effect.promise(() =>
-    fetch(`${via.url}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${via.key}` },
-      body: JSON.stringify(body),
-    }),
   );
 
 layer(BunFileSystem.layer)("pool", (it) => {
@@ -180,8 +161,7 @@ layer(BunFileSystem.layer)("pool", (it) => {
         const retryAfter = Number(response.headers.get("retry-after"));
         expect(retryAfter).toBeGreaterThan(0);
         expect(retryAfter).toBeLessThanOrEqual(45);
-        const json = yield* Effect.promise(() => response.json());
-        expect(json).toMatchObject({
+        expect(yield* json(response)).toMatchObject({
           error: { code: "rate_limit_exceeded", message: expect.any(String) },
         });
         // Every account was tried exactly once before via gave up.
@@ -200,8 +180,7 @@ layer(BunFileSystem.layer)("pool", (it) => {
       });
 
       expect(response.status).toBe(503);
-      const json = yield* Effect.promise(() => response.json());
-      expect(json).toMatchObject({
+      expect(yield* json(response)).toMatchObject({
         error: { code: "no_accounts", message: expect.any(String) },
       });
       expect(responsesOf(codex)).toHaveLength(0);
@@ -283,8 +262,7 @@ layer(BunFileSystem.layer)("pool", (it) => {
       });
 
       expect(response.status).toBe(400);
-      const json = yield* Effect.promise(() => response.json());
-      expect(json).toEqual(errorBody);
+      expect(yield* json(response)).toEqual(errorBody);
       // A client-fault error is not retried against another account.
       expect(accountsOf(codex)).toEqual(["acc-a"]);
     }),

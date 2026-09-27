@@ -1,16 +1,19 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { jwt } from "@via/codex-auth/testing";
-import { codexErrorFixture, reply } from "@via/codex-upstream/testing";
+import { reply } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Schema } from "effect";
 import {
-  openai,
+  chat,
+  errorFixture,
+  json,
+  launchVia,
+  responsesOf,
   runVia,
   startCodex,
   startIssuer,
   tempHome,
   type Via,
-  launchVia,
 } from "./harness.ts";
 
 /** A minimal chat-completions request body; the auth checks never reach it. */
@@ -19,11 +22,6 @@ const pingRequest = {
   messages: [{ role: "user" as const, content: "ping" }],
   stream: false as const,
 };
-
-const errorFixture = (name: string) =>
-  Effect.map(codexErrorFixture(name), ({ status, headers, body }) =>
-    reply.error(status, body, headers),
-  );
 
 /** The account file `accounts add` or a refresh saved. */
 const SavedAccount = Schema.fromJsonString(
@@ -34,10 +32,6 @@ const SavedAccount = Schema.fromJsonString(
   }),
 );
 
-/** Upstream traffic to the Responses endpoint, leaving out usage lookups. */
-const responsesCalls = (codex: { requests: ReadonlyArray<{ path: string }> }) =>
-  codex.requests.filter((request) => request.path === "/codex/responses");
-
 const postChatCompletions = (via: Via, headers: Record<string, string>) =>
   Effect.promise(() =>
     fetch(`${via.url}/v1/chat/completions`, {
@@ -46,8 +40,6 @@ const postChatCompletions = (via: Via, headers: Record<string, string>) =>
       body: JSON.stringify(pingRequest),
     }),
   );
-
-const json = (response: Response) => Effect.promise(() => response.json());
 
 // The same line `formatWindow` in `apps/cli/src/accounts.ts` renders, so the usage test
 // can check `via accounts status`'s own local-time formatting without editing that file.
@@ -83,7 +75,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       expect(wrongKey.status).toBe(401);
       expect(yield* json(wrongKey)).toMatchObject({ error: { code: "invalid_api_key" } });
 
-      expect(responsesCalls(upstream)).toHaveLength(0);
+      expect(responsesOf(upstream)).toHaveLength(0);
     }),
   );
 
@@ -92,7 +84,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       const upstream = yield* startCodex;
       upstream.respond(() => reply.text("pong"));
       const via = yield* launchVia({ upstream: upstream.url });
-      const before = yield* Effect.promise(() => openai(via).chat.completions.create(pingRequest));
+      const before = yield* chat(via, "ping");
 
       expect(before.choices[0]?.message.content).toBe("pong");
 
@@ -104,7 +96,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       expect(yield* json(after)).toMatchObject({ error: { code: "invalid_api_key" } });
 
       // Only the one request that succeeded before revocation ever reached upstream.
-      expect(responsesCalls(upstream)).toHaveLength(1);
+      expect(responsesOf(upstream)).toHaveLength(1);
     }),
   );
 
@@ -116,12 +108,10 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       const created = yield* runVia(via.home, ["keys", "create", "--name", "second"], via.env);
       expect(created.exitCode).toBe(0);
 
-      const completion = yield* Effect.promise(() =>
-        openai(via).chat.completions.create(pingRequest),
-      );
+      const completion = yield* chat(via, "ping");
 
       expect(completion.choices[0]?.message.content).toBe("pong");
-      expect(responsesCalls(upstream)).toHaveLength(1);
+      expect(responsesOf(upstream)).toHaveLength(1);
     }),
   );
 
@@ -156,15 +146,13 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
           },
         });
 
-        const completion = yield* Effect.promise(() =>
-          openai(via).chat.completions.create(pingRequest),
-        );
+        const completion = yield* chat(via, "ping");
 
         expect(completion.choices[0]?.message.content).toBe("pong");
 
         // One upstream call, and it already carries the refreshed token: the
         // refresh happened before dispatch, not as a retry after a 401.
-        expect(responsesCalls(upstream)).toHaveLength(1);
+        expect(responsesOf(upstream)).toHaveLength(1);
         expect(upstream.requests[0]?.headers).toMatchObject({
           authorization: `Bearer ${refreshedAccessToken}`,
           "chatgpt-account-id": "acc-a",
@@ -189,13 +177,11 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
 
       const via = yield* launchVia({ upstream: upstream.url });
 
-      const completion = yield* Effect.promise(() =>
-        openai(via).chat.completions.create(pingRequest),
-      );
+      const completion = yield* chat(via, "ping");
 
       expect(completion.choices[0]?.message.content).toBe("pong");
 
-      expect(responsesCalls(upstream)).toHaveLength(2);
+      expect(responsesOf(upstream)).toHaveLength(2);
       const first = upstream.requests[0]?.headers.authorization;
       const second = upstream.requests[1]?.headers.authorization;
       expect(first).toMatch(/^Bearer \S+/);
@@ -223,14 +209,12 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
         },
       });
 
-      const completion = yield* Effect.promise(() =>
-        openai(via).chat.completions.create(pingRequest),
-      );
+      const completion = yield* chat(via, "ping");
 
       expect(completion.choices[0]?.message.content).toBe("pong");
 
       // "a"'s rejected refresh never reaches upstream; only "b"'s request does.
-      expect(responsesCalls(upstream)).toHaveLength(1);
+      expect(responsesOf(upstream)).toHaveLength(1);
       expect(upstream.requests[0]?.headers).toMatchObject({
         authorization: "Bearer at-b",
         "chatgpt-account-id": "acc-b",

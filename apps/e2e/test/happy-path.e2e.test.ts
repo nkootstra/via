@@ -2,30 +2,20 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
-import { openai, startCodex, launchVia, type Via } from "./harness.ts";
+import { chat, json, launchVia, openai, post, startCodex, type Via } from "./harness.ts";
 
 // Everything that should just work: both endpoints, streaming and not, tool
 // calls, usage accounting, model listing, and the upstream shape via forwards.
-
-/** POSTs one JSON body to via and returns the raw `Response`. */
-const post = (via: Via, path: string, body: Schema.Json) =>
-  Effect.promise(() =>
-    fetch(`${via.url}${path}`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${via.key}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  );
 
 /** POSTs one JSON body to via and decodes its JSON answer with `schema`. */
 const postJson = <S extends Schema.ConstraintDecoder<unknown>>(
   via: Via,
   path: string,
-  body: Schema.Json,
+  body: Schema.JsonObject,
   schema: S,
 ) =>
   post(via, path, body).pipe(
-    Effect.flatMap((response) => Effect.promise(() => response.json())),
+    Effect.flatMap(json),
     Effect.flatMap(Schema.decodeUnknownEffect(schema)),
     // Test boundary: an answer that doesn't decode fails the test.
     Effect.orDie,
@@ -35,7 +25,7 @@ const postJson = <S extends Schema.ConstraintDecoder<unknown>>(
 const decodeJson = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
   Schema.decodeUnknownSync(Schema.fromJsonString(schema));
 
-const postText = (via: Via, path: string, body: Schema.Json) =>
+const postText = (via: Via, path: string, body: Schema.JsonObject) =>
   post(via, path, body).pipe(Effect.flatMap((response) => Effect.promise(() => response.text())));
 
 /** Chat Completions SSE: `data: <json>\n\n` blocks, last one literally `[DONE]`. */
@@ -77,12 +67,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       upstream.script(reply.text("hello there"));
       const via = yield* launchVia({ upstream: upstream.url });
 
-      const completion = yield* Effect.promise(() =>
-        openai(via).chat.completions.create({
-          model: "gpt-6-astra",
-          messages: [{ role: "user", content: "say hi" }],
-        }),
-      );
+      const completion = yield* chat(via, "say hi");
 
       expect(completion.object).toBe("chat.completion");
       expect(completion.model).toBe("gpt-6-astra");
@@ -500,12 +485,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       const upstream = yield* startCodex;
       upstream.script(reply.text("pong"));
       const via = yield* launchVia({ upstream: upstream.url });
-      yield* Effect.promise(() =>
-        openai(via).chat.completions.create({
-          model: "gpt-6-astra",
-          messages: [{ role: "user", content: "ping" }],
-        }),
-      );
+      yield* chat(via, "ping");
       expect(upstream.requests[0]).toMatchObject({
         headers: {
           // Derived from the conversation's opening, as the client sent no session.
