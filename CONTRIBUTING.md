@@ -34,10 +34,39 @@ bun apps/cli/src/index.ts --help   # run the CLI from source
 | `bun run lint`      | oxlint, warnings are errors.                                           |
 | `bun run format`    | oxfmt. `format:check` only checks.                                     |
 | `bun run knip`      | Finds unused files, exports and dependencies.                          |
-| `bun run build`     | Compiles the binary for every platform package in `npm/`.              |
+| `bun run build`     | Compiles the binary, web UI included, for every package in `npm/`.     |
 | `bun run smoke`     | Installs the packed npm packages and runs them under Node.             |
 
 Never use `bun test`; it's a different test runner.
+
+### The web UI
+
+`apps/web` is the admin UI, which via serves at `/ui`. For a quick loop, run
+via with an admin key in one terminal and Vite in another; Vite sends `/admin`
+to via (or to `VIA_DEV_ADMIN_URL`):
+
+```sh
+VIA_ADMIN_KEY=$(openssl rand -hex 32) bun apps/cli/src/index.ts serve
+bun run --cwd apps/web dev    # http://localhost:5173/ui/
+```
+
+The binary embeds the production build instead: `bun run --cwd apps/web build`
+writes `apps/web/dist`, and `dist/embedded.ts` lists its files and the CSP
+hashes of the shell's inline scripts. `bun run build`, `bun run test` and
+`bun run smoke` build it first; run it yourself before `bun apps/cli/src/index.ts`
+or `bun --bun vitest` in `apps/web`, `apps/cli` or `apps/e2e` straight.
+
+The browser tests in `apps/e2e` drive Chromium through Playwright, against a
+compiled binary only:
+
+```sh
+(cd apps/e2e && bunx playwright install chromium)   # once: e2e's version
+bun run build
+VIA_E2E_BIN=$PWD/npm/via-darwin-arm64/bin/via bun run --filter @via/e2e test
+```
+
+A failed browser test leaves a trace in `apps/e2e/test-results/`; open it with
+`bunx playwright show-trace <file>`.
 
 ## How we work
 
