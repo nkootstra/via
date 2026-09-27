@@ -29,6 +29,7 @@ function Shell({ children }: { readonly children: ReactNode }) {
         {/* Ahead of the app: a stored theme applies before anything paints. */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <HeadContent />
+        {import.meta.env.DEV && <DevStyleXInject />}
       </head>
       <body>
         {children}
@@ -36,6 +37,14 @@ function Shell({ children }: { readonly children: ReactNode }) {
       </body>
     </html>
   );
+}
+
+/**
+ * In dev, StyleX's runtime fetches the CSS collected so far and fetches it
+ * again as modules compile; a build extracts it into the stylesheet instead.
+ */
+function DevStyleXInject() {
+  return <script type="module" src="/ui/@id/virtual:stylex:runtime" />;
 }
 
 function Root() {
