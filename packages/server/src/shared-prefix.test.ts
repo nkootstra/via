@@ -64,6 +64,21 @@ describe("withSharedPrefix", () => {
     ]);
   });
 
+  it("moves the line only into the first user message, leaving later turns as they are", () => {
+    const later = [
+      { role: "assistant", content: "Why did the chicken cross the road?" },
+      { role: "user", content: "Why?" },
+    ];
+
+    const body = subAgent("ses_a", "Tell a joke.");
+    const moved = withSharedPrefix({ ...body, messages: [...body.messages, ...later] });
+    expect(moved["messages"]).toEqual([
+      expect.anything(),
+      { role: "user", content: "Current conversation session ID: ses_a\n\nTell a joke." },
+      ...later,
+    ]);
+  });
+
   it.prop(
     "gives two sessions' requests the same bytes up to their first user message",
     {
