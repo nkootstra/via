@@ -20,11 +20,7 @@ const pollOne = (account: Account) =>
     const now = yield* Clock.currentTimeMillis;
     const decision = decideUsagePoll(windows, (yield* states.get)[account.id], now);
 
-    if (!decision.changed) {
-      yield* Effect.logDebug(`${account.label}'s usage is unchanged`);
-
-      return;
-    }
+    if (!decision.changed) return yield* Effect.logDebug(`${account.label}'s usage is unchanged`);
 
     yield* states.mark(account.id, {
       status: "cooling",
