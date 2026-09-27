@@ -18,7 +18,9 @@ import {
   HttpApiGroup,
   HttpApiMiddleware,
   HttpApiSchema,
+  HttpApiScalar,
   HttpApiSecurity,
+  OpenApi,
 } from "effect/unstable/httpapi";
 
 /** An account as the admin API shows it: everything but its tokens. */
@@ -166,7 +168,12 @@ class UsageGroup extends HttpApiGroup.make("usage")
 class AdminApi extends HttpApi.make("via-admin")
   .add(AccountsGroup)
   .add(KeysGroup)
-  .add(UsageGroup) {}
+  .add(UsageGroup)
+  .annotate(OpenApi.Title, "via admin API")
+  .annotate(
+    OpenApi.Description,
+    "Manages the ChatGPT accounts and client API keys of a via server, and reports their usage.",
+  ) {}
 
 /** `VIA_ADMIN_KEY` is set, but too short to withstand guessing. */
 class AdminKeyTooShortError extends Schema.TaggedError<AdminKeyTooShortError>()(
@@ -322,6 +329,7 @@ const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
 /**
  * The admin API under `/admin`, behind `VIA_ADMIN_KEY`. Without that key the
  * routes are not registered at all, so `/admin` answers 404 like any unknown path.
+ * Its OpenAPI spec and a Scalar reference page for it need no key.
  */
 export const adminRoutes = Layer.unwrap(
   Effect.gen(function* () {
@@ -332,9 +340,14 @@ export const adminRoutes = Layer.unwrap(
 
     if (length < 32) return yield* new AdminKeyTooShortError({ length });
 
-    return HttpApiBuilder.layer(AdminApi).pipe(
-      Layer.provide([accounts, keys, usage]),
-      Layer.provide([authorization(adminKey.value), Logins.layer]),
+    return Layer.merge(
+      HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
+        Layer.provide([accounts, keys, usage]),
+        Layer.provide([authorization(adminKey.value), Logins.layer]),
+      ),
+      // Scalar's script is served inline rather than from a CDN: the page is where
+      // the admin key gets typed in, so it runs no third-party code.
+      HttpApiScalar.layer(AdminApi, { path: "/admin/docs" }),
     );
   }),
 );
