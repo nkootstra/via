@@ -1,6 +1,6 @@
 import { Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
-import { chatUsage, incompleteFinish, Usage } from "./chat-response.ts";
+import { chatUsage, finishReason, toolCall, Usage } from "./chat-response.ts";
 
 const Created = Schema.Struct({
   type: Schema.Literal("response.created"),
@@ -95,8 +95,8 @@ const initial = (): State => ({
 
 const data = (payload: Schema.Json) => `data: ${JSON.stringify(payload)}\n\n`;
 
-const chunk = (state: State, delta: Schema.JsonObject, finishReason: string | null = null) =>
-  data({ ...state.envelope, choices: [{ index: 0, delta, finish_reason: finishReason }] });
+const chunk = (state: State, delta: Schema.JsonObject, reason: string | null = null) =>
+  data({ ...state.envelope, choices: [{ index: 0, delta, finish_reason: reason }] });
 
 // Chat Completions has no failure event; clients such as the openai SDK raise
 // an `error` payload sent in place of a chunk.
@@ -131,7 +131,7 @@ export const toChatStream = <E>(
       const index = state.toolIndex.size;
       const toolIndex = new Map(state.toolIndex).set(event.output_index, index);
       const { call_id, name } = event.item;
-      const call = { index, id: call_id, type: "function", function: { name, arguments: "" } };
+      const call = { index, ...toolCall(call_id, name, "") };
 
       return [{ ...state, toolIndex }, [chunk(state, { tool_calls: [call] })]];
     }
@@ -148,7 +148,7 @@ export const toChatStream = <E>(
     if (isCompleted(event)) {
       return [
         { ...state, ended: true },
-        finish(state, state.toolIndex.size > 0 ? "tool_calls" : "stop", event.response.usage),
+        finish(state, finishReason(undefined, state.toolIndex.size > 0), event.response.usage),
       ];
     }
 
@@ -157,7 +157,7 @@ export const toChatStream = <E>(
 
       return [
         { ...state, ended: true },
-        finish(state, incompleteFinish(incomplete_details.reason), usage),
+        finish(state, finishReason(incomplete_details, state.toolIndex.size > 0), usage),
       ];
     }
 

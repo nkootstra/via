@@ -41,9 +41,26 @@ export const chatUsage = (usage: typeof Usage.Type) => ({
   total_tokens: usage.total_tokens,
 });
 
-/** Why Chat Completions says a response stopped short, by Responses incomplete reason. */
-export const incompleteFinish = (reason: string) =>
-  reason === "content_filter" ? reason : "length";
+/**
+ * Why a chat choice finished: the reason a response stopped short, if it did,
+ * else whether it ended by calling tools.
+ */
+export const finishReason = (
+  incomplete: { readonly reason: string } | null | undefined,
+  calledTools: boolean,
+) => {
+  if (incomplete != null)
+    return incomplete.reason === "content_filter" ? "content_filter" : "length";
+
+  return calledTools ? "tool_calls" : "stop";
+};
+
+/** The Chat Completions tool call for a Responses function call. */
+export const toolCall = (id: string, name: string, args: string) => ({
+  id,
+  type: "function",
+  function: { name, arguments: args },
+});
 
 /** The Chat Completions answer equivalent to a completed Responses response. */
 export const toChatCompletion = (response: CompletedResponse) => {
@@ -53,11 +70,9 @@ export const toChatCompletion = (response: CompletedResponse) => {
     .map((part) => part.text)
     .join("");
 
-  const toolCalls = response.output.filter(Schema.is(FunctionCallItem)).map((call) => ({
-    id: call.call_id,
-    type: "function",
-    function: { name: call.name, arguments: call.arguments },
-  }));
+  const toolCalls = response.output
+    .filter(Schema.is(FunctionCallItem))
+    .map((call) => toolCall(call.call_id, call.name, call.arguments));
 
   return {
     id: response.id,
@@ -72,12 +87,7 @@ export const toChatCompletion = (response: CompletedResponse) => {
           content: text === "" && toolCalls.length > 0 ? null : text,
           ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
         },
-        finish_reason:
-          response.incomplete_details != null
-            ? incompleteFinish(response.incomplete_details.reason)
-            : toolCalls.length > 0
-              ? "tool_calls"
-              : "stop",
+        finish_reason: finishReason(response.incomplete_details, toolCalls.length > 0),
       },
     ],
     usage: chatUsage(response.usage),
