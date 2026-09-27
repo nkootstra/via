@@ -196,7 +196,6 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
           ? Option.some({ provider, model: model.slice(slash + 1) })
           : Option.none();
       },
-      baseUrl: (provider) => providers.get(provider)?.baseUrl,
       send: Effect.fn("Providers.send")(function* (route, path, body, session) {
         // `route` comes from `route`, so its provider is configured.
         const provider = providers.get(route.provider);
@@ -233,8 +232,6 @@ export class Providers extends Context.Service<
   {
     /** The provider a `<provider>/<model>` id names, if it is configured. */
     readonly route: (model: string) => Option.Option<Route>;
-    /** The base URL requests to `provider` go to. */
-    readonly baseUrl: (provider: string) => string | undefined;
     /**
      * Every provider's models as it describes them, with `<provider>/<model>`
      * ids; a provider that can't list them is left out.

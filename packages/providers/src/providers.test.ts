@@ -2,22 +2,23 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import type { ProviderConfig } from "@via/config";
 import { ConfigProvider, Effect, Layer, Option, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Providers } from "./index.ts";
 import { providerReply, startFakeProvider } from "./testing/index.ts";
 
-/** Runs `body` with `configs` providers and `env` as the environment. */
+/** Runs `body` with `configs` providers, `env` as the environment, and `client` as the network. */
 const withProviders = <A, E, R>(
   configs: Record<string, ProviderConfig>,
   body: (providers: Providers["Service"]) => Effect.Effect<A, E, R>,
   env: Record<string, string> = { KEY: "sk-test" },
+  client: Layer.Layer<HttpClient.HttpClient> = FetchHttpClient.layer,
 ) =>
   Effect.gen(function* () {
     return yield* body(yield* Providers);
   }).pipe(
     Effect.provide(
       Providers.layer(configs, "1.2.3").pipe(
-        Layer.provide(FetchHttpClient.layer),
+        Layer.provide(client),
         Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
       ),
     ),
@@ -80,15 +81,37 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
-  it.effect("knows OpenRouter and OpenCode Go without a baseUrl", () =>
-    withProviders(
-      { openrouter: { apiKeyEnv: "KEY" }, "opencode-go": { apiKeyEnv: "KEY" } },
-      (providers) =>
+  it.effect("knows OpenRouter's and OpenCode Go's URLs without a baseUrl", () =>
+    Effect.gen(function* () {
+      const urls: Array<string> = [];
+      // Stands in for the network, so nothing reaches the real providers.
+      const offline = HttpClient.make((request) =>
         Effect.sync(() => {
-          expect(providers.baseUrl("openrouter")).toBe("https://openrouter.ai/api/v1");
-          expect(providers.baseUrl("opencode-go")).toBe("https://opencode.ai/zen/go/v1");
+          urls.push(request.url);
+
+          return HttpClientResponse.fromWeb(request, new Response(null, { status: 503 }));
         }),
-    ),
+      );
+
+      yield* withProviders(
+        { openrouter: { apiKeyEnv: "KEY" }, "opencode-go": { apiKeyEnv: "KEY" } },
+        (providers) =>
+          Effect.gen(function* () {
+            yield* providers.models;
+            yield* providers.usage;
+            yield* providers.send({ provider: "openrouter", model: "m" }, "/responses", {}, "c");
+          }),
+        undefined,
+        Layer.succeed(HttpClient.HttpClient, offline),
+      );
+
+      expect(urls.toSorted()).toEqual([
+        "https://opencode.ai/zen/go/v1/models",
+        "https://opencode.ai/zen/go/v1/usage",
+        "https://openrouter.ai/api/v1/models",
+        "https://openrouter.ai/api/v1/responses",
+      ]);
+    }),
   );
 
   it.effect("rejects a provider it doesn't know that has no baseUrl", () =>
