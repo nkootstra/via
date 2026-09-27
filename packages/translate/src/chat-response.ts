@@ -34,6 +34,12 @@ export const CompletedResponse = Schema.Struct({
 
 export type CompletedResponse = typeof CompletedResponse.Type;
 
+const isOutputText = Schema.is(OutputText);
+
+const isMessageItem = Schema.is(MessageItem);
+
+const isFunctionCallItem = Schema.is(FunctionCallItem);
+
 /** Token usage in Chat Completions terms. */
 export const chatUsage = (usage: typeof Usage.Type) => ({
   prompt_tokens: usage.input_tokens,
@@ -65,13 +71,13 @@ export const toolCall = (id: string, name: string, args: string) => ({
 /** The Chat Completions answer equivalent to a completed Responses response. */
 export const toChatCompletion = (response: CompletedResponse) => {
   const text = response.output
-    .filter(Schema.is(MessageItem))
-    .flatMap((item) => item.content.filter(Schema.is(OutputText)))
+    .filter(isMessageItem)
+    .flatMap((item) => item.content.filter(isOutputText))
     .map((part) => part.text)
     .join("");
 
   const toolCalls = response.output
-    .filter(Schema.is(FunctionCallItem))
+    .filter(isFunctionCallItem)
     .map((call) => toolCall(call.call_id, call.name, call.arguments));
 
   return {
