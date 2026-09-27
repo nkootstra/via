@@ -1,8 +1,10 @@
 // The admin API's contract: its endpoints, what they take and answer, and how they are
-// secured. `admin.ts` implements it.
-import { AccountNotFoundError, AuthRequestError } from "@via/codex-auth";
-import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys";
-import { ProviderUsage } from "@via/providers";
+// secured. `admin.ts` implements it. It imports only `effect` and the import-light
+// subpaths of via's other packages, so a browser can bundle it, as `@via/server/admin-api`,
+// for an API client.
+import { AccountNotFoundError, AuthRequestError } from "@via/codex-auth/errors";
+import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
+import { ProviderUsage } from "@via/providers/schemas";
 import { Schema } from "effect";
 import {
   HttpApi,
@@ -13,7 +15,6 @@ import {
   HttpApiSecurity,
   OpenApi,
 } from "effect/unstable/httpapi";
-import { LoginNotFoundError } from "./logins.ts";
 
 /** An account as the admin API shows it: everything but its tokens. */
 const AdminAccount = Schema.Struct({
@@ -69,6 +70,12 @@ const Usage = Schema.Struct({
   accounts: Schema.Array(AccountUsage),
   providers: Schema.Array(ProviderUsage),
 });
+
+/** No login with this id was started since the server did; the admin API answers it as a 404. */
+export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()(
+  "LoginNotFoundError",
+  { id: Schema.String },
+) {}
 
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",

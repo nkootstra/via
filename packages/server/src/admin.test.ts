@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { type Via, ok, withVia } from "./testing/harness.ts";
-import { LoginNotFoundError } from "./logins.ts";
+import { LoginNotFoundError } from "./admin-api.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";
 

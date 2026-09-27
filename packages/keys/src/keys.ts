@@ -1,6 +1,7 @@
 import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
 import { Context, DateTime, Effect, FileSystem, Layer, Option, Schema, Semaphore } from "effect";
 import { createHash, timingSafeEqual } from "node:crypto";
+import { DuplicateKeyNameError, KeyNotFoundError } from "./errors.ts";
 
 const StoredKeys = Schema.Array(
   Schema.Struct({
@@ -10,23 +11,6 @@ const StoredKeys = Schema.Array(
     createdAt: Schema.String,
   }),
 );
-
-export class DuplicateKeyNameError extends Schema.TaggedError<DuplicateKeyNameError>()(
-  "DuplicateKeyNameError",
-  { name: Schema.String },
-) {
-  override get message() {
-    return `A key named "${this.name}" already exists`;
-  }
-}
-
-export class KeyNotFoundError extends Schema.TaggedError<KeyNotFoundError>()("KeyNotFoundError", {
-  idOrName: Schema.String,
-}) {
-  override get message() {
-    return `No key with id or name "${this.idOrName}"`;
-  }
-}
 
 const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
 

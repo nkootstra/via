@@ -1,6 +1,7 @@
 import { Context, Duration, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import { JwtPayload } from "./claims.ts";
+import { AuthRequestError } from "./errors.ts";
 
 const ISSUER = "https://auth.openai.com";
 
@@ -45,14 +46,6 @@ const RefreshErrorBody = Schema.Struct({
 });
 
 const AccessTokenExpiry = JwtPayload(Schema.Struct({ exp: Schema.Finite }));
-
-export class AuthRequestError extends Schema.TaggedError<AuthRequestError>()("AuthRequestError", {
-  reason: Schema.String,
-}) {
-  override get message() {
-    return `OpenAI auth request failed: ${this.reason}`;
-  }
-}
 
 export class DeviceLoginTimeoutError extends Schema.TaggedError<DeviceLoginTimeoutError>()(
   "DeviceLoginTimeoutError",
