@@ -8,7 +8,7 @@ export type UsageWindow = {
 };
 
 /** What a poll learned about an account's cooldown; `changed: false` leaves it untouched. */
-export type UsagePollResult =
+type UsagePollResult =
   | { readonly changed: false }
   | { readonly changed: true; readonly until: number; readonly reason: string };
 

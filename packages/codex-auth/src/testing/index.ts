@@ -2,7 +2,6 @@
 export {
   ACCESS_TOKEN_EXP,
   type FakeIssuerOptions,
-  fakeIssuer,
   issuedTokens,
   REFRESHED_EXP,
   refreshedTokens,

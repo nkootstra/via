@@ -14,9 +14,9 @@ const IDENTITIES = {
   plain: (version: string) => ({ originator: "via", "user-agent": `via/${version}` }),
 };
 
-export type UpstreamAccount = { readonly accessToken: string; readonly accountId: string };
+type UpstreamAccount = { readonly accessToken: string; readonly accountId: string };
 
-export type CodexUpstreamOptions = {
+type CodexUpstreamOptions = {
   readonly baseUrl?: string;
   /** Present requests as the official Codex TUI. */
   readonly cloak: boolean;

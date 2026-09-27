@@ -35,7 +35,7 @@ const PRESETS = new Map<string, { baseUrl: string; session: SessionTarget; usage
   ],
 ]);
 
-export class UnknownProviderError extends Schema.TaggedError<UnknownProviderError>()(
+class UnknownProviderError extends Schema.TaggedError<UnknownProviderError>()(
   "UnknownProviderError",
   { name: Schema.String },
 ) {
@@ -44,10 +44,10 @@ export class UnknownProviderError extends Schema.TaggedError<UnknownProviderErro
   }
 }
 
-export class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()(
-  "MissingApiKeyError",
-  { provider: Schema.String, variable: Schema.String },
-) {
+class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()("MissingApiKeyError", {
+  provider: Schema.String,
+  variable: Schema.String,
+}) {
   override get message() {
     return `Provider "${this.provider}" reads its API key from ${this.variable}, which is not set`;
   }

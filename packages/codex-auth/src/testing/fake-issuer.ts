@@ -40,7 +40,7 @@ export type FakeIssuerOptions = {
 };
 
 /** Serves the device-code and token endpoints of auth.openai.com. */
-export const fakeIssuer = ({
+const fakeIssuer = ({
   pendingPolls = 0,
   interval = "0",
   refreshResponse = { status: 200, body: refreshedTokens },
