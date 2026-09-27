@@ -58,6 +58,9 @@ describe("CodexUpstream.usage", () => {
     Effect.gen(function* () {
       const { result } = yield* usage({}, 401);
       expect(result).toEqual(Result.fail(new UsageUnavailableError({ status: 401 })));
+      expect(result).toMatchObject({
+        failure: { message: "ChatGPT did not report usage (HTTP 401)" },
+      });
     }),
   );
 });

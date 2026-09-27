@@ -61,6 +61,7 @@ layer(BunFileSystem.layer)("CodexUpstream.models", (it) => {
       const error = yield* Effect.flip(models(codex.url));
       expect(error).toBeInstanceOf(ModelsUnavailableError);
       expect(error).toMatchObject({ status: 599 });
+      expect(error.message).toBe("Codex did not list its models (HTTP 599)");
     }),
   );
 });

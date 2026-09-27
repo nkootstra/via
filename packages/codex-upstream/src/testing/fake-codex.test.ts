@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Option, type Schema, Stream } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { reply, startFakeCodex } from "./fake-codex.ts";
-import { codexFixture } from "./fixtures.ts";
+import { codexErrorFixture, codexFixture, codexRefreshErrorFixture } from "./fixtures.ts";
 
 const post = (url: string, account: string, body: Schema.JsonObject = { model: "gpt-6-astra" }) =>
   Effect.gen(function* () {
@@ -40,6 +40,25 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
         "response.completed",
       ]);
       expect(answer.text).toContain('"text":"pong"');
+    }),
+  );
+
+  it.effect("answers a scripted tool call with its arguments as a JSON string", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.script(reply.toolCall("lookup", { city: "Utrecht" }));
+      const answer = yield* post(codex.url, "acc-a");
+      expect(events(answer.text)).toEqual([
+        "response.created",
+        "response.in_progress",
+        "response.output_item.added",
+        "response.function_call_arguments.delta",
+        "response.function_call_arguments.done",
+        "response.output_item.done",
+        "response.completed",
+      ]);
+      expect(answer.text).toContain('"name":"lookup"');
+      expect(answer.text).toContain(String.raw`"arguments":"{\"city\":\"Utrecht\"}"`);
     }),
   );
 
@@ -211,12 +230,63 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
     }),
   );
 
+  it.effect("serves an account its own /codex/models catalog, waiting for it on request", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models({ models: [] });
+      codex.models({ models: [{ slug: "gpt-6-sol" }] }, "acc-a");
+      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
+      const catalog = (account: string) =>
+        http
+          .execute(
+            HttpClientRequest.get(`${codex.url}/codex/models`).pipe(
+              HttpClientRequest.setHeader("chatgpt-account-id", account),
+            ),
+          )
+          .pipe(Effect.flatMap((response) => response.json));
+
+      expect(yield* catalog("acc-a")).toEqual({ models: [{ slug: "gpt-6-sol" }] });
+      expect(yield* catalog("acc-b")).toEqual({ models: [] });
+      yield* codex.modelsReceived(2);
+      expect(codex.modelRequests).toHaveLength(2);
+    }),
+  );
+
   it.effect("fails an unscripted /codex/models request loudly", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
       const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
       const response = yield* http.execute(HttpClientRequest.get(`${codex.url}/codex/models`));
       expect(response.status).toBe(599);
+    }),
+  );
+
+  it.effect("reads one of codex's HTTP error fixtures by name", () =>
+    Effect.gen(function* () {
+      const fixture = yield* codexErrorFixture("usage_limit_reached");
+      expect(fixture).toMatchObject({
+        status: 429,
+        headers: { "x-codex-primary-used-percent": "100.0" },
+        body: { error: { type: "usage_limit_reached" } },
+      });
+    }),
+  );
+
+  it.effect("reads one of codex's refresh error fixtures by name", () =>
+    Effect.gen(function* () {
+      const fixture = yield* codexRefreshErrorFixture("invalid_grant");
+      expect(fixture).toEqual({
+        status: 400,
+        body: { error: "invalid_grant", error_description: "refresh token expired" },
+      });
+    }),
+  );
+
+  it.effect("dies on a fixture name that does not exist", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(codexErrorFixture("no_such_error"));
+      expect(Exit.hasDies(exit)).toBe(true);
     }),
   );
 });

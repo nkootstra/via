@@ -45,6 +45,40 @@ describe("collectResponse", () => {
       const cut = sse([{ type: "response.created", response: { id: "resp_1" } }]);
       const error = yield* Effect.flip(collectResponse(bytes(cut)));
       expect(error).toBeInstanceOf(IncompleteStreamError);
+      expect(error).toMatchObject({
+        message: "The Codex stream ended before the response completed",
+      });
+    }),
+  );
+
+  it.effect("keeps the final output when Codex filled it in", () =>
+    Effect.gen(function* () {
+      const text = sse([
+        { type: "response.output_item.done", item: { type: "message", id: "streamed" } },
+        { type: "response.completed", response: { id: "resp_1", output: [{ id: "final" }] } },
+      ]);
+
+      expect((yield* collectResponse(bytes(text)))["output"]).toEqual([{ id: "final" }]);
+    }),
+  );
+
+  it.effect("stops reading at the terminal event", () =>
+    Effect.gen(function* () {
+      const text = sse([{ type: "response.completed", response: { id: "resp_1" } }]);
+
+      const response = yield* collectResponse(
+        bytes(text).pipe(Stream.concat(Stream.fail("connection reset"))),
+      );
+
+      expect(response).toEqual({ id: "resp_1", output: [] });
+    }),
+  );
+
+  it.effect("fails as incomplete when a failed response carries no error", () =>
+    Effect.gen(function* () {
+      const failed = sse([{ type: "response.failed", response: { id: "resp_1" } }]);
+      const error = yield* Effect.flip(collectResponse(bytes(failed)));
+      expect(error).toBeInstanceOf(IncompleteStreamError);
     }),
   );
 });

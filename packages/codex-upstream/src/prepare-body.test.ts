@@ -15,6 +15,12 @@ describe("prepareBody", () => {
     expect(prepareBody(request).include).toEqual(["reasoning.encrypted_content"]);
   });
 
+  it("asks for encrypted reasoning only once", () => {
+    expect(prepareBody({ ...request, include: ["reasoning.encrypted_content"] }).include).toEqual([
+      "reasoning.encrypted_content",
+    ]);
+  });
+
   it("keeps the client's include entries", () => {
     expect(prepareBody({ ...request, include: ["message.output_text.logprobs"] }).include).toEqual([
       "message.output_text.logprobs",
@@ -46,6 +52,18 @@ describe("prepareBody", () => {
     expect(
       prepareBody({ ...request, model: "gpt-6-astra-high", reasoning: { summary: "auto" } }),
     ).toMatchObject({ model: "gpt-6-astra", reasoning: { effort: "high", summary: "auto" } });
+  });
+
+  it("sets the alias's effort when the client sent no reasoning", () => {
+    expect(prepareBody({ ...request, model: "gpt-6-sol-none" })).toMatchObject({
+      model: "gpt-6-sol",
+      reasoning: { effort: "none" },
+    });
+  });
+
+  it("leaves a model that is not a string for Codex to reject", () => {
+    expect(prepareBody({ ...request, model: 42 })).toMatchObject({ model: 42 });
+    expect(prepareBody({ ...request, model: 42 })).not.toHaveProperty("reasoning");
   });
 
   it("leaves a model without an effort suffix alone", () => {
