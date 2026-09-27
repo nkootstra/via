@@ -93,7 +93,7 @@ export function DialogContent({ size = "sm", children }: DialogContentProps) {
 }
 
 /** The panel shared by Dialog and AlertDialog; only a Dialog gets the ✕. */
-function DialogPanel({
+export function DialogPanel({
   size,
   closeButton,
   children,

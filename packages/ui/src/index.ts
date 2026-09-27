@@ -15,3 +15,5 @@ export {
   DialogTrigger,
   type DialogContentProps,
 } from "./dialog.tsx";
+
+export { AlertDialog, AlertDialogContent, AlertDialogTrigger } from "./alert-dialog.tsx";
