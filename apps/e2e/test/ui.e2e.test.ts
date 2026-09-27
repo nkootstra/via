@@ -2,7 +2,8 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import type { Page } from "playwright";
-import { launchVia, openPage, startCodex } from "./harness.ts";
+import { reply } from "@via/codex-upstream/testing";
+import { launchVia, openPage, post, startCodex } from "./harness.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";
 
@@ -10,16 +11,44 @@ const adminKey = "admin-key-that-is-long-enough-000";
 // build job, which has one, installs Chromium for these.
 const withBinary = process.env["VIA_E2E_BIN"] !== undefined;
 
-/** A via with one account and the admin key set, so it serves the UI. */
-const viaWithUi = Effect.gen(function* () {
-  const upstream = yield* startCodex;
+/** A via with one account and the admin key set, so it serves the UI, and its fake Codex. */
+const viaAndCodex = Effect.gen(function* () {
+  const codex = yield* startCodex;
 
-  return yield* launchVia({
-    upstream: upstream.url,
+  const via = yield* launchVia({
+    upstream: codex.url,
     accounts: [{ name: "a" }],
     env: { VIA_ADMIN_KEY: adminKey },
   });
+
+  return { via, codex };
 });
+
+const viaWithUi = Effect.map(viaAndCodex, ({ via }) => via);
+
+/**
+ * Marks `first-card` in the page's performance timeline when the first overview
+ * card is in the document, for every page the browser loads.
+ */
+const markFirstCard = `
+  new MutationObserver((_, observer) => {
+    if (document.querySelector("article") !== null) {
+      performance.mark("first-card");
+      observer.disconnect();
+    }
+  }).observe(document, { childList: true, subtree: true });
+`;
+
+/** The `/admin` paths the page asked for before its first card was in the document. */
+const adminBeforeFirstCard = `(() => {
+  const card = performance.getEntriesByName("first-card")[0].startTime;
+
+  return performance
+    .getEntriesByType("resource")
+    .filter((entry) => entry.startTime < card)
+    .map((entry) => new URL(entry.name).pathname)
+    .filter((path) => path.startsWith("/admin"));
+})()`;
 
 const visible = (page: Page, name: string) =>
   Effect.promise(() => page.getByRole("heading", { name }).waitFor({ timeout: 10_000 }));
@@ -98,6 +127,47 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
       );
 
       expect(painted).toEqual({ theme: "dark", background: "rgb(23, 23, 23)" });
+    }),
+  );
+
+  it.effect.runIf(withBinary)(
+    "paints a signed-in reload from the shell, asking /admin nothing",
+    () =>
+      Effect.gen(function* () {
+        const via = yield* viaWithUi;
+        const { page, problems } = yield* openPage("instant-reload");
+        yield* Effect.promise(() => page.addInitScript(markFirstCard));
+        yield* signIn(page, via.url);
+
+        yield* Effect.promise(() => page.reload());
+        yield* Effect.promise(() => page.getByRole("article", { name: "a" }).waitFor());
+
+        expect(yield* Effect.promise(() => page.evaluate(adminBeforeFirstCard))).toEqual([]);
+        expect(problems).toEqual([]);
+      }),
+  );
+
+  it.effect.runIf(withBinary)("shows a cooldown as Codex answers 429, without a reload", () =>
+    Effect.gen(function* () {
+      const { via, codex } = yield* viaAndCodex;
+      const { page, problems } = yield* openPage("live-cooldown");
+      yield* signIn(page, via.url);
+      const card = page.getByRole("article", { name: "a" });
+      yield* Effect.promise(() => card.getByText("Available").waitFor());
+
+      const polled: Array<string> = [];
+      page.on("request", (request) => polled.push(new URL(request.url()).pathname));
+      page.on("framenavigated", () => polled.push("navigation"));
+
+      codex.respond(() =>
+        reply.error(429, { error: { type: "rate_limit_exceeded" } }, { "retry-after": "120" }),
+      );
+      const refused = yield* post(via, "/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+      expect(refused.status).toBe(429);
+
+      yield* Effect.promise(() => card.getByText("Cooling down").waitFor({ timeout: 5_000 }));
+      expect(polled).toEqual([]);
+      expect(problems).toEqual([]);
     }),
   );
 });
