@@ -92,10 +92,20 @@ describe("the embedded build", () => {
   it("hashes every inline script in the shell, the theme script's among them", () => {
     const inline = [
       ...read("_shell.html").matchAll(/<script(?![^>]*\ssrc=)[^>]*>(.*?)<\/script>/gs),
-    ].map(([, script = ""]) => sha256(script));
+    ].map(([, script = ""]) => sha256(script.replaceAll("\0", "\uFFFD")));
 
     expect(inline.length).toBeGreaterThan(1);
     expect(embedded().scriptHashes).toEqual(inline);
     expect(inline).toContain(themeScriptHash);
+  });
+
+  // Start's bootstrap script has a NUL in it, which the browser's HTML parser reads,
+  // and hashes, as U+FFFD; the hash of the bytes in the file would be refused.
+  it("hashes a script as the browser parses it, a NUL as U+FFFD", () => {
+    const bootstrap = /<script data-tsr-stream-part="">(.*?)<\/script>/s.exec(read("_shell.html"));
+    const [, script = ""] = bootstrap ?? [];
+
+    expect(script).toContain("\0");
+    expect(embedded().scriptHashes).toContain(sha256(script.replaceAll("\0", "\uFFFD")));
   });
 });
