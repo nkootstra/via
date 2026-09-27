@@ -64,8 +64,8 @@ const AccountUsage = Schema.Union([
     label: Schema.String,
     windows: Schema.Array(
       Schema.Struct({
-        windowMinutes: Schema.Number,
-        usedPercent: Schema.Number,
+        windowMinutes: Schema.Finite,
+        usedPercent: Schema.Finite,
         resetsAt: Schema.String,
       }),
     ),
@@ -81,7 +81,7 @@ const ProviderUsage = Schema.Union([
       Schema.Struct({
         window: Schema.String,
         status: Schema.String,
-        usedPercent: Schema.Number,
+        usedPercent: Schema.Finite,
         resetsAt: Schema.String,
       }),
     ),
@@ -184,7 +184,7 @@ class AdminApi extends HttpApi.make("via-admin")
 /** `VIA_ADMIN_KEY` is set, but too short to withstand guessing. */
 class AdminKeyTooShortError extends Schema.TaggedError<AdminKeyTooShortError>()(
   "AdminKeyTooShortError",
-  { length: Schema.Number },
+  { length: Schema.Finite },
 ) {
   override get message() {
     return `VIA_ADMIN_KEY must be at least 32 characters; it has ${this.length}`;
