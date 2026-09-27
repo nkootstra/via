@@ -12,6 +12,7 @@ import {
   adminPool,
   adminUsage,
   type OpencodeGoEnvironment,
+  type StateOptions,
   opencodeGoAccount,
   withoutTokens,
 } from "./admin-state.ts";
@@ -266,10 +267,10 @@ const models = HttpApiBuilder.group(AdminApi, "models", (handlers) =>
 );
 
 // Answered raw, to keep a quiet stream alive with comments, which the typed events can't carry.
-const events = (environment: OpencodeGoEnvironment | undefined) =>
+const events = (options: StateOptions) =>
   HttpApiBuilder.group(AdminApi, "events", (handlers) =>
     Effect.gen(function* () {
-      const stream = adminEvents(environment);
+      const stream = adminEvents(options);
       const context = yield* Effect.context<Stream.Services<typeof stream>>();
 
       return handlers.handleRaw("stream", () =>
@@ -303,11 +304,17 @@ const scalarConfig = {
  * that key neither is registered at all, so both answer 404 like any unknown path.
  * The API's OpenAPI spec and a Scalar reference page for it need no key.
  */
-export const adminRoutes = (
-  adminKey: Redacted.Redacted<string> | undefined,
-  ui: EmbeddedUi | undefined,
-  opencodeGoEnvironment?: OpencodeGoEnvironment,
-) =>
+export const adminRoutes = ({
+  adminKey,
+  ui,
+  opencodeGoEnvironment,
+  version,
+}: {
+  readonly adminKey: Redacted.Redacted<string> | undefined;
+  readonly ui: EmbeddedUi | undefined;
+  readonly opencodeGoEnvironment: OpencodeGoEnvironment | undefined;
+  readonly version: string;
+}) =>
   Layer.unwrap(
     Effect.gen(function* () {
       if (adminKey === undefined) return Layer.empty;
@@ -325,14 +332,16 @@ export const adminRoutes = (
             usage,
             pool,
             models,
-            events(opencodeGoEnvironment),
+            events({ environment: opencodeGoEnvironment, version }),
           ]),
           Layer.provide([authorization, Logins.layer]),
         ),
         // Scalar's script is served inline rather than from a CDN: the page is where
         // the admin key gets typed in, so it runs no third-party code.
         HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }),
-        ui === undefined ? Layer.empty : uiRoutes(ui, opencodeGoEnvironment),
+        ui === undefined
+          ? Layer.empty
+          : uiRoutes(ui, { environment: opencodeGoEnvironment, version }),
       ).pipe(Layer.provide(AdminSessions.layer(adminKey)));
     }),
   );

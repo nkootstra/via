@@ -177,6 +177,8 @@ const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schem
  */
 export const AdminState = Schema.Struct({
   session: Schema.Literal(true),
+  /** The version of the via that sent it: a page built for another was updated under it. */
+  version: Schema.String,
   pool: Pool,
   usage: Usage,
   accounts: Schema.Array(AdminAccount),

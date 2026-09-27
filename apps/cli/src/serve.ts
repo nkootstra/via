@@ -129,6 +129,7 @@ export const serve = ({
             adminKey,
             ui,
             opencodeGoEnvironment: opencodeGoEnvironment(config, keys),
+            version,
           }),
           UsagePoll.layer,
           importDeprecatedKey(config.providers, keys),

@@ -237,6 +237,7 @@ export const withVia = <A, E>(
       ViaServer.layer({
         adminKey: adminKey === undefined ? undefined : Redacted.make(adminKey),
         ui,
+        version: "1.2.3-test",
         opencodeGoEnvironment:
           opencodeGoVariable === undefined
             ? undefined

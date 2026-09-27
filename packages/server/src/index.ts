@@ -25,6 +25,8 @@ export const ViaServer = {
     readonly adminKey?: Redacted.Redacted<string> | undefined;
     readonly ui?: EmbeddedUi | undefined;
     readonly opencodeGoEnvironment?: OpencodeGoEnvironment | undefined;
+    /** The running via's version, which the admin UI compares with its own. */
+    readonly version: string;
   }) =>
     HttpRouter.serve(
       Layer.mergeAll(
@@ -34,7 +36,12 @@ export const ViaServer = {
         // For a host's health checks: needs no key, and isn't logged.
         HttpRouter.add("GET", "/healthz", Effect.succeed(HttpServerResponse.text("ok"))),
         // Like the admin API, the page for it is only there with the key.
-        adminRoutes(options.adminKey, options.ui, options.opencodeGoEnvironment),
+        adminRoutes({
+          adminKey: options.adminKey,
+          ui: options.ui,
+          opencodeGoEnvironment: options.opencodeGoEnvironment,
+          version: options.version,
+        }),
       ),
       // One line per request from `logRequest`, instead of Effect's; `via serve`
       // announces the address itself.

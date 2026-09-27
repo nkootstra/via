@@ -202,6 +202,7 @@ layer(BunFileSystem.layer)("the admin UI at /ui", (it) => {
           html.replace(/<script type="application\/json" id="via-state">.*?<\/script>/s, ""),
         ).toBe(shell);
         expect(state.session).toBe(true);
+        expect(state.version).toBe("1.2.3-test");
         expect(state.accounts.map(({ label }) => label)).toEqual([
           "a@example.com",
           "b@example.com",

@@ -2,7 +2,7 @@ import { Effect, FileSystem, Layer, Redacted, Schema } from "effect";
 import { HttpRouter, type HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { AdminState, session } from "./admin-api.ts";
 import { AdminSessions } from "./admin-sessions.ts";
-import { adminState, type OpencodeGoEnvironment } from "./admin-state.ts";
+import { adminState, type StateOptions } from "./admin-state.ts";
 import { RequestLog } from "./request-log.ts";
 
 /** The admin UI's build, as `@via/web/embedded` gives it: files on disk, or in the binary. */
@@ -81,7 +81,7 @@ const signedIn = (
  * for, which HTML can't stand in for. A signed-in page's shell carries the
  * admin state, so the page paints it without asking via for anything.
  */
-export const uiRoutes = (ui: EmbeddedUi, environment: OpencodeGoEnvironment | undefined) =>
+export const uiRoutes = (ui: EmbeddedUi, options: StateOptions) =>
   Layer.unwrap(
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
@@ -146,9 +146,7 @@ export const uiRoutes = (ui: EmbeddedUi, environment: OpencodeGoEnvironment | un
           if (!(yield* signedIn(sessions, request))) return shell;
 
           // via builds the state itself, so failing to encode it is a bug.
-          return withState(
-            yield* Effect.orDie(Effect.flatMap(adminState(environment), encodeState)),
-          );
+          return withState(yield* Effect.orDie(Effect.flatMap(adminState(options), encodeState)));
         }),
       );
     }),

@@ -102,6 +102,8 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         expect(response.headers["cache-control"]).toBe("no-store");
         const first = yield* Queue.take(states);
         expect(first.session).toBe(true);
+        // The via that sends it, so a page can tell when via was updated under it.
+        expect(first.version).toBe("1.2.3-test");
         expect(labels(first)).toEqual(["a@example.com", "b@example.com"]);
         expect(first.keys.map(({ name }) => name)).toEqual(["test"]);
 

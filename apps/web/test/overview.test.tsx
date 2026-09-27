@@ -314,6 +314,7 @@ describe("the overview", () => {
 /** The state via embeds in a signed-in page's shell, and pushes as it changes. */
 const viaState = {
   session: true,
+  version: "0.0.0",
   pool,
   usage,
   accounts: accounts.map(({ id, label }) => account({ id, label })),

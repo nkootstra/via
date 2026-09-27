@@ -6,7 +6,7 @@ import { OpencodeGoAccounts } from "@via/providers";
 import { Clock, Duration, Effect, FiberHandle, Queue, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import { type AdminState, StateEvent } from "./admin-api.ts";
-import { adminState, type OpencodeGoEnvironment } from "./admin-state.ts";
+import { adminState, type StateOptions } from "./admin-state.ts";
 
 /** How long a change waits for the ones that come with it, so a burst goes out as one state. */
 const COALESCE = Duration.millis(200);
@@ -52,7 +52,7 @@ const encoder = new TextEncoder();
  * a state the same as the last isn't sent again. Everything it listens to is
  * let go when the stream ends, as it does when the page goes away.
  */
-export const adminEvents = (environment: OpencodeGoEnvironment | undefined) =>
+export const adminEvents = (options: StateOptions) =>
   Stream.unwrap(
     Effect.gen(function* () {
       // Holds one signal at most: however many come while a state is built, one more follows.
@@ -63,7 +63,7 @@ export const adminEvents = (environment: OpencodeGoEnvironment | undefined) =>
 
       /** The state now, with a signal set for when it next changes on its own. */
       const look = Effect.gen(function* () {
-        const state = yield* adminState(environment);
+        const state = yield* adminState(options);
         const now = yield* Clock.currentTimeMillis;
         const end = nextEnd(state, now);
 

@@ -150,14 +150,22 @@ export const adminOpencodeGo = (environment: OpencodeGoEnvironment | undefined) 
     listed.map((account) => opencodeGoAccount(account, environment)),
   );
 
+/** What the admin state says beyond what via's services hold. */
+export type StateOptions = {
+  readonly environment: OpencodeGoEnvironment | undefined;
+  /** The running via's version, the CLI's. */
+  readonly version: string;
+};
+
 /** The admin state now: what the routes above answer, the keys and the models, all at once. */
-export const adminState = (environment: OpencodeGoEnvironment | undefined) =>
+export const adminState = ({ environment, version }: StateOptions) =>
   Effect.gen(function* () {
     const listed = yield* accounts;
     const listedGo = yield* goAccounts;
 
     return {
       session: true,
+      version,
       pool: yield* poolOf(listed, listedGo),
       usage: usageOf(yield* latestUsage),
       accounts: listed.map(withoutTokens),
