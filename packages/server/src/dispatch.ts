@@ -230,7 +230,8 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       return yield* onSuccess(upstream);
     }
 
-    const text = yield* upstream.text;
+    // An error body that breaks off still leaves its status to judge the answer by.
+    const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
     const verdict = classify(upstream.status, upstream.headers, text, now);
 
     if (Verdict.$is("Cooldown")(verdict)) {

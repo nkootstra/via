@@ -87,6 +87,17 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
       ),
   );
 
+  it.effect("judges an error by its status when its body breaks off, and moves on", () =>
+    withVia(
+      (received) => (accountOf(received) === "acc-a" ? reply.hangUp(usageLimit(3600), 1) : ok()),
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b"]);
+        }),
+    ),
+  );
+
   it.effect("answers 429 with Retry-After when every account is cooling down", () =>
     withVia(
       () => reply.error(429, "", { "retry-after": "120" }),
