@@ -13,6 +13,14 @@ layer(BunFileSystem.layer)("via keys", (it) => {
     }),
   );
 
+  it.effect("list explains how to create a key when there is none", () =>
+    Effect.gen(function* () {
+      const list = yield* runVia(yield* tempHome, ["keys", "list"]);
+      expect(list.exitCode).toBe(0);
+      expect(list.stdout).toContain("via keys create --name <name>");
+    }),
+  );
+
   it.effect("list shows key names but never the key itself", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;
