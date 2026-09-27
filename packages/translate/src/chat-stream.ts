@@ -62,19 +62,35 @@ const StreamEvent = Schema.Union([
   Other,
 ]);
 
-const isCreated = Schema.is(Created);
+/**
+ * A guard for one kind of event. Every event meets several guards, so it
+ * compares the `type` first: a parse that fails costs far more than a miss.
+ */
+const isEvent = <
+  S extends Schema.Top & { readonly fields: { readonly type: Schema.Literal<string> } },
+>(
+  schema: S,
+) => {
+  const is = Schema.is(schema);
+  const type = schema.fields.type.literal;
 
-const isTextDelta = Schema.is(TextDelta);
+  return <E extends { readonly type: string }>(event: E): event is E & S["Type"] =>
+    event.type === type && is(event);
+};
 
-const isFunctionCallAdded = Schema.is(FunctionCallAdded);
+const isCreated = isEvent(Created);
 
-const isArgumentsDelta = Schema.is(ArgumentsDelta);
+const isTextDelta = isEvent(TextDelta);
 
-const isCompleted = Schema.is(Completed);
+const isFunctionCallAdded = isEvent(FunctionCallAdded);
 
-const isFailed = Schema.is(Failed);
+const isArgumentsDelta = isEvent(ArgumentsDelta);
 
-const isIncomplete = Schema.is(Incomplete);
+const isCompleted = isEvent(Completed);
+
+const isFailed = isEvent(Failed);
+
+const isIncomplete = isEvent(Incomplete);
 
 const isTerminal = (event: typeof StreamEvent.Type) =>
   isCompleted(event) || isFailed(event) || isIncomplete(event);
