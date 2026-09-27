@@ -35,8 +35,10 @@ const keysCreate = Command.make(
 const keysList = Command.make("list", {}, () =>
   Effect.gen(function* () {
     const keys = yield* (yield* KeyStore).list;
+
     if (keys.length === 0)
       return yield* Console.log("No keys. Create one with `via keys create --name <name>`.");
+
     for (const key of keys) yield* Console.log(`${key.id}  ${key.name}  ${key.createdAt}`);
   }),
 ).pipe(Command.withDescription("List API keys"));

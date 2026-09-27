@@ -35,11 +35,13 @@ const ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789
 const randomString = (length: number) =>
   Effect.sync(() => {
     let out = "";
+
     while (out.length < length) {
       for (const byte of crypto.getRandomValues(new Uint8Array(length * 2))) {
         if (byte < 248 && out.length < length) out += ALPHABET[byte % 62];
       }
     }
+
     return out;
   });
 
@@ -48,19 +50,23 @@ const hash = (key: string) => createHash("sha256").update(key).digest();
 const make = (path: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+
     const read = readJsonFile(path, StoredKeys, () => []).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
     );
+
     const write = (keys: typeof StoredKeys.Type) =>
       writeJsonFile(path, StoredKeys, keys).pipe(Effect.provideService(FileSystem.FileSystem, fs));
 
     const create = Effect.fn("KeyStore.create")(function* (name: string) {
       const keys = yield* read;
+
       if (keys.some((k) => k.name === name)) return yield* new DuplicateKeyNameError({ name });
       const key = `via_${yield* randomString(32)}`;
       const id = (yield* randomString(8)).toLowerCase();
       const createdAt = DateTime.formatIso(yield* DateTime.now);
       yield* write([...keys, { id, name, hash: hash(key).toString("hex"), createdAt }]);
+
       return { id, name, key };
     });
 
@@ -71,15 +77,18 @@ const make = (path: string) =>
     const revoke = Effect.fn("KeyStore.revoke")(function* (idOrName: string) {
       const keys = yield* read;
       const remaining = keys.filter((k) => k.id !== idOrName && k.name !== idOrName);
+
       if (remaining.length === keys.length) return yield* new KeyNotFoundError({ idOrName });
       yield* write(remaining);
     });
 
     const verify = Effect.fn("KeyStore.verify")(function* (key: string) {
       const candidate = hash(key);
+
       const match = (yield* read).find((k) =>
         timingSafeEqual(candidate, Buffer.from(k.hash, "hex")),
       );
+
       return Option.fromNullishOr(match).pipe(Option.map(({ id, name }) => ({ id, name })));
     });
 

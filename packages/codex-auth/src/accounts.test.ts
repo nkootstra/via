@@ -21,6 +21,7 @@ const withAccountStore = <A, E>(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const authDir = `${yield* fs.makeTempDirectoryScoped()}/auth`;
+
     return yield* body(authDir).pipe(Effect.provide(AccountStore.layer(authDir)));
   });
 

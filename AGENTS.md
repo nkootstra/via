@@ -9,9 +9,10 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   pass, then refactor. Commit each green step as a small commit.
 - **YAGNI.** Build only what a test or a real need demands. No speculative
   options, config keys, or abstractions.
-- Merge gates: `bun run lint`, `bun run format:check`, `bun run knip` (unused
+- Merge gates: `bun run lint` (Oxlint plus the anti-slop rules in
+  `tools/oxlint/anti-slop`), `bun run format:check`, `bun run knip` (unused
   files, exports and dependencies), `bun run typecheck`, `bun run test`. CI
-  runs the same.
+  runs the same. Fix what the lint finds; don't disable a rule to get past it.
 - Tests use `@effect/vitest` via `bun --bun vitest run`. Never use `bun test`.
 - Tests never call real OpenAI endpoints. Fake upstreams run as local HTTP
   servers, and base URLs are injected through layers.
@@ -41,8 +42,10 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 
 - Everything outside the CLI's `main` is an `Effect`. No `async`/`await`,
   `Promise`, `throw` or `try`/`catch` in library code.
-- Services: `class Foo extends Context.Service<Foo, FooShape>()("via/Foo") {}`
-  plus a `Layer` (`Foo.layer`). Depend on services, not modules with side effects.
+- Services: `class Foo extends Context.Service<Foo, { ... }>()("via/Foo") {}`
+  plus a `Layer` (`Foo.layer`), with the operations typed inline or as
+  `Effect.Success<typeof make>`. Name the type `Foo["Service"]`, never with a
+  separate `FooShape`. Depend on services, not modules with side effects.
 - Errors: `Schema.TaggedError` (serializable) or `Data.TaggedError`.
   Fail with `yield* new FooError({...})`. Handle with `Effect.catchTag`/`catchTags`.
   Never inspect `_tag` or use `instanceof` by hand.
@@ -61,6 +64,8 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   `codex-upstream`, `providers`, `translate`, `server`). Create a package only when the first
   test needs it.
 - `docs/`: user-facing docs; `docs/README.md` is the repo's landing page.
+- `tools/oxlint/anti-slop`: vendored Oxlint rules, enabled in `.oxlintrc.json`.
+  Changes to them are recorded in its `UPSTREAM.md`.
 - `npm/`: distribution. `bun run build` compiles the binary into each
   `npm/via-<os>-<arch>` package; `npm/via` is the Node launcher; `bun run smoke`
   installs the packed packages with npm and runs them under Node.

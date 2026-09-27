@@ -7,6 +7,7 @@ const Greeting = Schema.Struct({ hello: Schema.String });
 
 const tempDir = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
+
   return yield* fs.makeTempDirectoryScoped();
 });
 

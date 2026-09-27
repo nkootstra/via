@@ -15,11 +15,14 @@ export const readJsonFile = Effect.fn("readJsonFile")(function* <
   S extends Schema.Codec<unknown, unknown>,
 >(path: string, schema: S, fallback: () => S["Type"]) {
   const fs = yield* FileSystem.FileSystem;
+
   const text = yield* fs.readFileString(path).pipe(
     Effect.asSome,
     Effect.catchReason("PlatformError", "NotFound", () => Effect.succeedNone),
   );
+
   if (Option.isNone(text)) return fallback();
+
   return yield* Schema.decodeEffect(Schema.fromJsonString(schema))(text.value).pipe(
     Effect.mapError((error) => new CorruptFileError({ path, reason: error.message })),
   );

@@ -89,8 +89,10 @@ type LogLine = {
 const collectLogs = () => {
   const lines: Array<LogLine> = [];
   const waiters: Array<{ text: string; line: Deferred.Deferred<LogLine> }> = [];
+
   const matches = (line: LogLine, text: string) =>
     `${line.message} ${JSON.stringify(line.annotations)}`.includes(text);
+
   const logger = Logger.make(({ logLevel, message, fiber }) => {
     const line: LogLine = {
       level: logLevel,
@@ -98,19 +100,25 @@ const collectLogs = () => {
       spans: fiber.getRef(References.CurrentLogSpans).map(([label]) => label),
       annotations: { ...fiber.getRef(References.CurrentLogAnnotations) },
     };
+
     lines.push(line);
+
     for (const waiter of waiters.filter(({ text }) => matches(line, text))) {
       Deferred.doneUnsafe(waiter.line, Effect.succeed(line));
     }
   });
+
   const logged = (text: string) =>
     Effect.suspend(() => {
       const line = lines.find((seen) => matches(seen, text));
+
       if (line !== undefined) return Effect.succeed(line);
       const waiter = { text, line: Deferred.makeUnsafe<LogLine>() };
       waiters.push(waiter);
+
       return Deferred.await(waiter.line);
     });
+
   return { logger, logged };
 };
 
@@ -149,6 +157,7 @@ export const withVia = <A, E>(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const dir = yield* fs.makeTempDirectoryScoped();
+
     const stores = Layer.mergeAll(
       KeyStore.layer(`${dir}/keys.json`),
       AccountStore.layer(`${dir}/auth`),
@@ -191,6 +200,7 @@ export const withVia = <A, E>(
       yield* store.save(accountTokens("b"));
     }).pipe(Effect.provide(built));
     const logs = collectLogs();
+
     const server = yield* Layer.build(
       ViaServer.layer.pipe(
         Layer.provide(Logger.layer([logs.logger])),
@@ -209,10 +219,12 @@ export const withVia = <A, E>(
       const { key } = yield* (yield* KeyStore).create("test");
       const base = yield* HttpServer.addressFormattedWith(Effect.succeed);
       const http = yield* HttpClient.HttpClient;
+
       const authorize = (override: string | null | undefined) =>
         override === null
           ? (request: HttpClientRequest.HttpClientRequest) => request
           : HttpClientRequest.bearerToken(override ?? key);
+
       const post: Via["post"] = (path, json, override, headers = {}) =>
         HttpClientRequest.post(`${base}${path}`).pipe(
           authorize(override),
@@ -220,16 +232,20 @@ export const withVia = <A, E>(
           HttpClientRequest.bodyJsonUnsafe(json),
           http.execute,
         );
+
       const get: Via["get"] = (path, override) =>
         http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
+
       const patch: Via["patch"] = (path, json, override) =>
         HttpClientRequest.patch(`${base}${path}`).pipe(
           authorize(override),
           HttpClientRequest.bodyJsonUnsafe(json),
           http.execute,
         );
+
       const del: Via["delete"] = (path, override) =>
         http.execute(HttpClientRequest.delete(`${base}${path}`).pipe(authorize(override)));
+
       return yield* body({
         post,
         get,

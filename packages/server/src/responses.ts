@@ -14,14 +14,18 @@ export const responses = authenticated(
   Effect.gen(function* () {
     const log = yield* RequestLog;
     const decoded = yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option);
+
     if (Option.isNone(decoded)) {
       return yield* openAiError(400, "invalid_request", "The request body is not a JSON object");
     }
+
     const body = decoded.value;
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const session = resolveSession(headers, body);
     const route = (yield* Providers).route(body.model);
+
     if (Option.isSome(route)) return yield* forward(route.value, "/responses", body, session);
+
     return yield* dispatch(body, session, (upstream) =>
       body.stream === true
         ? Effect.map(

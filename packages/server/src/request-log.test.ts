@@ -6,6 +6,7 @@ import { Deferred, Effect, Stream } from "effect";
 import { withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
+
 const cachedTokens = () =>
   reply.sse(
     'event: response.completed\ndata: {"type":"response.completed","response":{"id":"resp_1","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":10,"output_tokens":2,"total_tokens":12,"input_tokens_details":{"cached_tokens":4}}}}\n\n',
@@ -20,11 +21,13 @@ layer(BunFileSystem.layer)("request log", (it) => {
         via.provider.respond(
           providerReply.sse('data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n'),
         );
+
         const response = yield* via.post("/v1/chat/completions", {
           model: "opencode-go/kimi-k3",
           stream: true,
           messages: [],
         });
+
         yield* response.text;
         expect(yield* via.logged("Sent HTTP response")).toEqual({
           level: "Info",
@@ -52,11 +55,13 @@ layer(BunFileSystem.layer)("request log", (it) => {
         via.provider.respond(
           providerReply.sseThenHang('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
         );
+
         const response = yield* via.post("/v1/chat/completions", {
           model: "opencode-go/kimi-k3",
           stream: true,
           messages: [],
         });
+
         yield* response.stream.pipe(Stream.take(1), Stream.runDrain);
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
           stream_end: "client_aborted",
@@ -77,11 +82,13 @@ layer(BunFileSystem.layer)("request log", (it) => {
             Deferred.await(received),
           ),
         );
+
         const response = yield* via.post("/v1/chat/completions", {
           model: "opencode-go/kimi-k3",
           stream: true,
           messages: [],
         });
+
         yield* response.stream.pipe(
           Stream.tap(() => Deferred.succeed(received, undefined)),
           Stream.runDrain,
@@ -153,6 +160,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           input: "hi",
           stream: true,
         });
+
         yield* response.text;
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
           input_tokens: 10,
@@ -170,6 +178,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           messages: [{ role: "user", content: "hi" }],
           stream: true,
         });
+
         yield* response.text;
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
           input_tokens: 10,
@@ -187,11 +196,13 @@ layer(BunFileSystem.layer)("request log", (it) => {
             'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: {"choices":[],"usage":{"prompt_tokens":7,"completion_tokens":3}}\n\ndata: [DONE]\n\n',
           ),
         );
+
         const response = yield* via.post("/v1/chat/completions", {
           model: "opencode-go/kimi-k3",
           stream: true,
           messages: [],
         });
+
         yield* response.text;
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
           input_tokens: 7,
@@ -339,6 +350,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           undefined,
           { "x-request-id": "550E8400-E29B-41D4-A716-446655440000" },
         );
+
         expect(response.headers["x-request-id"]).toBe("550e8400-e29b-41d4-a716-446655440000");
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
           request_id: "550e8400-e29b-41d4-a716-446655440000",
@@ -366,12 +378,14 @@ layer(BunFileSystem.layer)("request log", (it) => {
       Effect.gen(function* () {
         const first = "550e8400-e29b-41d4-a716-446655440000";
         const second = "6ba7b810-9dad-11d1-80b4-00c04fd430c8";
+
         const response = yield* via.post(
           "/v1/responses",
           { model: "gpt-6-astra", input: "hi" },
           undefined,
           { "x-request-id": [first, second] },
         );
+
         expect(response.headers["x-request-id"]).not.toBe(first);
         expect(response.headers["x-request-id"]).not.toBe(second);
         expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
@@ -388,6 +402,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           undefined,
           { "x-request-id": "not-a-uuid" },
         );
+
         expect(response.headers["x-request-id"]).not.toBe("not-a-uuid");
         expect(response.headers["x-request-id"]).toMatch(/^[0-9a-f-]{36}$/);
       }),

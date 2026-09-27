@@ -16,6 +16,7 @@ const Account = Schema.Struct({
   enabled: Schema.Boolean,
   createdAt: Schema.String,
 });
+
 export type Account = typeof Account.Type;
 
 export class AccountNotFoundError extends Schema.TaggedError<AccountNotFoundError>()(
@@ -31,6 +32,7 @@ const decodeAccount = Schema.decodeEffect(Schema.fromJsonString(Account));
 
 const make = (authDir: string) => {
   const fileOf = (id: string) => `${authDir}/${id}.json`;
+
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     // Changes read an account, then write it whole, one at a time: otherwise a label
@@ -50,11 +52,13 @@ const make = (authDir: string) => {
       const files = yield* fs
         .readDirectory(authDir)
         .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])));
+
       const accounts = yield* Effect.forEach(
         files.filter((name) => name.endsWith(".json")),
         (name) => readAccount(`${authDir}/${name}`),
         { concurrency: "unbounded" },
       );
+
       return accounts.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
     }).pipe(Effect.withSpan("AccountStore.list"));
 
@@ -65,18 +69,22 @@ const make = (authDir: string) => {
 
     const find = Effect.fn("AccountStore.find")(function* (query: string) {
       const all = yield* list;
+
       // An id is checked first, so a label that looks like another account's id can't hide it.
       const match =
         all.find((a) => a.id === query) ?? all.find((a) => a.label === query || a.email === query);
+
       return match ?? (yield* new AccountNotFoundError({ query }));
     });
 
     /** Stores the tokens of a login, replacing those of the same ChatGPT account and user. */
     const save = Effect.fn("AccountStore.save")(function* (tokens: Tokens) {
       const identity = yield* decodeIdToken(tokens.idToken);
+
       const existing = (yield* list).find(
         (a) => a.accountId === identity.accountId && a.email === identity.email,
       );
+
       const account: Account = {
         id: existing?.id ?? crypto.randomUUID().slice(0, 8),
         label: existing?.label ?? identity.email,
@@ -85,7 +93,9 @@ const make = (authDir: string) => {
         ...identity,
         ...tokens,
       };
+
       yield* write(account);
+
       return account;
     }, serialized);
 

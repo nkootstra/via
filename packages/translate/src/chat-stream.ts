@@ -6,10 +6,12 @@ const Created = Schema.Struct({
   type: Schema.Literal("response.created"),
   response: Schema.Struct({ id: Schema.String, created_at: Schema.Finite, model: Schema.String }),
 });
+
 const TextDelta = Schema.Struct({
   type: Schema.Literal("response.output_text.delta"),
   delta: Schema.String,
 });
+
 const FunctionCallAdded = Schema.Struct({
   type: Schema.Literal("response.output_item.added"),
   output_index: Schema.Int,
@@ -19,21 +21,25 @@ const FunctionCallAdded = Schema.Struct({
     name: Schema.String,
   }),
 });
+
 const ArgumentsDelta = Schema.Struct({
   type: Schema.Literal("response.function_call_arguments.delta"),
   output_index: Schema.Int,
   delta: Schema.String,
 });
+
 const Completed = Schema.Struct({
   type: Schema.Literal("response.completed"),
   response: Schema.Struct({ usage: Usage }),
 });
+
 const Failed = Schema.Struct({
   type: Schema.Literal("response.failed"),
   response: Schema.Struct({
     error: Schema.Struct({ code: Schema.String, message: Schema.String }),
   }),
 });
+
 const Incomplete = Schema.Struct({
   type: Schema.Literal("response.incomplete"),
   response: Schema.Struct({
@@ -41,8 +47,10 @@ const Incomplete = Schema.Struct({
     usage: Schema.optionalKey(Usage),
   }),
 });
+
 // Reasoning, item bookkeeping and other events have no Chat Completions counterpart.
 const Other = Schema.Struct({ type: Schema.String });
+
 const StreamEvent = Schema.Union([
   Created,
   TextDelta,
@@ -55,12 +63,19 @@ const StreamEvent = Schema.Union([
 ]);
 
 const isCreated = Schema.is(Created);
+
 const isTextDelta = Schema.is(TextDelta);
+
 const isFunctionCallAdded = Schema.is(FunctionCallAdded);
+
 const isArgumentsDelta = Schema.is(ArgumentsDelta);
+
 const isCompleted = Schema.is(Completed);
+
 const isFailed = Schema.is(Failed);
+
 const isIncomplete = Schema.is(Incomplete);
+
 const isTerminal = (event: typeof StreamEvent.Type) =>
   isCompleted(event) || isFailed(event) || isIncomplete(event);
 
@@ -106,42 +121,55 @@ export const toChatStream = <E>(
     if (isCreated(event)) {
       const { id, created_at, model } = event.response;
       const next = { ...state, envelope: { ...state.envelope, id, created: created_at, model } };
+
       return [next, [chunk(next, { role: "assistant", content: "" })]];
     }
+
     if (isTextDelta(event)) return [state, [chunk(state, { content: event.delta })]];
+
     if (isFunctionCallAdded(event)) {
       const index = state.toolIndex.size;
       const toolIndex = new Map(state.toolIndex).set(event.output_index, index);
       const { call_id, name } = event.item;
       const call = { index, id: call_id, type: "function", function: { name, arguments: "" } };
+
       return [{ ...state, toolIndex }, [chunk(state, { tool_calls: [call] })]];
     }
+
     if (isArgumentsDelta(event)) {
       const index = state.toolIndex.get(event.output_index) ?? 0;
+
       return [
         state,
         [chunk(state, { tool_calls: [{ index, function: { arguments: event.delta } }] })],
       ];
     }
+
     if (isCompleted(event)) {
       return [
         { ...state, ended: true },
         finish(state, state.toolIndex.size > 0 ? "tool_calls" : "stop", event.response.usage),
       ];
     }
+
     if (isIncomplete(event)) {
       const { incomplete_details, usage } = event.response;
+
       return [
         { ...state, ended: true },
         finish(state, incompleteFinish(incomplete_details.reason), usage),
       ];
     }
+
     if (isFailed(event)) {
       const { code, message } = event.response.error;
+
       return [{ ...state, ended: true }, [failure(code, message)]];
     }
+
     return [state, []];
   };
+
   const finish = (state: State, reason: string, usage: typeof Usage.Type | undefined) => [
     chunk(state, {}, reason),
     ...(options.includeUsage && usage !== undefined
@@ -149,6 +177,7 @@ export const toChatStream = <E>(
       : []),
     "data: [DONE]\n\n",
   ];
+
   return body.pipe(
     Stream.decodeText,
     Stream.pipeThroughChannel(Sse.decodeDataSchema(StreamEvent)),

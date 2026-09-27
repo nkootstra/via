@@ -22,6 +22,7 @@ const make = Effect.gen(function* () {
   // Logins outlive the request that started them, but not the server.
   const scope = yield* Effect.scope;
   const logins = yield* Ref.make<ReadonlyMap<string, LoginState>>(new Map());
+
   const set = (id: string, state: LoginState) =>
     Ref.update(logins, (all) => new Map(all).set(id, state));
 
@@ -36,6 +37,7 @@ const make = Effect.gen(function* () {
       Effect.catch((error) => set(id, { status: "failed", error: error.message })),
       Effect.forkIn(scope),
     );
+
     return { id, userCode: code.userCode, verificationUrl: code.verificationUrl };
   });
 

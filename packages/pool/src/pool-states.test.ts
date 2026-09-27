@@ -3,11 +3,11 @@ import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, FileSystem, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
-import { PoolStates, type PoolStatesShape } from "./pool-states.ts";
+import { PoolStates } from "./pool-states.ts";
 import type { PoolState } from "./select.ts";
 
 /** Runs `body` against the states kept in `path`, as one `via serve` process would. */
-const run = <A, E>(path: string, body: (states: PoolStatesShape) => Effect.Effect<A, E>) =>
+const run = <A, E>(path: string, body: (states: PoolStates["Service"]) => Effect.Effect<A, E>) =>
   Effect.gen(function* () {
     return yield* body(yield* PoolStates);
   }).pipe(Effect.provide(PoolStates.layerFile(path)));
@@ -81,6 +81,7 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
     offsetMs: Schema.Int.check(Schema.isBetween({ minimum: -5_000, maximum: 5_000 })),
     reason: Schema.Literals(["quota", "server_error", "invalid_grant"]),
   });
+
   const specs = Arbitrary.array(Arbitrary.schema(Spec), { minLength: 1, maxLength: 5 });
 
   it.effect.prop(
@@ -98,6 +99,7 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
             values,
             (spec, i) => {
               const id = `acc-${i}`;
+
               if (spec.kind === "cooling") {
                 return states.mark(id, {
                   status: "cooling",
@@ -105,15 +107,18 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
                   reason: spec.reason,
                 });
               }
+
               if (spec.kind === "auth_error") {
                 return states.lockOut(id, spec.reason);
               }
+
               return Effect.void;
             },
             { discard: true },
           ),
         );
         const restarted = yield* run(path, (states) => states.get);
+
         const expected: PoolState = Object.fromEntries(
           values.flatMap((spec, i) =>
             spec.kind === "cooling" && spec.offsetMs > 0
@@ -126,6 +131,7 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
               : [],
           ),
         );
+
         expect(restarted).toEqual(expected);
       }),
   );

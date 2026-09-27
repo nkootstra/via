@@ -20,7 +20,9 @@ describe("resolveSession", () => {
       "x-task-id": "task",
       "x-kilocode-taskid": "kilo",
     };
+
     const body = { session_id: "body", prompt_cache_key: "cache" };
+
     const order = [
       ["x-parent-session-id", "parent"],
       ["x-opencode-session", "opencode"],
@@ -33,10 +35,13 @@ describe("resolveSession", () => {
       ["x-task-id", "task"],
       ["x-kilocode-taskid", "kilo"],
     ] as const;
+
     const headers: Record<string, string> = { ...all };
     const remaining: Record<string, unknown> = { ...body };
+
     for (const [source, id] of order) {
       expect(resolveSession(headers, remaining), source).toBe(id);
+
       if (source === "body session_id") delete remaining["session_id"];
       else if (source === "body prompt_cache_key") delete remaining["prompt_cache_key"];
       else delete headers[source];
@@ -53,6 +58,7 @@ describe("resolveSession", () => {
     const system = { role: "system", content: "Be brief." };
     const first = { role: "user", content: "Hi" };
     const turn1 = resolveSession({}, chat(system, first));
+
     const turn2 = resolveSession(
       {},
       chat(
@@ -62,6 +68,7 @@ describe("resolveSession", () => {
         { role: "user", content: "Bye" },
       ),
     );
+
     const other = resolveSession({}, chat(system, { role: "user", content: "Hey" }));
     expect(turn2).toBe(turn1);
     expect(other).not.toBe(turn1);
@@ -71,10 +78,12 @@ describe("resolveSession", () => {
   it("derives a Responses conversation's id from its instructions and first input", () => {
     const first = { role: "user", content: "Hi" };
     const turn1 = resolveSession({}, { instructions: "Be brief.", input: [first] });
+
     const turn2 = resolveSession(
       {},
       { instructions: "Be brief.", input: [first, { role: "user", content: "Bye" }] },
     );
+
     expect(turn2).toBe(turn1);
     expect(resolveSession({}, { instructions: "Be long.", input: [first] })).not.toBe(turn1);
     expect(resolveSession({}, { input: "Hi" })).not.toBe(resolveSession({}, { input: "Hey" }));

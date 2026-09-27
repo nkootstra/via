@@ -57,6 +57,7 @@ export const fakeIssuer = ({
 }: FakeIssuerOptions = {}) => {
   let polls = 0;
   let refreshTokenUsed = false;
+
   const routes = Layer.mergeAll(
     HttpRouter.add(
       "POST",
@@ -65,7 +66,9 @@ export const fakeIssuer = ({
         const body = yield* HttpServerRequest.schemaBodyJson(
           Schema.Struct({ client_id: Schema.String }),
         );
+
         if (body.client_id !== CLIENT_ID) return badRequest;
+
         return HttpServerResponse.jsonUnsafe({
           device_auth_id: "dev-1",
           user_code: "ABCD-1234",
@@ -80,8 +83,11 @@ export const fakeIssuer = ({
         const body = yield* HttpServerRequest.schemaBodyJson(
           Schema.Struct({ device_auth_id: Schema.String, user_code: Schema.String }),
         );
+
         if (body.device_auth_id !== "dev-1" || body.user_code !== "ABCD-1234") return badRequest;
+
         if (polls++ < pendingPolls) return HttpServerResponse.empty({ status: 403 });
+
         return HttpServerResponse.jsonUnsafe({
           authorization_code: "auth-code",
           code_challenge: "challenge",
@@ -94,6 +100,7 @@ export const fakeIssuer = ({
       "/oauth/token",
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
+
         if (request.headers["content-type"]?.startsWith("application/json")) {
           yield* HttpServerRequest.schemaBodyJson(
             Schema.Struct({
@@ -103,6 +110,7 @@ export const fakeIssuer = ({
               scope: Schema.Literal("openid profile email"),
             }),
           );
+
           if (refreshTokenUsed) {
             return HttpServerResponse.jsonUnsafe(
               // The issuer's real answer, as codex's own tests record it.
@@ -113,12 +121,16 @@ export const fakeIssuer = ({
               { status: 400 },
             );
           }
+
           refreshTokenUsed = true;
+
           return HttpServerResponse.jsonUnsafe(refreshResponse.body, {
             status: refreshResponse.status,
           });
         }
+
         const issuer = yield* HttpServer.addressFormattedWith(Effect.succeed);
+
         const form = yield* HttpServerRequest.schemaBodyUrlParams(
           Schema.Struct({
             grant_type: Schema.Literal("authorization_code"),
@@ -128,11 +140,14 @@ export const fakeIssuer = ({
             redirect_uri: Schema.String,
           }),
         );
+
         if (form.redirect_uri !== `${issuer}/deviceauth/callback`) return badRequest;
+
         return HttpServerResponse.jsonUnsafe(issuedTokens);
       }).pipe(Effect.catchTag("SchemaError", () => Effect.succeed(badRequest))),
     ),
   );
+
   return HttpRouter.serve(routes).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 })));
 };
 
@@ -143,6 +158,7 @@ export const withIssuer = <A, E, R>(
 ) =>
   Effect.gen(function* () {
     const issuer = yield* HttpServer.addressFormattedWith(Effect.succeed);
+
     return yield* body(issuer).pipe(
       Effect.provide(CodexAuth.layer(issuer).pipe(Layer.provide(FetchHttpClient.layer))),
     );

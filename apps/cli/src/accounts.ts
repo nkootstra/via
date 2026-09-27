@@ -30,7 +30,9 @@ const describe = (a: Account) =>
 const list = Command.make("list", {}, () =>
   Effect.gen(function* () {
     const accounts = yield* (yield* AccountStore).list;
+
     if (accounts.length === 0) return yield* Console.log(noAccounts);
+
     for (const a of accounts) yield* Console.log(describe(a));
   }),
 ).pipe(Command.withDescription("List accounts in the order they are used"));
@@ -41,6 +43,7 @@ const pad = (n: number) => String(n).padStart(2, "0");
 const usageLine = (name: string, usedPercent: number, resetsAt: Date) => {
   const date = `${resetsAt.getFullYear()}-${pad(resetsAt.getMonth() + 1)}-${pad(resetsAt.getDate())}`;
   const time = `${pad(resetsAt.getHours())}:${pad(resetsAt.getMinutes())}`;
+
   return `  ${name.padEnd(4)} ${String(usedPercent).padStart(3)}% used  resets ${date} ${time}`;
 };
 
@@ -55,10 +58,12 @@ const formatWindow = ({ windowMinutes, usedPercent, resetsAt }: UsageWindow) =>
 const showProviderUsage = Effect.gen(function* () {
   for (const usage of yield* (yield* Providers).usage) {
     yield* Console.log(usage.provider);
+
     if ("error" in usage) {
       yield* Console.log(`  ${usage.error}`);
       continue;
     }
+
     for (const { window, usedPercent, resetsAt } of usage.windows) {
       yield* Console.log(usageLine(window, usedPercent, new Date(resetsAt)));
     }
@@ -69,6 +74,7 @@ const showUsage = Effect.fnUntraced(function* (account: Account) {
   yield* Console.log(describe(account));
   const tokens = yield* AccountTokens;
   const codex = yield* CodexUpstream;
+
   const lines = yield* tokens.fresh(account).pipe(
     Effect.flatMap(codex.usage),
     Effect.map((windows) => windows.map(formatWindow)),
@@ -78,6 +84,7 @@ const showUsage = Effect.fnUntraced(function* (account: Account) {
       AuthRequestError: (error) => Effect.succeed([`  ${error.message}`]),
     }),
   );
+
   for (const line of lines) yield* Console.log(line);
 });
 
@@ -86,6 +93,7 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
     Effect.gen(function* () {
       const config = yield* loadConfig(configPath);
       const accounts = yield* (yield* AccountStore).list;
+
       if (accounts.length === 0) yield* Console.log(noAccounts);
       yield* Effect.forEach(accounts, showUsage, { discard: true }).pipe(
         Effect.provide(Layer.mergeAll(AccountTokens.layer, codexUpstream(config, upstreamBaseUrl))),

@@ -41,6 +41,7 @@ const role = (message: unknown) =>
 const opening = (body: Readonly<Record<string, unknown>>) => {
   const messages = Array.isArray(body["messages"]) ? body["messages"] : [];
   const input = body["input"];
+
   return Array.isArray(input) || typeof input === "string" || body["instructions"] !== undefined
     ? [body["instructions"], Array.isArray(input) ? input[0] : input]
     : [
@@ -60,7 +61,9 @@ export const resolveSession = (
 ): string => {
   for (const source of sources) {
     const id = source(headers, body);
+
     if (typeof id === "string" && id !== "") return id.length > MAX_LENGTH ? sha256(id) : id;
   }
+
   return sha256(JSON.stringify(opening(body)));
 };

@@ -19,6 +19,7 @@ const BUNDLED: ReadonlyArray<CatalogModel> = [
 /** Splits an effort suffix alias into its base model and reasoning effort. */
 export const resolveAlias = (model: string) => {
   const effort = EFFORTS.find((suffix) => model.endsWith(`-${suffix}`));
+
   return effort === undefined ? { model } : { model: model.slice(0, -(effort.length + 1)), effort };
 };
 

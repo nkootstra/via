@@ -24,9 +24,11 @@ const withVia = <A, E, R>(
   Effect.gen(function* () {
     const home = yield* tempHome;
     const codex = yield* startFakeCodex;
+
     // The account the fake issuer signs in.
     if (usageStatus !== undefined) codex.usage("acc-123", {}, usageStatus);
     const issuer = yield* Layer.build(fakeIssuer(issuerOptions));
+
     const env = {
       VIA_CODEX_ISSUER: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(
         Effect.provide(issuer),
@@ -35,6 +37,7 @@ const withVia = <A, E, R>(
       TZ: "UTC",
       ...extraEnv,
     };
+
     return yield* body((...args) => runVia(home, args, env), home);
   });
 

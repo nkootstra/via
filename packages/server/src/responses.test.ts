@@ -5,9 +5,12 @@ import { Effect } from "effect";
 import { refreshedAccessToken, withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
+
 const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
+
 const usageLimit = (resetsAt: number) =>
   reply.error(429, { error: { type: "usage_limit_reached", resets_at: resetsAt } });
+
 const request = { model: "gpt-6-astra", input: "hi" };
 
 layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
@@ -40,6 +43,7 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
           ...request,
           stream: true,
         });
+
         expect(response.status).toBe(200);
         expect(response.headers["content-type"]).toContain("text/event-stream");
         expect(yield* response.text).toBe(completedStream("hello"));

@@ -13,6 +13,7 @@ describe("decodeIdToken", () => {
           chatgpt_plan_type: "pro",
         },
       });
+
       expect(yield* decodeIdToken(token)).toEqual({
         email: "dev@example.com",
         accountId: "acc-123",

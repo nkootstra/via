@@ -64,6 +64,7 @@ class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableError>()(
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [
   Schema.Record(Schema.String, Schema.Unknown),
 ]);
+
 export type ProviderModel = typeof Model.Type;
 
 const ModelList = Schema.Struct({ data: Schema.Array(Model) });
@@ -97,36 +98,14 @@ type Provider = {
   usage: string | undefined;
 };
 
-export interface ProvidersShape {
-  /** The provider a `<provider>/<model>` id names, if it is configured. */
-  readonly route: (model: unknown) => Option.Option<Route>;
-  /** The base URL requests to `provider` go to. */
-  readonly baseUrl: (provider: string) => string | undefined;
-  /**
-   * Every provider's models as it describes them, with `<provider>/<model>`
-   * ids; a provider that can't list them is left out.
-   */
-  readonly models: Effect.Effect<ReadonlyArray<{ provider: string; model: ProviderModel }>>;
-  /** The usage of every provider that reports it, such as OpenCode Go. */
-  readonly usage: Effect.Effect<ReadonlyArray<ProviderUsage>>;
-  /**
-   * Posts `body` to the route's provider, with its model in place of via's and
-   * `session` where the provider looks for it.
-   */
-  readonly send: (
-    route: Route,
-    path: ProviderPath,
-    body: Record<string, unknown>,
-    session: string,
-  ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
-}
-
 const make = (configs: Record<string, ProviderConfig>, version: string) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
     const providers = new Map<string, Provider>();
+
     for (const [name, config] of Object.entries(configs)) {
       const baseUrl = config.baseUrl ?? PRESETS[name]?.baseUrl;
+
       if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
       providers.set(name, {
         baseUrl,
@@ -165,10 +144,13 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         const response = yield* http.execute(
           authorized(provider, HttpClientRequest.get(`${provider.baseUrl}${path}`)),
         );
+
         if (response.status !== 200) {
           return yield* new UsageUnavailableError({ provider: name, status: response.status });
         }
+
         const { usage } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
+
         return {
           provider: name,
           windows: Object.entries(usage).map(([window, { status, percent, resetsAt }]) => ({
@@ -200,6 +182,7 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         if (typeof model !== "string") return Option.none();
         const slash = model.indexOf("/");
         const provider = model.slice(0, slash);
+
         return slash > 0 && providers.has(provider)
           ? Option.some({ provider, model: model.slice(slash + 1) })
           : Option.none();
@@ -208,7 +191,9 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
       send: Effect.fn("Providers.send")(function* (route, path, body, session) {
         // `route` comes from `route`, so its provider is configured.
         const provider = providers.get(route.provider);
+
         if (provider === undefined) return yield* Effect.die(`unrouted provider ${route.provider}`);
+
         return yield* authorized(
           provider,
           HttpClientRequest.post(`${provider.baseUrl}${path}`),
@@ -234,7 +219,32 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
   });
 
 /** The OpenAI-compatible providers configured in config.yaml. */
-export class Providers extends Context.Service<Providers, ProvidersShape>()("via/Providers") {
+export class Providers extends Context.Service<
+  Providers,
+  {
+    /** The provider a `<provider>/<model>` id names, if it is configured. */
+    readonly route: (model: unknown) => Option.Option<Route>;
+    /** The base URL requests to `provider` go to. */
+    readonly baseUrl: (provider: string) => string | undefined;
+    /**
+     * Every provider's models as it describes them, with `<provider>/<model>`
+     * ids; a provider that can't list them is left out.
+     */
+    readonly models: Effect.Effect<ReadonlyArray<{ provider: string; model: ProviderModel }>>;
+    /** The usage of every provider that reports it, such as OpenCode Go. */
+    readonly usage: Effect.Effect<ReadonlyArray<ProviderUsage>>;
+    /**
+     * Posts `body` to the route's provider, with its model in place of via's and
+     * `session` where the provider looks for it.
+     */
+    readonly send: (
+      route: Route,
+      path: ProviderPath,
+      body: Record<string, unknown>,
+      session: string,
+    ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
+  }
+>()("via/Providers") {
   /**
    * Reads each provider's API key from the environment variable its config
    * names, and says it is `via/<version>`.

@@ -21,7 +21,9 @@ const stamp = async (file: string, change: (pkg: Record<string, unknown>) => voi
 };
 
 await stamp("apps/cli/package.json", () => {});
+
 for (const platform of PLATFORMS) await stamp(`npm/${platform}/package.json`, () => {});
+
 await stamp("npm/via/package.json", (pkg) => {
   pkg.optionalDependencies = Object.fromEntries(PLATFORMS.map((platform) => [platform, version]));
 });

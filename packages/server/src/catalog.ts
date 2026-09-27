@@ -14,9 +14,11 @@ const entry = (id: string, ownedBy: string) => ({
 /** One catalog of every model in `catalogs`, each with every effort any of them supports. */
 const combine = (catalogs: ReadonlyArray<ReadonlyArray<CatalogModel>>) => {
   const efforts = new Map<string, ReadonlyArray<string>>();
+
   for (const { model, efforts: more } of catalogs.flat()) {
     efforts.set(model, Array.union(efforts.get(model) ?? [], more));
   }
+
   return [...efforts].map(([model, supported]) => ({ model, efforts: supported }));
 };
 
@@ -34,22 +36,30 @@ const stale = <A, E, R>(load: Effect.Effect<A, E, R>, maxAge: Duration.Input) =>
     const context = yield* Effect.context<R>();
     const lock = yield* Semaphore.make(1);
     const kept = yield* Ref.make(Option.none<{ readonly value: A; readonly at: number }>());
+
     const reload = Effect.gen(function* () {
       const value = yield* load;
       yield* Ref.set(kept, Option.some({ value, at: yield* Clock.currentTimeMillis }));
+
       return value;
     }).pipe(Effect.provide(context));
+
     // Run under the lock: what another call has just loaded, or else a new load.
     const loadIfOld = Effect.gen(function* () {
       const current = yield* Ref.get(kept);
+
       if (Option.isSome(current) && !(yield* isOld(current.value.at, maxAge)))
         return current.value.value;
+
       return yield* reload;
     });
+
     return Effect.gen(function* () {
       const current = yield* Ref.get(kept);
+
       // Calls that find nothing kept wait for one shared load.
       if (Option.isNone(current)) return yield* Semaphore.withPermits(lock, 1)(loadIfOld);
+
       if (yield* isOld(current.value.at, maxAge)) {
         // One reload at a time; a failed one keeps the old answer, and a later call tries again.
         yield* Semaphore.withPermitsIfAvailable(
@@ -57,6 +67,7 @@ const stale = <A, E, R>(load: Effect.Effect<A, E, R>, maxAge: Duration.Input) =>
           1,
         )(loadIfOld).pipe(Effect.ignore, Effect.forkIn(scope));
       }
+
       return current.value.value;
     });
   });
@@ -75,11 +86,14 @@ interface Offered {
 const mayServe = (offered: ReadonlyArray<Offered>, model: string) => {
   const base = resolveAlias(model).model;
   const known = new Set(offered.map(({ accountId }) => accountId));
+
   const offering = new Set(
     offered
+      .values()
       .filter(({ catalog }) => catalog.some((listed) => listed.model === base))
       .map(({ accountId }) => accountId),
   );
+
   return (accountId: string) =>
     offering.size === 0 || offering.has(accountId) || !known.has(accountId);
 };
@@ -105,6 +119,7 @@ export class ModelCatalog extends Context.Service<
     Effect.gen(function* () {
       const codex = yield* CodexUpstream;
       const providerModels = yield* stale((yield* Providers).models, "5 minutes");
+
       const ask = usableAccounts.pipe(
         Effect.flatMap((accounts) =>
           Effect.forEach(
@@ -127,13 +142,16 @@ export class ModelCatalog extends Context.Service<
           ),
         ),
       );
+
       const offered = yield* stale(ask, "5 minutes");
+
       const codexModels = offered.pipe(
         Effect.map((all) => modelIds(combine(all.map(({ catalog }) => catalog)))),
         // Any failure to ask Codex leaves the bundled list, which is still a useful answer.
         Effect.orElseSucceed(() => modelIds()),
         Effect.map((ids) => ids.map((id) => entry(id, "openai"))),
       );
+
       const catalog = Effect.all([codexModels, providerModels], { concurrency: "unbounded" }).pipe(
         Effect.map(([fromCodex, fromProviders]) => [
           ...fromCodex,
@@ -144,8 +162,10 @@ export class ModelCatalog extends Context.Service<
           })),
         ]),
       );
+
       // Fetched as via starts, so the first request need not wait.
       yield* Effect.forkScoped(catalog);
+
       return {
         list: catalog,
         mayServe: (model) =>

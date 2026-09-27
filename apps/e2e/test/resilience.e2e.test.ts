@@ -16,7 +16,9 @@ import {
 // each: an OpenAI-shaped error, never a reset or a hang, and a via that keeps
 // serving afterwards.
 const MODEL = "gpt-6-astra";
+
 const CHAT = "/v1/chat/completions";
+
 const RESPONSES = "/v1/responses";
 
 const chatBody = (stream: boolean) => ({
@@ -24,6 +26,7 @@ const chatBody = (stream: boolean) => ({
   stream,
   messages: [{ role: "user", content: "ping" }],
 });
+
 const responsesBody = (stream: boolean) => ({ model: MODEL, stream, input: "ping" });
 
 // The SDK can't send a broken body or show raw frames, so faults go through fetch.
@@ -61,12 +64,14 @@ const frames = (text: string): ReadonlyArray<Frame> =>
 const stillServes = (via: Via, codex: Codex) =>
   Effect.gen(function* () {
     codex.script(reply.text("pong"));
+
     const completion = yield* Effect.promise(() =>
       openai(via).chat.completions.create({
         model: MODEL,
         messages: [{ role: "user", content: "ping" }],
       }),
     ).pipe(Effect.timeout("5 seconds"), realTime);
+
     expect(completion.choices[0]?.message.content).toBe("pong");
   });
 
@@ -77,6 +82,7 @@ const faulted = <A, E, R>(
 ) =>
   Effect.gen(function* () {
     const codex = yield* startCodex;
+
     if (fault !== undefined) codex.script(fault);
     yield* withVia({ upstream: codex.url }, (via) =>
       Effect.gen(function* () {
@@ -87,7 +93,9 @@ const faulted = <A, E, R>(
   });
 
 const cutOff = reply.truncated(reply.text("pong"), 5);
+
 const hungUp = reply.hangUp(reply.text("pong"), 5);
+
 const failed = reply.failed("server_is_overloaded", "Codex is overloaded");
 
 layer(BunFileSystem.layer)("resilience", (it) => {
@@ -140,6 +148,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
           const outcome = yield* read(
             yield* post(via, RESPONSES, JSON.stringify(responsesBody(true))),
           );
+
           expect(outcome.reset).toBe(false);
           const all = frames(outcome.text);
           expect(all.filter((frame) => frame.event === "error")).toHaveLength(1);
@@ -162,6 +171,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
           const outcome = yield* read(
             yield* post(via, RESPONSES, JSON.stringify(responsesBody(true))),
           );
+
           expect(frames(outcome.text).at(-1)?.event).toBe("response.failed");
         }),
       );
@@ -232,6 +242,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
               messages: [{ role: "user", content: "ping" }],
             }),
           ).pipe(Effect.forkChild);
+
           yield* codex.received(1);
           yield* Deferred.succeed(gate, undefined);
           expect((yield* Fiber.join(pending)).choices[0]?.message.content).toBe("late");

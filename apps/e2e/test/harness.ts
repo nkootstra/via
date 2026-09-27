@@ -16,6 +16,7 @@ export type Codex = FakeCodex;
 export const startIssuer = (options: FakeIssuerOptions = {}) =>
   Effect.gen(function* () {
     const issuer = yield* Layer.build(fakeIssuer(options));
+
     return yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(issuer));
   });
 
@@ -85,16 +86,19 @@ export const withVia = <A, E, R>(
 ) =>
   Effect.gen(function* () {
     const home = yield* tempHome;
+
     const env = {
       VIA_CODEX_ISSUER: yield* startIssuer(options.issuer),
       VIA_CODEX_BASE_URL: options.upstream,
     };
+
     if (options.accounts === undefined) yield* runVia(home, ["accounts", "add"], env);
     else yield* seedAccounts(home, options.accounts);
     const created = yield* runVia(home, ["keys", "create", "--name", "e2e"]);
     const key = created.stdout.trim().split("\n").at(-1) ?? "";
     // Port 0 lets the OS pick a free port; via reports the one it got.
     const url = yield* serveVia(home, ["--port", "0"], env);
+
     return yield* body({ home, url, key, env });
   });
 

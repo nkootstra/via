@@ -15,6 +15,7 @@ const ResponsesUsage = Schema.Struct({
     Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) }),
   ),
 });
+
 const ChatUsage = Schema.Struct({
   prompt_tokens: Schema.Finite,
   completion_tokens: Schema.Finite,
@@ -22,7 +23,9 @@ const ChatUsage = Schema.Struct({
     Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) }),
   ),
 });
+
 const isResponsesUsage = Schema.is(ResponsesUsage);
+
 const isChatUsage = Schema.is(ChatUsage);
 
 const withCached = (
@@ -45,6 +48,7 @@ export const usageOf = (usage: unknown): Option.Option<TokenUsage> => {
       ),
     );
   }
+
   if (isChatUsage(usage)) {
     return Option.some(
       withCached(
@@ -53,6 +57,7 @@ export const usageOf = (usage: unknown): Option.Option<TokenUsage> => {
       ),
     );
   }
+
   return Option.none();
 };
 
@@ -65,6 +70,7 @@ const EventPayload = Schema.Struct({
 
 const usageFromPayload = (payload: typeof EventPayload.Type): Option.Option<TokenUsage> => {
   const nested = payload.response?.usage;
+
   return nested === undefined
     ? usageOf(payload.usage)
     : Option.orElse(usageOf(nested), () => usageOf(payload.usage));
@@ -106,16 +112,20 @@ const spotSse = <E>(
     Effect.sync(() => {
       const decoder = new TextDecoder();
       let found: Array<TokenUsage> = [];
+
       const parser = Sse.makeParser((event) => {
         if (Sse.Retry.is(event)) return;
         const usage = usageIn(event.data);
+
         if (Option.isSome(usage)) found.push(usage.value);
       });
+
       return body.pipe(
         Stream.mapArrayEffect((chunks) => {
           for (const chunk of chunks) parser.feed(decoder.decode(chunk, { stream: true }));
           const spotted = found;
           found = [];
+
           return reportAll(spotted, report, chunks);
         }),
       );
@@ -136,15 +146,18 @@ const spotJson = <E>(
     Effect.sync(() => {
       const decoder = new TextDecoder();
       let text = "";
+
       return body.pipe(
         Stream.mapArray((chunks) => {
           for (const chunk of chunks) text += decoder.decode(chunk, { stream: true });
+
           return chunks;
         }),
         // Parsed once, when the body is complete, not again with every chunk.
         Stream.onEnd(
           Effect.suspend(() => {
             text += decoder.decode();
+
             return reportAll(Option.toArray(usageIn(text)), report, undefined);
           }),
         ),

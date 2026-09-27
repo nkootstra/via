@@ -12,6 +12,7 @@ const withFreshToken = (account: Account) =>
     const tokens = yield* AccountTokens;
     const states = yield* PoolStates;
     const now = yield* Clock.currentTimeMillis;
+
     return yield* tokens.fresh(account).pipe(
       Effect.asSome,
       Effect.catchTags({
@@ -43,6 +44,7 @@ const withFreshToken = (account: Account) =>
 export const accountsAllowed = (allowed: (accountId: string) => boolean) =>
   Effect.gen(function* () {
     const accounts = yield* (yield* AccountStore).list;
+
     return accounts.filter((account) => allowed(account.id));
   });
 
@@ -58,11 +60,14 @@ export const nextAccount = (
 ) =>
   Effect.gen(function* () {
     const states = yield* PoolStates;
+
     while (true) {
       const now = yield* Clock.currentTimeMillis;
       const chosen = select(yield* accountsAllowed(allowed), yield* states.get, now, preferred);
+
       if (Option.isNone(chosen)) return Option.none<Account>();
       const fresh = yield* withFreshToken(chosen.value);
+
       if (Option.isSome(fresh)) return fresh;
     }
   });
@@ -73,6 +78,7 @@ export const usableAccounts = Effect.gen(function* () {
   const states = yield* PoolStates;
   const now = yield* Clock.currentTimeMillis;
   const accounts = available(yield* store.list, yield* states.get, now);
+
   return Array.getSomes(
     yield* Effect.forEach(accounts, withFreshToken, { concurrency: "unbounded" }),
   );

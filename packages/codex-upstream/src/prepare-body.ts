@@ -12,6 +12,7 @@ const ENCRYPTED_REASONING = "reasoning.encrypted_content";
 export const prepareBody = (body: ResponsesBody): Record<string, unknown> => {
   const include = Array.isArray(body.include) ? body.include : [];
   const alias = typeof body.model === "string" ? resolveAlias(body.model) : undefined;
+
   return {
     ...Object.fromEntries(Object.entries(body).filter(([key]) => !UNSUPPORTED.includes(key))),
     instructions: body.instructions ?? "",

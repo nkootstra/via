@@ -6,6 +6,7 @@ import OpenAI from "openai";
 import { type Via, withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
+
 const client = (via: Via) => new OpenAI({ baseURL: `${via.baseUrl}/v1`, apiKey: via.key });
 
 // The official SDK is the client most scripts use, so it must accept via's answers as-is.
@@ -19,6 +20,7 @@ layer(BunFileSystem.layer)("the openai SDK", (it) => {
             messages: [{ role: "user", content: "hi" }],
           }),
         );
+
         expect(completion.choices[0]?.message.content).toBe("hello");
       }),
     ),
@@ -34,10 +36,12 @@ layer(BunFileSystem.layer)("the openai SDK", (it) => {
             stream: true,
           }),
         );
+
         const text = yield* Stream.fromAsyncIterable(chunks, (error) => error).pipe(
           Stream.map((chunk) => chunk.choices[0]?.delta.content ?? ""),
           Stream.mkString,
         );
+
         expect(text).toBe("hello");
       }),
     ),
@@ -49,6 +53,7 @@ layer(BunFileSystem.layer)("the openai SDK", (it) => {
         const response = yield* Effect.promise(() =>
           client(via).responses.create({ model: "gpt-6-astra", input: "hi" }),
         );
+
         expect(response.output_text).toBe("hello");
       }),
     ),

@@ -5,7 +5,6 @@ export {
   type ProviderUsage,
   type ProviderUsageWindow,
   Providers,
-  type ProvidersShape,
   type Route,
   UnknownProviderError,
 } from "./providers.ts";

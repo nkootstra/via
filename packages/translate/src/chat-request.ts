@@ -1,10 +1,12 @@
 import { Schema } from "effect";
 
 const TextPart = Schema.Struct({ type: Schema.Literal("text"), text: Schema.String });
+
 const ImagePart = Schema.Struct({
   type: Schema.Literal("image_url"),
   image_url: Schema.Struct({ url: Schema.String }),
 });
+
 const UserPart = Schema.Union([TextPart, ImagePart]);
 
 const ToolCall = Schema.Struct({
@@ -17,20 +19,24 @@ const InstructionMessage = Schema.Struct({
   role: Schema.Literals(["system", "developer"]),
   content: Schema.String,
 });
+
 const UserMessage = Schema.Struct({
   role: Schema.Literal("user"),
   content: Schema.Union([Schema.String, Schema.Array(UserPart)]),
 });
+
 const AssistantMessage = Schema.Struct({
   role: Schema.Literal("assistant"),
   content: Schema.optionalKey(Schema.NullOr(Schema.String)),
   tool_calls: Schema.optionalKey(Schema.Array(ToolCall)),
 });
+
 const ToolMessage = Schema.Struct({
   role: Schema.Literal("tool"),
   tool_call_id: Schema.String,
   content: Schema.String,
 });
+
 const Message = Schema.Union([InstructionMessage, UserMessage, AssistantMessage, ToolMessage]);
 
 const FunctionTool = Schema.Struct({
@@ -42,7 +48,9 @@ const FunctionTool = Schema.Struct({
     strict: Schema.optionalKey(Schema.Boolean),
   }),
 });
+
 const ToolChoiceMode = Schema.Literals(["auto", "none", "required"]);
+
 const ToolChoice = Schema.Union([
   ToolChoiceMode,
   Schema.Struct({
@@ -60,6 +68,7 @@ const JsonSchemaFormat = Schema.Struct({
     strict: Schema.optionalKey(Schema.Boolean),
   }),
 });
+
 const ResponseFormat = Schema.Union([
   JsonSchemaFormat,
   Schema.Struct({ type: Schema.Literals(["json_object", "text"]) }),
@@ -78,6 +87,7 @@ export const ChatRequest = Schema.Struct({
     Schema.Struct({ include_usage: Schema.optionalKey(Schema.Boolean) }),
   ),
 });
+
 export type ChatRequest = typeof ChatRequest.Type;
 
 const userPart = (part: typeof UserPart.Type) =>
@@ -88,18 +98,22 @@ const userPart = (part: typeof UserPart.Type) =>
 /** The Responses input items a chat message becomes; instructions become none. */
 const inputItems = (message: typeof Message.Type): ReadonlyArray<object> => {
   if (Schema.is(InstructionMessage)(message)) return [];
+
   if (Schema.is(UserMessage)(message)) {
     const parts =
       typeof message.content === "string"
         ? [{ type: "text" as const, text: message.content }]
         : message.content;
+
     return [{ type: "message", role: "user", content: parts.map(userPart) }];
   }
+
   if (Schema.is(ToolMessage)(message)) {
     return [
       { type: "function_call_output", call_id: message.tool_call_id, output: message.content },
     ];
   }
+
   const text = message.content
     ? [
         {
@@ -109,12 +123,14 @@ const inputItems = (message: typeof Message.Type): ReadonlyArray<object> => {
         },
       ]
     : [];
+
   const calls = (message.tool_calls ?? []).map((call) => ({
     type: "function_call",
     call_id: call.id,
     name: call.function.name,
     arguments: call.function.arguments,
   }));
+
   return [...text, ...calls];
 };
 

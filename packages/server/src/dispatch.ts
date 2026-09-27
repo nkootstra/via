@@ -24,6 +24,7 @@ export const openAiError = (
 ) =>
   Effect.gen(function* () {
     yield* (yield* RequestLog).refused(code);
+
     return HttpServerResponse.jsonUnsafe(
       {
         error: {
@@ -85,10 +86,12 @@ export const forward = Effect.fn("forward")(function* (
   const log = yield* RequestLog;
   yield* log.asked(`${route.provider}/${route.model}`);
   yield* log.served(route.provider);
+
   return yield* (yield* Providers).send(route, path, body, session).pipe(
     Effect.flatMap((upstream) => {
       const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
       const tapped = spotUsage(upstream.stream, sse, log.usage);
+
       return Effect.map(log.timed(tapped), (stream) =>
         HttpServerResponse.stream(stream, {
           status: upstream.status,
@@ -106,7 +109,9 @@ export const forward = Effect.fn("forward")(function* (
 const authenticate = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const [scheme, key] = (request.headers.authorization ?? "").split(" ");
+
   if (scheme !== "Bearer" || key === undefined) return Option.none();
+
   return yield* (yield* KeyStore).verify(key);
 });
 
@@ -116,6 +121,7 @@ export const authenticated = <A, E, R>(handler: Effect.Effect<A, E, R>) =>
     if (Option.isNone(yield* authenticate)) {
       return yield* openAiError(401, "invalid_api_key", "Missing or unknown API key");
     }
+
     return yield* handler;
   });
 
@@ -146,9 +152,12 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const states = yield* PoolStates;
   const log = yield* RequestLog;
   const bindings = yield* SessionBindings;
+
   if (typeof body.model === "string") yield* log.asked(body.model);
+
   const allowed =
     typeof body.model === "string" ? yield* (yield* ModelCatalog).mayServe(body.model) : () => true;
+
   // A dead refresh token takes the account out of rotation until it logs in again.
   const lockOut = (id: string) => (error: RefreshRejectedError) => states.lockOut(id, error.code);
 
@@ -161,29 +170,37 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   while (true) {
     const next = yield* nextAccount(allowed, preferred);
     const now = yield* Clock.currentTimeMillis;
+
     if (Option.isNone(next)) {
       return yield* noAccountLeft(
         retryAfter(yield* accountsAllowed(allowed), yield* states.get, now),
       );
     }
+
     const account = next.value;
+
     const sent = yield* codex.send(account, body, session).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),
     );
+
     if (Option.isNone(sent)) {
       return yield* openAiError(502, "upstream_unavailable", "Codex could not be reached");
     }
+
     const upstream = sent.value;
+
     if (upstream.status === 200) {
       yield* log.served(account.label);
       yield* bindings.bind(session, account.id);
+
       return yield* onSuccess(upstream);
     }
 
     const text = yield* upstream.text;
     const verdict = classify(upstream.status, upstream.headers, text, now);
+
     if (Verdict.$is("Cooldown")(verdict)) {
       yield* Effect.logWarning(
         `${account.label} is cooling down until ${new Date(verdict.until).toISOString()} (${verdict.reason})`,
@@ -195,6 +212,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       });
       continue;
     }
+
     if (Verdict.$is("Unauthorized")(verdict)) {
       if (refreshed.has(account.id)) {
         yield* Effect.logWarning(
@@ -210,9 +228,12 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
           .refreshRejected(account.id, account.accessToken)
           .pipe(Effect.catchTag("RefreshRejectedError", lockOut(account.id)));
       }
+
       continue;
     }
+
     yield* log.served(account.label);
+
     return HttpServerResponse.text(text, {
       status: upstream.status,
       contentType: upstream.headers["content-type"] ?? "application/json",

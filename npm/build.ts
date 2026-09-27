@@ -8,7 +8,9 @@ const TARGETS = [
 ] as const;
 
 const here = import.meta.dirname;
+
 const entry = `${here}/../apps/cli/src/index.ts`;
+
 const hostOnly = process.argv.includes("--host");
 
 for (const [os, arch] of TARGETS) {

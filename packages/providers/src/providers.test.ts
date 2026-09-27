@@ -33,6 +33,7 @@ const sent = (name: string, body: Record<string, unknown>, config: Partial<Provi
       (providers) =>
         providers.send({ provider: name, model: "m" }, "/chat/completions", body, "conv-1"),
     );
+
     return fake.requests[0];
   });
 
@@ -62,6 +63,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
             { model: "local/qwen/qwen3", temperature: 0.2, messages: [] },
             "conv-1",
           );
+
           expect(response.status).toBe(200);
           expect(yield* response.json).toEqual({ id: "chatcmpl-1" });
         }),
@@ -95,6 +97,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       const error = yield* Effect.flip(
         withProviders({ mystery: { apiKeyEnv: "KEY" } }, () => Effect.void),
       );
+
       expect(error.message).toMatch(/mystery.*baseUrl/);
     }),
   );
@@ -104,6 +107,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       const error = yield* Effect.flip(
         withProviders({ openrouter: { apiKeyEnv: "OPENROUTER_API_KEY" } }, () => Effect.void, {}),
       );
+
       expect(error.message).toBe(
         `Provider "openrouter" reads its API key from OPENROUTER_API_KEY, which is not set`,
       );
@@ -148,6 +152,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
           sessionHeader: "x-litellm-session-id",
         },
       );
+
       expect(request?.headers["x-litellm-session-id"]).toBe("conv-1");
     }),
   );
@@ -166,6 +171,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       const qwen = { id: "qwen/qwen3", created: 1_780_000_000, context_length: 262_144 };
       up.models([qwen, "kimi-k3"]);
       const down = yield* startFakeProvider;
+
       const models = yield* withProviders(
         {
           up: { baseUrl: up.url, apiKeyEnv: "KEY" },
@@ -173,6 +179,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         },
         (providers) => providers.models,
       );
+
       expect(models).toEqual([
         { provider: "up", model: { ...qwen, id: "up/qwen/qwen3" } },
         { provider: "up", model: { id: "up/kimi-k3", object: "model" } },
@@ -191,6 +198,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
           monthly: { status: "ok", percent: 14, resetsAt: "2026-10-13T09:11:26.000Z" },
         },
       });
+
       const usage = yield* withProviders(
         {
           "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" },
@@ -198,6 +206,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         },
         (providers) => providers.usage,
       );
+
       expect(usage).toEqual([
         {
           provider: "opencode-go",
@@ -235,10 +244,12 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     Effect.gen(function* () {
       const fake = yield* startFakeProvider;
       fake.usage({ error: "unauthorized" }, 401);
+
       const usage = yield* withProviders(
         { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } },
         (providers) => providers.usage,
       );
+
       expect(usage).toEqual([
         { provider: "opencode-go", error: "opencode-go did not report usage (HTTP 401)" },
       ]);

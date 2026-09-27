@@ -28,20 +28,25 @@ const prepend = (content: unknown, line: string) =>
  */
 export const withSharedPrefix = (body: Body): Body => {
   const messages = Array.isArray(body["messages"]) ? body["messages"] : [];
+
   const at = messages.findIndex(
     (message) =>
       isInstruction(message) &&
       typeof message["content"] === "string" &&
       SESSION_LINE.test(message["content"]),
   );
+
   const userAt = messages.findIndex((message) => isRecord(message) && message["role"] === "user");
   const instruction = messages[at];
   const user = messages[userAt];
   const system = isRecord(instruction) ? instruction["content"] : undefined;
+
   if (!isRecord(instruction) || !isRecord(user) || typeof system !== "string") return body;
   const line = SESSION_LINE.exec(system)?.[1];
   const content = line === undefined ? undefined : prepend(user["content"], line);
+
   if (content === undefined) return body;
+
   return {
     ...body,
     messages: messages.map((message, index) =>

@@ -11,6 +11,7 @@ const ok = () => reply.sse(completedStream("hello"));
 const ModelList = Schema.Struct({
   data: Schema.Array(Schema.Struct({ id: Schema.String })),
 });
+
 const ids = (list: unknown) =>
   Schema.decodeUnknownSync(ModelList)(list).data.map((model) => model.id);
 
@@ -186,10 +187,12 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
             yield* via.get("/v1/models");
             codex.models("not a catalog");
             yield* TestClock.adjust("5 minutes");
+
             // A second round of asks means the first one failed and was let go.
             const last = yield* listed(via).pipe(
               Effect.repeat({ until: () => codex.modelRequests.length >= 6 }),
             );
+
             expect(last).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
           }),
         { codexUrl: codex.url },
