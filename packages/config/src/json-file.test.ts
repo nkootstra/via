@@ -38,6 +38,8 @@ layer(BunFileSystem.layer)("json files", (it) => {
       yield* fs.writeFileString(file, '{"hello": 42}');
       const error = yield* Effect.flip(readJsonFile(file, Greeting, () => ({ hello: "x" })));
       expect(error).toBeInstanceOf(CorruptFileError);
+      expect(error.message.startsWith(`Corrupt file ${file}: `)).toBe(true);
+      expect(error.message).toContain("hello");
     }),
   );
 

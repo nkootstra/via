@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { vi } from "vitest";
 import { resolvePaths } from "./index.ts";
 
 describe("resolvePaths", () => {
@@ -16,5 +17,11 @@ describe("resolvePaths", () => {
 
   it("defaults to ~/.config/via", () => {
     expect(resolvePaths({}).home).toBe(join(homedir(), ".config", "via"));
+  });
+
+  it("reads VIA_HOME from the process environment by default", () => {
+    vi.stubEnv("VIA_HOME", "/tmp/via-env");
+    expect(resolvePaths().home).toBe("/tmp/via-env");
+    vi.unstubAllEnvs();
   });
 });
