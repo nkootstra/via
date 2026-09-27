@@ -1,4 +1,4 @@
-import { Effect, Option, Schema, Stream } from "effect";
+import { Effect, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import { TERMINAL_EVENTS } from "./terminal-events.ts";
 
@@ -56,18 +56,6 @@ const isItemDone = Schema.is(ItemDone);
 
 const isTerminal = (event: typeof StreamEvent.Type) => TERMINAL_EVENTS.has(event.type);
 
-type Collected = {
-  readonly items: ReadonlyArray<Schema.Json>;
-  readonly terminal: Option.Option<typeof StreamEvent.Type>;
-};
-
-const collect = (state: Collected, event: typeof StreamEvent.Type): Collected =>
-  isItemDone(event)
-    ? { ...state, items: [...state.items, event.item] }
-    : isTerminal(event)
-      ? { ...state, terminal: Option.some(event) }
-      : state;
-
 const hasOutput = Schema.is(
   Schema.Struct({ output: Schema.Array(Schema.Json).check(Schema.isMinLength(1)) }),
 );
@@ -80,16 +68,18 @@ const hasOutput = Schema.is(
 export const collectResponse = Effect.fn("collectResponse")(function* <E>(
   body: Stream.Stream<Uint8Array, E>,
 ) {
-  const { items, terminal } = yield* body.pipe(
+  // Only finished items and the terminal event matter; progress events are dropped as they arrive.
+  const events = yield* body.pipe(
     Stream.decodeText,
     Stream.pipeThroughChannel(Sse.decodeDataSchema(StreamEvent)),
     Stream.map((event) => event.data),
+    Stream.filter((event) => isItemDone(event) || isTerminal(event)),
     Stream.takeUntil(isTerminal),
-    Stream.runFold((): Collected => ({ items: [], terminal: Option.none() }), collect),
+    Stream.runCollect,
   );
 
-  if (Option.isNone(terminal)) return yield* new IncompleteStreamError();
-  const event = terminal.value;
+  // Without a terminal event this is the last finished item, or nothing.
+  const event = events.at(-1);
 
   if (isFailed(event)) {
     const { code, message } = event.response.error;
@@ -100,7 +90,9 @@ export const collectResponse = Effect.fn("collectResponse")(function* <E>(
   if (isCompleted(event) || isIncomplete(event)) {
     const { response } = event;
 
-    return hasOutput(response) ? response : { ...response, output: items };
+    if (hasOutput(response)) return response;
+
+    return { ...response, output: events.filter(isItemDone).map((done) => done.item) };
   }
 
   return yield* new IncompleteStreamError();

@@ -51,6 +51,14 @@ describe("collectResponse", () => {
     }),
   );
 
+  it.effect("fails when the stream ends after an item but before the response completes", () =>
+    Effect.gen(function* () {
+      const cut = sse([{ type: "response.output_item.done", item: { type: "message" } }]);
+      const error = yield* Effect.flip(collectResponse(bytes(cut)));
+      expect(error).toBeInstanceOf(IncompleteStreamError);
+    }),
+  );
+
   it.effect("keeps the final output when Codex filled it in", () =>
     Effect.gen(function* () {
       const text = sse([
