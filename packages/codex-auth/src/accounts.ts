@@ -99,6 +99,28 @@ const make = (authDir: string) => {
       return account;
     }, serialized);
 
+    /**
+     * Stores the rotated tokens of account `id`. They're written to that account even if
+     * the new ID token names another email or can't be read: its refresh token is spent.
+     */
+    const saveRefreshed = Effect.fn("AccountStore.saveRefreshed")(function* (
+      id: string,
+      tokens: Tokens,
+    ) {
+      const current = yield* find(id);
+
+      const refreshed = yield* decodeIdToken(tokens.idToken).pipe(
+        Effect.map((identity): Account => ({ ...current, ...identity, ...tokens })),
+        Effect.catchTag("InvalidIdTokenError", () =>
+          Effect.succeed<Account>({ ...current, ...tokens, idToken: current.idToken }),
+        ),
+      );
+
+      yield* write(refreshed);
+
+      return refreshed;
+    }, serialized);
+
     const setLabel = Effect.fn("AccountStore.setLabel")(function* (query: string, label: string) {
       yield* write({ ...(yield* find(query)), label });
     }, serialized);
@@ -114,7 +136,7 @@ const make = (authDir: string) => {
       yield* fs.remove(fileOf((yield* find(query)).id));
     }, serialized);
 
-    return { list, find, save, setLabel, setEnabled, remove };
+    return { list, find, save, saveRefreshed, setLabel, setEnabled, remove };
   });
 };
 

@@ -3,6 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
 import {
   type FakeIssuerOptions,
+  idToken,
   issuedTokens,
   refreshedTokens,
   withIssuer,
@@ -141,6 +142,48 @@ layer(BunFileSystem.layer)("AccountTokens.fresh", (it) => {
           expect.objectContaining({ id: account.id, label: "work", refreshToken: "rt-2" }),
         ]);
       }),
+    ),
+  );
+
+  it.effect("saves a rotation to the refreshed account even when its email has changed", () =>
+    withAccount(
+      0,
+      (account) =>
+        Effect.gen(function* () {
+          yield* (yield* AccountTokens).fresh(account);
+          expect(yield* (yield* AccountStore).list).toEqual([
+            expect.objectContaining({
+              id: account.id,
+              email: "renamed@example.com",
+              plan: "plus",
+              refreshToken: "rt-2",
+            }),
+          ]);
+        }),
+      {
+        refreshResponse: {
+          status: 200,
+          body: {
+            ...refreshedTokens,
+            id_token: idToken({ email: "renamed@example.com", accountId: "acc-123", plan: "plus" }),
+          },
+        },
+      },
+    ),
+  );
+
+  it.effect("keeps a rotation whose new ID token can't be read, and the identity it had", () =>
+    withAccount(
+      0,
+      (account) =>
+        Effect.gen(function* () {
+          const fresh = yield* (yield* AccountTokens).fresh(account);
+          expect(fresh.accessToken).toBe(refreshedTokens.access_token);
+          expect(yield* (yield* AccountStore).find(account.id)).toEqual(
+            expect.objectContaining({ email: account.email, refreshToken: "rt-2" }),
+          );
+        }),
+      { refreshResponse: { status: 200, body: { ...refreshedTokens, id_token: "not-a-jwt" } } },
     ),
   );
 });

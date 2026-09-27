@@ -35,7 +35,7 @@ const make = Effect.gen(function* () {
 
       if (!needed(account, yield* Clock.currentTimeMillis)) return account;
 
-      return yield* store.save(yield* auth.refresh(account));
+      return yield* store.saveRefreshed(id, yield* auth.refresh(account));
     }).pipe(Semaphore.withPermit(lock));
   });
 
