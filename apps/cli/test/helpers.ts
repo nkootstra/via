@@ -1,7 +1,6 @@
 // The black-box harness for the `via` binary, shared with apps/e2e as `@via/cli/testing`.
-import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
-import { Clock, Effect, FileSystem, Layer, Predicate } from "effect";
-import { HttpServer } from "effect/unstable/http";
+import { type FakeIssuerOptions, seedAccount, startFakeIssuer } from "@via/codex-auth/testing";
+import { Clock, Effect, FileSystem, Predicate } from "effect";
 import { fileURLToPath } from "node:url";
 
 const source = fileURLToPath(new URL("../src/index.ts", import.meta.url));
@@ -141,14 +140,6 @@ export const serveVia = (
   env: Record<string, string> = {},
 ) => Effect.map(startVia(home, args, env), ({ url }) => url);
 
-/** The fake OpenAI issuer, scoped, as a base URL. */
-export const startIssuer = (options: FakeIssuerOptions = {}) =>
-  Effect.gen(function* () {
-    const issuer = yield* Layer.build(fakeIssuer(options));
-
-    return yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(issuer));
-  });
-
 /**
  * A fresh home whose `via` logs in through a fake issuer, answering as
  * `issuer` says, and sends Codex traffic to `upstream`; `env` adds variables.
@@ -163,7 +154,7 @@ export const viaHome = (options: {
     const home = yield* tempHome;
 
     const env = {
-      VIA_CODEX_ISSUER: yield* startIssuer(options.issuer),
+      VIA_CODEX_ISSUER: yield* startFakeIssuer(options.issuer),
       VIA_CODEX_BASE_URL: options.upstream,
       ...options.env,
     };
@@ -198,31 +189,12 @@ export type SeededAccount = {
  * this is how a test gets a pool of several.
  */
 export const seedAccounts = (home: string, accounts: ReadonlyArray<SeededAccount>) =>
-  Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    yield* fs.makeDirectory(`${home}/auth`, { recursive: true });
-    yield* Effect.forEach(accounts, ({ name, expiresAt = 1e15, enabled = true }, index) =>
-      fs.writeFileString(
-        `${home}/auth/${name}.json`,
-        JSON.stringify({
-          id: name,
-          label: name,
-          email: `${name}@example.com`,
-          plan: "pro",
-          accountId: `acc-${name}`,
-          accessToken: `at-${name}`,
-          refreshToken: "rt-1",
-          idToken: jwt({
-            email: `${name}@example.com`,
-            "https://api.openai.com/auth": {
-              chatgpt_account_id: `acc-${name}`,
-              chatgpt_plan_type: "pro",
-            },
-          }),
-          expiresAt,
-          enabled,
-          createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
-        }),
-      ),
-    );
-  });
+  Effect.forEach(
+    accounts,
+    ({ name, ...overrides }, index) =>
+      seedAccount(`${home}/auth`, name, {
+        ...overrides,
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      }),
+    { discard: true },
+  );

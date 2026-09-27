@@ -10,7 +10,7 @@ import {
 import { Effect, Predicate, type Schema } from "effect";
 import OpenAI from "openai";
 
-export { freePort, realTime, runVia, startIssuer, tempHome } from "@via/cli/testing";
+export { freePort, realTime, runVia, tempHome } from "@via/cli/testing";
 
 /** The fake Codex backend, scoped; point via at `codex.url`. */
 export const startCodex = startFakeCodex;

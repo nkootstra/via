@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
-import { ACCESS_TOKEN_EXP, issuedTokens, withIssuer } from "./fake-issuer.ts";
+import { ACCESS_TOKEN_EXP, issuedTokens, withIssuer } from "./testing/index.ts";
 import { AuthRequestError, CodexAuth, type DeviceCode, DeviceLoginTimeoutError } from "./index.ts";
 
 /** Runs `body` with CodexAuth pointed at `issuer` instead of the fake's own address. */

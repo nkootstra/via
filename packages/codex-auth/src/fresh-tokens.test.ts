@@ -6,7 +6,7 @@ import {
   issuedTokens,
   refreshedTokens,
   withIssuer,
-} from "./fake-issuer.ts";
+} from "./testing/index.ts";
 import {
   type Account,
   AccountStore,

@@ -3,7 +3,7 @@ import { Context, DateTime, Effect, FileSystem, Layer, Schema, Semaphore } from 
 import { decodeIdToken } from "./claims.ts";
 import type { Tokens } from "./codex-auth.ts";
 
-const Account = Schema.Struct({
+export const Account = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   email: Schema.String,

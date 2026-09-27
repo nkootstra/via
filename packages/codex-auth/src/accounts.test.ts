@@ -3,14 +3,11 @@ import { expect, layer } from "@effect/vitest";
 import { CorruptFileError } from "@via/config";
 import { Effect, FileSystem } from "effect";
 import { TestClock } from "effect/testing";
-import { jwt } from "./fake-issuer.ts";
+import { idToken } from "./testing/index.ts";
 import { AccountNotFoundError, AccountStore, type Tokens } from "./index.ts";
 
 const tokensFor = (email: string, accountId: string, refreshToken = "rt"): Tokens => ({
-  idToken: jwt({
-    email,
-    "https://api.openai.com/auth": { chatgpt_account_id: accountId, chatgpt_plan_type: "plus" },
-  }),
+  idToken: idToken({ email, accountId, plan: "plus" }),
   accessToken: "at",
   refreshToken,
   expiresAt: 1_000,

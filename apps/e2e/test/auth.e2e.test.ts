@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { jwt } from "@via/codex-auth/testing";
+import { idToken, jwt, startFakeIssuer } from "@via/codex-auth/testing";
 import { reply } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Schema } from "effect";
 import {
@@ -11,7 +11,6 @@ import {
   responsesOf,
   runVia,
   startCodex,
-  startIssuer,
   tempHome,
   type Via,
 } from "./harness.ts";
@@ -113,9 +112,10 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
         const NEW_EXP = 2_100_000_000; // seconds; far beyond the test's lifetime
         const refreshedAccessToken = jwt({ exp: NEW_EXP });
 
-        const refreshedIdToken = jwt({
+        const refreshedIdToken = idToken({
           email: "a@example.com",
-          "https://api.openai.com/auth": { chatgpt_account_id: "acc-a", chatgpt_plan_type: "pro" },
+          accountId: "acc-a",
+          plan: "pro",
         });
 
         const via = yield* launchVia({
@@ -256,7 +256,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
   it.effect("logs in via the device code flow and lists the new account", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;
-      const issuer = yield* startIssuer();
+      const issuer = yield* startFakeIssuer();
       const env = { VIA_CODEX_ISSUER: issuer };
 
       const added = yield* runVia(home, ["accounts", "add"], env);
