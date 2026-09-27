@@ -9,7 +9,7 @@ import {
   realTime,
   startCodex,
   type Via,
-  withVia,
+  launchVia,
 } from "./harness.ts";
 
 // Faults a real Codex connection produces, and what a client must see for
@@ -84,12 +84,9 @@ const faulted = <A, E, R>(
     const codex = yield* startCodex;
 
     if (fault !== undefined) codex.script(fault);
-    yield* withVia({ upstream: codex.url }, (via) =>
-      Effect.gen(function* () {
-        yield* body(via, codex);
-        yield* stillServes(via, codex);
-      }),
-    );
+    const via = yield* launchVia({ upstream: codex.url });
+    yield* body(via, codex);
+    yield* stillServes(via, codex);
   });
 
 const cutOff = reply.truncated(reply.text("pong"), 5);
@@ -182,17 +179,15 @@ layer(BunFileSystem.layer)("resilience", (it) => {
     it.effect(`an unreachable Codex answers ${path} with 502 upstream_unavailable`, () =>
       Effect.gen(function* () {
         const closed = `http://127.0.0.1:${yield* freePort}`;
-        yield* withVia({ upstream: closed }, (via) =>
-          Effect.gen(function* () {
-            for (const _ of [1, 2]) {
-              const response = yield* post(via, path, JSON.stringify(chatBody(false)));
-              expect(response.status).toBe(502);
-              expect(yield* Effect.promise(() => response.json())).toMatchObject({
-                error: { type: "server_error", code: "upstream_unavailable" },
-              });
-            }
-          }),
-        );
+        const via = yield* launchVia({ upstream: closed });
+
+        for (const _ of [1, 2]) {
+          const response = yield* post(via, path, JSON.stringify(chatBody(false)));
+          expect(response.status).toBe(502);
+          expect(yield* Effect.promise(() => response.json())).toMatchObject({
+            error: { type: "server_error", code: "upstream_unavailable" },
+          });
+        }
       }),
     );
 
@@ -234,20 +229,18 @@ layer(BunFileSystem.layer)("resilience", (it) => {
       const codex = yield* startCodex;
       const gate = yield* Deferred.make<void>();
       codex.script(reply.held(gate, reply.text("late")));
-      yield* withVia({ upstream: codex.url }, (via) =>
-        Effect.gen(function* () {
-          const pending = yield* Effect.promise(() =>
-            openai(via).chat.completions.create({
-              model: MODEL,
-              messages: [{ role: "user", content: "ping" }],
-            }),
-          ).pipe(Effect.forkChild);
+      const via = yield* launchVia({ upstream: codex.url });
 
-          yield* codex.received(1);
-          yield* Deferred.succeed(gate, undefined);
-          expect((yield* Fiber.join(pending)).choices[0]?.message.content).toBe("late");
+      const pending = yield* Effect.promise(() =>
+        openai(via).chat.completions.create({
+          model: MODEL,
+          messages: [{ role: "user", content: "ping" }],
         }),
-      );
+      ).pipe(Effect.forkChild);
+
+      yield* codex.received(1);
+      yield* Deferred.succeed(gate, undefined);
+      expect((yield* Fiber.join(pending)).choices[0]?.message.content).toBe("late");
     }),
   );
 });
