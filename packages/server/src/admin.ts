@@ -1,8 +1,15 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { type Account, AccountNotFoundError, AccountStore, AccountTokens } from "@via/codex-auth";
+import {
+  type Account,
+  AccountNotFoundError,
+  AccountStore,
+  AccountTokens,
+  AuthRequestError,
+} from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "@via/keys";
 import { Providers } from "@via/providers";
+import { LoginNotFoundError, Logins } from "./logins.ts";
 import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
 import {
   HttpApi,
@@ -23,6 +30,20 @@ const AdminAccount = Schema.Struct({
   enabled: Schema.Boolean,
   createdAt: Schema.String,
 });
+
+/** A started device-code login: the code to enter, and where to enter it. */
+const StartedLogin = Schema.Struct({
+  id: Schema.String,
+  userCode: Schema.String,
+  verificationUrl: Schema.String,
+});
+
+/** Where a device-code login stands. */
+const LoginStatus = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("pending") }),
+  Schema.Struct({ status: Schema.Literal("added"), account: AdminAccount }),
+  Schema.Struct({ status: Schema.Literal("failed"), error: Schema.String }),
+]);
 
 /** A client API key as the admin API lists it: never the key itself. */
 const AdminKey = Schema.Struct({
@@ -85,6 +106,19 @@ class AdminAuthorization extends HttpApiMiddleware.Service<AdminAuthorization>()
 
 class AccountsGroup extends HttpApiGroup.make("accounts")
   .add(HttpApiEndpoint.get("list", "/accounts", { success: Schema.Array(AdminAccount) }))
+  .add(
+    HttpApiEndpoint.post("login", "/accounts/logins", {
+      success: StartedLogin.pipe(HttpApiSchema.status(201)),
+      error: AuthRequestError.pipe(HttpApiSchema.status(502)),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("loginStatus", "/accounts/logins/:id", {
+      params: { id: Schema.String },
+      success: LoginStatus,
+      error: LoginNotFoundError.pipe(HttpApiSchema.status(404)),
+    }),
+  )
   .add(
     HttpApiEndpoint.patch("update", "/accounts/:account", {
       params: { account: Schema.String },
@@ -171,27 +205,44 @@ const withoutTokens = ({ id, label, email, plan, enabled, createdAt }: Account) 
 
 // The account files are via's own; one it can't read or write is a bug, not a request error.
 const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
-  handlers
-    .handle("list", () =>
-      Effect.gen(function* () {
-        return (yield* (yield* AccountStore).list).map(withoutTokens);
-      }).pipe(Effect.orDie),
-    )
-    .handle("update", ({ params, payload }) =>
-      Effect.gen(function* () {
-        const store = yield* AccountStore;
-        // Found once, then changed by id, so a new label can't lose track of the account.
-        const { id } = yield* store.find(params.account);
-        if (payload.label !== undefined) yield* store.setLabel(id, payload.label);
-        if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
-        return withoutTokens(yield* store.find(id));
-      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
-    )
-    .handle("remove", ({ params }) =>
-      Effect.gen(function* () {
-        yield* (yield* AccountStore).remove(params.account);
-      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
-    ),
+  Effect.gen(function* () {
+    // Taken once, so every request sees the same logins.
+    const logins = yield* Logins;
+    return handlers
+      .handle("list", () =>
+        Effect.gen(function* () {
+          return (yield* (yield* AccountStore).list).map(withoutTokens);
+        }).pipe(Effect.orDie),
+      )
+      .handle("login", () =>
+        Effect.gen(function* () {
+          return yield* logins.start();
+        }),
+      )
+      .handle("loginStatus", ({ params }) =>
+        Effect.gen(function* () {
+          const login = yield* logins.status(params.id);
+          return login.status === "added"
+            ? { status: login.status, account: withoutTokens(login.account) }
+            : login;
+        }),
+      )
+      .handle("update", ({ params, payload }) =>
+        Effect.gen(function* () {
+          const store = yield* AccountStore;
+          // Found once, then changed by id, so a new label can't lose track of the account.
+          const { id } = yield* store.find(params.account);
+          if (payload.label !== undefined) yield* store.setLabel(id, payload.label);
+          if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
+          return withoutTokens(yield* store.find(id));
+        }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+      )
+      .handle("remove", ({ params }) =>
+        Effect.gen(function* () {
+          yield* (yield* AccountStore).remove(params.account);
+        }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+      );
+  }),
 );
 
 // The key file is via's own; one it can't read or write is a bug, not a request error.
@@ -263,7 +314,7 @@ export const adminRoutes = Layer.unwrap(
     if (length < 32) return yield* new AdminKeyTooShortError({ length });
     return HttpApiBuilder.layer(AdminApi).pipe(
       Layer.provide([accounts, keys, usage]),
-      Layer.provide(authorization(adminKey.value)),
+      Layer.provide([authorization(adminKey.value), Logins.layer]),
     );
   }),
 );

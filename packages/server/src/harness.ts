@@ -122,7 +122,8 @@ const collectLogs = () => {
  * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
  * Models prefixed `openrouter/` and `opencode-go/` go to a fake provider, or
  * to `providerUrl` when it is given. With `adminKey`, via serves the admin API
- * behind that key; the environment's `VIA_ADMIN_KEY` is never read.
+ * behind that key; the environment's `VIA_ADMIN_KEY` is never read. Device-code logins
+ * go to the fake issuer, with its `pendingPolls` and `interval`.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -136,7 +137,9 @@ export const withVia = <A, E>(
     codexUrl,
     providerUrl,
     adminKey,
-  }: Pick<FakeIssuerOptions, "refreshResponse"> & {
+    pendingPolls = 0,
+    interval = "0",
+  }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
     codexUrl?: string;
     providerUrl?: string;
@@ -153,13 +156,13 @@ export const withVia = <A, E>(
 
     const codex = yield* startFakeCodex;
     codex.respond(answer);
-    const issuer = yield* Layer.build(fakeIssuer({ refreshResponse }));
+    const issuer = yield* Layer.build(fakeIssuer({ refreshResponse, pendingPolls, interval }));
     const provider = yield* startFakeProvider;
     const providerConfig = { baseUrl: providerUrl ?? provider.url, apiKeyEnv: "PROVIDER_KEY" };
 
     const services = Layer.mergeAll(
       AccountTokens.layer.pipe(
-        Layer.provide(
+        Layer.provideMerge(
           CodexAuth.layer(
             yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(issuer)),
           ),
