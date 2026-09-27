@@ -20,4 +20,6 @@ export type Pool = SuccessOf<Groups["pool"]["endpoints"]["get"]>;
 
 export type PoolAccount = Pool["accounts"][number];
 
+export type PoolProvider = Pool["providers"][number];
+
 export type Model = SuccessOf<Groups["models"]["endpoints"]["list"]>[number];
