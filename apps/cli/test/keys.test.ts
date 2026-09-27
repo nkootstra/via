@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
-import { runVia, tempHome } from "./helpers.ts";
+import { createKey, runVia, tempHome } from "./helpers.ts";
 
 layer(BunFileSystem.layer)("via keys", (it) => {
   it.effect("create prints a new via_ key once", () =>
@@ -24,8 +24,7 @@ layer(BunFileSystem.layer)("via keys", (it) => {
   it.effect("list shows key names but never the key itself", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;
-      const created = yield* runVia(home, ["keys", "create", "--name", "laptop"]);
-      const key = created.stdout.match(/via_[A-Za-z0-9]{32}/)?.[0];
+      const key = yield* createKey(home, "laptop");
       const list = yield* runVia(home, ["keys", "list"]);
       expect(list.exitCode).toBe(0);
       expect(list.stdout).toContain("laptop");
