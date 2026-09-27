@@ -40,8 +40,8 @@ export class RequestLog extends Context.Service<
 >()("via/RequestLog") {}
 
 /** `{ [key]: value }` for a value that was noted, else nothing. */
-const noted = (key: string, value: Option.Option<string>) =>
-  Option.match(value, { onNone: () => ({}), onSome: (text) => ({ [key]: text }) });
+const noted = <A>(key: string, value: Option.Option<A>) =>
+  Option.match(value, { onNone: () => ({}), onSome: (found) => ({ [key]: found }) });
 
 /**
  * How a streamed answer ended: sent in full, stopped by the client going away
@@ -86,6 +86,22 @@ const usageAnnotations = (usage: Option.Option<TokenUsage>) =>
     }),
   });
 
+/** What a request's log line says, noted while the request is handled. */
+interface Noted {
+  readonly model: Option.Option<string>;
+  readonly servedBy: Option.Option<string>;
+  readonly error: Option.Option<string>;
+  readonly usage: Option.Option<TokenUsage>;
+  readonly retryAfter: Option.Option<string>;
+  readonly status: number;
+  readonly headersAt: number;
+  readonly streamed: boolean;
+  readonly firstChunkAt: Option.Option<number>;
+  readonly streamEnd: Option.Option<string>;
+  /** The line waits for both the response and, when there is one, its stream. */
+  readonly pending: number;
+}
+
 /**
  * Runs `app` for one request and then logs it as Effect's own request log does
  * ("Sent HTTP response" in an `http.span`), adding the model, who served it,
@@ -105,74 +121,78 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     const request = yield* HttpServerRequest.HttpServerRequest;
     const id = yield* requestId(request.headers);
     const start = yield* Clock.currentTimeMillis;
-    const model = yield* Ref.make(Option.none<string>());
-    const served = yield* Ref.make(Option.none<string>());
-    const refused = yield* Ref.make(Option.none<string>());
-    const usage = yield* Ref.make(Option.none<TokenUsage>());
-    const retryAfter = yield* Ref.make(Option.none<string>());
-    const streamed = yield* Ref.make(false);
-    const firstChunk = yield* Ref.make(Option.none<number>());
-    const ended = yield* Ref.make(Option.none<string>());
-    // The line waits for both the response and, when there is one, its stream.
-    const pending = yield* Ref.make(1);
-    const status = yield* Ref.make(0);
-    const headersAt = yield* Ref.make(start);
 
-    const log = Effect.gen(function* () {
-      const headers = (yield* Ref.get(headersAt)) - start;
-      const first = yield* Ref.get(firstChunk);
+    const noting = yield* Ref.make<Noted>({
+      model: Option.none(),
+      servedBy: Option.none(),
+      error: Option.none(),
+      usage: Option.none(),
+      retryAfter: Option.none(),
+      status: 0,
+      headersAt: start,
+      streamed: false,
+      firstChunkAt: Option.none(),
+      streamEnd: Option.none(),
+      pending: 1,
+    });
 
-      const timings = (yield* Ref.get(streamed))
-        ? {
-            headers_ms: headers,
-            ...Option.match(first, {
-              onNone: () => ({}),
-              onSome: (at) => ({ first_chunk_ms: at - start }),
-            }),
-            ...noted("stream_end", yield* Ref.get(ended)),
-          }
-        : {};
+    const note = (found: Partial<Noted>) => Ref.update(noting, (sofar) => ({ ...sofar, ...found }));
 
-      yield* Effect.log("Sent HTTP response").pipe(
+    const log = (line: Noted) =>
+      Effect.log("Sent HTTP response").pipe(
         Effect.annotateLogs({
           request_id: id,
           "http.method": request.method,
           "http.url": request.url,
-          "http.status": yield* Ref.get(status),
-          ...noted("model", yield* Ref.get(model)),
-          ...noted("served_by", yield* Ref.get(served)),
-          ...noted("error", yield* Ref.get(refused)),
-          ...noted("retry_after", yield* Ref.get(retryAfter)),
-          ...usageAnnotations(yield* Ref.get(usage)),
-          ...timings,
+          "http.status": line.status,
+          ...noted("model", line.model),
+          ...noted("served_by", line.servedBy),
+          ...noted("error", line.error),
+          ...noted("retry_after", line.retryAfter),
+          ...usageAnnotations(line.usage),
+          ...(line.streamed
+            ? {
+                headers_ms: line.headersAt - start,
+                ...noted(
+                  "first_chunk_ms",
+                  Option.map(line.firstChunkAt, (at) => at - start),
+                ),
+                ...noted("stream_end", line.streamEnd),
+              }
+            : {}),
         }),
         // As Effect's own request log does, but the span lasts until the answer is sent.
         Effect.provideService(References.CurrentLogSpans, [["http.span", start]]),
       );
-    });
 
-    const finish = Ref.updateAndGet(pending, (n) => n - 1).pipe(
+    const finish = Ref.modify(noting, (sofar): [Noted, Noted] => {
+      const line = { ...sofar, pending: sofar.pending - 1 };
+
+      return [line, line];
+    }).pipe(
       // A host's health checks would drown out the requests.
-      Effect.flatMap((left) => (left === 0 && request.url !== "/healthz" ? log : Effect.void)),
+      Effect.flatMap((line) =>
+        line.pending === 0 && request.url !== "/healthz" ? log(line) : Effect.void,
+      ),
     );
 
     const service = RequestLog.of({
-      asked: (name) => Ref.set(model, Option.some(name)),
-      served: (by) => Ref.set(served, Option.some(by)),
-      refused: (code) => Ref.set(refused, Option.some(code)),
-      usage: (found) => Ref.set(usage, Option.some(found)),
+      asked: (model) => note({ model: Option.some(model) }),
+      served: (by) => note({ servedBy: Option.some(by) }),
+      refused: (code) => note({ error: Option.some(code) }),
+      usage: (usage) => note({ usage: Option.some(usage) }),
       timed: (stream) =>
         Effect.as(
-          Effect.all([Ref.set(streamed, true), Ref.update(pending, (n) => n + 1)]),
+          Ref.update(noting, (sofar) => ({ ...sofar, streamed: true, pending: sofar.pending + 1 })),
           stream.pipe(
             // Only the first chunk is timed; `tap` would run an effect for every chunk.
             Stream.onFirst(() =>
               Effect.flatMap(Clock.currentTimeMillis, (now) =>
-                Ref.set(firstChunk, Option.some(now)),
+                note({ firstChunkAt: Option.some(now) }),
               ),
             ),
             Stream.onExit((exit) =>
-              Effect.andThen(Ref.set(ended, Option.some(streamEnd(exit))), finish),
+              Effect.andThen(note({ streamEnd: Option.some(streamEnd(exit)) }), finish),
             ),
             // Bun prints the error a response body fails with, stack and request included.
             // Failing with `undefined` still cuts the client off, so a truncated answer never
@@ -183,14 +203,13 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     });
 
     yield* HttpEffect.appendPreResponseHandler((_request, response) =>
-      Effect.as(
-        Effect.all([
-          Ref.set(status, response.status),
-          Ref.set(retryAfter, Option.fromNullishOr(response.headers["retry-after"])),
-          Effect.flatMap(Clock.currentTimeMillis, (now) => Ref.set(headersAt, now)),
-        ]),
-        HttpServerResponse.setHeader(response, "x-request-id", id),
-      ),
+      Effect.flatMap(Clock.currentTimeMillis, (now) =>
+        note({
+          status: response.status,
+          retryAfter: Option.fromNullishOr(response.headers["retry-after"]),
+          headersAt: now,
+        }),
+      ).pipe(Effect.as(HttpServerResponse.setHeader(response, "x-request-id", id))),
     );
 
     return yield* app.pipe(
