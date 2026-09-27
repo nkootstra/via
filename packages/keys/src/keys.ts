@@ -45,6 +45,8 @@ const randomString = (length: number) =>
     return out;
   });
 
+// A key carries about 190 random bits, so a fast, unsalted SHA-256 is enough to make the
+// stored hash useless for recovering it; a password KDF would only slow down every request.
 const hash = (key: string) => createHash("sha256").update(key).digest();
 
 const make = (path: string) =>
