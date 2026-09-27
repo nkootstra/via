@@ -155,7 +155,11 @@ export const startFakeCodex = Effect.gen(function* () {
   );
 
   const server = yield* Layer.build(
-    HttpRouter.serve(routes).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 }))),
+    HttpRouter.serve(routes).pipe(
+      // No idle timeout: a stalled reply stays open, as Codex's does, instead of Bun
+      // closing it after 10 quiet seconds.
+      Layer.provideMerge(BunHttpServer.layer({ port: 0, idleTimeout: 0 })),
+    ),
   );
 
   const url = yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server));
