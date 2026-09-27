@@ -181,6 +181,12 @@ export const AdminState = Schema.Struct({
   keys: Schema.Array(AdminKey),
 });
 
+/** The one event `GET /admin/events` sends: the whole admin state, as JSON. */
+export const StateEvent = Schema.Struct({
+  event: Schema.Literal("state"),
+  data: Schema.fromJsonString(AdminState),
+});
+
 /** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 
@@ -360,6 +366,16 @@ class PoolGroup extends HttpApiGroup.make("pool")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
+/** The admin state, pushed to a page as it changes, so the page needn't poll. */
+class EventsGroup extends HttpApiGroup.make("events")
+  .add(
+    HttpApiEndpoint.get("stream", "/events", {
+      success: HttpApiSchema.StreamSse({ events: StateEvent }),
+    }),
+  )
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
 class ModelsGroup extends HttpApiGroup.make("models")
   .add(HttpApiEndpoint.get("list", "/models", { success: Schema.Array(Model) }))
   .middleware(AdminAuthorization)
@@ -373,6 +389,7 @@ export class AdminApi extends HttpApi.make("via-admin")
   .add(UsageGroup)
   .add(PoolGroup)
   .add(ModelsGroup)
+  .add(EventsGroup)
   .annotate(OpenApi.Title, "via admin API")
   .annotate(
     OpenApi.Description,

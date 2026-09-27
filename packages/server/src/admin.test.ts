@@ -229,6 +229,35 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("describes /admin/events in its spec as server-sent state events", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const spec = Schema.decodeUnknownSync(
+            Schema.Struct({
+              paths: Schema.Struct({
+                "/admin/events": Schema.Struct({
+                  get: Schema.Struct({
+                    responses: Schema.Struct({
+                      "200": Schema.Struct({
+                        content: Schema.Record(Schema.String, Schema.Json),
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          )(yield* (yield* via.get("/admin/openapi.json", null)).json);
+
+          expect(Object.keys(spec.paths["/admin/events"].get.responses["200"].content)).toEqual([
+            "text/event-stream",
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("serves an API reference page for the spec", () =>
     withVia(
       ok,
