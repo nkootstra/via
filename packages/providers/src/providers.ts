@@ -176,6 +176,7 @@ const make = (
     const configured = [...providers.values()];
 
     return Providers.of({
+      names: [...providers.keys()],
       usage: Effect.all(
         configured.flatMap((provider) =>
           provider.usagePath === undefined ? [] : [usageOf(provider, provider.usagePath)],
@@ -224,6 +225,8 @@ const make = (
 export class Providers extends Context.Service<
   Providers,
   {
+    /** Every configured provider's name, in config.yaml's order. */
+    readonly names: ReadonlyArray<string>;
     /** The provider a `<provider>/<model>` id names, if it is configured. */
     readonly route: (model: string) => Option.Option<Route>;
     /**

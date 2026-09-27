@@ -38,6 +38,16 @@ export function windowName(minutes: number) {
   return `${minutes} minutes`;
 }
 
+/** The names OpenCode Go gives its usage windows, as the overview shows them. */
+const providerWindows = new Map([
+  ["rolling", "5 hours"],
+  ["weekly", "Weekly"],
+  ["monthly", "Monthly"],
+]);
+
+/** A provider's usage window's name: OpenCode Go's `rolling` → "5 hours"; others as given. */
+export const providerWindowName = (window: string) => providerWindows.get(window) ?? window;
+
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
 const timeFormat = new Intl.DateTimeFormat(undefined, {

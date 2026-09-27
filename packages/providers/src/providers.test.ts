@@ -326,6 +326,20 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
+  it.effect("names every configured provider, whether or not it reports usage", () =>
+    Effect.gen(function* () {
+      const names = yield* withProviders(
+        {
+          "opencode-go": { baseUrl: "http://127.0.0.1:1", apiKeyEnv: "KEY" },
+          openrouter: { apiKeyEnv: "KEY" },
+        },
+        (providers) => Effect.succeed(providers.names),
+      );
+
+      expect(names).toEqual(["opencode-go", "openrouter"]);
+    }),
+  );
+
   it.effect("reports OpenCode Go's usage, and none for a provider without a usage endpoint", () =>
     Effect.gen(function* () {
       const fake = yield* startFakeProvider;

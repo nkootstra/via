@@ -8,8 +8,8 @@ import type { ReactNode } from "react";
 import { accountsQuery, poolQuery, usageQuery } from "../../api/admin.ts";
 import { AccountsIcon, CodexIcon, PlusIcon, ProviderLogo } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
-import { countdown, formatTime, useNow, windowName } from "../../lib/time.ts";
-import type { PoolAccount, Usage } from "../../api/types.ts";
+import { countdown, formatTime, providerWindowName, useNow, windowName } from "../../lib/time.ts";
+import type { PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({ meta: [{ title: "Overview · via" }] }),
@@ -18,6 +18,7 @@ export const Route = createFileRoute("/_app/")({
 
 const styles = stylex.create({
   stats: {
+    margin: 0,
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
     gap: space.s3,
@@ -35,6 +36,7 @@ const styles = stylex.create({
     color: colors.mutedForeground,
   },
   statValue: {
+    margin: 0,
     fontSize: "26px",
     lineHeight: 1.1,
     letterSpacing: "-0.02em",
@@ -78,10 +80,12 @@ const styles = stylex.create({
   who: {
     display: "flex",
     flexDirection: "column",
+    alignItems: "flex-start",
     gap: space.s0_5,
     minWidth: 0,
   },
   name: {
+    maxWidth: "100%",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -90,11 +94,33 @@ const styles = stylex.create({
     color: colors.foreground,
   },
   email: {
+    maxWidth: "100%",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     fontSize: text.caption,
     color: colors.mutedForeground,
+  },
+  tag: {
+    paddingInline: space.s1_5,
+    borderRadius: radii.full,
+    fontSize: "11px",
+    lineHeight: "17px",
+    letterSpacing: "0.02em",
+    fontVariationSettings: weights.medium,
+    color: colors.mutedForeground,
+    boxShadow: `inset 0 0 0 1px ${colors.border}`,
+  },
+  providerIcon: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    width: "32px",
+    height: "32px",
+    borderRadius: radii.item,
+    backgroundColor: colors.muted,
+    color: colors.foreground,
   },
   state: {
     display: "flex",
@@ -139,22 +165,6 @@ const styles = stylex.create({
     fontSize: text.caption,
     color: colors.mutedForeground,
   },
-  providerHead: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.s2,
-  },
-  providerIcon: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    flexShrink: 0,
-    width: "32px",
-    height: "32px",
-    borderRadius: radii.item,
-    backgroundColor: colors.muted,
-    color: colors.foreground,
-  },
 });
 
 const stateColors = stylex.create({
@@ -181,19 +191,17 @@ function Stat({
   readonly children: ReactNode;
 }) {
   return (
-    <Panel>
-      <div {...stylex.props(styles.stat)}>
-        <span {...stylex.props(styles.statLabel)}>
-          <span aria-hidden="true" {...stylex.props(styles.dot, stateColors[color])} />
-          {label}
-        </span>
-        <span {...stylex.props(styles.statValue)}>{children}</span>
-      </div>
+    <Panel xstyle={styles.stat}>
+      <dt {...stylex.props(styles.statLabel)}>
+        <span aria-hidden="true" {...stylex.props(styles.dot, stateColors[color])} />
+        {label}
+      </dt>
+      <dd {...stylex.props(styles.statValue)}>{children}</dd>
     </Panel>
   );
 }
 
-function StateBadge({ account }: { readonly account: PoolAccount }) {
+function AccountBadge({ account }: { readonly account: PoolAccount }) {
   if (!account.enabled) return <Badge variant="dot">Disabled</Badge>;
 
   switch (account.state.status) {
@@ -218,29 +226,91 @@ function StateBadge({ account }: { readonly account: PoolAccount }) {
   }
 }
 
-function StateDetail({ account }: { readonly account: PoolAccount }) {
+function ProviderBadge({ provider }: { readonly provider: PoolProvider }) {
+  switch (provider.state.status) {
+    case "available":
+      return (
+        <Badge variant="dot" color="green">
+          Available
+        </Badge>
+      );
+    case "exhausted":
+      return (
+        <Badge variant="dot" color="amber">
+          Exhausted
+        </Badge>
+      );
+    case "unavailable":
+      return (
+        <Badge variant="dot" color="red">
+          Unavailable
+        </Badge>
+      );
+  }
+}
+
+/** A state that passes on its own: back in a countdown, why, and when it ends. */
+function Resting({
+  until,
+  reason,
+  ends,
+}: {
+  readonly until: string;
+  readonly reason: string;
+  readonly ends: string;
+}) {
+  return (
+    <div {...stylex.props(styles.state, styles.cooling)}>
+      <span {...stylex.props(styles.stateTitle)}>
+        Back in <Countdown until={until} />
+      </span>
+      <span {...stylex.props(styles.reason)}>{reason}</span>
+      <span {...stylex.props(styles.reason)}>
+        {ends} {formatTime(until)}
+      </span>
+    </div>
+  );
+}
+
+/** A state someone has to fix: what to do, and why. */
+function Blocked({ title, reason }: { readonly title: string; readonly reason: string }) {
+  return (
+    <div {...stylex.props(styles.state, styles.locked)}>
+      <span {...stylex.props(styles.stateTitle)}>{title}</span>
+      <span {...stylex.props(styles.reason)}>{reason}</span>
+    </div>
+  );
+}
+
+function AccountDetail({ account }: { readonly account: PoolAccount }) {
   const { state } = account;
 
   if (!account.enabled || state.status === "available") return null;
 
-  if (state.status === "cooling") {
-    return (
-      <div {...stylex.props(styles.state, styles.cooling)}>
-        <span {...stylex.props(styles.stateTitle)}>
-          Back in <Countdown until={state.until} />
-        </span>
-        <span {...stylex.props(styles.reason)}>{state.reason}</span>
-        <span {...stylex.props(styles.reason)}>Ends {formatTime(state.until)}</span>
-      </div>
-    );
-  }
-
-  return (
-    <div {...stylex.props(styles.state, styles.locked)}>
-      <span {...stylex.props(styles.stateTitle)}>Sign this account in again</span>
-      <span {...stylex.props(styles.reason)}>{state.reason}</span>
-    </div>
+  return state.status === "cooling" ? (
+    <Resting until={state.until} reason={state.reason} ends="Ends" />
+  ) : (
+    <Blocked title="Sign this account in again" reason={state.reason} />
   );
+}
+
+function ProviderDetail({ provider }: { readonly provider: PoolProvider }) {
+  const { state } = provider;
+
+  switch (state.status) {
+    case "available":
+      return null;
+    case "exhausted":
+      return (
+        <Resting
+          until={state.until}
+          reason={`${providerWindowName(state.window)} limit used up`}
+          ends="Resets"
+        />
+      );
+    case "unavailable":
+      return <Blocked title="Its usage can't be read" reason={state.reason} />;
+  }
 }
 
 function Windows({
@@ -266,6 +336,17 @@ function Windows({
   );
 }
 
+function UsageLoading() {
+  return (
+    <div {...stylex.props(styles.meters)}>
+      <Skeleton width="40%" height="12px" />
+      <Skeleton height="6px" />
+      <Skeleton width="55%" height="12px" />
+      <Skeleton height="6px" />
+    </div>
+  );
+}
+
 function AccountUsage({
   id,
   usage,
@@ -275,16 +356,7 @@ function AccountUsage({
   readonly usage: Usage | undefined;
   readonly loading: boolean;
 }) {
-  if (loading) {
-    return (
-      <div {...stylex.props(styles.meters)}>
-        <Skeleton width="40%" height="12px" />
-        <Skeleton height="6px" />
-        <Skeleton width="55%" height="12px" />
-        <Skeleton height="6px" />
-      </div>
-    );
-  }
+  if (loading) return <UsageLoading />;
 
   const entry = usage?.accounts.find((account) => account.id === id);
 
@@ -301,6 +373,85 @@ function AccountUsage({
         resetsAt: window.resetsAt,
       }))}
     />
+  );
+}
+
+function ProviderUsage({
+  provider,
+  usage,
+  loading,
+}: {
+  readonly provider: PoolProvider;
+  readonly usage: Usage | undefined;
+  readonly loading: boolean;
+}) {
+  // An unavailable provider's state already says why its usage is missing.
+  if (provider.state.status === "unavailable") return null;
+
+  if (loading) return <UsageLoading />;
+
+  if (usage === undefined) return <p {...stylex.props(styles.muted)}>No usage reported yet.</p>;
+
+  const entry = usage.providers.find((report) => report.provider === provider.name);
+
+  if (entry === undefined) {
+    return <p {...stylex.props(styles.muted)}>This provider doesn't report usage.</p>;
+  }
+
+  if ("error" in entry)
+    return <p {...stylex.props(styles.muted)}>Usage unavailable: {entry.error}</p>;
+
+  return (
+    <Windows
+      windows={entry.windows.map((window) => ({
+        label: providerWindowName(window.window),
+        usedPercent: window.usedPercent,
+        resetsAt: window.resetsAt,
+      }))}
+    />
+  );
+}
+
+/** One account or provider: who it is, its state, and its usage windows. */
+function PoolCard({
+  index,
+  name,
+  icon,
+  subtitle,
+  badge,
+  children,
+}: {
+  readonly index: number;
+  readonly name: string;
+  readonly icon: ReactNode;
+  readonly subtitle: ReactNode;
+  readonly badge: ReactNode;
+  readonly children: ReactNode;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ type: "spring", duration: 0.3, bounce: 0, delay: index * 0.03 }}
+    >
+      <Panel xstyle={styles.card}>
+        <article aria-label={name} {...stylex.props(styles.card)}>
+          <div {...stylex.props(styles.cardHead)}>
+            <div {...stylex.props(styles.identity)}>
+              <span aria-hidden="true" {...stylex.props(styles.providerIcon)}>
+                {icon}
+              </span>
+              <div {...stylex.props(styles.who)}>
+                <span {...stylex.props(styles.name)}>{name}</span>
+                {subtitle}
+              </div>
+            </div>
+            {badge}
+          </div>
+          {children}
+        </article>
+      </Panel>
+    </motion.div>
   );
 }
 
@@ -326,11 +477,15 @@ function Overview() {
   const pool = useQuery(poolQuery);
   const usage = useQuery(usageQuery);
   const accounts = useQuery(accountsQuery);
-  const list = pool.data ?? [];
+  const list = pool.data?.accounts ?? [];
+  const providers = pool.data?.providers ?? [];
   const enabled = list.filter((account) => account.enabled);
 
-  const count = (status: PoolAccount["state"]["status"]) =>
+  const accountsIn = (status: PoolAccount["state"]["status"]) =>
     enabled.filter((account) => account.state.status === status).length;
+
+  const providersIn = (status: PoolProvider["state"]["status"]) =>
+    providers.filter((provider) => provider.state.status === status).length;
 
   const emailOf = (id: string) => accounts.data?.find((account) => account.id === id)?.email;
 
@@ -344,112 +499,79 @@ function Overview() {
   return (
     <Page
       title="Overview"
-      description="How the pool stands right now: which accounts via hands out, which are resting, and how much of each limit is used."
+      description="How the pool stands right now: which accounts and providers via can use, which are resting, and how much of each limit is used."
       actions={list.length > 0 ? addAccount : undefined}
     >
       {pool.isPending ? (
         <Loading />
-      ) : list.length === 0 ? (
-        <EmptyState
-          icon={<AccountsIcon size={18} />}
-          title="No accounts yet"
-          description="Add a ChatGPT account and via starts pooling it behind one endpoint."
-          action={addAccount}
-        />
       ) : (
         <>
-          <div {...stylex.props(styles.stats)}>
-            <Stat label="Available" color="green">
-              {count("available")} <span {...stylex.props(styles.statOf)}>of {list.length}</span>
-            </Stat>
-            <Stat label="Cooling down" color="amber">
-              {count("cooling")}
-            </Stat>
-            <Stat label="Locked out" color="red">
-              {count("auth_error")}
-            </Stat>
-            <Stat label="Disabled" color="gray">
-              {list.length - enabled.length}
-            </Stat>
-          </div>
+          {list.length === 0 && (
+            <EmptyState
+              icon={<AccountsIcon size={18} />}
+              title="No accounts yet"
+              description="Add a ChatGPT account and via starts pooling it behind one endpoint."
+              action={addAccount}
+            />
+          )}
+          {list.length + providers.length > 0 && (
+            <>
+              <dl {...stylex.props(styles.stats)}>
+                <Stat label="Available" color="green">
+                  {accountsIn("available") + providersIn("available")}{" "}
+                  <span {...stylex.props(styles.statOf)}>of {list.length + providers.length}</span>
+                </Stat>
+                <Stat label="Resting" color="amber">
+                  {accountsIn("cooling") + providersIn("exhausted")}
+                </Stat>
+                <Stat label="Needs attention" color="red">
+                  {accountsIn("auth_error") + providersIn("unavailable")}
+                </Stat>
+                <Stat label="Disabled" color="gray">
+                  {list.length - enabled.length}
+                </Stat>
+              </dl>
 
-          <Section title="Accounts" aside="Refreshes every 5 seconds">
-            <div {...stylex.props(styles.grid)}>
-              {list.map((account, index) => (
-                <motion.div
-                  key={account.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ type: "spring", duration: 0.3, bounce: 0, delay: index * 0.03 }}
-                >
-                  <Panel xstyle={styles.card}>
-                    <article aria-label={account.label} {...stylex.props(styles.card)}>
-                      <div {...stylex.props(styles.cardHead)}>
-                        <div {...stylex.props(styles.identity)}>
-                          <span aria-hidden="true" {...stylex.props(styles.providerIcon)}>
-                            <CodexIcon size={16} />
-                          </span>
-                          <div {...stylex.props(styles.who)}>
-                            <span {...stylex.props(styles.name)}>{account.label}</span>
-                            <span {...stylex.props(styles.email)}>
-                              {emailOf(account.id) ?? " "}
-                            </span>
-                          </div>
-                        </div>
-                        <StateBadge account={account} />
-                      </div>
-                      <StateDetail account={account} />
+              <Section title="Accounts and providers" aside="Refreshes every 5 seconds">
+                <div {...stylex.props(styles.grid)}>
+                  {list.map((account, index) => (
+                    <PoolCard
+                      key={`account:${account.id}`}
+                      index={index}
+                      name={account.label}
+                      icon={<CodexIcon size={16} />}
+                      subtitle={
+                        <span {...stylex.props(styles.email)}>{emailOf(account.id) ?? " "}</span>
+                      }
+                      badge={<AccountBadge account={account} />}
+                    >
+                      <AccountDetail account={account} />
                       <AccountUsage id={account.id} usage={usage.data} loading={usage.isPending} />
-                    </article>
-                  </Panel>
-                </motion.div>
-              ))}
-            </div>
-          </Section>
+                    </PoolCard>
+                  ))}
+                  {providers.map((provider, index) => (
+                    <PoolCard
+                      key={`provider:${provider.name}`}
+                      index={list.length + index}
+                      name={provider.name}
+                      icon={<ProviderLogo name={provider.name} size={16} />}
+                      subtitle={<span {...stylex.props(styles.tag)}>Provider</span>}
+                      badge={<ProviderBadge provider={provider} />}
+                    >
+                      <ProviderDetail provider={provider} />
+                      <ProviderUsage
+                        provider={provider}
+                        usage={usage.data}
+                        loading={usage.isPending}
+                      />
+                    </PoolCard>
+                  ))}
+                </div>
+              </Section>
+            </>
+          )}
         </>
       )}
-
-      <Providers usage={usage.data} loading={usage.isPending} />
     </Page>
-  );
-}
-
-function Providers({
-  usage,
-  loading,
-}: {
-  readonly usage: Usage | undefined;
-  readonly loading: boolean;
-}) {
-  if (loading || usage === undefined || usage.providers.length === 0) return null;
-
-  return (
-    <Section title="Providers">
-      <div {...stylex.props(styles.grid)}>
-        {usage.providers.map((provider) => (
-          <Panel key={provider.provider}>
-            <article aria-label={provider.provider} {...stylex.props(styles.card)}>
-              <div {...stylex.props(styles.providerHead)}>
-                <span aria-hidden="true" {...stylex.props(styles.providerIcon)}>
-                  <ProviderLogo name={provider.provider} size={16} />
-                </span>
-                <span {...stylex.props(styles.name)}>{provider.provider}</span>
-              </div>
-              {"error" in provider ? (
-                <p {...stylex.props(styles.muted)}>Usage unavailable: {provider.error}</p>
-              ) : (
-                <Windows
-                  windows={provider.windows.map((window) => ({
-                    label: window.window,
-                    usedPercent: window.usedPercent,
-                    resetsAt: window.resetsAt,
-                  }))}
-                />
-              )}
-            </article>
-          </Panel>
-        ))}
-      </div>
-    </Section>
   );
 }

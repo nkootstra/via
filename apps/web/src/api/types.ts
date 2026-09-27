@@ -16,6 +16,10 @@ export type LoginStatus = SuccessOf<Groups["accounts"]["endpoints"]["loginStatus
 
 export type Usage = SuccessOf<Groups["usage"]["endpoints"]["get"]>;
 
-export type PoolAccount = SuccessOf<Groups["pool"]["endpoints"]["get"]>[number];
+export type Pool = SuccessOf<Groups["pool"]["endpoints"]["get"]>;
+
+export type PoolAccount = Pool["accounts"][number];
+
+export type PoolProvider = Pool["providers"][number];
 
 export type Model = SuccessOf<Groups["models"]["endpoints"]["list"]>[number];
