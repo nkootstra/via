@@ -1,5 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
+import { CorruptFileError } from "@via/config";
 import { Effect, FileSystem } from "effect";
 import { TestClock } from "effect/testing";
 import { jwt } from "./fake-issuer.ts";
@@ -134,6 +135,31 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
         const fs = yield* FileSystem.FileSystem;
         const { id } = yield* (yield* AccountStore).save(tokensFor("a@example.com", "acc-a"));
         expect(((yield* fs.stat(`${authDir}/${id}.json`)).mode & 0o777).toString(8)).toBe("600");
+      }),
+    ),
+  );
+
+  it.effect("skips files that are not account JSON, such as a write's leftover temp file", () =>
+    withAccountStore((authDir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* AccountStore;
+        const saved = yield* store.save(tokensFor("a@example.com", "acc-a"));
+        yield* fs.writeFileString(`${authDir}/${saved.id}.json.123.tmp`, "{");
+        expect(yield* store.list).toEqual([saved]);
+      }),
+    ),
+  );
+
+  it.effect("fails with CorruptFileError naming an account file it cannot read", () =>
+    withAccountStore((authDir) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        yield* fs.makeDirectory(authDir, { recursive: true });
+        yield* fs.writeFileString(`${authDir}/broken.json`, '{"id": "broken"}');
+        const error = yield* Effect.flip((yield* AccountStore).list);
+        expect(error).toBeInstanceOf(CorruptFileError);
+        expect(error).toMatchObject({ path: `${authDir}/broken.json` });
       }),
     ),
   );
