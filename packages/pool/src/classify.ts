@@ -50,18 +50,19 @@ export const classify = (
   const error = Option.map(decodeErrorBody(body), (b) => b.error);
   const code = Option.getOrUndefined(Option.flatMapNullishOr(error, (e) => e.code ?? e.type));
 
-  const resetsAt = Option.flatMapNullishOr(error, (e) =>
-    e.resets_at === undefined ? undefined : e.resets_at * 1000,
-  );
-
-  const retryAt = Option.map(decodeSeconds(headers["retry-after"]), (s) => now + s * 1000);
-
   if ((code !== undefined && QUOTA_CODES.has(code)) || status === 429) {
+    const resetsAt = Option.flatMapNullishOr(error, (e) => e.resets_at).pipe(
+      Option.map((s) => s * 1000),
+    );
+
+    const retryAt = Option.map(decodeSeconds(headers["retry-after"]), (s) => now + s * 1000);
     const known = [resetsAt, retryAt].flatMap(Option.toArray);
-    const until = known.length > 0 ? Math.max(...known) : now + Duration.toMillis(QUOTA_FALLBACK);
 
     // A stale resets_at/Retry-After from upstream must not shorten the cooldown to nothing.
-    return Verdict.Cooldown({ until: Math.max(now, until), reason: code ?? "rate_limited" });
+    const until =
+      known.length > 0 ? Math.max(now, ...known) : now + Duration.toMillis(QUOTA_FALLBACK);
+
+    return Verdict.Cooldown({ until, reason: code ?? "rate_limited" });
   }
 
   if (status >= 500 || code === "server_is_overloaded") {
