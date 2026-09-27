@@ -61,7 +61,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect("publishes its OpenAPI spec without the admin key", () =>
+  it.effect("publishes its OpenAPI spec with a lowercase bearer scheme without the admin key", () =>
     withVia(
       ok,
       (via) =>
@@ -73,7 +73,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             expect.arrayContaining(["/admin/accounts", "/admin/keys", "/admin/usage"]),
           );
           expect(Object.values(spec.components.securitySchemes)).toEqual([
-            { type: "http", scheme: "Bearer" },
+            { type: "http", scheme: "bearer" },
           ]);
         }),
       { adminKey },
@@ -88,6 +88,42 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           const response = yield* via.get("/admin/docs", null);
           expect(response.status).toBe(200);
           expect(response.headers["content-type"]).toMatch(/^text\/html/);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("keeps the reference page to system fonts instead of Scalar's web fonts", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const page = yield* (yield* via.get("/admin/docs", null)).text;
+          expect(page).toContain(`"withDefaultFonts":false`);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("hides the reference page's Open API Client button", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const page = yield* (yield* via.get("/admin/docs", null)).text;
+          expect(page).toContain(`"hideClientButton":true`);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("hides the reference page's developer tools", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const page = yield* (yield* via.get("/admin/docs", null)).text;
+          expect(page).toContain(`"showDeveloperTools":"never"`);
         }),
       { adminKey },
     ),
