@@ -18,11 +18,13 @@ export const jwt = (payload: Schema.JsonObject) =>
 
 export const ACCESS_TOKEN_EXP = 2_000_000_000;
 
+const identity = {
+  email: "dev@example.com",
+  "https://api.openai.com/auth": { chatgpt_account_id: "acc-123", chatgpt_plan_type: "pro" },
+};
+
 export const issuedTokens = {
-  id_token: jwt({
-    email: "dev@example.com",
-    "https://api.openai.com/auth": { chatgpt_account_id: "acc-123", chatgpt_plan_type: "pro" },
-  }),
+  id_token: jwt(identity),
   access_token: jwt({ exp: ACCESS_TOKEN_EXP }),
   refresh_token: "rt-1",
 };
@@ -30,11 +32,7 @@ export const issuedTokens = {
 export const REFRESHED_EXP = 2_100_000_000;
 
 export const refreshedTokens = {
-  id_token: jwt({
-    email: "dev@example.com",
-    "https://api.openai.com/auth": { chatgpt_account_id: "acc-123", chatgpt_plan_type: "pro" },
-    refreshed: true,
-  }),
+  id_token: jwt({ ...identity, refreshed: true }),
   access_token: jwt({ exp: REFRESHED_EXP }),
   refresh_token: "rt-2",
 };
