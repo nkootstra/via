@@ -2,8 +2,8 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { describe, expect, it } from "@effect/vitest";
 import { codexRefreshErrorFixture } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
-import { issuedTokens, REFRESHED_EXP, refreshedTokens, withIssuer } from "./fake-issuer.ts";
-import { CodexAuth, RefreshRejectedError, type Tokens } from "./index.ts";
+import { issuedTokens, jwt, REFRESHED_EXP, refreshedTokens, withIssuer } from "./fake-issuer.ts";
+import { AuthRequestError, CodexAuth, RefreshRejectedError, type Tokens } from "./index.ts";
 
 const current: Tokens = {
   idToken: issuedTokens.id_token,
@@ -62,6 +62,62 @@ describe("refresh", () => {
       }).pipe(Effect.provide(BunFileSystem.layer)),
     );
   }
+
+  it.effect("a refresh token works once: reusing it is rejected", () =>
+    withIssuer({}, () =>
+      Effect.gen(function* () {
+        const auth = yield* CodexAuth;
+        yield* auth.refresh(current);
+        const error = yield* Effect.flip(auth.refresh(current));
+
+        expect(error).toEqual(new RefreshRejectedError({ code: "refresh_token_reused" }));
+        expect(error.message).toBe(
+          "The refresh token was rejected (refresh_token_reused); log in to this account again",
+        );
+      }),
+    ),
+  );
+
+  it.effect("a 400 without a rejection code is a failed request, not a dead account", () =>
+    withIssuer({}, () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip(
+          (yield* CodexAuth).refresh({ ...current, refreshToken: "rt-unknown" }),
+        );
+
+        expect(error).toEqual(new AuthRequestError({ reason: "token refresh returned HTTP 400" }));
+      }),
+    ),
+  );
+
+  it.effect("fails with AuthRequestError when the issuer is down", () =>
+    withIssuer({ refreshResponse: { status: 503, body: {} } }, () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip((yield* CodexAuth).refresh(current));
+        expect(error).toEqual(new AuthRequestError({ reason: "token refresh returned HTTP 503" }));
+      }),
+    ),
+  );
+
+  it.effect("fails with AuthRequestError when the new access token carries no expiry", () =>
+    withIssuer(
+      { refreshResponse: { status: 200, body: { access_token: jwt({ sub: "no-exp" }) } } },
+      () =>
+        Effect.gen(function* () {
+          const error = yield* Effect.flip((yield* CodexAuth).refresh(current));
+          expect(error).toBeInstanceOf(AuthRequestError);
+        }),
+    ),
+  );
+
+  it.effect("fails with AuthRequestError when the refresh answer has no access token", () =>
+    withIssuer({ refreshResponse: { status: 200, body: { id_token: "x" } } }, () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip((yield* CodexAuth).refresh(current));
+        expect(error).toBeInstanceOf(AuthRequestError);
+      }),
+    ),
+  );
 
   // The same codes in the error-object shape the issuer also uses.
   for (const [label, status, body] of [
