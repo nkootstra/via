@@ -1,5 +1,5 @@
 import { readJsonFile, writeJsonFile } from "@via/config";
-import { Context, DateTime, Effect, FileSystem, Layer, Option, Schema } from "effect";
+import { Context, DateTime, Effect, FileSystem, Layer, Option, Schema, Semaphore } from "effect";
 import { createHash, timingSafeEqual } from "node:crypto";
 
 const StoredKeys = Schema.Array(
@@ -50,6 +50,9 @@ const hash = (key: string) => createHash("sha256").update(key).digest();
 const make = (path: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    // create and revoke read the file, then write it whole: run them one at a time, or
+    // concurrent changes (say, through the admin API) overwrite each other.
+    const serialized = Semaphore.withPermit(yield* Semaphore.make(1));
 
     const read = readJsonFile(path, StoredKeys, () => []).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
@@ -68,7 +71,7 @@ const make = (path: string) =>
       yield* write([...keys, { id, name, hash: hash(key).toString("hex"), createdAt }]);
 
       return { id, name, key };
-    });
+    }, serialized);
 
     const list = read.pipe(
       Effect.map((keys) => keys.map(({ id, name, createdAt }) => ({ id, name, createdAt }))),
@@ -80,7 +83,7 @@ const make = (path: string) =>
 
       if (remaining.length === keys.length) return yield* new KeyNotFoundError({ idOrName });
       yield* write(remaining);
-    });
+    }, serialized);
 
     const verify = Effect.fn("KeyStore.verify")(function* (key: string) {
       const candidate = hash(key);

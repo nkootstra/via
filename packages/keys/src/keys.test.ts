@@ -111,4 +111,15 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       }),
     ),
   );
+
+  it.effect("keeps every key created concurrently", () =>
+    withKeyStore(() =>
+      Effect.gen(function* () {
+        const store = yield* KeyStore;
+        const names = ["a", "b", "c", "d", "e"];
+        yield* Effect.forEach(names, store.create, { concurrency: "unbounded" });
+        expect((yield* store.list).map((k) => k.name).toSorted()).toEqual(names);
+      }),
+    ),
+  );
 });
