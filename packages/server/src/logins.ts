@@ -1,4 +1,5 @@
 import { type Account, AccountStore, CodexAuth } from "@via/codex-auth";
+import { PoolStates } from "@via/pool";
 import { Context, Effect, Layer, Ref } from "effect";
 import { LoginNotFoundError } from "./admin-api.ts";
 
@@ -6,11 +7,13 @@ import { LoginNotFoundError } from "./admin-api.ts";
 type LoginState =
   | { readonly status: "pending" }
   | { readonly status: "added"; readonly account: Account }
+  | { readonly status: "updated"; readonly account: Account }
   | { readonly status: "failed"; readonly error: string };
 
 const make = Effect.gen(function* () {
   const auth = yield* CodexAuth;
   const store = yield* AccountStore;
+  const states = yield* PoolStates;
   // Logins outlive the request that started them, but not the server.
   const scope = yield* Effect.scope;
   const logins = yield* Ref.make<ReadonlyMap<string, LoginState>>(new Map());
@@ -25,7 +28,11 @@ const make = Effect.gen(function* () {
     yield* set(id, { status: "pending" });
     yield* auth.awaitDeviceTokens(code).pipe(
       Effect.flatMap(store.save),
-      Effect.flatMap((account) => set(id, { status: "added", account })),
+      // Signing an account in again is how a locked-out account gets fixed.
+      Effect.tap(({ account }) => states.liftLockOut(account.id)),
+      Effect.flatMap(({ account, created }) =>
+        set(id, { status: created ? "added" : "updated", account }),
+      ),
       Effect.catch((error) => set(id, { status: "failed", error: error.message })),
       Effect.forkIn(scope),
     );

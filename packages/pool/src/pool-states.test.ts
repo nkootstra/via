@@ -48,6 +48,20 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
     }).pipe(Effect.provide(PoolStates.layer)),
   );
 
+  it.effect("a new login lifts a lockout, but leaves a cooldown running", () =>
+    Effect.gen(function* () {
+      const states = yield* PoolStates;
+      yield* states.lockOut("acc-a", "invalid_grant");
+      yield* states.coolDown("acc-b", 500, "usage_limit_reached");
+      yield* states.liftLockOut("acc-a");
+      yield* states.liftLockOut("acc-b");
+      yield* states.liftLockOut("acc-c");
+      expect(yield* states.get).toEqual({
+        "acc-b": { status: "cooling", until: 500, reason: "usage_limit_reached" },
+      });
+    }).pipe(Effect.provide(PoolStates.layer)),
+  );
+
   it.effect("keeps a cooldown across a restart", () =>
     Effect.gen(function* () {
       const path = `${yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()}/state.json`;
@@ -257,6 +271,29 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
             until: Math.max(...values.map((write) => write.until)),
           });
         }
+      }).pipe(Effect.provide(PoolStates.layer)),
+  );
+
+  it.effect.prop(
+    "lifting a lockout clears only that, whatever the account's state",
+    { marks },
+    ({ marks: values }) =>
+      Effect.gen(function* () {
+        const states = yield* PoolStates;
+
+        for (const mark of values) {
+          yield* mark.kind === "auth_error"
+            ? states.lockOut("acc-a", "invalid_grant")
+            : states.coolDown("acc-a", mark.until, mark.reason);
+        }
+
+        const before = yield* states.get;
+        yield* states.liftLockOut("acc-a");
+        const { "acc-a": _, ...others } = before;
+
+        expect(yield* states.get).toEqual(
+          before["acc-a"]?.status === "auth_error" ? others : before,
+        );
       }).pipe(Effect.provide(PoolStates.layer)),
   );
 });

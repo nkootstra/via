@@ -153,7 +153,7 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
       .handle("login", () => logins.start())
       .handle("loginStatus", ({ params }) =>
         Effect.map(logins.status(params.id), (login) =>
-          login.status === "added"
+          login.status === "added" || login.status === "updated"
             ? { status: login.status, account: withoutTokens(login.account) }
             : login,
         ),

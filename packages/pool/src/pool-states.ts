@@ -47,6 +47,14 @@ const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void
             : { status: "cooling", until, reason },
         ),
       lockOut: (id, reason) => Effect.asVoid(update(id, () => ({ status: "auth_error", reason }))),
+      // Nothing to save: the file keeps only cooldowns, and this leaves them as they are.
+      liftLockOut: (id) =>
+        SynchronizedRef.update(states, (current) => {
+          if (current[id]?.status !== "auth_error") return current;
+          const { [id]: _lifted, ...others } = current;
+
+          return others;
+        }),
     });
   });
 
@@ -63,6 +71,11 @@ export class PoolStates extends Context.Service<
     readonly coolDown: (id: string, until: number, reason: string) => Effect.Effect<boolean>;
     /** Takes the account out of rotation until it logs in again. */
     readonly lockOut: (id: string, reason: string) => Effect.Effect<void>;
+    /**
+     * Puts a locked-out account back in rotation, as a new login does. A cooldown
+     * stays: it is a real usage limit, which a login does not lift.
+     */
+    readonly liftLockOut: (id: string) => Effect.Effect<void>;
   }
 >()("via/PoolStates") {
   /** Kept in memory only. */

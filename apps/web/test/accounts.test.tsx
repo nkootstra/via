@@ -126,6 +126,27 @@ describe("adding an account", () => {
     expect(await rowOf("new")).toBeDefined();
   });
 
+  it("says an account already in the pool was signed in again, rather than added", async () => {
+    const { user, state } = renderApp("/accounts", {
+      accounts: [work],
+      nextLogin: [{ status: "updated", account: work }],
+    });
+
+    await rowOf("work");
+    await user.click(screen.getAllByRole("button", { name: "Add account" })[0] ?? document.body);
+    await user.click(await screen.findByRole("button", { name: /ChatGPT \(Codex\)/ }));
+
+    const toast = await screen.findByRole("dialog", { name: "Signed in again" });
+    expect(toast.textContent).toContain(
+      "work is already in the pool — signed in again with fresh tokens.",
+    );
+    expect(screen.queryByRole("dialog", { name: "Account added" })).toBeNull();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Add a ChatGPT account" })).toBeNull(),
+    );
+    expect(state.accounts).toEqual([work]);
+  });
+
   it("says why when the login fails", async () => {
     const { user } = renderApp("/accounts", {
       accounts: [work],

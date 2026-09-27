@@ -8,7 +8,11 @@
 import { AdminApi, LoginNotFoundError, Unauthorized } from "@via/server/admin-api";
 import { AccountNotFoundError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
-import { OpencodeGoAccountNotFoundError, OpencodeGoKeyRejectedError } from "@via/providers/errors";
+import {
+  DuplicateOpencodeGoKeyError,
+  OpencodeGoAccountNotFoundError,
+  OpencodeGoKeyRejectedError,
+} from "@via/providers/errors";
 import { Schema } from "effect";
 import type {
   Account,
@@ -187,6 +191,19 @@ export function adminHandlers(state: AdminState) {
 
         if (rest.length > 0) state.logins.set(params.id, rest);
 
+        // Like via, a login for an account already in the pool gives it fresh tokens
+        // and lifts its lockout.
+        if (status.status === "updated") {
+          state.pool = {
+            ...state.pool,
+            accounts: state.pool.accounts.map((a) =>
+              a.id === status.account.id && a.state.status === "auth_error"
+                ? { ...a, state: { status: "available" } }
+                : a,
+            ),
+          };
+        }
+
         if (status.status === "added") {
           const { id, label, enabled } = status.account;
           state.accounts = [...state.accounts, status.account];
@@ -254,6 +271,17 @@ export function adminHandlers(state: AdminState) {
             OpencodeGoKeyRejectedError,
             new OpencodeGoKeyRejectedError({ status: 401 }),
             422,
+          );
+        }
+
+        // The fake keeps only masked keys, so the last four characters stand in for the key.
+        const stored = state.opencodeGo.find(({ key }) => key === `…${apiKey.slice(-4)}`);
+
+        if (stored !== undefined) {
+          return failure(
+            DuplicateOpencodeGoKeyError,
+            new DuplicateOpencodeGoKeyError({ label: stored.label }),
+            409,
           );
         }
 

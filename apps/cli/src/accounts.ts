@@ -66,8 +66,18 @@ const addCodex = Effect.gen(function* () {
   const code = yield* auth.requestDeviceCode;
   yield* Console.log(`Open ${code.verificationUrl} and enter the code ${code.userCode}`);
   yield* Console.log("Waiting for approval...");
-  const saved = yield* (yield* AccountStore).save(yield* auth.awaitDeviceTokens(code));
-  yield* Console.log(`Added ${saved.email} (${saved.plan}) as "${saved.label}".`);
+
+  const { account, created } = yield* (yield* AccountStore).save(
+    yield* auth.awaitDeviceTokens(code),
+  );
+
+  const { email, plan, label } = account;
+
+  yield* Console.log(
+    created
+      ? `Added ${email} (${plan}) as "${label}".`
+      : `Signed "${label}" in again: ${email} (${plan}) was already in the pool, so it got fresh tokens.`,
+  );
 });
 
 /** Stores an OpenCode Go API key as an account. */

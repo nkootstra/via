@@ -74,7 +74,10 @@ const make = (authDir: string) => {
       return match ?? (yield* new AccountNotFoundError({ query }));
     });
 
-    /** Stores the tokens of a login, replacing those of the same ChatGPT account and user. */
+    /**
+     * Stores the tokens of a login, replacing those of the same ChatGPT account and user.
+     * Says whether the login created the account or signed an existing one in again.
+     */
     const save = Effect.fn("AccountStore.save")(function* (tokens: Tokens) {
       const identity = yield* decodeIdToken(tokens.idToken);
 
@@ -93,7 +96,7 @@ const make = (authDir: string) => {
 
       yield* write(account);
 
-      return account;
+      return { account, created: existing === undefined };
     }, serialized);
 
     /**

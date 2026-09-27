@@ -45,6 +45,23 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
+  it.effect("add signs an account that is already in the pool in again, keeping its label", () =>
+    Effect.gen(function* () {
+      const { via } = yield* setup();
+      yield* via("accounts", "add");
+      yield* via("accounts", "label", "dev@example.com", "work");
+      const again = yield* via("accounts", "add");
+      expect(again.exitCode).toBe(0);
+      expect(again.stdout).toContain(
+        'Signed "work" in again: dev@example.com (pro) was already in the pool, so it got fresh tokens.\n',
+      );
+      expect(again.stdout).not.toContain("Added");
+      const listed = (yield* via("accounts", "list")).stdout;
+      expect(listed).toMatch(/work\s+dev@example\.com\s+pro\s+enabled/);
+      expect(listed.match(/dev@example\.com/g)).toHaveLength(1);
+    }),
+  );
+
   it.effect("add fails with one line when it cannot reach the issuer", () =>
     Effect.gen(function* () {
       const { via } = yield* setup({

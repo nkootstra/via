@@ -29,7 +29,8 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const saved = yield* store.save(tokensFor("a"));
+        const { account: saved, created } = yield* store.save(tokensFor("a"));
+        expect(created).toBe(true);
         expect(saved).toMatchObject({
           label: "a@example.com",
           email: "a@example.com",
@@ -46,13 +47,13 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const first = yield* store.save(tokensFor("a", { refreshToken: "rt-old" }));
+        const { account: first } = yield* store.save(tokensFor("a", { refreshToken: "rt-old" }));
         yield* store.setLabel(first.id, "work");
         yield* store.setEnabled("work", false);
-        yield* store.save(tokensFor("a", { refreshToken: "rt-new" }));
-        expect(yield* store.list).toEqual([
-          { ...first, label: "work", enabled: false, refreshToken: "rt-new" },
-        ]);
+        const again = yield* store.save(tokensFor("a", { refreshToken: "rt-new" }));
+        const updated = { ...first, label: "work", enabled: false, refreshToken: "rt-new" };
+        expect(again).toEqual({ account: updated, created: false });
+        expect(yield* store.list).toEqual([updated]);
       }),
     ),
   );
@@ -61,7 +62,7 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const first = yield* store.save(tokensFor("a", { refreshToken: "rt-old" }));
+        const { account: first } = yield* store.save(tokensFor("a", { refreshToken: "rt-old" }));
         yield* Effect.all(
           [
             store.save(tokensFor("a", { refreshToken: "rt-new" })),
@@ -142,7 +143,7 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const saved = yield* store.save(tokensFor("a"));
+        const { account: saved } = yield* store.save(tokensFor("a"));
         yield* store.setLabel(saved.id, "work");
         expect(yield* store.find("a@example.com")).toEqual({ ...saved, label: "work" });
       }),
@@ -153,9 +154,9 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const a = yield* store.save(tokensFor("a"));
+        const { account: a } = yield* store.save(tokensFor("a"));
         yield* TestClock.adjust("1 second");
-        const b = yield* store.save(tokensFor("b"));
+        const { account: b } = yield* store.save(tokensFor("b"));
         yield* store.setLabel(a.id, b.id);
         expect(yield* store.find(b.id)).toEqual(b);
       }),
@@ -175,7 +176,7 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore((authDir) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        const { id } = yield* (yield* AccountStore).save(tokensFor("a"));
+        const { id } = (yield* (yield* AccountStore).save(tokensFor("a"))).account;
         expect(((yield* fs.stat(`${authDir}/${id}.json`)).mode & 0o777).toString(8)).toBe("600");
       }),
     ),
@@ -186,7 +187,7 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const store = yield* AccountStore;
-        const saved = yield* store.save(tokensFor("a"));
+        const { account: saved } = yield* store.save(tokensFor("a"));
         yield* fs.writeFileString(`${authDir}/${saved.id}.json.123.tmp`, "{");
         expect(yield* store.list).toEqual([saved]);
       }),

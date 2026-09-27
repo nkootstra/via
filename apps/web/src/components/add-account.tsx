@@ -168,16 +168,27 @@ function AddAccountDialog({
 
   const outcome = status.data;
 
-  const added = useEffectEvent((account: Account) => {
+  // A login for an account already in the pool signs it in again: via gives it
+  // fresh tokens, and lifts its lockout if it had one.
+  const signedIn = useEffectEvent((account: Account, added: boolean) => {
     void queryClient.invalidateQueries({ queryKey: ["accounts"] });
     void queryClient.invalidateQueries({ queryKey: ["pool"] });
     void queryClient.invalidateQueries({ queryKey: ["usage"] });
-    toast.add({ title: "Account added", description: `${account.label} is in the pool.` });
+    toast.add(
+      added
+        ? { title: "Account added", description: `${account.label} is in the pool.` }
+        : {
+            title: "Signed in again",
+            description: `${account.label} is already in the pool — signed in again with fresh tokens.`,
+          },
+    );
     onClose();
   });
 
   useEffect(() => {
-    if (outcome?.status === "added") added(outcome.account);
+    if (outcome?.status === "added" || outcome?.status === "updated") {
+      signedIn(outcome.account, outcome.status === "added");
+    }
   }, [outcome]);
 
   const failed =

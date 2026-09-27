@@ -495,6 +495,81 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("signs an account that is already in the pool in again, rather than adding it", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const first = yield* (yield* via.post("/admin/accounts/logins", {}, adminKey)).json;
+          yield* settled(via, decodeLogin(first).id);
+          const again = yield* (yield* via.post("/admin/accounts/logins", {}, adminKey)).json;
+          const dev = { ...account("dev"), label: "dev@example.com", email: "dev@example.com" };
+
+          expect(yield* settled(via, decodeLogin(again).id)).toEqual({
+            status: "updated",
+            account: dev,
+          });
+          expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([
+            account("a"),
+            account("b"),
+            dev,
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect(
+    "puts an account locked out by a rejected refresh back in rotation once it signs in again",
+    () => {
+      let rejected = false;
+
+      return withVia(
+        (request) => {
+          if (request.headers["chatgpt-account-id"] !== "acc-123" || rejected) return ok();
+          rejected = true;
+
+          return reply.error(401, "");
+        },
+        (via) =>
+          Effect.gen(function* () {
+            const login = () =>
+              Effect.flatMap(via.post("/admin/accounts/logins", {}, adminKey), (started) =>
+                Effect.flatMap(started.json, (json) => settled(via, decodeLogin(json).id)),
+              );
+
+            yield* login();
+
+            for (const name of ["a", "b"]) {
+              yield* via.patch(
+                `/admin/accounts/${yield* accountId(via, name)}`,
+                { enabled: false },
+                adminKey,
+              );
+            }
+
+            const request = { model: "gpt-5.1-codex", input: "hi" };
+            expect((yield* via.post("/v1/responses", request)).status).not.toBe(200);
+            const locked = (yield* poolOf(yield* via.get("/admin/pool", adminKey))).accounts;
+
+            expect(locked).toContainEqual(
+              expect.objectContaining({
+                label: "dev@example.com",
+                state: expect.objectContaining({ status: "auth_error" }),
+              }),
+            );
+            expect(yield* login()).toMatchObject({ status: "updated" });
+            expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+            expect(via.upstreamRequests.map((r) => r.headers["chatgpt-account-id"])).toEqual([
+              "acc-123",
+              "acc-123",
+            ]);
+          }),
+        { adminKey, refreshResponse: { status: 400, body: { error: "invalid_grant" } } },
+      );
+    },
+  );
+
   it.effect("fails a login that is not approved in time", () =>
     withVia(
       ok,
