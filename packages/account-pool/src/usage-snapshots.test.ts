@@ -13,7 +13,7 @@ import { UsageSnapshots } from "./usage-snapshots.ts";
 
 /**
  * Runs `body` with `UsageSnapshots` over accounts "a" and "b" (in that order), a
- * fake Codex and a fake opencode Go with one account, `go-1`. Nothing refreshes on its own.
+ * fake Codex and a fake OpenCode Go with one account, `go-1`. Nothing refreshes on its own.
  */
 const withSnapshots = <A, E>(
   body: (args: {

@@ -81,7 +81,7 @@ export type Via = {
   readonly codexUsage: (account: string, body: Schema.Json, status?: number) => void;
   /**
    * The fake provider behind both `openrouter/` and `opencode-go/` models;
-   * OpenRouter's key is `sk-provider`, and opencode Go's are its accounts'.
+   * OpenRouter's key is `sk-provider`, and OpenCode Go's are its accounts'.
    */
   readonly provider: FakeProvider;
   /** Waits for the first line via logs whose message or annotations contain `text`. */
@@ -142,7 +142,7 @@ const collectLogs = () => {
  * access token expires at `aExpiresAt`, by default far in the future. With
  * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
  * Models prefixed `openrouter/` and `opencode-go/` go to a fake provider, or
- * to `providerUrl` when it is given; opencode Go has an account for each of
+ * to `providerUrl` when it is given; OpenCode Go has an account for each of
  * `opencodeGoKeys`, labelled `go-1`, `go-2` and so on, and `opencodeGoVariable`
  * says which key its deprecated environment variable still holds. With `adminKey`, via serves the admin API
  * behind that key, and with `ui` as well, the admin UI. Device-code logins

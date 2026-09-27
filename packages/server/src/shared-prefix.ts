@@ -1,6 +1,6 @@
 import { Schema } from "effect";
 
-// opencode writes the session's own id into the `<env>` block near the top of
+// OpenCode writes the session's own id into the `<env>` block near the top of
 // its system prompt. Its sub-agents otherwise send the same system prompt and
 // tools as each other and as their parent, so that one line, a few hundred
 // tokens in, is all that stops them sharing a prompt cache.
@@ -8,7 +8,7 @@ const SESSION_LINE = /^[ \t]*(Current conversation session ID: [^\n]*)\n?/m;
 
 const isMessages = Schema.is(Schema.Array(Schema.JsonObject));
 
-/** A system or developer message whose prompt carries opencode's session line. */
+/** A system or developer message whose prompt carries OpenCode's session line. */
 const isSessionInstruction = Schema.is(
   Schema.Struct({
     role: Schema.Literals(["system", "developer"]),
@@ -30,7 +30,7 @@ const prepend = (content: Schema.Json | undefined, line: string) =>
       : undefined;
 
 /**
- * `body`, a chat completion, with opencode's session line moved from its
+ * `body`, a chat completion, with OpenCode's session line moved from its
  * system prompt to the start of its first user message, so that requests from
  * different sessions of one project share everything before their first user
  * message. The model still reads the line; only its place changes. A request

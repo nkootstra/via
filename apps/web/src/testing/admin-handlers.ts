@@ -62,7 +62,7 @@ export interface AdminState {
   readonly adminKey: string;
   accounts: Array<Account>;
   opencodeGo: Array<OpencodeGoAccount>;
-  /** The opencode Go keys opencode Go refuses when via checks them. */
+  /** The OpenCode Go keys OpenCode Go refuses when via checks them. */
   refusedKeys: Array<string>;
   keys: Array<Key>;
   /** Each started login answers its statuses in turn, then keeps the last. */
@@ -259,7 +259,7 @@ export function adminHandlers(state: AdminState) {
 
         const added = opencodeGoAccount({
           id: `go-${state.opencodeGo.length + 1}`,
-          label: `opencode Go …${apiKey.slice(-4)}`,
+          label: `OpenCode Go …${apiKey.slice(-4)}`,
           key: `…${apiKey.slice(-4)}`,
         });
 

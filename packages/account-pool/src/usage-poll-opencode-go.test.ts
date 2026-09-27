@@ -21,15 +21,15 @@ import { UsageSnapshots } from "./usage-snapshots.ts";
 /** The poll's own interval. This suite's TestClock is shared, so times are relative to `start`. */
 const POLL_MS = 15 * 60 * 1000;
 
-/** opencode Go's usage with one window, `weekly`, `percent` used until `resetsAt` (epoch ms). */
+/** OpenCode Go's usage with one window, `weekly`, `percent` used until `resetsAt` (epoch ms). */
 const weekly = (percent: number, resetsAt: number) => ({
   usage: { weekly: { status: "ok", percent, resetsAt: new Date(resetsAt).toISOString() } },
 });
 
 /**
- * Starts `UsagePoll` with an opencode Go account for each of `keys` and no
+ * Starts `UsagePoll` with an OpenCode Go account for each of `keys` and no
  * ChatGPT account, and waits for the pass it runs at startup, against the usage
- * `startup` scripts. `body` gets the accounts, the fake opencode Go, the pool's
+ * `startup` scripts. `body` gets the accounts, the fake OpenCode Go, the pool's
  * states, `start` and `logged`, which waits for a line the poll logs.
  */
 const withPoll = <A, E>(
@@ -98,7 +98,7 @@ const withPoll = <A, E>(
     }).pipe(Effect.provide(runtime));
   }).pipe(Effect.provideService(References.MinimumLogLevel, "Debug"));
 
-layer(BunFileSystem.layer)("UsagePoll, for opencode Go accounts", (it) => {
+layer(BunFileSystem.layer)("UsagePoll, for OpenCode Go accounts", (it) => {
   it.effect("cools an account down at startup until its used-up window resets", () =>
     withPoll(
       ["sk-1", "sk-2"],

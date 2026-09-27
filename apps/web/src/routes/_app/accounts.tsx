@@ -238,7 +238,7 @@ function Accounts() {
   return (
     <Page
       title="Accounts"
-      description="The ChatGPT accounts and opencode Go keys via pools. Disable one to keep it out of rotation without losing it."
+      description="The ChatGPT accounts and OpenCode Go keys via pools. Disable one to keep it out of rotation without losing it."
       actions={addButton}
     >
       <Section title="Codex" icon={<CodexIcon size={16} />}>
@@ -332,7 +332,7 @@ function Accounts() {
         )}
       </Section>
 
-      <Section title="opencode Go" icon={<ProviderLogo name="opencode-go" size={16} />}>
+      <Section title="OpenCode Go" icon={<ProviderLogo name="opencode-go" size={16} />}>
         <OpencodeGoAccounts addButton={addButton} />
       </Section>
 

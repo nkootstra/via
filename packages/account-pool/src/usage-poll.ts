@@ -47,7 +47,7 @@ const applyOne = (entry: AccountUsageSnapshot) =>
     apply(entry.account, entry, (until, reason) => pool.coolDown(entry.account, until, reason)),
   );
 
-/** opencode Go's windows reset at an ISO 8601 time, not epoch milliseconds. */
+/** OpenCode Go's windows reset at an ISO 8601 time, not epoch milliseconds. */
 const applyOpencodeGo = (entry: OpencodeGoUsageSnapshot) =>
   Effect.flatMap(OpencodeGoPool, (pool) =>
     apply(
@@ -96,7 +96,7 @@ const runPass = Effect.gen(function* () {
 );
 
 /**
- * Learns about an exhausted account from Codex's own `/wham/usage`, or opencode
+ * Learns about an exhausted account from Codex's own `/wham/usage`, or OpenCode
  * Go's usage endpoint, before the account's own 429 would say so, and keeps the
  * dashboard's usage current. Runs
  * one pass when `via serve` starts and one every {@link POLL_INTERVAL} after that,

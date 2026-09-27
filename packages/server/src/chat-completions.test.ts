@@ -142,7 +142,7 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
     ),
   );
 
-  it.effect("moves opencode's session line out of the instructions Codex is sent", () =>
+  it.effect("moves OpenCode's session line out of the instructions Codex is sent", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
         yield* via.post("/v1/chat/completions", {

@@ -32,7 +32,7 @@ export const AdminAccount = Schema.Struct({
   createdAt: Schema.String,
 });
 
-/** An opencode Go account as the admin API shows it: its key only by its last four characters. */
+/** An OpenCode Go account as the admin API shows it: its key only by its last four characters. */
 const AdminOpencodeGoAccount = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
@@ -96,8 +96,8 @@ const AccountUsage = Schema.Union([
 ]);
 
 /**
- * An opencode Go account's usage windows, each by name (such as `rolling`, `weekly`
- * and `monthly`), or why opencode Go did not report them, and when via asked.
+ * An OpenCode Go account's usage windows, each by name (such as `rolling`, `weekly`
+ * and `monthly`), or why OpenCode Go did not report them, and when via asked.
  */
 const OpencodeGoUsage = Schema.Union([
   Schema.Struct({
@@ -152,7 +152,7 @@ const PoolAccount = Schema.Struct({
 const PoolProvider = Schema.Struct({ name: Schema.String, state: ProviderState });
 
 /**
- * Everything that serves requests: the ChatGPT accounts, the opencode Go
+ * Everything that serves requests: the ChatGPT accounts, the OpenCode Go
  * accounts, and the configured providers.
  */
 export const Pool = Schema.Struct({
@@ -267,7 +267,7 @@ class AccountsGroup extends HttpApiGroup.make("accounts")
   .prefix("/admin") {}
 
 /**
- * opencode Go's API keys, as accounts. They are named by id only: a label would
+ * OpenCode Go's API keys, as accounts. They are named by id only: a label would
  * end up in URLs, and from there in proxy and access logs.
  */
 class OpencodeGoGroup extends HttpApiGroup.make("opencodeGo")
@@ -356,5 +356,5 @@ export class AdminApi extends HttpApi.make("via-admin")
   .annotate(OpenApi.Title, "via admin API")
   .annotate(
     OpenApi.Description,
-    "Manages the ChatGPT accounts, opencode Go keys and client API keys of a via server, and reports their usage, their state in the pool and the models it serves.",
+    "Manages the ChatGPT accounts, OpenCode Go keys and client API keys of a via server, and reports their usage, their state in the pool and the models it serves.",
   ) {}

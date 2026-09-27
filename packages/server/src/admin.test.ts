@@ -654,7 +654,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect("reports every ChatGPT and opencode Go account's usage, or why it is unavailable", () =>
+  it.effect("reports every ChatGPT and OpenCode Go account's usage, or why it is unavailable", () =>
     withVia(
       ok,
       (via) =>
@@ -803,7 +803,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect("shows each opencode Go account's pool state, cooling while rate limited", () =>
+  it.effect("shows each OpenCode Go account's pool state, cooling while rate limited", () =>
     withVia(
       ok,
       (via) =>
@@ -875,7 +875,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
   );
 
   it.effect(
-    "asks opencode Go for an account's usage at most once a minute, however often usage is read",
+    "asks OpenCode Go for an account's usage at most once a minute, however often usage is read",
     () =>
       withVia(
         ok,

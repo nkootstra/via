@@ -53,7 +53,7 @@ const make = Effect.gen(function* () {
     });
 
   /**
-   * Cools `account` down after opencode Go answered it 429: until its used-up
+   * Cools `account` down after OpenCode Go answered it 429: until its used-up
    * usage window resets or for as long as `retryAfterHeader` (the answer's
    * `Retry-After`) asks, whichever is later, and for half an hour when neither says.
    */
@@ -71,7 +71,7 @@ const make = Effect.gen(function* () {
 });
 
 /**
- * The opencode Go accounts as a pool, sharing the Codex accounts' cooldowns:
+ * The OpenCode Go accounts as a pool, sharing the Codex accounts' cooldowns:
  * which one serves next, and taking one out of rotation, with a warning that says why.
  */
 export class OpencodeGoPool extends Context.Service<OpencodeGoPool, Effect.Success<typeof make>>()(

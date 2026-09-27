@@ -188,7 +188,7 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
   }),
 );
 
-/** The deprecated environment variable opencode Go's key is read from, and its key, while it is set. */
+/** The deprecated environment variable OpenCode Go's key is read from, and its key, while it is set. */
 export type OpencodeGoEnvironment = {
   readonly variable: string;
   readonly apiKey: Redacted.Redacted<string>;
@@ -210,7 +210,7 @@ const opencodeGoAccount = (
     : shown;
 };
 
-/** The opencode Go account with id `id`; like the ChatGPT accounts, never by label. */
+/** The OpenCode Go account with id `id`; like the ChatGPT accounts, never by label. */
 const opencodeGoById = Effect.fn("admin.opencodeGoById")(function* (id: string) {
   const account = (yield* (yield* OpencodeGoAccounts).list).find((a) => a.id === id);
 

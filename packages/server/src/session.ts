@@ -3,11 +3,11 @@ import { Schema } from "effect";
 
 type Headers = Readonly<Record<string, string | undefined>>;
 
-// Where coding agents put their conversation id: opencode, Kilo and Hermes
+// Where coding agents put their conversation id: OpenCode, Kilo and Hermes
 // send `x-opencode-session`; Claude Code `x-claude-code-session-id`; Codex
 // `session-id` plus `prompt_cache_key`; Cline and Roo `session_id` on their
-// Codex paths and `x-task-id`; opencode `x-session-id` to other providers.
-// opencode's sub-agents also send `x-parent-session-id`, which comes first:
+// Codex paths and `x-task-id`; OpenCode `x-session-id` to other providers.
+// OpenCode's sub-agents also send `x-parent-session-id`, which comes first:
 // sibling sub-agents repeat one system prompt and tool list, and upstreams
 // (OpenCode Go among them) route by session, so sharing the parent's keeps
 // them on one warm prompt cache instead of each prefilling it cold.

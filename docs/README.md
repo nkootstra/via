@@ -415,7 +415,7 @@ like ChatGPT accounts (see [How the pool picks an account](#how-the-pool-picks-a
 > **Deprecated:** reading OpenCode Go's key from `apiKeyEnv` (such as
 > `OPENCODE_API_KEY`). While that variable is set, `via serve` and
 > `via accounts status` add its key as an account named
-> `opencode Go (imported)`, once, and `via serve` logs a warning at startup.
+> `OpenCode Go (imported)`, once, and `via serve` logs a warning at startup.
 > Remove the variable (and the `opencode-go` entry, unless you set its
 > `baseUrl` or `sessionHeader`); a later release stops reading it.
 
@@ -441,7 +441,7 @@ models with their prefix and the details the provider gives, such as
 `context_length`; a provider that can't be reached is left out.
 
 To keep a conversation on a warm prompt cache, via gives each request a session
-id: the one the client sent, in `x-parent-session-id` (so opencode's sub-agents
+id: the one the client sent, in `x-parent-session-id` (so OpenCode's sub-agents
 share their parent's), `x-opencode-session`,
 `x-claude-code-session-id`, `session-id`, `session_id`, `x-session-id`, the
 body's `session_id` or `prompt_cache_key`, `x-task-id` or `x-kilocode-taskid`;
@@ -449,7 +449,7 @@ otherwise one derived from the conversation's first system and user message.
 OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
 `session_id`, and Codex in its `session_id` header.
 
-opencode also writes its session id into the `<env>` block of its system
+OpenCode also writes its session id into the `<env>` block of its system
 prompt, which would keep its sub-agents from sharing a prompt cache with each
 other and their parent. via moves that one line, for Chat Completions, to the
 start of the first user message; the model still sees it.

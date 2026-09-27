@@ -17,7 +17,7 @@ export type { EmbeddedUi } from "./ui.ts";
  * The OpenAI-compatible HTTP API of `via serve`, serving Codex requests from
  * the `AccountPool`. With `adminKey`, it also serves the admin API behind that key,
  * and with `ui` as well, the admin UI at `/ui`. `opencodeGoEnvironment` is
- * opencode Go's deprecated key variable, while it is set, which the admin API
+ * OpenCode Go's deprecated key variable, while it is set, which the admin API
  * notes on the account imported from it.
  */
 export const ViaServer = {

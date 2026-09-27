@@ -156,11 +156,11 @@ describe("the overview", () => {
     expect(clock.textContent).toMatch(/^4:5\d$/);
   });
 
-  it("shows each opencode Go account as a card of its own, with its budget windows", async () => {
+  it("shows each OpenCode Go account as a card of its own, with its budget windows", async () => {
     renderApp("/", { pool, usage });
 
     const go = await card("go main");
-    expect(within(go).getByText("opencode Go")).toBeDefined();
+    expect(within(go).getByText("OpenCode Go")).toBeDefined();
     expect(
       (await within(go).findByRole("meter", { name: "5 hours" })).getAttribute("aria-valuenow"),
     ).toBe("40");
@@ -175,7 +175,7 @@ describe("the overview", () => {
     expect(await within(openrouter).findByText(/doesn't report usage/)).toBeDefined();
   });
 
-  it("counts a used-up opencode Go account down to its window's reset", async () => {
+  it("counts a used-up OpenCode Go account down to its window's reset", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
     renderApp("/", { pool, usage });
 
@@ -189,15 +189,15 @@ describe("the overview", () => {
     expect(within(go).getByText("1 h 58 min")).toBeDefined();
   });
 
-  it("says when opencode Go refused an account's key", async () => {
+  it("says when OpenCode Go refused an account's key", async () => {
     renderApp("/", { pool, usage });
 
     const spare = await card("go spare");
     expect(within(spare).getByText("Locked out")).toBeDefined();
-    expect(within(spare).getByText("opencode Go refused its key")).toBeDefined();
+    expect(within(spare).getByText("OpenCode Go refused its key")).toBeDefined();
   });
 
-  it("counts opencode Go accounts and providers with the accounts in the summary", async () => {
+  it("counts OpenCode Go accounts and providers with the accounts in the summary", async () => {
     renderApp("/", { pool, usage });
 
     expect(await tile("Available")).toBe("2 of 6");
@@ -225,34 +225,34 @@ describe("the overview", () => {
     expect(router.history.location.pathname).toBe("/ui/");
   });
 
-  it("adds an opencode Go key from the overview, and shows it there", async () => {
+  it("adds an OpenCode Go key from the overview, and shows it there", async () => {
     const { state, user } = renderApp("/", { pool, usage });
 
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
-    await user.click(await screen.findByRole("button", { name: /opencode Go/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Add an opencode Go key" });
+    await user.click(await screen.findByRole("button", { name: /OpenCode Go/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go key" });
     await user.type(within(dialog).getByLabelText("API key"), "sk-go-new-9876");
     await user.click(within(dialog).getByRole("button", { name: "Add key" }));
 
-    expect(await card("opencode Go …9876")).toBeDefined();
+    expect(await card("OpenCode Go …9876")).toBeDefined();
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Add an opencode Go key" })).toBeNull(),
+      expect(screen.queryByRole("dialog", { name: "Add an OpenCode Go key" })).toBeNull(),
     );
     expect(state.opencodeGo.map(({ key }) => key)).toEqual(["…9876"]);
   });
 
-  it("says so when opencode Go refuses a pasted key, and keeps the dialog open", async () => {
+  it("says so when OpenCode Go refuses a pasted key, and keeps the dialog open", async () => {
     const { state, user } = renderApp("/", { pool, usage, refusedKeys: ["sk-wrong"] });
 
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
-    await user.click(await screen.findByRole("button", { name: /opencode Go/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Add an opencode Go key" });
+    await user.click(await screen.findByRole("button", { name: /OpenCode Go/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go key" });
     await user.type(within(dialog).getByLabelText("API key"), "sk-wrong");
     await user.click(within(dialog).getByRole("button", { name: "Add key" }));
 
-    expect(await within(dialog).findByText(/opencode Go refused this key/)).toBeDefined();
+    expect(await within(dialog).findByText(/OpenCode Go refused this key/)).toBeDefined();
     expect(state.opencodeGo).toEqual([]);
   });
 

@@ -13,7 +13,7 @@ export const apiKeys = (providers: Record<string, ProviderConfig>) =>
   ).pipe(Config.map(Record.getSomes));
 
 /**
- * Stores opencode Go's key from `keys`, read from its deprecated environment
+ * Stores OpenCode Go's key from `keys`, read from its deprecated environment
  * variable, as an account, unless one already has it. Some with the variable's
  * name while it is set, so serve can say to remove it.
  */

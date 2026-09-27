@@ -2,7 +2,7 @@ import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
 import { Context, DateTime, Effect, FileSystem, Layer, Redacted, Schema, Semaphore } from "effect";
 import { DuplicateOpencodeGoKeyError, OpencodeGoAccountNotFoundError } from "./errors.ts";
 
-/** An opencode Go API key via pools, as it stores it. */
+/** An OpenCode Go API key via pools, as it stores it. */
 const OpencodeGoAccount = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
@@ -15,12 +15,26 @@ export type OpencodeGoAccount = typeof OpencodeGoAccount.Type;
 
 const StoredAccounts = Schema.Array(OpencodeGoAccount);
 
-/** The label of the account made from the key in opencode Go's deprecated environment variable. */
-const IMPORTED = "opencode Go (imported)";
+/** The label of the account made from the key in OpenCode Go's deprecated environment variable. */
+const IMPORTED = "OpenCode Go (imported)";
 
 /** An API key as via shows it: its last four characters, never the whole key. */
 export const maskKey = (apiKey: Redacted.Redacted<string>) =>
   `…${Redacted.value(apiKey).slice(-4)}`;
+
+/** The label of an account added without one: its key's last four characters. */
+const defaultLabel = (apiKey: Redacted.Redacted<string>) => `OpenCode Go ${maskKey(apiKey)}`;
+
+/**
+ * `account`, with a label via gave it under OpenCode Go's old spelling ("opencode Go")
+ * respelled; a label the user chose is theirs, and kept.
+ */
+const respelled = (account: OpencodeGoAccount): OpencodeGoAccount =>
+  account.label === "opencode Go (imported)"
+    ? { ...account, label: IMPORTED }
+    : account.label === `opencode Go ${maskKey(account.apiKey)}`
+      ? { ...account, label: defaultLabel(account.apiKey) }
+      : account;
 
 const make = (path: string) =>
   Effect.gen(function* () {
@@ -33,7 +47,9 @@ const make = (path: string) =>
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       permit(withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)));
 
+    // Old labels are respelled as they are read, so the next change writes them back.
     const list = readJsonFile(path, StoredAccounts, () => []).pipe(
+      Effect.map((accounts) => accounts.map(respelled)),
       Effect.provideService(FileSystem.FileSystem, fs),
       Effect.withSpan("OpencodeGoAccounts.list"),
     );
@@ -74,7 +90,7 @@ const make = (path: string) =>
 
       const account: OpencodeGoAccount = {
         id: crypto.randomUUID().slice(0, 8),
-        label: label ?? `opencode Go ${maskKey(apiKey)}`,
+        label: label ?? defaultLabel(apiKey),
         apiKey,
         enabled: true,
         createdAt: DateTime.formatIso(yield* DateTime.now),
@@ -119,7 +135,7 @@ const make = (path: string) =>
   });
 
 /**
- * The opencode Go API keys via pools, in one owner-only JSON file at `path`, in
+ * The OpenCode Go API keys via pools, in one owner-only JSON file at `path`, in
  * the order they were added.
  */
 export class OpencodeGoAccounts extends Context.Service<

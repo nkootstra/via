@@ -102,10 +102,10 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       );
 
       expect(added.exitCode).toBe(0);
-      expect(added.stdout).toBe('Added opencode Go key …1234 as "opencode Go …1234".\n');
+      expect(added.stdout).toBe('Added OpenCode Go key …1234 as "OpenCode Go …1234".\n');
       const listed = yield* via("accounts", "list");
       expect(listed.stdout).toMatch(
-        /^\w+ {2}opencode Go …1234 {2}opencode-go {2}…1234 {2}enabled$/m,
+        /^\w+ {2}OpenCode Go …1234 {2}opencode-go {2}…1234 {2}enabled$/m,
       );
       expect(listed.stdout).not.toContain("secret");
     }),
@@ -116,7 +116,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const { home, env } = yield* setup();
       const added = yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "");
       expect(added.exitCode).toBe(1);
-      expect(added.stderr).toBe("error: No opencode Go API key was given\n");
+      expect(added.stderr).toBe("error: No OpenCode Go API key was given\n");
     }),
   );
 
@@ -128,16 +128,16 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const again = yield* runVia(home, args, env, "sk-go-1234");
       expect(again.exitCode).toBe(1);
       expect(again.stderr).toBe(
-        'error: That opencode Go key is already stored, as "opencode Go …1234"\n',
+        'error: That OpenCode Go key is already stored, as "OpenCode Go …1234"\n',
       );
     }),
   );
 
-  it.effect("label, disable, enable and remove an opencode Go account", () =>
+  it.effect("label, disable, enable and remove an OpenCode Go account", () =>
     Effect.gen(function* () {
       const { home, env, via } = yield* setup();
       yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "sk-go-1234");
-      expect((yield* via("accounts", "label", "opencode Go …1234", "go")).exitCode).toBe(0);
+      expect((yield* via("accounts", "label", "OpenCode Go …1234", "go")).exitCode).toBe(0);
       yield* via("accounts", "disable", "go");
       expect((yield* via("accounts", "list")).stdout).toMatch(
         /go {2}opencode-go {2}…1234 {2}disabled/,
@@ -266,7 +266,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
   );
 
   it.effect(
-    "status shows each opencode Go account like a ChatGPT one, their windows lined up",
+    "status shows each OpenCode Go account like a ChatGPT one, their windows lined up",
     () =>
       Effect.gen(function* () {
         const provider = yield* startFakeProvider;
@@ -283,7 +283,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
         expect(status.exitCode).toBe(0);
         expect(status.stdout).toMatch(/5h\s+12% used/);
         expect(status.stdout).toMatch(
-          /^\w+ {2}opencode Go \(imported\) {2}opencode-go {2}…k-go {2}enabled {2}available$/m,
+          /^\w+ {2}OpenCode Go \(imported\) {2}opencode-go {2}…k-go {2}enabled {2}available$/m,
         );
         expect(status.stdout).not.toContain("sk-go");
         expect(status.stdout).toMatch(/rolling\s+0% used\s+resets 2026-09-26 23:40/);
@@ -299,7 +299,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       }),
   );
 
-  it.effect("status shows an opencode Go account with a used-up window as exhausted", () =>
+  it.effect("status shows an OpenCode Go account with a used-up window as exhausted", () =>
     Effect.gen(function* () {
       const provider = yield* startFakeProvider;
       provider.usage({
@@ -333,7 +333,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
-  it.effect("status says when an opencode Go account's usage is unavailable", () =>
+  it.effect("status says when an OpenCode Go account's usage is unavailable", () =>
     Effect.gen(function* () {
       // The fake answers its usage endpoint with a 500 until told otherwise.
       const provider = yield* startFakeProvider;

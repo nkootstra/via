@@ -7,7 +7,7 @@ export class OpencodeGoAccountNotFoundError extends Schema.TaggedError<OpencodeG
   { query: Schema.String },
 ) {
   override get message() {
-    return `No opencode Go account with id or label "${this.query}"`;
+    return `No OpenCode Go account with id or label "${this.query}"`;
   }
 }
 
@@ -16,26 +16,26 @@ export class DuplicateOpencodeGoKeyError extends Schema.TaggedError<DuplicateOpe
   { label: Schema.String },
 ) {
   override get message() {
-    return `That opencode Go key is already stored, as "${this.label}"`;
+    return `That OpenCode Go key is already stored, as "${this.label}"`;
   }
 }
 
-/** opencode Go refused an API key it was asked to check. */
+/** OpenCode Go refused an API key it was asked to check. */
 export class OpencodeGoKeyRejectedError extends Schema.TaggedError<OpencodeGoKeyRejectedError>()(
   "OpencodeGoKeyRejectedError",
   { status: Schema.Finite },
 ) {
   override get message() {
-    return `opencode Go refused this API key (HTTP ${this.status}); check that it is right`;
+    return `OpenCode Go refused this API key (HTTP ${this.status}); check that it is right`;
   }
 }
 
-/** opencode Go could not be asked to check an API key. */
+/** OpenCode Go could not be asked to check an API key. */
 export class OpencodeGoUnavailableError extends Schema.TaggedError<OpencodeGoUnavailableError>()(
   "OpencodeGoUnavailableError",
   { reason: Schema.String },
 ) {
   override get message() {
-    return `Could not check the key with opencode Go: ${this.reason}`;
+    return `Could not check the key with OpenCode Go: ${this.reason}`;
   }
 }
