@@ -35,6 +35,22 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     ),
   );
 
+  it.effect("accepts the Bearer scheme in any case, as HTTP auth schemes are", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* Effect.promise(() =>
+          fetch(`${via.baseUrl}/v1/responses`, {
+            method: "POST",
+            headers: { authorization: `bearer ${via.key}`, "content-type": "application/json" },
+            body: JSON.stringify(request),
+          }),
+        );
+
+        expect(response.status).toBe(200);
+      }),
+    ),
+  );
+
   it.effect("streams the upstream events to a streaming client", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

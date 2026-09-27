@@ -110,6 +110,7 @@ describe("CodexUpstream.send", () => {
       const body = { error: { type: "usage_limit_reached", resets_at: 1_700_003_600 } };
       const error = yield* sendRejected(reply.error(429, body, { "retry-after": "60" }));
 
+      expect(error.message).toBe("Codex rejected the request (HTTP 429)");
       expect(error).toMatchObject({
         status: 429,
         contentType: "application/json",

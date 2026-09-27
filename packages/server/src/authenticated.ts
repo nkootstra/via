@@ -8,7 +8,8 @@ const authenticate = Effect.gen(function* () {
   const request = yield* HttpServerRequest.HttpServerRequest;
   const [scheme, key] = (request.headers.authorization ?? "").split(" ");
 
-  if (scheme !== "Bearer" || key === undefined) return Option.none();
+  // An auth scheme is case-insensitive (RFC 9110 §11.1), so `bearer` counts too.
+  if (scheme?.toLowerCase() !== "bearer" || key === undefined) return Option.none();
 
   return yield* (yield* KeyStore).verify(key);
 });
