@@ -211,6 +211,9 @@ export const withVia = <A, E>(
       // Accounts are used in the order they were added, so "a" must come first.
       yield* TestClock.adjust("1 second");
       yield* store.save(tokensFor("b"));
+      // And an account a test adds comes after both: the list is ordered by when each
+      // was added, and one added at the same instant as "b" would sort by file order.
+      yield* TestClock.adjust("1 second");
     }).pipe(Effect.provide(built));
     const logs = collectLogs();
 
