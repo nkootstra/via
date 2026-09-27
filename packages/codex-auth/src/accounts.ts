@@ -1,5 +1,15 @@
 import { CorruptFileError, withFileLock, writeJsonFile } from "@via/config";
-import { Context, DateTime, Effect, FileSystem, Layer, Schema, Semaphore } from "effect";
+import {
+  Context,
+  DateTime,
+  Effect,
+  FileSystem,
+  Layer,
+  Schema,
+  Semaphore,
+  Stream,
+  SubscriptionRef,
+} from "effect";
 import { decodeIdToken } from "./claims.ts";
 import type { Tokens } from "./codex-auth.ts";
 import { AccountNotFoundError } from "./errors.ts";
@@ -33,9 +43,13 @@ const make = (authDir: string) => {
     // looks through every account) orders them against another process's, such as
     // `via accounts label` next to `via serve` refreshing tokens.
     const permit = Semaphore.withPermit(yield* Semaphore.make(1));
+    // Counts this process's changes, so `changes` can signal each one.
+    const revision = yield* SubscriptionRef.make(0);
 
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      permit(withFileLock(authDir, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)));
+      permit(
+        withFileLock(authDir, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
+      ).pipe(Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)));
 
     const readAccount = (path: string) =>
       fs.readFileString(path).pipe(
@@ -136,7 +150,10 @@ const make = (authDir: string) => {
       yield* fs.remove(fileOf((yield* find(query)).id));
     }, serialized);
 
-    return { list, find, save, saveRefreshed, setLabel, setEnabled, remove };
+    /** Signals now, then after every change this process makes to the accounts. */
+    const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
+
+    return { list, find, save, saveRefreshed, setLabel, setEnabled, remove, changes };
   });
 };
 
