@@ -1,9 +1,11 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { CopyField } from "./index.ts";
 
 const key = "via-4f1c2b9e0d7a";
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("CopyField", () => {
   it("is a button named by its label and described by the value", () => {
@@ -36,5 +38,14 @@ describe("CopyField", () => {
 
     await waitFor(() => expect(screen.getByRole("status").textContent).toBe("Copy failed"));
     expect(onCopy).not.toHaveBeenCalled();
+  });
+
+  it("copies a large value the same way", async () => {
+    const user = userEvent.setup();
+    render(<CopyField label="Code" value="WXYZ-2345" size="large" />);
+
+    await user.click(screen.getByRole("button", { name: "Copy Code" }));
+
+    expect(await navigator.clipboard.readText()).toBe("WXYZ-2345");
   });
 });

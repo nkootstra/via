@@ -77,6 +77,17 @@ const styles = stylex.create({
     transitionDuration: durations.fast,
   },
   failed: { color: colors.destructive },
+  // A value to read off and type elsewhere, such as a login code.
+  largeButton: {
+    height: "auto",
+    paddingBlock: space.s2,
+  },
+  largeValue: {
+    fontSize: "28px",
+    letterSpacing: "0.1em",
+    textAlign: "center",
+    fontVariationSettings: weights.semibold,
+  },
   cell: {
     display: "inline-grid",
     placeItems: "center",
@@ -132,9 +143,12 @@ export interface CopyFieldProps {
   readonly label?: string;
   /** Called once the value is on the clipboard. */
   readonly onCopy?: () => void;
+  /** `large` shows the value big and centred, for a code to read off and type. */
+  readonly size?: "default" | "large";
 }
 
-export function CopyField({ value, label, onCopy }: CopyFieldProps) {
+export function CopyField({ value, label, onCopy, size = "default" }: CopyFieldProps) {
+  const large = size === "large";
   const [status, setStatus] = useState<Status>("idle");
   const [attempt, setAttempt] = useState(0);
   const id = useId();
@@ -170,9 +184,9 @@ export function CopyField({ value, label, onCopy }: CopyFieldProps) {
         onClick={copy}
         aria-label={label === undefined ? "Copy" : `Copy ${label}`}
         aria-describedby={`${id}-value`}
-        {...stylex.props(stylex.defaultMarker(), styles.button)}
+        {...stylex.props(stylex.defaultMarker(), styles.button, large && styles.largeButton)}
       >
-        <span id={`${id}-value`} {...stylex.props(styles.value)}>
+        <span id={`${id}-value`} {...stylex.props(styles.value, large && styles.largeValue)}>
           <mark {...stylex.props(styles.mark)}>{value}</mark>
         </span>
         <span {...stylex.props(styles.action, status === "failed" && styles.failed)}>
