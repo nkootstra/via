@@ -65,6 +65,23 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     ),
   );
 
+  it.effect("a label change during a token refresh keeps both", () =>
+    withAccountStore(() =>
+      Effect.gen(function* () {
+        const store = yield* AccountStore;
+        const first = yield* store.save(tokensFor("a@example.com", "acc-a", "rt-old"));
+        yield* Effect.all(
+          [
+            store.save(tokensFor("a@example.com", "acc-a", "rt-new")),
+            store.setLabel(first.id, "work"),
+          ],
+          { concurrency: "unbounded", discard: true },
+        );
+        expect(yield* store.list).toEqual([{ ...first, label: "work", refreshToken: "rt-new" }]);
+      }),
+    ),
+  );
+
   it.effect("lists accounts in the order they were added", () =>
     withAccountStore(() =>
       Effect.gen(function* () {

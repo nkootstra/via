@@ -80,6 +80,82 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("renames and disables an account", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.patch(
+            "/admin/accounts/a@example.com",
+            { label: "work", enabled: false },
+            adminKey,
+          );
+          expect(response.status).toBe(200);
+          const changed = { ...account("a"), label: "work", enabled: false };
+          expect(yield* response.json).toEqual(changed);
+          expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([
+            changed,
+            account("b"),
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("changes only what the request names", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* via.patch("/admin/accounts/a@example.com", { enabled: false }, adminKey);
+          const response = yield* via.patch("/admin/accounts/a@example.com", {}, adminKey);
+          expect(yield* response.json).toEqual({ ...account("a"), enabled: false });
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("stops using a disabled account", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* via.patch("/admin/accounts/a@example.com", { enabled: false }, adminKey);
+          yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+          expect(via.upstreamRequests.map(({ headers }) => headers["chatgpt-account-id"])).toEqual([
+            "acc-b",
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("removes an account", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.delete("/admin/accounts/a@example.com", adminKey)).status).toBe(204);
+          expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([account("b")]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("answers 404 for an account that does not exist", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect(
+            (yield* via.patch("/admin/accounts/nobody", { label: "x" }, adminKey)).status,
+          ).toBe(404);
+          expect((yield* via.delete("/admin/accounts/nobody", adminKey)).status).toBe(404);
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("lists client keys without the keys themselves", () =>
     withVia(
       ok,

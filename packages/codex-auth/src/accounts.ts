@@ -1,5 +1,5 @@
 import { CorruptFileError, writeJsonFile } from "@via/config";
-import { Context, DateTime, Effect, FileSystem, Layer, Schema } from "effect";
+import { Context, DateTime, Effect, FileSystem, Layer, Schema, Semaphore } from "effect";
 import { decodeIdToken } from "./claims.ts";
 import type { Tokens } from "./codex-auth.ts";
 
@@ -33,6 +33,10 @@ const make = (authDir: string) => {
   const fileOf = (id: string) => `${authDir}/${id}.json`;
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    // Changes read an account, then write it whole, one at a time: otherwise a label
+    // change during a token refresh could write back the old, already-rotated tokens.
+    const lock = yield* Semaphore.make(1);
+    const serialized = Semaphore.withPermit(lock);
 
     const readAccount = (path: string) =>
       fs.readFileString(path).pipe(
@@ -82,22 +86,22 @@ const make = (authDir: string) => {
       };
       yield* write(account);
       return account;
-    });
+    }, serialized);
 
     const setLabel = Effect.fn("AccountStore.setLabel")(function* (query: string, label: string) {
       yield* write({ ...(yield* find(query)), label });
-    });
+    }, serialized);
 
     const setEnabled = Effect.fn("AccountStore.setEnabled")(function* (
       query: string,
       enabled: boolean,
     ) {
       yield* write({ ...(yield* find(query)), enabled });
-    });
+    }, serialized);
 
     const remove = Effect.fn("AccountStore.remove")(function* (query: string) {
       yield* fs.remove(fileOf((yield* find(query)).id));
-    });
+    }, serialized);
 
     return { list, find, save, setLabel, setEnabled, remove };
   });

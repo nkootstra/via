@@ -52,6 +52,12 @@ export type Via = {
     path: string,
     key?: string | null,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
+  /** PATCHes JSON to the via server, with a valid API key unless `key` says otherwise. */
+  readonly patch: (
+    path: string,
+    body: object,
+    key?: string | null,
+  ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** DELETEs a path on the via server, with a valid API key unless `key` says otherwise. */
   readonly delete: (
     path: string,
@@ -213,11 +219,18 @@ export const withVia = <A, E>(
         );
       const get: Via["get"] = (path, override) =>
         http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
+      const patch: Via["patch"] = (path, json, override) =>
+        HttpClientRequest.patch(`${base}${path}`).pipe(
+          authorize(override),
+          HttpClientRequest.bodyJsonUnsafe(json),
+          http.execute,
+        );
       const del: Via["delete"] = (path, override) =>
         http.execute(HttpClientRequest.delete(`${base}${path}`).pipe(authorize(override)));
       return yield* body({
         post,
         get,
+        patch,
         delete: del,
         baseUrl: base,
         key,
