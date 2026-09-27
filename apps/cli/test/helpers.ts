@@ -7,6 +7,7 @@ const source = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 /** `VIA_E2E_BIN` runs a compiled binary instead of the source. */
 const command = (args: ReadonlyArray<string>) => {
   const bin = process.env["VIA_E2E_BIN"];
+
   return bin === undefined ? ["bun", source, ...args] : [bin, ...args];
 };
 
@@ -22,6 +23,7 @@ export const realTime = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
 /** A fresh, scoped `VIA_HOME` for one test. */
 export const tempHome = Effect.gen(function* () {
   const fs = yield* FileSystem.FileSystem;
+
   return yield* fs.makeTempDirectoryScoped();
 });
 
@@ -30,6 +32,7 @@ export const freePort = Effect.sync(() => {
   const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
   const { port } = probe;
   probe.stop(true);
+
   return port;
 });
 
@@ -51,11 +54,13 @@ export const runVia = (
 ) =>
   Effect.promise(async (): Promise<RunResult> => {
     const proc = spawnVia(home, args, env);
+
     const [exitCode, stdout, stderr] = await Promise.all([
       proc.exited,
       new Response(proc.stdout).text(),
       new Response(proc.stderr).text(),
     ]);
+
     return { exitCode, stdout, stderr };
   });
 
@@ -75,18 +80,23 @@ export const startVia = (
       Effect.sync(() => spawnVia(home, ["serve", ...args], env)),
       (running) => Effect.promise(() => (running.kill(), running.exited)),
     );
+
     const lines = proc.stdout.pipeThrough(new TextDecoderStream()).getReader();
     let stdout = "";
+
     const readUntil = (found: () => string | undefined) =>
       Effect.promise(async () => {
         for (;;) {
           const seen = found();
+
           if (seen !== undefined) return seen;
           const chunk = await lines.read();
+
           if (chunk.done) return undefined;
           stdout += chunk.value;
         }
       });
+
     const url = yield* readUntil(() => /Listening on (\S+)/.exec(stdout)?.[1]).pipe(
       Effect.flatMap((listening) =>
         listening === undefined
@@ -104,6 +114,7 @@ export const startVia = (
       }),
       realTime,
     );
+
     const output = (text: string) =>
       // Only whole lines: the last one may still be arriving.
       readUntil(() =>
@@ -112,11 +123,14 @@ export const startVia = (
           .slice(0, -1)
           .find((line) => line.includes(text)),
       ).pipe(Effect.map((line) => line ?? ""));
+
     const stop = Effect.promise(async () => {
       proc.kill();
       await proc.exited;
+
       return new Response(proc.stderr).text();
     });
+
     return { url, output, stop };
   });
 

@@ -16,6 +16,7 @@
     "anti-slop/no-reflect-get": "error",
     "anti-slop/no-shape-in-symbol-names": "error",
     "anti-slop/no-widen-then-assert": "error",
+    "anti-slop/require-readable-spacing": "error",
     "anti-slop-effect/no-manual-effect-error-tag": "error",
     "anti-slop-effect/no-manual-tag-comparison": "error",
     "anti-slop-effect/no-manual-tagged-construction": "error",

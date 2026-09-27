@@ -182,6 +182,7 @@ const hash = (key: string) => createHash("sha256").update(key).digest();
 
 const authorization = (adminKey: Redacted.Redacted<string>) => {
   const expected = hash(Redacted.value(adminKey));
+
   return Layer.succeed(
     AdminAuthorization,
     AdminAuthorization.of({
@@ -209,6 +210,7 @@ const withoutTokens = ({ id, label, email, plan, enabled, createdAt }: Account) 
  */
 const byId = Effect.fn("admin.byId")(function* (id: string) {
   const account = (yield* (yield* AccountStore).list).find((a) => a.id === id);
+
   return account ?? (yield* new AccountNotFoundError({ query: id }));
 });
 
@@ -217,6 +219,7 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
   Effect.gen(function* () {
     // Taken once, so every request sees the same logins.
     const logins = yield* Logins;
+
     return handlers
       .handle("list", () =>
         Effect.gen(function* () {
@@ -231,6 +234,7 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
       .handle("loginStatus", ({ params }) =>
         Effect.gen(function* () {
           const login = yield* logins.status(params.id);
+
           return login.status === "added"
             ? { status: login.status, account: withoutTokens(login.account) }
             : login;
@@ -240,8 +244,11 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
         Effect.gen(function* () {
           const store = yield* AccountStore;
           const { id } = yield* byId(params.id);
+
           if (payload.label !== undefined) yield* store.setLabel(id, payload.label);
+
           if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
+
           return withoutTokens(yield* store.find(id));
         }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
       )
@@ -278,6 +285,7 @@ const accountUsage = (account: Account) =>
   Effect.gen(function* () {
     const fresh = yield* (yield* AccountTokens).fresh(account);
     const windows = yield* (yield* CodexUpstream).usage(fresh);
+
     return {
       id: account.id,
       label: account.label,
@@ -301,6 +309,7 @@ const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
         // The account files are via's own; one it can't read is a bug, not a request error.
         Effect.orDie,
       );
+
       // One account at a time, so this never bursts requests at ChatGPT.
       return {
         accounts: yield* Effect.forEach(all, accountUsage),
@@ -317,9 +326,12 @@ const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
 export const adminRoutes = Layer.unwrap(
   Effect.gen(function* () {
     const adminKey = yield* Config.option(Config.Redacted("VIA_ADMIN_KEY"));
+
     if (Option.isNone(adminKey)) return Layer.empty;
     const { length } = Redacted.value(adminKey.value);
+
     if (length < 32) return yield* new AdminKeyTooShortError({ length });
+
     return HttpApiBuilder.layer(AdminApi).pipe(
       Layer.provide([accounts, keys, usage]),
       Layer.provide([authorization(adminKey.value), Logins.layer]),

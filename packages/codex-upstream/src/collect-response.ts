@@ -24,27 +24,36 @@ const Completed = Schema.Struct({
   type: Schema.Literal("response.completed"),
   response: Schema.Record(Schema.String, Schema.Unknown),
 });
+
 const Failed = Schema.Struct({
   type: Schema.Literal("response.failed"),
   response: Schema.Struct({
     error: Schema.Struct({ code: Schema.String, message: Schema.String }),
   }),
 });
+
 const Incomplete = Schema.Struct({
   type: Schema.Literal("response.incomplete"),
   response: Schema.Record(Schema.String, Schema.Unknown),
 });
+
 const ItemDone = Schema.Struct({
   type: Schema.Literal("response.output_item.done"),
   item: Schema.Unknown,
 });
+
 const Progress = Schema.Struct({ type: Schema.String });
+
 const StreamEvent = Schema.Union([Completed, Failed, Incomplete, ItemDone, Progress]);
 
 const isCompleted = Schema.is(Completed);
+
 const isFailed = Schema.is(Failed);
+
 const isIncomplete = Schema.is(Incomplete);
+
 const isItemDone = Schema.is(ItemDone);
+
 const isTerminal = (event: typeof StreamEvent.Type) => TERMINAL_EVENTS.has(event.type);
 
 type Collected = {
@@ -77,15 +86,21 @@ export const collectResponse = Effect.fn("collectResponse")(function* <E>(
     Stream.takeUntil(isTerminal),
     Stream.runFold((): Collected => ({ items: [], terminal: Option.none() }), collect),
   );
+
   if (Option.isNone(terminal)) return yield* new IncompleteStreamError();
   const event = terminal.value;
+
   if (isFailed(event)) {
     const { code, message } = event.response.error;
+
     return yield* new UpstreamFailedError({ code, reason: message });
   }
+
   if (isCompleted(event) || isIncomplete(event)) {
     const { response } = event;
+
     return hasOutput(response) ? response : { ...response, output: items };
   }
+
   return yield* new IncompleteStreamError();
 });

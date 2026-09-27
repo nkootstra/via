@@ -9,9 +9,11 @@ export type Verdict = Data.TaggedEnum<{
   /** The request itself is at fault; another account would fail the same way. */
   PassThrough: {};
 }>;
+
 export const Verdict = Data.taggedEnum<Verdict>();
 
 const QUOTA_FALLBACK = Duration.minutes(30);
+
 const TRANSIENT_COOLDOWN = Duration.minutes(1);
 
 // Codex's own error mapping treats all of these as an exhausted account.
@@ -34,7 +36,9 @@ const CodexErrorBody = Schema.fromJsonString(
     }),
   }),
 );
+
 const decodeErrorBody = Schema.decodeUnknownOption(CodexErrorBody);
+
 const decodeSeconds = Schema.decodeUnknownOption(Schema.FiniteFromString);
 
 export const classify = (
@@ -45,23 +49,29 @@ export const classify = (
 ): Verdict => {
   const error = Option.map(decodeErrorBody(body), (b) => b.error);
   const code = Option.getOrUndefined(Option.flatMapNullishOr(error, (e) => e.code ?? e.type));
+
   const resetsAt = Option.flatMapNullishOr(error, (e) =>
     e.resets_at === undefined ? undefined : e.resets_at * 1000,
   );
+
   const retryAt = Option.map(decodeSeconds(headers["retry-after"]), (s) => now + s * 1000);
 
   if ((code !== undefined && QUOTA_CODES.has(code)) || status === 429) {
     const known = [resetsAt, retryAt].flatMap(Option.toArray);
     const until = known.length > 0 ? Math.max(...known) : now + Duration.toMillis(QUOTA_FALLBACK);
+
     // A stale resets_at/Retry-After from upstream must not shorten the cooldown to nothing.
     return Verdict.Cooldown({ until: Math.max(now, until), reason: code ?? "rate_limited" });
   }
+
   if (status >= 500 || code === "server_is_overloaded") {
     return Verdict.Cooldown({
       until: now + Duration.toMillis(TRANSIENT_COOLDOWN),
       reason: code ?? `upstream_${status}`,
     });
   }
+
   if (status === 401) return Verdict.Unauthorized();
+
   return Verdict.PassThrough();
 };

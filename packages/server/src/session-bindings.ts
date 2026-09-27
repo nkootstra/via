@@ -5,6 +5,7 @@ import { Cache, Context, Effect, Layer, type Option } from "effect";
 // successful dispatch rebinds its session, which refreshes this TTL, so an
 // active conversation is kept alive for as long as it keeps being used.
 const IDLE_TTL = "1 hour";
+
 // Bounds memory use; oldest entries are evicted once the pool has this many
 // sessions bound at once.
 const CAPACITY = 10_000;
@@ -29,6 +30,7 @@ export class SessionBindings extends Context.Service<
         lookup: () => Effect.die(new Error("SessionBindings: no binding to look up for a miss")),
         timeToLive: IDLE_TTL,
       });
+
       return SessionBindings.of({
         get: (session) => Cache.getSuccess(cache, session),
         bind: (session, accountId) => Cache.set(cache, session, accountId),

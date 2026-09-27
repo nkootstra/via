@@ -64,6 +64,7 @@ const lifecycle = (
   output: ReadonlyArray<unknown>,
 ) => {
   const response = envelope(request);
+
   return stream([
     { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
     { type: "response.in_progress", response: { ...response, status: "in_progress", output: [] } },
@@ -84,6 +85,7 @@ export const reply = {
       const part = { type: "output_text", text, annotations: [] };
       const at = { item_id: item.id, output_index: 0, content_index: 0 };
       const done = { ...item, status: "completed", content: [part] };
+
       return lifecycle(
         request,
         [
@@ -112,6 +114,7 @@ export const reply = {
       const item = { id: "fc_fake", type: "function_call", call_id: "call_fake", name };
       const done = { ...item, status: "completed", arguments: argumentsJson };
       const at = { item_id: item.id, output_index: 0 };
+
       return lifecycle(
         request,
         [
@@ -146,6 +149,7 @@ export const reply = {
     (code: string, message: string): Reply =>
     (request) => {
       const response = envelope(request);
+
       return stream([
         { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
         {
@@ -175,6 +179,7 @@ export const reply = {
     (inner: Reply, events: number): Reply =>
     (request) => {
       const plan = inner(request);
+
       return { ...plan, chunks: plan.chunks.slice(0, events) };
     },
 
@@ -183,6 +188,7 @@ export const reply = {
     (inner: Reply, events: number): Reply =>
     (request) => {
       const plan = inner(request);
+
       return { ...plan, chunks: plan.chunks.slice(0, events), ending: "hangUp" };
     },
 
@@ -191,6 +197,7 @@ export const reply = {
     (inner: Reply, events: number): Reply =>
     (request) => {
       const plan = inner(request);
+
       return { ...plan, chunks: plan.chunks.slice(0, events), ending: "stall" };
     },
 
@@ -218,10 +225,12 @@ const endings = { close: Stream.empty, hangUp, stall: Stream.never };
 const respond = (plan: Plan) =>
   Effect.gen(function* () {
     if (plan.gate !== undefined) yield* Deferred.await(plan.gate);
+
     const body = Stream.fromIterable(plan.chunks).pipe(
       Stream.concat(endings[plan.ending]),
       Stream.encodeText,
     );
+
     return HttpServerResponse.stream(body, {
       status: plan.status,
       headers: plan.headers,
@@ -245,27 +254,33 @@ export const startFakeCodex = Effect.gen(function* () {
   const usageByAccount = new Map<string, { status: number; body: string }>();
   let catalog: string | undefined;
   const catalogByAccount = new Map<string, string>();
+
   const waiters: Array<{
     list: ReadonlyArray<CodexRequest>;
     count: number;
     deferred: Deferred.Deferred<void>;
   }> = [];
+
   let handler: ((request: CodexRequest) => Reply) | undefined;
 
   const record = (body: Record<string, unknown>, list: Array<CodexRequest> = requests) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
+
       const recorded = {
         path: new URL(request.url, "http://fake").pathname,
         headers: request.headers,
         body,
       };
+
       list.push(recorded);
+
       for (const waiter of waiters) {
         if (waiter.list === list && list.length >= waiter.count) {
           yield* Deferred.succeed(waiter.deferred, undefined);
         }
       }
+
       return recorded;
     });
 
@@ -279,6 +294,7 @@ export const startFakeCodex = Effect.gen(function* () {
 
   const next = (request: CodexRequest): Reply => {
     const account = request.headers["chatgpt-account-id"];
+
     return (
       (account === undefined ? undefined : perAccount.get(account)?.shift()) ??
       shared.shift() ??
@@ -304,9 +320,11 @@ export const startFakeCodex = Effect.gen(function* () {
       Effect.gen(function* () {
         const request = yield* record({});
         const account = request.headers["chatgpt-account-id"];
+
         const { status, body } = (account === undefined
           ? undefined
           : usageByAccount.get(account)) ?? { status: 200, body: JSON.stringify(usagePayload) };
+
         return HttpServerResponse.text(body, { status, contentType: "application/json" });
       }),
     ),
@@ -317,6 +335,7 @@ export const startFakeCodex = Effect.gen(function* () {
         const request = yield* record({}, modelRequests);
         const account = request.headers["chatgpt-account-id"];
         const body = (account === undefined ? undefined : catalogByAccount.get(account)) ?? catalog;
+
         return body === undefined
           ? yield* respond(unscripted(request))
           : HttpServerResponse.text(body, { contentType: "application/json" });
@@ -327,6 +346,7 @@ export const startFakeCodex = Effect.gen(function* () {
   const server = yield* Layer.build(
     HttpRouter.serve(routes).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 }))),
   );
+
   const url = yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server));
 
   return {
@@ -355,6 +375,7 @@ export const startFakeCodex = Effect.gen(function* () {
      */
     models: (body: string | object, account?: string) => {
       const text = typeof body === "string" ? body : JSON.stringify(body);
+
       if (account === undefined) catalog = text;
       else catalogByAccount.set(account, text);
     },

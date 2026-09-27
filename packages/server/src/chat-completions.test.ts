@@ -5,6 +5,7 @@ import { Effect } from "effect";
 import { withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
+
 const request = {
   model: "gpt-6-astra",
   messages: [{ role: "user", content: "hi" }],
@@ -52,6 +53,7 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
           stream: true,
           stream_options: { include_usage: true },
         });
+
         expect(response.status).toBe(200);
         expect(response.headers["content-type"]).toContain("text/event-stream");
         const text = yield* response.text;
@@ -78,6 +80,7 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
         const response = yield* via.post("/v1/chat/completions", {
           model: "gpt-6-astra",
         });
+
         expect(response.status).toBe(400);
         expect(yield* response.json).toMatchObject({
           error: { type: "invalid_request_error" },
@@ -118,9 +121,11 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
           ...request,
           messages: [{ role: "user", content: "another chat" }],
         });
+
         const [first, second, other] = via.upstreamRequests.map(
           (upstream) => upstream.headers["session_id"],
         );
+
         expect(second).toBe(first);
         expect(other).not.toBe(first);
       }),

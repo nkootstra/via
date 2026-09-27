@@ -3,6 +3,7 @@ import { Effect, FileSystem } from "effect";
 import { BunFileSystem } from "@effect/platform-bun";
 
 const here = import.meta.dirname;
+
 const platform = `via-${process.platform}-${process.arch}`;
 
 // `bun run` puts a `node` that is really Bun first on PATH; users run the real Node.
@@ -20,8 +21,10 @@ const run = (cmd: ReadonlyArray<string>, cwd: string) =>
       stdout: "pipe",
       stderr: "pipe",
     });
+
     const stdout = proc.stdout.toString();
     expect(proc.exitCode, `${cmd.join(" ")}\n${stdout}\n${proc.stderr.toString()}`).toBe(0);
+
     return stdout;
   });
 

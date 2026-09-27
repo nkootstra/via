@@ -6,6 +6,7 @@ import { TestClock } from "effect/testing";
 import { type Via, withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
+
 const adminKey = "admin-key-that-is-long-enough-000";
 
 /** Account `name` from the harness, as the admin API shows it. */
@@ -27,6 +28,7 @@ const accountId = (via: Via, name: string) =>
     const all = Schema.decodeUnknownSync(
       Schema.Array(Schema.Struct({ id: Schema.String, email: Schema.String })),
     )(yield* (yield* via.get("/admin/accounts", adminKey)).json);
+
     return all.find(({ email }) => email === `${name}@example.com`)?.id ?? "";
   });
 
@@ -34,6 +36,7 @@ const accountId = (via: Via, name: string) =>
 const settled = (via: Via, id: string) =>
   Effect.gen(function* () {
     yield* TestClock.adjust("1 minute");
+
     return yield* (yield* via.get(`/admin/accounts/logins/${id}`, adminKey)).json;
   }).pipe(
     Effect.repeat({
@@ -114,6 +117,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             { label: "work", enabled: false },
             adminKey,
           );
+
           expect(response.status).toBe(200);
           const changed = { ...account("a"), label: "work", enabled: false };
           expect(yield* response.json).toEqual(changed);
@@ -181,6 +185,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             expect((yield* via.patch(path, { enabled: false }, adminKey)).status).toBe(404);
             expect((yield* via.delete(path, adminKey)).status).toBe(404);
           }
+
           expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([
             account("a"),
             account("b"),
@@ -230,11 +235,13 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       (via) =>
         Effect.gen(function* () {
           const login = yield* (yield* via.post("/admin/accounts/logins", {}, adminKey)).json;
+
           const added = {
             ...account("dev"),
             label: "dev@example.com",
             email: "dev@example.com",
           };
+
           expect(yield* settled(via, loginId(login))).toEqual({ status: "added", account: added });
           expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([
             account("a"),
@@ -300,9 +307,11 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             name: "laptop",
             key: expect.stringMatching(/^via_/),
           });
+
           const { key } = yield* Schema.decodeUnknownEffect(Schema.Struct({ key: Schema.String }))(
             created,
           );
+
           expect((yield* via.get("/v1/models", key)).status).toBe(200);
         }),
       { adminKey },
@@ -341,6 +350,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           const [{ id }] = yield* Schema.decodeUnknownEffect(
             Schema.NonEmptyArray(Schema.Struct({ id: Schema.String })),
           )(yield* (yield* via.get("/admin/keys", adminKey)).json);
+
           expect((yield* via.delete(`/admin/keys/${id}`, adminKey)).status).toBe(204);
           expect((yield* via.get("/v1/models")).status).toBe(401);
         }),

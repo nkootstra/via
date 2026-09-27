@@ -9,6 +9,7 @@ const created = {
   type: "response.created",
   response: { id: "resp_1", created_at: 1_700_000_000, model: "gpt-6-astra" },
 };
+
 const completed = {
   type: "response.completed",
   response: { usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } },
@@ -50,6 +51,7 @@ describe("toChatStream", () => {
         { type: "response.output_text.delta", delta: "lo" },
         completed,
       ]);
+
       expect(events[0]).toEqual({
         id: "resp_1",
         object: "chat.completion.chunk",
@@ -80,6 +82,7 @@ describe("toChatStream", () => {
         { type: "response.function_call_arguments.delta", output_index: 1, delta: '"Paris"}' },
         completed,
       ]);
+
       expect(deltas(events).slice(1)).toEqual([
         {
           index: 0,
@@ -129,6 +132,7 @@ describe("toChatStream", () => {
           response: { error: { code: "server_is_overloaded", message: "Codex is busy" } },
         },
       ]);
+
       expect(events).not.toContain("[DONE]");
       expect(events.at(-1)).toEqual({
         error: { message: "Codex is busy", type: "server_error", code: "server_is_overloaded" },
@@ -142,6 +146,7 @@ describe("toChatStream", () => {
         created,
         { type: "response.output_text.delta", delta: "Hel" },
       ]);
+
       expect(events).not.toContain("[DONE]");
       expect(events.at(-1)).toMatchObject({
         error: { type: "server_error", code: "upstream_incomplete" },
@@ -154,6 +159,7 @@ describe("toChatStream", () => {
       const events = yield* chatEventsOf(
         upstream([created]).pipe(Stream.concat(Stream.fail("connection reset"))),
       );
+
       expect(events).not.toContain("[DONE]");
       expect(events.filter((event) => typeof event === "object" && "error" in event)).toHaveLength(
         1,
@@ -177,6 +183,7 @@ describe("toChatStream", () => {
           response: { incomplete_details: { reason }, usage: completed.response.usage },
         },
       ]);
+
       expect(deltas(events).at(-1)).toEqual({ index: 0, delta: {}, finish_reason: finish });
       expect(events.at(-1)).toBe("[DONE]");
     }),
@@ -194,6 +201,7 @@ describe("toChatStream", () => {
         ],
         { includeUsage: true },
       );
+
       expect(deltas(events).at(-1)).toMatchObject({ finish_reason: "content_filter" });
       expect(events.at(-1)).toBe("[DONE]");
     }),

@@ -5,6 +5,7 @@ import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 
 const CODEX_TUI_VERSION = "0.154.0";
+
 const IDENTITIES = {
   cloaked: {
     originator: "codex-tui",
@@ -61,6 +62,7 @@ const Window = Schema.Struct({
   limit_window_seconds: Schema.Finite,
   reset_at: Schema.Finite,
 });
+
 const UsagePayload = Schema.Struct({
   rate_limit: Schema.Struct({
     primary_window: Schema.NullOr(Window),
@@ -118,10 +120,13 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
         }),
         http.execute,
       );
+
       if (response.status !== 200) {
         return yield* new UsageUnavailableError({ status: response.status });
       }
+
       const { rate_limit } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
+
       return [rate_limit.primary_window, rate_limit.secondary_window].flatMap(
         (window): Array<UsageWindow> =>
           window === null
@@ -150,10 +155,13 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
         }),
         http.execute,
       );
+
       if (response.status !== 200) {
         return yield* new ModelsUnavailableError({ status: response.status });
       }
+
       const payload = yield* HttpClientResponse.schemaBodyJson(ModelsPayload)(response);
+
       return payload.models
         .filter((model) => model.visibility === undefined || model.visibility === "list")
         .map((model): CatalogModel => ({

@@ -2,7 +2,9 @@ import { Context, Duration, Effect, Layer, Option, Schema } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 const ISSUER = "https://auth.openai.com";
+
 export const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
+
 const LOGIN_TIMEOUT = Duration.minutes(15);
 
 const UserCodeResponse = Schema.Struct({
@@ -10,21 +12,25 @@ const UserCodeResponse = Schema.Struct({
   user_code: Schema.String,
   interval: Schema.Union([Schema.Finite, Schema.FiniteFromString]),
 });
+
 const ApprovedCode = Schema.Struct({
   authorization_code: Schema.String,
   code_verifier: Schema.String,
 });
+
 const TokenResponse = Schema.Struct({
   id_token: Schema.String,
   access_token: Schema.String,
   refresh_token: Schema.String,
 });
+
 // The issuer may omit tokens it does not rotate; the caller keeps its current ones.
 const RefreshResponse = Schema.Struct({
   access_token: Schema.String,
   id_token: Schema.optionalKey(Schema.String),
   refresh_token: Schema.optionalKey(Schema.String),
 });
+
 // Codes meaning the refresh token is dead and the account has to log in again.
 const RejectedCode = Schema.Literals([
   "invalid_grant",
@@ -32,9 +38,11 @@ const RejectedCode = Schema.Literals([
   "refresh_token_reused",
   "refresh_token_invalidated",
 ]);
+
 const RefreshErrorBody = Schema.Struct({
   error: Schema.Union([RejectedCode, Schema.Struct({ code: RejectedCode })]),
 });
+
 const AccessTokenExpiry = Schema.StringFromBase64Url.pipe(
   Schema.decodeTo(Schema.fromJsonString(Schema.Struct({ exp: Schema.Finite }))),
 );
@@ -86,11 +94,13 @@ const decodeJson =
 
 const toAuthRequestError = (error: { message: string }) =>
   new AuthRequestError({ reason: error.message });
+
 const failAuthRequest = (error: { message: string }) => Effect.fail(toAuthRequestError(error));
 
 const toTokens = Effect.fn("toTokens")(function* (response: typeof TokenResponse.Type) {
   const [, payload = ""] = response.access_token.split(".");
   const { exp } = yield* Schema.decodeEffect(AccessTokenExpiry)(payload);
+
   return {
     idToken: response.id_token,
     accessToken: response.access_token,
@@ -147,6 +157,7 @@ const make = (issuer: string) =>
     const awaitApproval = Effect.fn("CodexAuth.awaitApproval")(function* (code: DeviceCode) {
       while (true) {
         const approved = yield* pollOnce(code);
+
         if (Option.isSome(approved)) return approved.value;
         yield* Effect.sleep(Duration.seconds(code.intervalSeconds));
       }
@@ -176,6 +187,7 @@ const make = (issuer: string) =>
           orElse: () => Effect.fail(new DeviceLoginTimeoutError()),
         }),
       );
+
       return yield* exchangeCode(approved);
     });
 
@@ -190,23 +202,29 @@ const make = (issuer: string) =>
         http.execute,
         Effect.mapError(toAuthRequestError),
       );
+
       if (response.status === 400 || response.status === 401) {
         const rejected = yield* decodeJson(RefreshErrorBody)(response).pipe(Effect.option);
+
         if (Option.isSome(rejected)) {
           const { error } = rejected.value;
+
           return yield* new RefreshRejectedError({
             code: typeof error === "string" ? error : error.code,
           });
         }
       }
+
       if (response.status !== 200) {
         return yield* new AuthRequestError({
           reason: `token refresh returned HTTP ${response.status}`,
         });
       }
+
       const body = yield* decodeJson(RefreshResponse)(response).pipe(
         Effect.mapError(toAuthRequestError),
       );
+
       return yield* toTokens({
         access_token: body.access_token,
         id_token: body.id_token ?? current.idToken,

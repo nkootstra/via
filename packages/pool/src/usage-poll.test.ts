@@ -10,7 +10,9 @@ import {
 } from "./index.ts";
 
 const a = { id: "a", enabled: true };
+
 const b = { id: "b", enabled: true };
+
 const NOW = 1_000_000;
 
 describe("pollable", () => {
@@ -71,6 +73,7 @@ describe("decideUsagePoll", () => {
       { usedPercent: 100, resetsAt: NOW + 60_000 },
       { usedPercent: 100, resetsAt: NOW + 120_000 },
     ];
+
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({
       changed: true,
       until: NOW + 120_000,
@@ -80,11 +83,13 @@ describe("decideUsagePoll", () => {
 
   it("extends an already-cooling account to a later verified reset", () => {
     const windows = [{ usedPercent: 100, resetsAt: NOW + 120_000 }];
+
     const current = {
       status: "cooling",
       until: NOW + 60_000,
       reason: "usage_limit_reached",
     } as const;
+
     expect(decideUsagePoll(windows, current, NOW)).toEqual({
       changed: true,
       until: NOW + 120_000,
@@ -94,21 +99,25 @@ describe("decideUsagePoll", () => {
 
   it("never shortens a running cooldown", () => {
     const windows = [{ usedPercent: 100, resetsAt: NOW + 30_000 }];
+
     const current = {
       status: "cooling",
       until: NOW + 60_000,
       reason: "usage_limit_reached",
     } as const;
+
     expect(decideUsagePoll(windows, current, NOW)).toEqual({ changed: false });
   });
 
   it("never readmits a cooling account early, even when nothing is exhausted", () => {
     const windows = [{ usedPercent: 12, resetsAt: NOW + 60_000 }];
+
     const current = {
       status: "cooling",
       until: NOW + 60_000,
       reason: "usage_limit_reached",
     } as const;
+
     expect(decideUsagePoll(windows, current, NOW)).toEqual({ changed: false });
   });
 
@@ -124,6 +133,7 @@ describe("properties", () => {
     usedPercent: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 150 })),
     resetsAtOffset: Schema.Int.check(Schema.isBetween({ minimum: -1_000, maximum: 1_000 })),
   });
+
   const windowSpecs = Arbitrary.array(Arbitrary.schema(WindowSpec), { minLength: 0, maxLength: 5 });
 
   /** A pool account's current state, restricted to what `decideUsagePoll` reads. */
@@ -131,6 +141,7 @@ describe("properties", () => {
     kind: Schema.Literals(["none", "cooling", "auth_error"]),
     untilOffset: Schema.Int.check(Schema.isBetween({ minimum: -1_000, maximum: 1_000 })),
   });
+
   const currentSpecs = Arbitrary.schema(CurrentSpec);
 
   const toWindows = (specs: ReadonlyArray<typeof WindowSpec.Type>): ReadonlyArray<UsageWindow> =>
@@ -138,7 +149,9 @@ describe("properties", () => {
 
   const toCurrent = (spec: typeof CurrentSpec.Type): AccountState | undefined => {
     if (spec.kind === "none") return undefined;
+
     if (spec.kind === "auth_error") return { status: "auth_error", reason: "invalid_grant" };
+
     return { status: "cooling", until: NOW + spec.untilOffset, reason: "usage_limit_reached" };
   };
 
@@ -147,10 +160,12 @@ describe("properties", () => {
     { windows: windowSpecs, current: currentSpecs },
     ({ windows, current }) => {
       const state = toCurrent(current);
+
       if (state?.status !== "cooling") return true;
       const result = decideUsagePoll(toWindows(windows), state, NOW);
       const effectiveUntil = result.changed ? result.until : state.until;
       expect(effectiveUntil >= state.until).toBe(true);
+
       return true;
     },
   );
@@ -160,8 +175,10 @@ describe("properties", () => {
     { windows: windowSpecs, current: currentSpecs },
     ({ windows, current }) => {
       const state = toCurrent(current);
+
       if (state?.status !== "auth_error") return true;
       expect(decideUsagePoll(toWindows(windows), state, NOW)).toEqual({ changed: false });
+
       return true;
     },
   );

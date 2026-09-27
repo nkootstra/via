@@ -10,11 +10,14 @@ const response = {
   created_at: 1_700_000_000,
   model: "gpt-6-astra",
 };
+
 const created = {
   type: "response.created",
   response: { ...response, status: "in_progress" },
 };
+
 const cutOff = () => reply.sse(sse([created]));
+
 const failed = () =>
   reply.sse(
     sse([
@@ -31,7 +34,9 @@ const failed = () =>
   );
 
 const CHAT = "/v1/chat/completions";
+
 const RESPONSES = "/v1/responses";
+
 const bodies = {
   [CHAT]: { model: "gpt-6-astra", messages: [{ role: "user", content: "hi" }] },
   [RESPONSES]: { model: "gpt-6-astra", input: "hi" },
@@ -118,6 +123,7 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
           ...bodies[RESPONSES],
           stream: true,
         })).text;
+
         const frames = text.trim().split("\n\n");
         expect(frames.map((frame) => /^event: (.*)$/m.exec(frame)?.[1])).toEqual([
           "response.created",

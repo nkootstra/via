@@ -8,11 +8,13 @@ import { codexFixture } from "./fixtures.ts";
 const post = (url: string, account: string, body: object = { model: "gpt-6-astra" }) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
+
     const response = yield* HttpClientRequest.post(`${url}/codex/responses`).pipe(
       HttpClientRequest.setHeaders({ authorization: "Bearer at", "chatgpt-account-id": account }),
       HttpClientRequest.bodyJsonUnsafe(body),
       http.execute,
     );
+
     return { status: response.status, headers: response.headers, text: yield* response.text };
   }).pipe(Effect.provide(FetchHttpClient.layer));
 
@@ -134,10 +136,12 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
       const codex = yield* startFakeCodex;
       codex.script(reply.stalled(reply.text("pong"), 1));
       const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
       const response = yield* HttpClientRequest.post(`${codex.url}/codex/responses`).pipe(
         HttpClientRequest.bodyJsonUnsafe({ model: "gpt-6-astra" }),
         http.execute,
       );
+
       const first = yield* response.stream.pipe(Stream.decodeText, Stream.runHead);
       expect(Option.getOrThrow(first)).toContain("response.created");
     }),
@@ -161,6 +165,7 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
       const codex = yield* startFakeCodex;
       codex.usage("acc-a", yield* codexFixture("usage.json"));
       const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
       const answer = yield* http
         .execute(
           HttpClientRequest.get(`${codex.url}/wham/usage`).pipe(
@@ -168,6 +173,7 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
           ),
         )
         .pipe(Effect.flatMap((response) => response.json));
+
       expect(answer).toMatchObject({ rate_limit: expect.any(Object) });
     }),
   );
@@ -177,11 +183,13 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
       const codex = yield* startFakeCodex;
       codex.usage("acc-a", {}, 403);
       const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
       const response = yield* http.execute(
         HttpClientRequest.get(`${codex.url}/wham/usage`).pipe(
           HttpClientRequest.setHeader("chatgpt-account-id", "acc-a"),
         ),
       );
+
       expect(response.status).toBe(403);
     }),
   );
@@ -191,9 +199,11 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
       const codex = yield* startFakeCodex;
       codex.models({ models: [{ slug: "gpt-6-astra" }] });
       const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
       const answer = yield* http
         .execute(HttpClientRequest.get(`${codex.url}/codex/models?client_version=1.0.0`))
         .pipe(Effect.flatMap((response) => response.json));
+
       expect(answer).toEqual({ models: [{ slug: "gpt-6-astra" }] });
       // Kept apart, so a catalog fetched as via starts doesn't shift `requests`.
       expect(codex.modelRequests.at(-1)?.path).toBe("/codex/models");

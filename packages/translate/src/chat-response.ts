@@ -1,16 +1,19 @@
 import { Schema } from "effect";
 
 const OutputText = Schema.Struct({ type: Schema.Literal("output_text"), text: Schema.String });
+
 const MessageItem = Schema.Struct({
   type: Schema.Literal("message"),
   content: Schema.Array(Schema.Union([OutputText, Schema.Struct({ type: Schema.String })])),
 });
+
 const FunctionCallItem = Schema.Struct({
   type: Schema.Literal("function_call"),
   call_id: Schema.String,
   name: Schema.String,
   arguments: Schema.String,
 });
+
 // Reasoning and other items have no Chat Completions counterpart.
 const OtherItem = Schema.Struct({ type: Schema.String });
 
@@ -28,6 +31,7 @@ export const CompletedResponse = Schema.Struct({
   usage: Usage,
   incomplete_details: Schema.optionalKey(Schema.NullOr(Schema.Struct({ reason: Schema.String }))),
 });
+
 export type CompletedResponse = typeof CompletedResponse.Type;
 
 /** Token usage in Chat Completions terms. */
@@ -48,11 +52,13 @@ export const toChatCompletion = (response: CompletedResponse) => {
     .flatMap((item) => item.content.filter(Schema.is(OutputText)))
     .map((part) => part.text)
     .join("");
+
   const toolCalls = response.output.filter(Schema.is(FunctionCallItem)).map((call) => ({
     id: call.call_id,
     type: "function",
     function: { name: call.name, arguments: call.arguments },
   }));
+
   return {
     id: response.id,
     object: "chat.completion",

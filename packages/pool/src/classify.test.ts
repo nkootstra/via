@@ -4,7 +4,9 @@ import { Arbitrary } from "effect/unstable/arbitrary";
 import { classify, Verdict } from "./index.ts";
 
 const NOW = 1_700_000_000_000;
+
 const SECOND = 1_000;
+
 const MINUTE = 60 * SECOND;
 
 const codexError = (error: object) => JSON.stringify({ error });
@@ -141,6 +143,7 @@ describe("properties", () => {
     hasRetryAfter: Schema.Boolean,
     retryAfterSeconds: Schema.Int.check(Schema.isBetween({ minimum: -600, maximum: 7_200 })),
   });
+
   const inputs = Arbitrary.schema(CooldownInput);
 
   const toVerdict = (input: typeof CooldownInput.Type) => {
@@ -148,7 +151,9 @@ describe("properties", () => {
       type: QUOTA_CODE,
       ...(input.hasResetsAt ? { resets_at: NOW / 1000 + input.resetsAtOffsetSeconds } : {}),
     });
+
     const headers = input.hasRetryAfter ? { "retry-after": String(input.retryAfterSeconds) } : {};
+
     return classify(429, headers, body, NOW);
   };
 
@@ -168,6 +173,7 @@ describe("properties", () => {
         input.hasResetsAt ? NOW + input.resetsAtOffsetSeconds * SECOND : undefined,
         input.hasRetryAfter ? NOW + input.retryAfterSeconds * SECOND : undefined,
       ].filter((value): value is number => value !== undefined);
+
       const until = Math.max(NOW, known.length > 0 ? Math.max(...known) : NOW + 30 * MINUTE);
       expect(toVerdict(input)).toEqual(Verdict.Cooldown({ until, reason: QUOTA_CODE }));
     },

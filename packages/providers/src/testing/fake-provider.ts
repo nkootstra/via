@@ -76,19 +76,24 @@ export const startFakeProvider = Effect.gen(function* () {
     Effect.flatMap((body) =>
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
+
         const recorded = {
           path: new URL(request.url, "http://fake").pathname,
           headers: request.headers,
           body,
         };
+
         requests.push(recorded);
         const { status, contentType, body: text, ending } = handler(recorded);
+
         if (ending === undefined) return HttpServerResponse.text(text, { status, contentType });
+
         const rest =
           ending === "hang"
             ? Stream.never
             : // Failing with `undefined` drops the connection without Bun printing the error.
               Stream.fromEffect(Effect.andThen(ending.drop, Effect.fail(undefined)));
+
         return HttpServerResponse.stream(
           Stream.concat(Stream.make(new TextEncoder().encode(text)), rest),
           { status, contentType },
@@ -108,11 +113,13 @@ export const startFakeProvider = Effect.gen(function* () {
       Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         modelRequests.push({ path: "/models", headers: request.headers, body: {} });
+
         for (const waiter of waiters) {
           if (modelRequests.length >= waiter.count) {
             yield* Deferred.succeed(waiter.deferred, undefined);
           }
         }
+
         return modelList === undefined
           ? HttpServerResponse.text("", { status: 500 })
           : HttpServerResponse.jsonUnsafe({ object: "list", data: modelList });
@@ -126,6 +133,7 @@ export const startFakeProvider = Effect.gen(function* () {
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       usageRequests.push({ path: "/usage", headers: request.headers, body: {} });
+
       return HttpServerResponse.text(usageAnswer.body, {
         status: usageAnswer.status,
         contentType: "application/json",
@@ -138,6 +146,7 @@ export const startFakeProvider = Effect.gen(function* () {
       Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
     ),
   );
+
   return {
     /** The provider's base URL, as config.yaml's `baseUrl`. */
     url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),

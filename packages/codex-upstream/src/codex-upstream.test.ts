@@ -11,6 +11,7 @@ const sendAndRecord = (body: Record<string, unknown>, cloak = true, session = "c
   Effect.gen(function* () {
     const codex = yield* startFakeCodex;
     codex.script(reply.text("hello"));
+
     const response = yield* Effect.gen(function* () {
       return yield* (yield* CodexUpstream).send(account, body, session);
     }).pipe(
@@ -20,6 +21,7 @@ const sendAndRecord = (body: Record<string, unknown>, cloak = true, session = "c
         ),
       ),
     );
+
     return { response, request: codex.requests[0]! };
   });
 
@@ -42,6 +44,7 @@ describe("CodexUpstream.send", () => {
         input: "hi",
         stream: false,
       });
+
       expect(request.headers["content-type"]).toBe("application/json");
       expect(request.body).toMatchObject({ model: "gpt-6-astra", stream: true, store: false });
     }),

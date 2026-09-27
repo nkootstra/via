@@ -19,6 +19,7 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
               messages: [{ role: "user", content: "ping" }],
             }),
           );
+
           expect(completion.choices[0]?.message.content).toBe("pong");
           expect(upstream.requests).toHaveLength(1);
           expect(upstream.requests[0]).toMatchObject({
@@ -43,6 +44,7 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
           const response = yield* Effect.promise(() =>
             openai(via).responses.create({ model: "gpt-6-astra", input: "ping" }),
           );
+
           expect(response.output_text).toBe("pong");
           expect(upstream.requests[0]?.headers).toMatchObject({
             authorization: "Bearer at-a",

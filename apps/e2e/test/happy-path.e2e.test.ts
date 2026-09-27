@@ -32,12 +32,14 @@ const parseChatSse = (text: string): ReadonlyArray<string> =>
 
 /** Responses API SSE: `event: <name>\ndata: <json>\n\n` blocks, no trailing `[DONE]`. */
 type SseEvent = { readonly event: string; readonly data: string };
+
 const parseResponsesSse = (text: string): ReadonlyArray<SseEvent> =>
   text
     .split("\n\n")
     .filter((block) => block.length > 0)
     .map((block) => {
       const [eventLine = "", dataLine = ""] = block.split("\n");
+
       return { event: eventLine.replace(/^event: /, ""), data: dataLine.replace(/^data: /, "") };
     });
 
@@ -61,6 +63,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
               messages: [{ role: "user", content: "say hi" }],
             }),
           );
+
           expect(completion.object).toBe("chat.completion");
           expect(completion.model).toBe("gpt-6-astra");
           expect(completion.choices[0]?.message).toMatchObject({
@@ -90,6 +93,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
             messages: [{ role: "user", content: "stream please" }],
             stream: true,
           });
+
           expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
           const text = yield* Effect.promise(() => response.text());
           const blocks = parseChatSse(text);
@@ -121,16 +125,21 @@ layer(BunFileSystem.layer)("happy path", (it) => {
               stream: true,
             }),
           );
+
           const result = yield* Effect.promise(async () => {
             let content = "";
             let finishReason: string | null = null;
+
             for await (const chunk of stream) {
               content += chunk.choices[0]?.delta.content ?? "";
               const reason = chunk.choices[0]?.finish_reason;
+
               if (reason) finishReason = reason;
             }
+
             return { content, finishReason };
           });
+
           expect(result.content).toBe("sdk chunks");
           expect(result.finishReason).toBe("stop");
         }),
@@ -150,12 +159,15 @@ layer(BunFileSystem.layer)("happy path", (it) => {
             stream: true,
             stream_options: { include_usage: true },
           });
+
           const blocks = parseChatSse(text);
           expect(blocks.at(-1)).toBe("[DONE]");
+
           const usageChunk = JSON.parse(blocks.at(-2) ?? "{}") as {
             choices: ReadonlyArray<unknown>;
             usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
           };
+
           expect(usageChunk.choices).toEqual([]);
           expect(usageChunk.usage).toEqual({
             prompt_tokens: 10,
@@ -198,6 +210,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
               finish_reason: string;
             }>;
           };
+
           expect(body.choices[0]?.message.content).toBeNull();
           expect(body.choices[0]?.finish_reason).toBe("tool_calls");
           expect(body.choices[0]?.message.tool_calls?.[0]).toEqual({
@@ -229,6 +242,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
               };
             }>;
           };
+
           const call = first.choices[0]?.message.tool_calls?.[0];
           expect(call).toMatchObject({ id: "call_fake", function: { name: "get_weather" } });
 
@@ -253,6 +267,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
               { role: "tool", tool_call_id: "call_fake", content: "raw sensor reading" },
             ],
           })) as { choices: ReadonlyArray<{ message: { content: string | null } }> };
+
           expect(second.choices[0]?.message.content).toBe("sunny and 21c in berlin");
           expect(upstream.requests[1]?.body["input"]).toEqual(
             expect.arrayContaining([
@@ -282,6 +297,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
           const response = yield* Effect.promise(() =>
             openai(via).responses.create({ model: "gpt-6-astra", input: "responses ping" }),
           );
+
           expect(response.output_text).toBe("responses pong");
           expect(response.model).toBe("gpt-6-astra");
         }),
@@ -300,16 +316,19 @@ layer(BunFileSystem.layer)("happy path", (it) => {
             input: "responses stream",
             stream: true,
           });
+
           expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
           const text = yield* Effect.promise(() => response.text());
           expect(text).not.toContain("[DONE]");
           const events = parseResponsesSse(text);
           expect(events[0]?.event).toBe("response.created");
           expect(events.at(-1)?.event).toBe("response.completed");
+
           const delta = events
             .filter((event) => event.event === "response.output_text.delta")
             .map((event) => (JSON.parse(event.data) as { delta: string }).delta)
             .join("");
+
           expect(delta).toBe("streamed text");
         }),
       );
@@ -340,6 +359,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
               arguments?: string;
             }>;
           };
+
           const call = body.output.find((item) => item.type === "function_call");
           expect(call).toMatchObject({
             call_id: "call_fake",

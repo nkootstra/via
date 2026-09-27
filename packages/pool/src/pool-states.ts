@@ -22,11 +22,13 @@ const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void
     const states = yield* Ref.make(initial);
     // Saves run one at a time, so the file never ends up with an older state.
     const lock = yield* Semaphore.make(1);
+
     const mark = (id: string, state: AccountState) =>
       Ref.updateAndGet(states, (current) => ({ ...current, [id]: state })).pipe(
         Effect.flatMap(save),
         Semaphore.withPermit(lock),
       );
+
     return PoolStates.of({
       get: Ref.get(states),
       mark,
@@ -61,17 +63,21 @@ export class PoolStates extends Context.Service<
       PoolStates,
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
+
         const stored = yield* readJsonFile(path, Cooldowns, () => ({})).pipe(
           Effect.catch((error) =>
             Effect.logWarning(`Ignoring saved cooldowns: ${error.message}`).pipe(Effect.as({})),
           ),
         );
+
         const now = yield* Clock.currentTimeMillis;
+
         const initial: PoolState = Object.fromEntries(
           Object.entries(stored)
             .filter(([, cooldown]) => cooldown.until > now)
             .map(([id, cooldown]) => [id, { status: "cooling", ...cooldown }]),
         );
+
         const save = (state: PoolState) =>
           Clock.currentTimeMillis.pipe(
             Effect.flatMap((at) => writeJsonFile(path, Cooldowns, running(state, at))),
@@ -80,6 +86,7 @@ export class PoolStates extends Context.Service<
               Effect.logWarning(`Could not save cooldowns: ${error.message}`),
             ),
           );
+
         return yield* make(initial, save);
       }),
     );

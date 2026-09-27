@@ -11,6 +11,7 @@ export type Paths = {
 
 export function resolvePaths(env: Record<string, string | undefined> = process.env): Paths {
   const home = env.VIA_HOME ?? join(homedir(), ".config", "via");
+
   return {
     home,
     config: join(home, "config.yaml"),

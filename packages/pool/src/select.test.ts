@@ -11,13 +11,17 @@ import {
 } from "./index.ts";
 
 const a = { id: "a", enabled: true };
+
 const b = { id: "b", enabled: true };
+
 const c = { id: "c", enabled: true };
+
 const NOW = 1_000_000;
 
 /** The independent spec of `isAvailable`, restated rather than imported. */
 const expectAvailable = (state: PoolState, now: number) => (account: PoolAccount) => {
   const current = state[account.id];
+
   return (
     account.enabled &&
     (current === undefined || (current.status === "cooling" && current.until <= now))
@@ -37,6 +41,7 @@ describe("select", () => {
     const state: PoolState = {
       a: { status: "cooling", until: NOW + 1, reason: "quota" },
     };
+
     expect(select([a, b], state, NOW)).toEqual(Option.some(b));
   });
 
@@ -44,6 +49,7 @@ describe("select", () => {
     const state: PoolState = {
       a: { status: "cooling", until: NOW, reason: "quota" },
     };
+
     expect(select([a, b], state, NOW)).toEqual(Option.some(a));
   });
 
@@ -51,6 +57,7 @@ describe("select", () => {
     const state: PoolState = {
       a: { status: "auth_error", reason: "invalid_grant" },
     };
+
     expect(select([a, b], state, NOW)).toEqual(Option.some(b));
   });
 
@@ -58,6 +65,7 @@ describe("select", () => {
     const state: PoolState = {
       b: { status: "cooling", until: NOW + 1, reason: "quota" },
     };
+
     expect(select([{ ...a, enabled: false }, b], state, NOW)).toEqual(Option.none());
   });
 
@@ -69,6 +77,7 @@ describe("select", () => {
     const state: PoolState = {
       b: { status: "cooling", until: NOW + 1, reason: "quota" },
     };
+
     expect(select([a, b, c], state, NOW, Option.some("b"))).toEqual(Option.some(a));
   });
 
@@ -88,6 +97,7 @@ describe("retryAfter", () => {
       b: { status: "cooling", until: NOW + 2_000, reason: "quota" },
       c: { status: "cooling", until: NOW + 1_000, reason: "quota" },
     };
+
     expect(retryAfter([a, b, { ...c, enabled: false }], state, NOW)).toEqual(Option.some(2_000));
   });
 
@@ -95,6 +105,7 @@ describe("retryAfter", () => {
     const state: PoolState = {
       a: { status: "auth_error", reason: "invalid_grant" },
     };
+
     expect(retryAfter([a, { ...b, enabled: false }], state, NOW)).toEqual(Option.none());
   });
 });
@@ -107,6 +118,7 @@ describe("properties", () => {
     offset: Schema.Int.check(Schema.isBetween({ minimum: -1_000, maximum: 1_000 })),
     reason: Schema.Literals(["quota", "server_error", "invalid_grant"]),
   });
+
   const specs = Arbitrary.array(Arbitrary.schema(Spec), { minLength: 1, maxLength: 8 });
 
   /** Builds accounts (unique, index-based ids) and the matching PoolState from specs. */
@@ -115,6 +127,7 @@ describe("properties", () => {
       id: `acc-${i}`,
       enabled: spec.enabled,
     }));
+
     const state: PoolState = Object.fromEntries(
       values.flatMap((spec, i): ReadonlyArray<readonly [string, AccountState]> => {
         if (spec.kind === "cooling") {
@@ -122,12 +135,15 @@ describe("properties", () => {
             [`acc-${i}`, { status: "cooling", until: NOW + spec.offset, reason: spec.reason }],
           ];
         }
+
         if (spec.kind === "auth_error") {
           return [[`acc-${i}`, { status: "auth_error", reason: spec.reason }]];
         }
+
         return [];
       }),
     );
+
     return { accounts, state };
   };
 
@@ -136,6 +152,7 @@ describe("properties", () => {
     { specs },
     ({ specs: values }) => {
       const { accounts, state } = build(values);
+
       return Option.match(select(accounts, state, NOW), {
         onNone: () => true,
         onSome: expectAvailable(state, NOW),
@@ -165,10 +182,13 @@ describe("properties", () => {
     { specs },
     ({ specs: values }) => {
       const { accounts, state } = build(values);
+
       const waits = accounts.flatMap((account) => {
         const current = state[account.id];
+
         return account.enabled && current?.status === "cooling" ? [current.until - NOW] : [];
       });
+
       const expected = waits.length > 0 ? Option.some(Math.min(...waits)) : Option.none();
       expect(retryAfter(accounts, state, NOW)).toEqual(expected);
     },
@@ -179,6 +199,7 @@ describe("properties", () => {
     index: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 7 })),
     missing: Schema.Boolean,
   });
+
   const preferredSpecs = Arbitrary.schema(Preferred);
 
   it.prop(
@@ -187,10 +208,13 @@ describe("properties", () => {
     ({ specs: values, preferred }) => {
       const { accounts, state } = build(values);
       const target = accounts[preferred.index % accounts.length];
+
       if (target === undefined || preferred.missing || !expectAvailable(state, NOW)(target)) {
         return true;
       }
+
       expect(select(accounts, state, NOW, Option.some(target.id))).toEqual(Option.some(target));
+
       return true;
     },
   );
@@ -201,10 +225,13 @@ describe("properties", () => {
     ({ specs: values, preferred }) => {
       const { accounts, state } = build(values);
       const target = accounts[preferred.index % accounts.length];
+
       if (target === undefined) return true;
       const id = preferred.missing ? `${target.id}-missing` : target.id;
+
       if (!preferred.missing && expectAvailable(state, NOW)(target)) return true;
       expect(select(accounts, state, NOW, Option.some(id))).toEqual(select(accounts, state, NOW));
+
       return true;
     },
   );

@@ -39,6 +39,7 @@ const tracing = Layer.unwrap(
   Effect.gen(function* () {
     const traces = yield* Config.option(Config.String("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"));
     const all = yield* Config.option(Config.String("OTEL_EXPORTER_OTLP_ENDPOINT"));
+
     return Option.isSome(traces) || Option.isSome(all) ? exporting : off;
   }),
 );
@@ -63,6 +64,7 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
     ({ host, port }) =>
       Effect.gen(function* () {
         const config = yield* loadConfig(configPath);
+
         const server = Layer.mergeAll(ViaServer.layer, UsagePoll.layer).pipe(
           Layer.provideMerge(
             BunHttpServer.layer({
@@ -78,6 +80,7 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
           // One line per entry, as `key=value` pairs that grep and log tools read.
           Layer.provide(Logger.layer([Logger.consoleLogFmt])),
         );
+
         return yield* HttpServer.addressFormattedWith((url) =>
           Console.log(`Listening on ${url}`),
         ).pipe(Effect.andThen(Effect.never), Effect.provide(server));

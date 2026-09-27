@@ -67,8 +67,10 @@ const RequestIdHeader = Schema.String.pipe(Schema.check(Schema.isUUID()));
 const requestId = (headers: Record<string, string>) =>
   Effect.gen(function* () {
     const sent = Schema.decodeUnknownOption(RequestIdHeader)(headers["x-request-id"]);
+
     if (Option.isSome(sent)) return sent.value.toLowerCase();
     const crypto = yield* Crypto.Crypto;
+
     // A true infra fault (the platform's entropy source failing); no per-request fallback applies.
     return yield* crypto.randomUUIDv4.pipe(Effect.orDie);
   });
@@ -119,6 +121,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     const log = Effect.gen(function* () {
       const headers = (yield* Ref.get(headersAt)) - start;
       const first = yield* Ref.get(firstChunk);
+
       const timings = (yield* Ref.get(streamed))
         ? {
             headers_ms: headers,
@@ -129,6 +132,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
             ...noted("stream_end", yield* Ref.get(ended)),
           }
         : {};
+
       yield* Effect.log("Sent HTTP response").pipe(
         Effect.annotateLogs({
           request_id: id,
@@ -146,6 +150,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         Effect.provideService(References.CurrentLogSpans, [["http.span", start]]),
       );
     });
+
     const finish = Ref.updateAndGet(pending, (n) => n - 1).pipe(
       // A host's health checks would drown out the requests.
       Effect.flatMap((left) => (left === 0 && request.url !== "/healthz" ? log : Effect.void)),

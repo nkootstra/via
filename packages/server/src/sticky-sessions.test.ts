@@ -6,6 +6,7 @@ import { TestClock } from "effect/testing";
 import { withVia } from "./harness.ts";
 
 const CHAT = "/v1/chat/completions";
+
 const request = {
   model: "gpt-6-astra",
   messages: [{ role: "user", content: "hi" }],
@@ -24,13 +25,17 @@ layer(BunFileSystem.layer)("sticky sessions", (it) => {
       // "a" cools down on its first request only, so "b" answers the first
       // client request; both accounts succeed on every request after that.
       let firstToA = true;
+
       const answer = (req: { headers: Readonly<Record<string, string | undefined>> }) => {
         if (req.headers.authorization === "Bearer at-a" && firstToA) {
           firstToA = false;
+
           return reply.error(429, { error: { code: "usage_limit_reached" } });
         }
+
         return reply.sse(completedStream("hi"));
       };
+
       return withVia(answer, (via) =>
         Effect.gen(function* () {
           const headers = { "x-session-id": "s1" };
@@ -65,13 +70,17 @@ layer(BunFileSystem.layer)("sticky sessions", (it) => {
       // "a" answers the session's first request, becoming its binding. It then
       // fails over on the session's next request, so "b" answers that one instead.
       let aCalls = 0;
+
       const answer = (req: { headers: Readonly<Record<string, string | undefined>> }) => {
         if (req.headers.authorization === "Bearer at-a") {
           aCalls++;
+
           if (aCalls === 2) return reply.error(429, { error: { code: "usage_limit_reached" } });
         }
+
         return reply.sse(completedStream("hi"));
       };
+
       return withVia(answer, (via) =>
         Effect.gen(function* () {
           const headers = { "x-session-id": "s1" };

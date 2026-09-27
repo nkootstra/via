@@ -7,6 +7,7 @@ const tempFile = (name: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const dir = yield* fs.makeTempDirectoryScoped();
+
     return `${dir}/${name}`;
   });
 

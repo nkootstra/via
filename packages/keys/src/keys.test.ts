@@ -10,6 +10,7 @@ const withKeyStore = <A, E>(
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const file = `${yield* fs.makeTempDirectoryScoped()}/keys.json`;
+
     return yield* body(file).pipe(Effect.provide(KeyStore.layer(file)));
   });
 
@@ -96,12 +97,14 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     withKeyStore((file) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
+
         const stored = {
           id: "k1",
           name: "laptop",
           hash: "abc",
           createdAt: "2024-01-01T00:00:00Z",
         };
+
         yield* fs.writeFileString(file, JSON.stringify([stored]));
         const error = yield* Effect.flip((yield* KeyStore).verify("via_anything"));
         expect(error).toBeInstanceOf(CorruptFileError);

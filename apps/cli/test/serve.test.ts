@@ -32,21 +32,25 @@ const withHome = <A, E, R>(
     const codex = yield* startFakeCodex;
     codex.respond(() => reply.text("hello"));
     const issuer = yield* Layer.build(fakeIssuer());
+
     const env = {
       VIA_CODEX_ISSUER: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(
         Effect.provide(issuer),
       ),
       VIA_CODEX_BASE_URL: codex.url,
     };
+
     yield* runVia(home, ["accounts", "add"], env);
     const created = yield* runVia(home, ["keys", "create", "--name", "test"]);
     const key = created.stdout.trim().split("\n").at(-1) ?? "";
+
     return yield* body({ home, key, env, codex });
   });
 
 const postResponses = (url: string, key: string) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
+
     return yield* HttpClientRequest.post(`${url}/v1/responses`).pipe(
       HttpClientRequest.bearerToken(key),
       HttpClientRequest.bodyJsonUnsafe({ model: "gpt-6-astra", input: "hi" }),
@@ -68,6 +72,7 @@ const Traces = Schema.Struct({
 const startCollector = Effect.gen(function* () {
   const names = new Set<string>();
   const waiters: Array<{ name: string; seen: Deferred.Deferred<void> }> = [];
+
   const receive = HttpServerRequest.schemaBodyJson(Traces).pipe(
     Effect.tap((traces) =>
       Effect.forEach(
@@ -76,6 +81,7 @@ const startCollector = Effect.gen(function* () {
         ),
         (name) => {
           names.add(name);
+
           return Effect.forEach(
             waiters.filter((waiter) => waiter.name === name),
             (waiter) => Deferred.succeed(waiter.seen, undefined),
@@ -87,11 +93,13 @@ const startCollector = Effect.gen(function* () {
     // Test fixture: an export that is not OTLP JSON is a bug in the code under test.
     Effect.orDie,
   );
+
   const server = yield* Layer.build(
     HttpRouter.serve(HttpRouter.add("POST", "/v1/traces", receive)).pipe(
       Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
     ),
   );
+
   return {
     url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),
     saw: (name: string) =>
@@ -173,9 +181,11 @@ layer(BunFileSystem.layer)("via serve", (it) => {
   it.effect("says so when its port is already in use", () =>
     Effect.gen(function* () {
       const taken = yield* Layer.build(BunHttpServer.layer({ hostname: "127.0.0.1", port: 0 }));
+
       const url = yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(
         Effect.provide(taken),
       );
+
       const port = new URL(url).port;
       const result = yield* runVia(yield* tempHome, ["serve", "--port", port]);
       expect(result.exitCode).toBe(1);
@@ -187,13 +197,16 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     withHome(({ home, env }) =>
       Effect.gen(function* () {
         const adminKey = "admin-key-that-is-long-enough-000";
+
         const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
           ...env,
           VIA_ADMIN_KEY: adminKey,
         });
+
         const response = yield* HttpClient.get(`${url}/admin/accounts`, {
           headers: { authorization: `Bearer ${adminKey}` },
         }).pipe(Effect.provide(FetchHttpClient.layer));
+
         expect(response.status).toBe(200);
         expect(yield* response.json).toMatchObject([{ email: "dev@example.com" }]);
       }),
@@ -203,9 +216,11 @@ layer(BunFileSystem.layer)("via serve", (it) => {
   it.effect("refuses to start with an admin key shorter than 32 characters", () =>
     Effect.gen(function* () {
       const port = String(yield* freePort);
+
       const result = yield* runVia(yield* tempHome, ["serve", "--port", port], {
         VIA_ADMIN_KEY: "short",
       });
+
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("VIA_ADMIN_KEY must be at least 32 characters; it has 5");
     }),
@@ -243,11 +258,13 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     withHome(({ home, key, env }) =>
       Effect.gen(function* () {
         const collector = yield* startCollector;
+
         const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
           ...env,
           OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
           OTEL_BSP_SCHEDULE_DELAY: "50",
         });
+
         expect((yield* postResponses(url, key)).status).toBe(200);
         yield* collector.saw("dispatch").pipe(Effect.timeout("10 seconds"), realTime);
       }),
@@ -266,6 +283,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
               // Far beyond the test, so only the flush at shutdown can deliver the span.
               OTEL_BSP_SCHEDULE_DELAY: "600000",
             });
+
             expect((yield* postResponses(url, key)).status).toBe(200);
           }),
         );
@@ -283,10 +301,12 @@ layer(BunFileSystem.layer)("via serve", (it) => {
           `${home}/config.yaml`,
           `providers:\n  local:\n    baseUrl: ${provider.url}\n    apiKeyEnv: LOCAL_KEY\n`,
         );
+
         const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
           ...env,
           LOCAL_KEY: "sk-local",
         });
+
         const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
         yield* HttpClientRequest.post(`${url}/v1/chat/completions`).pipe(
           HttpClientRequest.bearerToken(key),
@@ -294,6 +314,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
           http.execute,
         );
         expect((yield* postResponses(url, key)).status).toBe(200);
+
         for (const headers of [provider.requests[0]?.headers, codex.requests[0]?.headers]) {
           expect(headers).toBeDefined();
           expect(headers).not.toHaveProperty("traceparent");
@@ -314,16 +335,20 @@ layer(BunFileSystem.layer)("via serve", (it) => {
             `${home}/config.yaml`,
             `providers:\n  local:\n    baseUrl: ${provider.url}\n    apiKeyEnv: LOCAL_KEY\n`,
           );
+
           const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
             ...env,
             LOCAL_KEY: "sk-local",
           });
+
           const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
           const response = yield* HttpClientRequest.post(`${url}/v1/chat/completions`).pipe(
             HttpClientRequest.bearerToken(key),
             HttpClientRequest.bodyJsonUnsafe({ model: "local/qwen3", messages: [] }),
             http.execute,
           );
+
           expect(yield* response.json).toEqual({ id: "chatcmpl-local" });
           expect(provider.requests[0]?.headers["authorization"]).toBe("Bearer sk-local");
         }),
@@ -342,21 +367,26 @@ layer(BunFileSystem.layer)("via serve", (it) => {
           `${home}/config.yaml`,
           `providers:\n  local:\n    baseUrl: ${provider.url}\n    apiKeyEnv: LOCAL_KEY\n`,
         );
+
         const via = yield* startVia(home, ["--port", String(yield* freePort)], {
           ...env,
           LOCAL_KEY: "sk-local",
         });
+
         const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
         const response = yield* HttpClientRequest.post(`${via.url}/v1/chat/completions`).pipe(
           HttpClientRequest.bearerToken(key),
           HttpClientRequest.bodyJsonUnsafe({ model: "local/qwen3", messages: [], stream: true }),
           http.execute,
         );
+
         const read = yield* response.stream.pipe(
           Stream.tap(() => Deferred.succeed(received, undefined)),
           Stream.runDrain,
           Effect.exit,
         );
+
         // A clean end would pass the truncated answer off as complete.
         expect(Exit.isFailure(read)).toBe(true);
         expect(yield* via.stop).not.toContain("Decode error");

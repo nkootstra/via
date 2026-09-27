@@ -65,6 +65,7 @@ describe("toChatCompletion", () => {
       ],
       usage,
     });
+
     expect(completion.choices[0]).toEqual({
       index: 0,
       message: {
@@ -95,6 +96,7 @@ describe("toChatCompletion", () => {
       output: [{ type: "message", content: [{ type: "output_text", text: "Hel" }] }],
       usage,
     });
+
     expect(completion.choices[0]).toMatchObject({
       message: { content: "Hel" },
       finish_reason: finish,

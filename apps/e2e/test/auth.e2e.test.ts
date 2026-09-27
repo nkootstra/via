@@ -44,11 +44,13 @@ const json = (response: Response) => Effect.promise(() => response.json());
 // The same line `formatWindow` in `apps/cli/src/accounts.ts` renders, so the usage test
 // can check `via accounts status`'s own local-time formatting without editing that file.
 const pad = (n: number) => String(n).padStart(2, "0");
+
 const formatWindow = (windowMinutes: number, usedPercent: number, resetsAtMs: number) => {
   const length = windowMinutes % 1440 === 0 ? `${windowMinutes / 1440}d` : `${windowMinutes / 60}h`;
   const at = new Date(resetsAtMs);
   const date = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
   const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
+
   return `  ${length.padEnd(4)} ${String(usedPercent).padStart(3)}% used  resets ${date} ${time}`;
 };
 
@@ -70,6 +72,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
           const wrongKey = yield* postChatCompletions(via, {
             authorization: "Bearer via_not-a-real-key",
           });
+
           expect(wrongKey.status).toBe(401);
           expect(yield* json(wrongKey)).toMatchObject({ error: { code: "invalid_api_key" } });
 
@@ -88,6 +91,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
           const before = yield* Effect.promise(() =>
             openai(via).chat.completions.create(pingRequest),
           );
+
           expect(before.choices[0]?.message.content).toBe("pong");
 
           const revoked = yield* runVia(via.home, ["keys", "revoke", "e2e"], via.env);
@@ -116,6 +120,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
           const completion = yield* Effect.promise(() =>
             openai(via).chat.completions.create(pingRequest),
           );
+
           expect(completion.choices[0]?.message.content).toBe("pong");
           expect(responsesCalls(upstream)).toHaveLength(1);
         }),
@@ -133,6 +138,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
 
         const NEW_EXP = 2_100_000_000; // seconds; far beyond the test's lifetime
         const refreshedAccessToken = jwt({ exp: NEW_EXP });
+
         const refreshedIdToken = jwt({
           email: "a@example.com",
           "https://api.openai.com/auth": { chatgpt_account_id: "acc-a", chatgpt_plan_type: "pro" },
@@ -158,6 +164,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
               const completion = yield* Effect.promise(() =>
                 openai(via).chat.completions.create(pingRequest),
               );
+
               expect(completion.choices[0]?.message.content).toBe("pong");
 
               // One upstream call, and it already carries the refreshed token: the
@@ -171,6 +178,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
               const saved = yield* fs
                 .readFileString(`${via.home}/auth/a.json`)
                 .pipe(Effect.flatMap(Schema.decodeUnknownEffect(SavedAccount)));
+
               expect(saved.accessToken).toBe(refreshedAccessToken);
               expect(saved.refreshToken).toBe("rt-2");
               expect(saved.expiresAt).toBe(NEW_EXP * 1000);
@@ -191,6 +199,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
           const completion = yield* Effect.promise(() =>
             openai(via).chat.completions.create(pingRequest),
           );
+
           expect(completion.choices[0]?.message.content).toBe("pong");
 
           expect(responsesCalls(upstream)).toHaveLength(2);
@@ -228,6 +237,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
             const completion = yield* Effect.promise(() =>
               openai(via).chat.completions.create(pingRequest),
             );
+
             expect(completion.choices[0]?.message.content).toBe("pong");
 
             // "a"'s rejected refresh never reaches upstream; only "b"'s request does.
@@ -269,6 +279,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
           },
         },
       };
+
       upstream.usage("acc-123", usagePayload);
 
       yield* withVia({ upstream: upstream.url }, (via) =>

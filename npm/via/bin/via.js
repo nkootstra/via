@@ -3,7 +3,9 @@
 const { spawnSync } = require("node:child_process");
 
 const platform = `via-${process.platform}-${process.arch}`;
+
 let binary;
+
 try {
   binary = require.resolve(`${platform}/bin/via`);
 } catch {
@@ -12,9 +14,12 @@ try {
 }
 
 const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
+
 if (result.error) {
   console.error(`via: ${result.error.message}`);
   process.exit(1);
 }
+
 if (result.signal) process.kill(process.pid, result.signal);
+
 process.exit(result.status ?? 1);

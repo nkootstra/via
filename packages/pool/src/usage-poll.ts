@@ -39,8 +39,11 @@ export const decideUsagePoll = (
   // means Codex rejected its refresh token, which no amount of usage data fixes.
   if (current?.status === "auth_error") return { changed: false };
   const exhausted = windows.filter((window) => window.usedPercent >= 100 && window.resetsAt > now);
+
   if (exhausted.length === 0) return { changed: false };
   const until = Math.max(...exhausted.map((window) => window.resetsAt));
+
   if (current?.status === "cooling" && until <= current.until) return { changed: false };
+
   return { changed: true, until, reason: REASON };
 };

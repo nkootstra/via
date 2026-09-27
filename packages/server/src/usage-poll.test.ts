@@ -45,20 +45,25 @@ const window = (usedPercent: number, resetAtMs: number) => ({
 const collectLogs = () => {
   const lines: Array<string> = [];
   const waiters: Array<{ text: string; done: Deferred.Deferred<void> }> = [];
+
   const logger = Logger.make(({ message }) => {
     const line = `${(Array.isArray(message) ? message : [message]).join(" ")}`;
     lines.push(line);
+
     for (const waiter of waiters.filter(({ text }) => line.includes(text))) {
       Deferred.doneUnsafe(waiter.done, Effect.void);
     }
   });
+
   const logged = (text: string) =>
     Effect.suspend(() => {
       if (lines.some((line) => line.includes(text))) return Effect.void;
       const waiter = { text, done: Deferred.makeUnsafe<void>() };
       waiters.push(waiter);
+
       return Deferred.await(waiter.done);
     });
+
   return { logger, logged };
 };
 
@@ -99,6 +104,7 @@ const withPoll = <A, E>(
       ),
       CodexUpstream.layer({ baseUrl: codex.url, cloak: true, version: "0.0.0" }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
+
     const built = yield* Layer.build(services);
 
     const account = yield* Effect.gen(function* () {
@@ -106,6 +112,7 @@ const withPoll = <A, E>(
     }).pipe(Effect.provide(built));
 
     const logs = collectLogs();
+
     const runtime = yield* Layer.build(
       UsagePoll.layer.pipe(
         Layer.provide(Logger.layer([logs.logger])),
@@ -116,6 +123,7 @@ const withPoll = <A, E>(
 
     return yield* Effect.gen(function* () {
       const states = yield* PoolStates;
+
       return yield* body({ account, codex, states, logged: logs.logged, start });
     }).pipe(Effect.provide(runtime));
     // Debug-level lines are filtered out by default; the poll's "nothing changed"

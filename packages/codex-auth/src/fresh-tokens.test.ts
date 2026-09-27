@@ -14,6 +14,7 @@ const withAccount = <A, E>(
   withIssuer({}, () =>
     Effect.gen(function* () {
       const dir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
+
       return yield* Effect.gen(function* () {
         const account = yield* (yield* AccountStore).save({
           idToken: issuedTokens.id_token,
@@ -21,6 +22,7 @@ const withAccount = <A, E>(
           refreshToken: "rt-1",
           expiresAt,
         });
+
         return yield* body(account);
       }).pipe(
         Effect.provide(AccountTokens.layer.pipe(Layer.provideMerge(AccountStore.layer(dir)))),
@@ -52,10 +54,12 @@ layer(BunFileSystem.layer)("AccountTokens.fresh", (it) => {
     withAccount(0, (account) =>
       Effect.gen(function* () {
         const tokens = yield* AccountTokens;
+
         const results = yield* Effect.all(
           Array.from({ length: 3 }, () => tokens.fresh(account)),
           { concurrency: "unbounded" },
         );
+
         expect(results.map((a) => a.accessToken)).toEqual(
           Array(3).fill(refreshedTokens.access_token),
         );

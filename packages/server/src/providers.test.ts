@@ -6,6 +6,7 @@ import { Effect } from "effect";
 import { withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
+
 const completion = { id: "chatcmpl-or", object: "chat.completion", choices: [] };
 
 layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
@@ -13,11 +14,13 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     withVia(ok, (via) =>
       Effect.gen(function* () {
         via.provider.respond(providerReply.json(completion));
+
         const response = yield* via.post("/v1/chat/completions", {
           model: "openrouter/qwen/qwen3",
           temperature: 0.3,
           messages: [{ role: "user", content: "hi" }],
         });
+
         expect(response.status).toBe(200);
         expect(yield* response.json).toEqual(completion);
         expect(via.provider.requests).toEqual([
@@ -42,11 +45,13 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
       Effect.gen(function* () {
         const sse = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n';
         via.provider.respond(providerReply.sse(sse));
+
         const response = yield* via.post("/v1/chat/completions", {
           model: "openrouter/qwen/qwen3",
           stream: true,
           messages: [{ role: "user", content: "hi" }],
         });
+
         expect(response.headers["content-type"]).toContain("text/event-stream");
         expect(yield* response.text).toBe(sse);
       }),
@@ -57,12 +62,14 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     withVia(ok, (via) =>
       Effect.gen(function* () {
         via.provider.respond(providerReply.json({ id: "resp_go" }));
+
         const response = yield* via.post(
           "/v1/responses",
           { model: "opencode-go/kimi-k3", input: "hi" },
           undefined,
           { "x-opencode-session": "ses_1" },
         );
+
         expect(yield* response.json).toEqual({ id: "resp_go" });
         expect(via.provider.requests[0]).toMatchObject({
           path: "/responses",
@@ -78,10 +85,12 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
       Effect.gen(function* () {
         const error = { error: { message: "slow down", code: 429 } };
         via.provider.respond(providerReply.json(error, 429));
+
         const response = yield* via.post("/v1/chat/completions", {
           model: "openrouter/qwen/qwen3",
           messages: [],
         });
+
         expect(response.status).toBe(429);
         expect(yield* response.json).toEqual(error);
       }),
@@ -97,6 +106,7 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
             model: "openrouter/qwen/qwen3",
             input: "hi",
           });
+
           expect(response.status).toBe(502);
           expect(yield* response.json).toMatchObject({ error: { code: "upstream_unavailable" } });
         }),
@@ -111,6 +121,7 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
           model: "unknown/qwen3",
           input: "hi",
         });
+
         expect(response.status).toBe(200);
         expect(via.provider.requests).toEqual([]);
         expect(via.upstreamRequests[0]?.body).toMatchObject({ model: "unknown/qwen3" });

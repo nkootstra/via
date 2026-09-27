@@ -31,7 +31,9 @@ const PromptBody = Schema.Struct({
     Schema.Struct({ content: Schema.Array(Schema.Struct({ text: Schema.String })) }),
   ),
 });
+
 const decodePromptBody = Schema.decodeUnknownOption(PromptBody);
+
 const promptOf = (request: CodexRequest): string =>
   decodePromptBody(request.body).pipe(
     Option.map((decoded) => decoded.input[0]?.content[0]?.text ?? ""),
@@ -70,6 +72,7 @@ layer(BunFileSystem.layer)("pool", (it) => {
             const completion = yield* chat(via, `ping-${i}`);
             expect(completion.choices[0]?.message.content).toBe("pong");
           }
+
           expect(accountsOf(codex)).toEqual(["acc-a", "acc-a", "acc-a"]);
         }),
       );
@@ -189,6 +192,7 @@ layer(BunFileSystem.layer)("pool", (it) => {
               model: "gpt-6-astra",
               messages: [{ role: "user", content: "hi" }],
             });
+
             expect(response.status).toBe(429);
             const retryAfter = Number(response.headers.get("retry-after"));
             expect(retryAfter).toBeGreaterThan(0);
@@ -213,6 +217,7 @@ layer(BunFileSystem.layer)("pool", (it) => {
             model: "gpt-6-astra",
             messages: [{ role: "user", content: "hi" }],
           });
+
           expect(response.status).toBe(503);
           const json = yield* Effect.promise(() => response.json());
           expect(json).toMatchObject({
@@ -273,9 +278,11 @@ layer(BunFileSystem.layer)("pool", (it) => {
           const completions = yield* Effect.forEach(prompts, (prompt) => chat(via, prompt), {
             concurrency: "unbounded",
           });
+
           for (const [i, prompt] of prompts.entries()) {
             expect(completions[i]?.choices[0]?.message.content).toBe(answerOf(prompt));
           }
+
           expect(accountsOf(codex)).toEqual(prompts.map(() => "acc-a"));
         }),
       );
@@ -291,6 +298,7 @@ layer(BunFileSystem.layer)("pool", (it) => {
           code: "context_length_exceeded",
         },
       };
+
       const codex = yield* startCodex;
       codex.respond(() => reply.error(400, errorBody));
       yield* withVia({ upstream: codex.url, accounts: pair }, (via) =>
@@ -299,6 +307,7 @@ layer(BunFileSystem.layer)("pool", (it) => {
             model: "gpt-6-astra",
             messages: [{ role: "user", content: "hi" }],
           });
+
           expect(response.status).toBe(400);
           const json = yield* Effect.promise(() => response.json());
           expect(json).toEqual(errorBody);

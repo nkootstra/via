@@ -24,20 +24,26 @@ export const chatCompletions = authenticated(
   Effect.gen(function* () {
     const log = yield* RequestLog;
     const providers = yield* Providers;
+
     const raw = Option.map(
       yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option),
       withSharedPrefix,
     );
+
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const route = Option.flatMap(raw, (body) => providers.route(body.model));
+
     if (Option.isSome(raw) && Option.isSome(route)) {
       const session = resolveSession(headers, raw.value);
+
       return yield* forward(route.value, "/chat/completions", raw.value, session);
     }
+
     const decoded = yield* Effect.fromOption(raw).pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(ChatRequest)),
       Effect.option,
     );
+
     if (Option.isNone(decoded)) {
       return yield* openAiError(
         400,
@@ -45,7 +51,9 @@ export const chatCompletions = authenticated(
         "The request is not a valid chat completion",
       );
     }
+
     const chat = decoded.value;
+
     return yield* dispatch(toResponsesRequest(chat), resolveSession(headers, chat), (upstream) =>
       chat.stream === true
         ? Effect.map(

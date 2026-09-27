@@ -64,6 +64,7 @@ class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableError>()(
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [
   Schema.Record(Schema.String, Schema.Unknown),
 ]);
+
 export type ProviderModel = typeof Model.Type;
 
 const ModelList = Schema.Struct({ data: Schema.Array(Model) });
@@ -101,8 +102,10 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
     const providers = new Map<string, Provider>();
+
     for (const [name, config] of Object.entries(configs)) {
       const baseUrl = config.baseUrl ?? PRESETS[name]?.baseUrl;
+
       if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
       providers.set(name, {
         baseUrl,
@@ -141,10 +144,13 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         const response = yield* http.execute(
           authorized(provider, HttpClientRequest.get(`${provider.baseUrl}${path}`)),
         );
+
         if (response.status !== 200) {
           return yield* new UsageUnavailableError({ provider: name, status: response.status });
         }
+
         const { usage } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
+
         return {
           provider: name,
           windows: Object.entries(usage).map(([window, { status, percent, resetsAt }]) => ({
@@ -176,6 +182,7 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         if (typeof model !== "string") return Option.none();
         const slash = model.indexOf("/");
         const provider = model.slice(0, slash);
+
         return slash > 0 && providers.has(provider)
           ? Option.some({ provider, model: model.slice(slash + 1) })
           : Option.none();
@@ -184,7 +191,9 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
       send: Effect.fn("Providers.send")(function* (route, path, body, session) {
         // `route` comes from `route`, so its provider is configured.
         const provider = providers.get(route.provider);
+
         if (provider === undefined) return yield* Effect.die(`unrouted provider ${route.provider}`);
+
         return yield* authorized(
           provider,
           HttpClientRequest.post(`${provider.baseUrl}${path}`),

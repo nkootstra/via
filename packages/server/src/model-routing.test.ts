@@ -10,6 +10,7 @@ import { Effect } from "effect";
 import { withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
+
 const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
 
 /** A fake Codex where acc-a's plan offers gpt-7 and acc-b's also offers daybreak. */
@@ -26,6 +27,7 @@ const plans = Effect.gen(function* () {
     },
     "acc-b",
   );
+
   return codex;
 });
 

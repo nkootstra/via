@@ -11,6 +11,7 @@ const usage = (body: object, status = 200) =>
   Effect.gen(function* () {
     const codex = yield* startFakeCodex;
     codex.usage(account.accountId, body, status);
+
     const result = yield* Effect.gen(function* () {
       return yield* (yield* CodexUpstream).usage(account);
     }).pipe(
@@ -21,6 +22,7 @@ const usage = (body: object, status = 200) =>
       ),
       Effect.result,
     );
+
     return { result, request: codex.requests[0]! };
   });
 
@@ -47,6 +49,7 @@ describe("CodexUpstream.usage", () => {
         ...usagePayload,
         rate_limit: { ...usagePayload.rate_limit, secondary_window: null },
       });
+
       expect(result).toMatchObject({ success: [{ windowMinutes: 300 }] });
     }),
   );

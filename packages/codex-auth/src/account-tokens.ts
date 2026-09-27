@@ -13,10 +13,12 @@ const make = Effect.gen(function* () {
   // One refresh at a time per account: a refresh token is single-use, so a second
   // concurrent refresh would be rejected as reused and lock the account out.
   const locks = new Map<string, Semaphore.Semaphore>();
+
   const lockFor = (id: string) =>
     Effect.sync(() => {
       const lock = locks.get(id) ?? Semaphore.makeUnsafe(1);
       locks.set(id, lock);
+
       return lock;
     });
 
@@ -26,10 +28,13 @@ const make = Effect.gen(function* () {
     needed: (account: Account, now: number) => boolean,
   ) {
     const lock = yield* lockFor(id);
+
     return yield* Effect.gen(function* () {
       // Read under the lock, so a caller that waited sees the refresh it waited for.
       const account = yield* store.find(id);
+
       if (!needed(account, yield* Clock.currentTimeMillis)) return account;
+
       return yield* store.save(yield* auth.refresh(account));
     }).pipe(Semaphore.withPermit(lock));
   });
@@ -41,6 +46,7 @@ const make = Effect.gen(function* () {
    */
   const fresh = Effect.fnUntraced(function* (account: Account) {
     if (!expiring(account, yield* Clock.currentTimeMillis)) return account;
+
     return yield* refreshIf(account.id, expiring);
   });
 

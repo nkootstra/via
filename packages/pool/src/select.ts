@@ -15,6 +15,7 @@ export type PoolAccount = { readonly id: string; readonly enabled: boolean };
 
 const isAvailable = (state: PoolState, now: number) => (account: PoolAccount) => {
   const current = state[account.id];
+
   return (
     account.enabled &&
     (current === undefined || (current.status === "cooling" && current.until <= now))
@@ -40,9 +41,11 @@ export const select = <A extends PoolAccount>(
   preferred: Option.Option<string> = Option.none(),
 ): Option.Option<A> => {
   const isAvail = isAvailable(state, now);
+
   const sticky = Option.flatMap(preferred, (id) =>
     Array.findFirst(accounts, (account) => account.id === id && isAvail(account)),
   );
+
   return Option.orElse(sticky, () => Array.findFirst(accounts, isAvail));
 };
 
@@ -54,7 +57,9 @@ export const retryAfter = (
 ): Option.Option<number> => {
   const waits = accounts.flatMap((account) => {
     const current = state[account.id];
+
     return account.enabled && current?.status === "cooling" ? [current.until - now] : [];
   });
+
   return Array.isReadonlyArrayNonEmpty(waits) ? Option.some(Math.min(...waits)) : Option.none();
 };

@@ -50,6 +50,7 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text =
         'event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":2}}}\n\n';
+
       const stream = spotUsage(Stream.make(bytes(text)), true, () => Effect.void);
       const chunks = yield* Stream.runCollect(stream);
       expect(new TextDecoder().decode(chunks[0])).toBe(text);
@@ -60,10 +61,13 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text =
         'event: response.completed\ndata: {"type":"response.completed","response":{"usage":{"input_tokens":10,"output_tokens":2,"input_tokens_details":{"cached_tokens":4}}}}\n\n';
+
       const reported: Array<unknown> = [];
+
       const stream = spotUsage(Stream.make(bytes(text)), true, (usage) =>
         Effect.sync(() => reported.push(usage)),
       );
+
       yield* Stream.runDrain(stream);
       expect(reported).toEqual([{ inputTokens: 10, outputTokens: 2, cachedTokens: 4 }]);
     }),
@@ -73,10 +77,13 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text =
         'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\ndata: [DONE]\n\n';
+
       const reported: Array<unknown> = [];
+
       const stream = spotUsage(Stream.make(bytes(text)), true, (usage) =>
         Effect.sync(() => reported.push(usage)),
       );
+
       yield* Stream.runDrain(stream);
       expect(reported).toEqual([{ inputTokens: 10, outputTokens: 2 }]);
     }),
@@ -86,9 +93,11 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n';
       const reported: Array<unknown> = [];
+
       const stream = spotUsage(Stream.make(bytes(text)), true, (usage) =>
         Effect.sync(() => reported.push(usage)),
       );
+
       yield* Stream.runDrain(stream);
       expect(reported).toEqual([]);
     }),
@@ -98,14 +107,17 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text =
         'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\ndata: [DONE]\n\n';
+
       const reported: Array<unknown> = [];
       // The split falls inside the "usage" key itself.
       const at = text.indexOf("usage") + 2;
+
       const stream = spotUsage(
         Stream.make(bytes(text.slice(0, at)), bytes(text.slice(at))),
         true,
         (usage) => Effect.sync(() => reported.push(usage)),
       );
+
       yield* Stream.runDrain(stream);
       expect(reported).toEqual([{ inputTokens: 10, outputTokens: 2 }]);
     }),
@@ -116,10 +128,13 @@ describe("spotUsage", () => {
       const text =
         'data: {"choices":[{"delta":{"content":"hi"}}],"usage":null}\n\n' +
         'data: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\ndata: [DONE]\n\n';
+
       const reported: Array<unknown> = [];
+
       const stream = spotUsage(Stream.make(bytes(text)), true, (usage) =>
         Effect.sync(() => reported.push(usage)),
       );
+
       yield* Stream.runDrain(stream);
       expect(reported).toEqual([{ inputTokens: 10, outputTokens: 2 }]);
     }),
@@ -129,9 +144,11 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text = "event: response.completed\ndata: {not json\n\ndata: [DONE]\n\n";
       const reported: Array<unknown> = [];
+
       const stream = spotUsage(Stream.make(bytes(text)), true, (usage) =>
         Effect.sync(() => reported.push(usage)),
       );
+
       const chunks = yield* Stream.runCollect(stream);
       expect(new TextDecoder().decode(chunks[0])).toBe(text);
       expect(reported).toEqual([]);
@@ -142,12 +159,14 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text = '{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}';
       const reported: Array<unknown> = [];
+
       // Split across two chunks, as a real HTTP body would arrive.
       const stream = spotUsage(
         Stream.make(bytes(text.slice(0, 10)), bytes(text.slice(10))),
         false,
         (usage) => Effect.sync(() => reported.push(usage)),
       );
+
       const chunks = yield* Stream.runCollect(stream);
       expect(chunks.length).toBe(2);
       expect(reported).toEqual([{ inputTokens: 10, outputTokens: 2 }]);
@@ -158,9 +177,11 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text = '{"choices":[]}';
       const reported: Array<unknown> = [];
+
       const stream = spotUsage(Stream.make(bytes(text)), false, (usage) =>
         Effect.sync(() => reported.push(usage)),
       );
+
       yield* Stream.runDrain(stream);
       expect(reported).toEqual([]);
     }),
@@ -170,12 +191,14 @@ describe("spotUsage", () => {
     Effect.gen(function* () {
       const text = '{"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}';
       const reported: Array<unknown> = [];
+
       // The returned Stream is a description, not a one-shot effect: running it
       // twice (as a retry or a replay would) must report both times, not just
       // reuse whatever state the first run left behind.
       const stream = spotUsage(Stream.make(bytes(text)), false, (usage) =>
         Effect.sync(() => reported.push(usage)),
       );
+
       yield* Stream.runDrain(stream);
       yield* Stream.runDrain(stream);
       expect(reported).toEqual([
