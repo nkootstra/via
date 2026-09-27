@@ -13,6 +13,8 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   `tools/oxlint/anti-slop`), `bun run format:check`, `bun run knip` (unused
   files, exports and dependencies), `bun run typecheck`, `bun run test`. CI
   runs the same. Fix what the lint finds; don't disable a rule to get past it.
+  Every anti-slop rule is on except `no-conditional-empty-object-spread`, whose
+  fix trades one object expression for statement-by-statement mutation.
 - Tests use `@effect/vitest` via `bun --bun vitest run`. Never use `bun test`.
 - Tests never call real OpenAI endpoints. Fake upstreams run as local HTTP
   servers, and base URLs are injected through layers.
@@ -51,6 +53,10 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   Never inspect `_tag` or use `instanceof` by hand.
 - Parse all external data (files, HTTP bodies, JWT claims) with `Schema`. No
   `JSON.parse` + casts; use `Schema.fromJsonString` / `Schema.decodeUnknownEffect`.
+- JSON whose shape via doesn't own, such as a request body it forwards, is
+  `Schema.Json` / `Schema.JsonObject`, not `unknown` or `Record<string, unknown>`.
+  Read its fields through `Schema.is` guards or small decoders, and branch on
+  values with `Predicate` rather than `typeof`.
 - Files go through the platform `FileSystem` service. HTTP goes through
   `HttpClient` / `HttpRouter` from `effect/unstable/http`. Time goes through
   `Clock` (tests use `TestClock`).
