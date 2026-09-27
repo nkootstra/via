@@ -1,1 +1,3 @@
-{ "ignorePatterns": [".claude/**", "tools/oxlint/anti-slop/**"] }
+{
+  "ignorePatterns": [".claude/**", "tools/oxlint/anti-slop/**", "apps/web/src/routeTree.gen.ts"]
+}

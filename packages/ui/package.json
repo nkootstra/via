@@ -1,0 +1,40 @@
+{
+  "name": "@via/ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.stylex": "./src/tokens.stylex.ts",
+    "./stylex-plugin": "./stylex-plugin.ts",
+    "./theme-plugin": "./theme-plugin.ts"
+  },
+  "scripts": {
+    "preview": "vite --config preview/vite.config.ts",
+    "test": "bun --bun vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@base-ui/react": "catalog:",
+    "@stylexjs/stylex": "catalog:",
+    "motion": "catalog:"
+  },
+  "devDependencies": {
+    "@stylexjs/unplugin": "catalog:",
+    "@testing-library/dom": "catalog:",
+    "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@via/tsconfig": "workspace:*",
+    "happy-dom": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}
