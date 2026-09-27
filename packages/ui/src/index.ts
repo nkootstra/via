@@ -28,3 +28,14 @@ export {
   type TableProps,
   type TableRowProps,
 } from "./table.tsx";
+
+export {
+  TabItem,
+  TabPanel,
+  Tabs,
+  TabsList,
+  type TabItemProps,
+  type TabPanelProps,
+  type TabsListProps,
+  type TabsProps,
+} from "./tabs.tsx";
