@@ -4,7 +4,7 @@ import type { FakeIssuerOptions } from "@via/codex-auth/testing";
 import { startFakeCodex } from "@via/codex-upstream/testing";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import { Effect } from "effect";
-import { seedAccounts, viaHome, writeConfig } from "./helpers.ts";
+import { freePort, seedAccounts, viaHome, writeConfig } from "./helpers.ts";
 
 /**
  * A home with its own fake Codex backend, whose account logs in through a fake
@@ -45,6 +45,19 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
+  it.effect("add fails with one line when it cannot reach the issuer", () =>
+    Effect.gen(function* () {
+      const { via } = yield* setup({
+        env: { VIA_CODEX_ISSUER: `http://127.0.0.1:${yield* freePort}` },
+      });
+
+      const added = yield* via("accounts", "add");
+      expect(added.exitCode).toBe(1);
+      expect(added.stderr).toMatch(/^error: OpenAI auth request failed/);
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
   it.effect("list explains how to add an account when there is none", () =>
     Effect.gen(function* () {
       const { via } = yield* setup();
@@ -77,14 +90,17 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
-  it.effect("an unknown account fails with a message", () =>
-    Effect.gen(function* () {
-      const { via } = yield* setup();
-      const result = yield* via("accounts", "disable", "nobody");
-      expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain('No account with id, label or email "nobody"');
-    }),
-  );
+  for (const args of [["remove"], ["enable"], ["disable"], ["label", "x"]]) {
+    it.effect(`${args[0]} fails with a message for an unknown account`, () =>
+      Effect.gen(function* () {
+        const { via } = yield* setup();
+        const [command = "", ...rest] = args;
+        const result = yield* via("accounts", command, "nobody", ...rest);
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toBe('error: No account with id, label or email "nobody"\n');
+      }),
+    );
+  }
 
   it.effect("status shows how much of each rate limit window every account has used", () =>
     Effect.gen(function* () {
@@ -95,6 +111,15 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       expect(status.stdout).toMatch(/dev@example\.com\s+dev@example\.com\s+pro\s+enabled/);
       expect(status.stdout).toMatch(/5h\s+12% used\s+resets 2023-11-14 23:13/);
       expect(status.stdout).toMatch(/7d\s+40% used\s+resets 2023-11-15 22:13/);
+    }),
+  );
+
+  it.effect("status explains how to add an account when there is none", () =>
+    Effect.gen(function* () {
+      const { via } = yield* setup();
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toContain("via accounts add");
     }),
   );
 
@@ -126,6 +151,16 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       }),
   );
 
+  it.effect("status refuses an invalid config.yaml", () =>
+    Effect.gen(function* () {
+      const { via, home } = yield* setup();
+      yield* writeConfig(home, "port: nope\n");
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(1);
+      expect(status.stderr).toMatch(/^error: Invalid config/);
+    }),
+  );
+
   it.effect("status also shows the usage of providers that report it", () =>
     Effect.gen(function* () {
       const provider = yield* startFakeProvider;
@@ -147,6 +182,20 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
+  it.effect("status says when a provider's usage is unavailable", () =>
+    Effect.gen(function* () {
+      // The fake answers its usage endpoint with a 500 until told otherwise.
+      const provider = yield* startFakeProvider;
+      const { via, home } = yield* setup({ env: { GO_KEY: "sk-go" } });
+      yield* configureOpenCodeGo(home, provider);
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(
+        /^opencode-go\n {2}opencode-go did not report usage \(HTTP 500\)$/m,
+      );
+    }),
+  );
+
   it.effect("status says when a provider's API key is not set", () =>
     Effect.gen(function* () {
       const provider = yield* startFakeProvider;
@@ -157,6 +206,16 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       expect(status.exitCode).toBe(0);
       expect(status.stdout).toMatch(/5h\s+12% used/);
       expect(status.stdout).toContain("reads its API key from GO_KEY, which is not set");
+    }),
+  );
+
+  it.effect("status says when a provider is not built in and has no baseUrl", () =>
+    Effect.gen(function* () {
+      const { via, home } = yield* setup({ env: { LOCAL_KEY: "sk-local" } });
+      yield* writeConfig(home, "providers:\n  local:\n    apiKeyEnv: LOCAL_KEY\n");
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toContain('Provider "local" is not built in, so it needs a baseUrl');
     }),
   );
 });
