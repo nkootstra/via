@@ -83,6 +83,14 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
     const http = yield* HttpClient.HttpClient;
     const identity = cloak ? IDENTITIES.cloaked : IDENTITIES.plain(version);
 
+    /** Headers every request carries: who via says it is, and which account it acts as. */
+    const asAccount = (account: UpstreamAccount) =>
+      HttpClientRequest.setHeaders({
+        ...identity,
+        authorization: `Bearer ${account.accessToken}`,
+        "chatgpt-account-id": account.accountId,
+      });
+
     /**
      * Sends a Responses request as `account` in conversation `session`, which
      * Codex caches prompts on; any status comes back for the caller to judge.
@@ -93,13 +101,8 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
       session: string,
     ) {
       return yield* HttpClientRequest.post(`${baseUrl}/codex/responses`).pipe(
-        HttpClientRequest.setHeaders({
-          ...identity,
-          authorization: `Bearer ${account.accessToken}`,
-          "chatgpt-account-id": account.accountId,
-          session_id: session,
-          accept: "text/event-stream",
-        }),
+        asAccount(account),
+        HttpClientRequest.setHeaders({ session_id: session, accept: "text/event-stream" }),
         // A raw string goes to fetch as-is; bodyJsonUnsafe would copy it into bytes first.
         HttpClientRequest.setBody(
           HttpBody.raw(JSON.stringify(prepareBody({ prompt_cache_key: session, ...body })), {
@@ -113,11 +116,7 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
     /** The account's rate limit windows: the short (5-hour) one first, then the weekly one. */
     const usage = Effect.fn("CodexUpstream.usage")(function* (account: UpstreamAccount) {
       const response = yield* HttpClientRequest.get(`${baseUrl}/wham/usage`).pipe(
-        HttpClientRequest.setHeaders({
-          ...identity,
-          authorization: `Bearer ${account.accessToken}`,
-          "chatgpt-account-id": account.accountId,
-        }),
+        asAccount(account),
         http.execute,
       );
 
@@ -148,11 +147,7 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
     const models = Effect.fn("CodexUpstream.models")(function* (account: UpstreamAccount) {
       const response = yield* HttpClientRequest.get(`${baseUrl}/codex/models`).pipe(
         HttpClientRequest.setUrlParam("client_version", CODEX_TUI_VERSION),
-        HttpClientRequest.setHeaders({
-          ...identity,
-          authorization: `Bearer ${account.accessToken}`,
-          "chatgpt-account-id": account.accountId,
-        }),
+        asAccount(account),
         http.execute,
       );
 
