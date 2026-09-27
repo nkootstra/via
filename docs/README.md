@@ -173,20 +173,22 @@ Every `/admin` route needs `Authorization: Bearer <VIA_ADMIN_KEY>`. API keys
 from `via keys create` don't work on `/admin`, and the admin key doesn't work
 on `/v1`.
 
-| Route                              | What it does                                              |
-| ---------------------------------- | --------------------------------------------------------- |
-| `GET /admin/accounts`              | List accounts in the order they are used, without tokens. |
-| `PATCH /admin/accounts/<account>`  | Change `label` and/or `enabled`; returns the account.     |
-| `DELETE /admin/accounts/<account>` | Forget an account and delete its tokens.                  |
-| `POST /admin/accounts/logins`      | Start a device-code login.                                |
-| `GET /admin/accounts/logins/<id>`  | Check on a login: `pending`, `added` or `failed`.         |
-| `GET /admin/usage`                 | How much of each account's and provider's limits is used. |
-| `GET /admin/keys`                  | List API keys, never the keys themselves.                 |
-| `POST /admin/keys`                 | Create a key from `{"name": "..."}`. It is returned once. |
-| `DELETE /admin/keys/<id-or-name>`  | Revoke a key.                                             |
+| Route                             | What it does                                              |
+| --------------------------------- | --------------------------------------------------------- |
+| `GET /admin/accounts`             | List accounts in the order they are used, without tokens. |
+| `PATCH /admin/accounts/<id>`      | Change `label` and/or `enabled`; returns the account.     |
+| `DELETE /admin/accounts/<id>`     | Forget an account and delete its tokens.                  |
+| `POST /admin/accounts/logins`     | Start a device-code login.                                |
+| `GET /admin/accounts/logins/<id>` | Check on a login: `pending`, `added` or `failed`.         |
+| `GET /admin/usage`                | How much of each account's and provider's limits is used. |
+| `GET /admin/keys`                 | List API keys, never the keys themselves.                 |
+| `POST /admin/keys`                | Create a key from `{"name": "..."}`. It is returned once. |
+| `DELETE /admin/keys/<id-or-name>` | Revoke a key.                                             |
 
-`<account>` matches an account's id, label or email, as in the commands. An
-account, login or key that doesn't exist answers 404; a key name that is taken
+Accounts are named by their `id` from `GET /admin/accounts`. Unlike the
+commands, the admin API doesn't take a label or email, which would otherwise
+end up in URLs and access logs. An account, login or key that doesn't exist
+answers 404; a key name that is taken
 answers 409.
 
 To add an account, start a login, open `verificationUrl` and enter `userCode`,

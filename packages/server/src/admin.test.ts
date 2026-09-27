@@ -21,6 +21,15 @@ const account = (name: string) => ({
 const loginId = (login: unknown) =>
   Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }))(login).id;
 
+/** The id of account `name` from the harness, as the admin API lists it. */
+const accountId = (via: Via, name: string) =>
+  Effect.gen(function* () {
+    const all = Schema.decodeUnknownSync(
+      Schema.Array(Schema.Struct({ id: Schema.String, email: Schema.String })),
+    )(yield* (yield* via.get("/admin/accounts", adminKey)).json);
+    return all.find(({ email }) => email === `${name}@example.com`)?.id ?? "";
+  });
+
 /** Polls a login, a minute of test time apart, until it is no longer pending. */
 const settled = (via: Via, id: string) =>
   Effect.gen(function* () {
@@ -101,7 +110,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       (via) =>
         Effect.gen(function* () {
           const response = yield* via.patch(
-            "/admin/accounts/a@example.com",
+            `/admin/accounts/${yield* accountId(via, "a")}`,
             { label: "work", enabled: false },
             adminKey,
           );
@@ -122,8 +131,9 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       ok,
       (via) =>
         Effect.gen(function* () {
-          yield* via.patch("/admin/accounts/a@example.com", { enabled: false }, adminKey);
-          const response = yield* via.patch("/admin/accounts/a@example.com", {}, adminKey);
+          const path = `/admin/accounts/${yield* accountId(via, "a")}`;
+          yield* via.patch(path, { enabled: false }, adminKey);
+          const response = yield* via.patch(path, {}, adminKey);
           expect(yield* response.json).toEqual({ ...account("a"), enabled: false });
         }),
       { adminKey },
@@ -135,7 +145,11 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       ok,
       (via) =>
         Effect.gen(function* () {
-          yield* via.patch("/admin/accounts/a@example.com", { enabled: false }, adminKey);
+          yield* via.patch(
+            `/admin/accounts/${yield* accountId(via, "a")}`,
+            { enabled: false },
+            adminKey,
+          );
           yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
           expect(via.upstreamRequests.map(({ headers }) => headers["chatgpt-account-id"])).toEqual([
             "acc-b",
@@ -150,8 +164,27 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       ok,
       (via) =>
         Effect.gen(function* () {
-          expect((yield* via.delete("/admin/accounts/a@example.com", adminKey)).status).toBe(204);
+          const path = `/admin/accounts/${yield* accountId(via, "a")}`;
+          expect((yield* via.delete(path, adminKey)).status).toBe(204);
           expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([account("b")]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("finds an account by id only, keeping emails out of URLs", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          for (const path of ["/admin/accounts/a@example.com", "/admin/accounts/b@example.com"]) {
+            expect((yield* via.patch(path, { enabled: false }, adminKey)).status).toBe(404);
+            expect((yield* via.delete(path, adminKey)).status).toBe(404);
+          }
+          expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([
+            account("a"),
+            account("b"),
+          ]);
         }),
       { adminKey },
     ),

@@ -120,8 +120,8 @@ class AccountsGroup extends HttpApiGroup.make("accounts")
     }),
   )
   .add(
-    HttpApiEndpoint.patch("update", "/accounts/:account", {
-      params: { account: Schema.String },
+    HttpApiEndpoint.patch("update", "/accounts/:id", {
+      params: { id: Schema.String },
       payload: Schema.Struct({
         label: Schema.optional(Schema.String),
         enabled: Schema.optional(Schema.Boolean),
@@ -131,8 +131,8 @@ class AccountsGroup extends HttpApiGroup.make("accounts")
     }),
   )
   .add(
-    HttpApiEndpoint.delete("remove", "/accounts/:account", {
-      params: { account: Schema.String },
+    HttpApiEndpoint.delete("remove", "/accounts/:id", {
+      params: { id: Schema.String },
       error: AccountNotFoundError.pipe(HttpApiSchema.status(404)),
     }),
   )
@@ -203,6 +203,15 @@ const withoutTokens = ({ id, label, email, plan, enabled, createdAt }: Account) 
   createdAt,
 });
 
+/**
+ * The account with id `id`. Unlike the CLI, the admin API doesn't take a label or email:
+ * they would end up in URLs, and from there in proxy and access logs.
+ */
+const byId = Effect.fn("admin.byId")(function* (id: string) {
+  const account = (yield* (yield* AccountStore).list).find((a) => a.id === id);
+  return account ?? (yield* new AccountNotFoundError({ query: id }));
+});
+
 // The account files are via's own; one it can't read or write is a bug, not a request error.
 const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
   Effect.gen(function* () {
@@ -230,8 +239,7 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
       .handle("update", ({ params, payload }) =>
         Effect.gen(function* () {
           const store = yield* AccountStore;
-          // Found once, then changed by id, so a new label can't lose track of the account.
-          const { id } = yield* store.find(params.account);
+          const { id } = yield* byId(params.id);
           if (payload.label !== undefined) yield* store.setLabel(id, payload.label);
           if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
           return withoutTokens(yield* store.find(id));
@@ -239,7 +247,7 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
       )
       .handle("remove", ({ params }) =>
         Effect.gen(function* () {
-          yield* (yield* AccountStore).remove(params.account);
+          yield* (yield* AccountStore).remove((yield* byId(params.id)).id);
         }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
       );
   }),
