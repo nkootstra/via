@@ -73,11 +73,9 @@ export const collected = (
     Effect.catchTags({
       UpstreamFailedError: (error) => openAiError(502, error.code, error.reason),
       IncompleteStreamError: (error) => openAiError(502, "upstream_incomplete", error.message),
-      HttpClientError: () => unreadable,
-      Retry: () => unreadable,
-      SchemaError: () => unreadable,
-      SseError: () => unreadable,
     }),
+    // The body broke off, was not SSE, or held an event that is not a Responses one.
+    Effect.catch(() => unreadable),
   );
 
 /**
