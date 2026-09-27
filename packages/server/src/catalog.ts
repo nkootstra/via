@@ -136,11 +136,7 @@ export class ModelCatalog extends Context.Service<
         ),
         Effect.map(Array.getSomes),
         // Failing when no account answered keeps the bundled list from being kept.
-        Effect.flatMap((offered) =>
-          Effect.fromOption(
-            Array.isReadonlyArrayNonEmpty(offered) ? Option.some(offered) : Option.none(),
-          ),
-        ),
+        Effect.filterOrFail(Array.isReadonlyArrayNonEmpty),
       );
 
       const offered = yield* stale(ask, "5 minutes");
