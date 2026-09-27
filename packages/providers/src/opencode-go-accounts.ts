@@ -10,9 +10,12 @@ const OpencodeGoAccount = Schema.Struct({
   createdAt: Schema.String,
 });
 
-type OpencodeGoAccount = typeof OpencodeGoAccount.Type;
+export type OpencodeGoAccount = typeof OpencodeGoAccount.Type;
 
 const StoredAccounts = Schema.Array(OpencodeGoAccount);
+
+/** The label of the account made from the key in opencode Go's deprecated environment variable. */
+const IMPORTED = "opencode Go (imported)";
 
 /** An API key as via shows it: its last four characters, never the whole key. */
 export const maskKey = (apiKey: Redacted.Redacted<string>) =>
@@ -119,7 +122,17 @@ const make = (path: string) =>
       yield* write((yield* list).filter((a) => a.id !== target.id));
     }, serialized);
 
-    return { list, find, add, setLabel, setEnabled, remove };
+    /**
+     * Stores `apiKey`, read from the environment, as an account labelled
+     * {@link IMPORTED}, unless an account already has it; the account, if it did.
+     */
+    const importKey = (apiKey: Redacted.Redacted<string>) =>
+      add(apiKey, IMPORTED).pipe(
+        Effect.asSome,
+        Effect.catchTag("DuplicateOpencodeGoKeyError", () => Effect.succeedNone),
+      );
+
+    return { list, find, add, importKey, setLabel, setEnabled, remove };
   });
 
 /**

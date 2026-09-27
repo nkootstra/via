@@ -682,7 +682,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             ],
             providers: [
               {
-                provider: "opencode-go",
+                provider: "go-1",
                 fetchedAt,
                 windows: [
                   {
@@ -805,7 +805,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             expect(pool.providers).toEqual([
               { name: "openrouter", state: { status: "available" } },
               {
-                name: "opencode-go",
+                name: "go-1",
                 state: { status: "exhausted", until: reset, window: "weekly" },
               },
             ]);
@@ -823,7 +823,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           yield* settledUsage(via);
           const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
           expect(pool.providers).toContainEqual({
-            name: "opencode-go",
+            name: "go-1",
             state: {
               status: "unavailable",
               reason: "opencode-go did not report usage (HTTP 401)",

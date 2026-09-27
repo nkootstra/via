@@ -4,7 +4,7 @@ import { AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
-import { Providers } from "@via/providers";
+import { OpencodeGoPool, Providers } from "@via/providers";
 import { type EmbeddedUi, ViaServer } from "@via/server";
 import {
   Config,
@@ -20,7 +20,7 @@ import {
 import { Command, Flag } from "effect/unstable/cli";
 import { HttpClient, HttpServer } from "effect/unstable/http";
 import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
-import { apiKeys } from "./api-keys.ts";
+import { apiKeys, importOpencodeGoKey } from "./api-keys.ts";
 import { version } from "./version.ts";
 
 /**
@@ -57,6 +57,28 @@ const tracing = Layer.unwrap(
 );
 
 /**
+ * Imports opencode Go's key from its deprecated environment variable, when it is
+ * set, and warns that the variable is deprecated for as long as it is.
+ */
+const importDeprecatedKey = (
+  providers: Parameters<typeof importOpencodeGoKey>[0],
+  keys: Parameters<typeof importOpencodeGoKey>[1],
+) =>
+  Layer.effectDiscard(
+    Effect.gen(function* () {
+      const variable = yield* importOpencodeGoKey(providers, keys);
+
+      if (Option.isNone(variable)) return;
+
+      yield* Effect.logWarning(
+        `${variable.value} is deprecated: via keeps opencode Go keys as accounts now, and has ` +
+          `imported this one. Remove ${variable.value}; add more keys with ` +
+          "`via accounts add --provider opencode-go`.",
+      );
+    }),
+  );
+
+/**
  * `via serve`, reading `configPath` and keeping cooldowns in `statePath`.
  * `upstreamBaseUrl` replaces the Codex backend, which only tests do. With
  * `adminKey`, the admin API is served behind it, and `ui`, the admin UI, at `/ui`.
@@ -89,8 +111,13 @@ export const serve = ({
     ({ host, port }) =>
       Effect.gen(function* () {
         const config = yield* loadConfig(configPath);
+        const keys = yield* apiKeys(config.providers);
 
-        const server = Layer.mergeAll(ViaServer.layer({ adminKey, ui }), UsagePoll.layer).pipe(
+        const server = Layer.mergeAll(
+          ViaServer.layer({ adminKey, ui }),
+          UsagePoll.layer,
+          importDeprecatedKey(config.providers, keys),
+        ).pipe(
           Layer.provideMerge(
             BunHttpServer.layer({
               hostname: Option.getOrElse(host, () => config.host),
@@ -98,7 +125,7 @@ export const serve = ({
             }),
           ),
           // One pool and one set of usage snapshots, shared by the API and the usage poll.
-          Layer.provide(AccountPool.layer),
+          Layer.provide(Layer.mergeAll(AccountPool.layer, OpencodeGoPool.layer)),
           Layer.provide(UsageSnapshots.layer),
           Layer.provide(PoolStates.layerFile(statePath)),
           Layer.provide(AccountTokens.layer),
@@ -112,7 +139,7 @@ export const serve = ({
           Layer.provide(
             Providers.layer({
               providers: config.providers,
-              apiKeys: yield* apiKeys(config.providers),
+              apiKeys: keys,
               version,
             }),
           ),

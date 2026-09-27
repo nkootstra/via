@@ -285,13 +285,13 @@ const pool = HttpApiBuilder.group(AdminApi, "pool", (handlers) =>
             enabled,
             state: poolState(state, id, now),
           })),
-          providers: providers.names.map((name) => ({
-            name,
-            state: providerState(
-              reports.find(({ provider }) => provider === name),
-              now,
-            ),
-          })),
+          providers: [
+            ...providers.names.map((name) => ({ name, state: providerState(undefined, now) })),
+            ...reports.map((report) => ({
+              name: report.provider,
+              state: providerState(report, now),
+            })),
+          ],
         };
       }),
     );

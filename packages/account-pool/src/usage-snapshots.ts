@@ -1,6 +1,6 @@
 import { type Account, AccountStore } from "@via/codex-auth";
 import type { UsageWindow } from "@via/pool";
-import { Providers } from "@via/providers";
+import { OpencodeGoAccounts, Providers } from "@via/providers";
 import type { ProviderUsage } from "@via/providers/schemas";
 import {
   Clock,
@@ -45,6 +45,7 @@ type UsageSnapshot = {
 const make = Effect.gen(function* () {
   const store = yield* AccountStore;
   const providers = yield* Providers;
+  const opencodeGo = yield* OpencodeGoAccounts;
   // A refresh runs here, not in its caller: one caller giving up doesn't cut it
   // short for the others, and a background refresh outlives the request that started it.
   const scope = yield* Scope.Scope;
@@ -62,11 +63,21 @@ const make = Effect.gen(function* () {
       Effect.provide(context),
     );
 
+  /** What opencode Go says each of its accounts has used, each as a provider named by its label. */
+  const opencodeGoUsage = Effect.flatMap(opencodeGo.list, (accounts) =>
+    Effect.forEach(
+      accounts,
+      ({ label, apiKey }) =>
+        Effect.map(providers.usage(apiKey), (report) => ({ ...report, provider: label })),
+      { concurrency: CONCURRENCY },
+    ),
+  );
+
   const fetchAll = Effect.gen(function* () {
     const listed = yield* store.list;
 
     const [accounts, reports] = yield* Effect.all(
-      [Effect.forEach(listed, fetchAccount, { concurrency: CONCURRENCY }), providers.usage],
+      [Effect.forEach(listed, fetchAccount, { concurrency: CONCURRENCY }), opencodeGoUsage],
       { concurrency: "unbounded" },
     );
 

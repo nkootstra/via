@@ -4,7 +4,7 @@ import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
 import { tokensFor } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
 import { startFakeCodex } from "@via/codex-upstream/testing";
-import { Providers } from "@via/providers";
+import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { startFakeProvider } from "@via/providers/testing";
 import { Clock, Effect, Fiber, FileSystem, Layer, Redacted, Schedule } from "effect";
 import { TestClock } from "effect/testing";
@@ -13,7 +13,7 @@ import { UsageSnapshots } from "./usage-snapshots.ts";
 
 /**
  * Runs `body` with `UsageSnapshots` over accounts "a" and "b" (in that order), a
- * fake Codex and a fake provider named `opencode-go`. Nothing refreshes on its own.
+ * fake Codex and a fake opencode Go with one account, `go-1`. Nothing refreshes on its own.
  */
 const withSnapshots = <A, E>(
   body: (args: {
@@ -36,9 +36,9 @@ const withSnapshots = <A, E>(
       CodexUpstream.layer({ baseUrl: codex.url, cloak: true, version: "0.0.0" }),
       Providers.layer({
         providers: { "opencode-go": { baseUrl: provider.url, apiKeyEnv: "PROVIDER_KEY" } },
-        apiKeys: { "opencode-go": Redacted.make("sk-provider") },
+        apiKeys: {},
         version: "0.0.0",
-      }),
+      }).pipe(Layer.provideMerge(OpencodeGoAccounts.layer(`${dir}/opencode-go.json`))),
     ).pipe(Layer.provide(FetchHttpClient.layer), Layer.provide(BunFileSystem.layer));
 
     const built = yield* Layer.build(UsageSnapshots.layer.pipe(Layer.provideMerge(services)));
@@ -49,6 +49,7 @@ const withSnapshots = <A, E>(
       // Accounts are listed in the order they were added, so "a" must come first.
       yield* TestClock.adjust("1 second");
       yield* store.save(tokensFor("b"));
+      yield* (yield* OpencodeGoAccounts).add(Redacted.make("sk-provider"), "go-1");
 
       return yield* body({ snapshots: yield* UsageSnapshots, codex, provider, store });
     }).pipe(Effect.provide(built));
@@ -100,7 +101,7 @@ describe("UsageSnapshots", () => {
         ]);
         expect(stored.providers).toEqual({
           fetchedAt: now,
-          reports: [{ provider: "opencode-go", windows: [] }],
+          reports: [{ provider: "go-1", windows: [] }],
         });
       }),
     ),

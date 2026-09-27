@@ -189,6 +189,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@via/config": "workspace:*",
+        "@via/pool": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {

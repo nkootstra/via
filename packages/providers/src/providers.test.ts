@@ -6,6 +6,7 @@ import {
   Deferred,
   Effect,
   Exit,
+  FileSystem,
   Layer,
   Option,
   Record,
@@ -14,30 +15,45 @@ import {
   Stream,
 } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
-import { Providers } from "./index.ts";
+import { OpencodeGoAccounts, Providers } from "./index.ts";
 import { providerReply, startFakeProvider } from "./testing/index.ts";
 
 /**
  * Runs `body` with `configs` providers, `apiKeys` as their keys (by default
- * `sk-test` for each), and `client` as the network.
+ * `sk-test` for each), `client` as the network, and an opencode Go account for
+ * each of `accountKeys`, in order.
  */
 const withProviders = <A, E, R>(
   configs: Record<string, ProviderConfig>,
   body: (providers: Providers["Service"]) => Effect.Effect<A, E, R>,
   apiKeys: Record<string, string> = Record.map(configs, () => "sk-test"),
   client: Layer.Layer<HttpClient.HttpClient> = FetchHttpClient.layer,
+  accountKeys: ReadonlyArray<string> = [],
 ) =>
   Effect.gen(function* () {
-    return yield* body(yield* Providers);
-  }).pipe(
-    Effect.provide(
-      Providers.layer({
-        providers: configs,
-        apiKeys: Record.map(apiKeys, (key) => Redacted.make(key)),
-        version: "1.2.3",
-      }).pipe(Layer.provide(client)),
-    ),
-  );
+    const fs = yield* FileSystem.FileSystem;
+    const accounts = OpencodeGoAccounts.layer(`${yield* fs.makeTempDirectoryScoped()}/go.json`);
+
+    yield* Effect.forEach(accountKeys, (key) =>
+      Effect.flatMap(OpencodeGoAccounts, (store) => store.add(Redacted.make(key))).pipe(
+        Effect.provide(accounts),
+      ),
+    );
+
+    return yield* Effect.flatMap(Providers, body).pipe(
+      Effect.provide(
+        Providers.layer({
+          providers: configs,
+          apiKeys: Record.map(apiKeys, (key) => Redacted.make(key)),
+          version: "1.2.3",
+        }).pipe(Layer.provide([client, accounts])),
+      ),
+    );
+  });
+
+const route = (provider: string, model = "m", pooled = false) => ({ provider, model, pooled });
+
+const goKey = Redacted.make("sk-go");
 
 /** A network that answers every request 503, recording the URLs asked for. */
 const offline = () => {
@@ -62,7 +78,9 @@ const sent = (name: string, body: Schema.JsonObject, config: Partial<ProviderCon
     yield* withProviders(
       { [name]: { baseUrl: fake.url, apiKeyEnv: "KEY", ...config } },
       (providers) =>
-        providers.send({ provider: name, model: "m" }, "/chat/completions", body, "conv-1"),
+        name === "opencode-go"
+          ? providers.send(route(name, "m", true), "/chat/completions", body, "conv-1", goKey)
+          : providers.send(route(name), "/chat/completions", body, "conv-1"),
     );
 
     return fake.requests[0];
@@ -73,7 +91,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     withProviders({ local: { baseUrl: "http://x", apiKeyEnv: "KEY" } }, (providers) =>
       Effect.sync(() => {
         expect(providers.route("local/qwen/qwen3")).toEqual(
-          Option.some({ provider: "local", model: "qwen/qwen3" }),
+          Option.some(route("local", "qwen/qwen3")),
         );
         expect(providers.route("gpt-6-astra")).toEqual(Option.none());
         expect(providers.route("other/qwen3")).toEqual(Option.none());
@@ -88,7 +106,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       yield* withProviders({ local: { baseUrl: fake.url, apiKeyEnv: "KEY" } }, (providers) =>
         Effect.gen(function* () {
           const response = yield* providers.send(
-            { provider: "local", model: "qwen/qwen3" },
+            route("local", "qwen/qwen3"),
             "/chat/completions",
             { model: "local/qwen/qwen3", temperature: 0.2, messages: [] },
             "conv-1",
@@ -115,23 +133,83 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     Effect.gen(function* () {
       const { urls, client } = offline();
       yield* withProviders(
-        { openrouter: { apiKeyEnv: "KEY" }, "opencode-go": { apiKeyEnv: "KEY" } },
+        { openrouter: { apiKeyEnv: "KEY" } },
         (providers) =>
           Effect.gen(function* () {
             yield* providers.models;
-            yield* providers.usage;
-            yield* providers.send({ provider: "openrouter", model: "m" }, "/responses", {}, "c");
+            yield* providers.usage(goKey);
+            yield* providers.send(route("openrouter"), "/responses", {}, "c");
+            yield* providers.send(route("opencode-go", "m", true), "/responses", {}, "c", goKey);
           }),
         undefined,
         client,
+        ["sk-go"],
       );
 
       expect(urls.toSorted()).toEqual([
         "https://opencode.ai/zen/go/v1/models",
+        "https://opencode.ai/zen/go/v1/responses",
         "https://opencode.ai/zen/go/v1/usage",
         "https://openrouter.ai/api/v1/models",
         "https://openrouter.ai/api/v1/responses",
       ]);
+    }),
+  );
+
+  it.effect("routes OpenCode Go's models to its accounts, with no config for it", () =>
+    withProviders({}, (providers) =>
+      Effect.sync(() => {
+        expect(providers.route("opencode-go/kimi-k3")).toEqual(
+          Option.some(route("opencode-go", "kimi-k3", true)),
+        );
+      }),
+    ),
+  );
+
+  it.effect("sends an OpenCode Go request with the key of the account it is sent as", () =>
+    Effect.gen(function* () {
+      const request = yield* sent("opencode-go", { model: "opencode-go/m" });
+      expect(request?.headers["authorization"]).toBe("Bearer sk-go");
+    }),
+  );
+
+  it.effect("needs no API key for OpenCode Go, whose keys are its accounts", () =>
+    withProviders({ "opencode-go": { apiKeyEnv: "UNSET" } }, () => Effect.void, {}),
+  );
+
+  it.effect("lists OpenCode Go's models with its first enabled account's key", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.models(["kimi-k3"]);
+
+      const models = yield* withProviders(
+        { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } },
+        (providers) => providers.models,
+        {},
+        undefined,
+        ["sk-go-1", "sk-go-2"],
+      );
+
+      expect(models).toEqual([
+        { provider: "opencode-go", model: { id: "opencode-go/kimi-k3", object: "model" } },
+      ]);
+      expect(fake.modelRequests[0]?.headers["authorization"]).toBe("Bearer sk-go-1");
+    }),
+  );
+
+  it.effect("lists no OpenCode Go models without an account to ask with", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.models(["kimi-k3"]);
+
+      const models = yield* withProviders(
+        { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } },
+        (providers) => providers.models,
+        {},
+      );
+
+      expect(models).toEqual([]);
+      expect(fake.modelRequests).toEqual([]);
     }),
   );
 
@@ -164,7 +242,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         { local: { baseUrl: "http://local.test/v1/", apiKeyEnv: "KEY" } },
         (providers) =>
           Effect.andThen(
-            providers.send({ provider: "local", model: "m" }, "/chat/completions", {}, "conv-1"),
+            providers.send(route("local"), "/chat/completions", {}, "conv-1"),
             providers.models,
           ),
         undefined,
@@ -252,7 +330,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         (providers) =>
           Effect.gen(function* () {
             const response = yield* providers.send(
-              { provider: "local", model: "m" },
+              route("local"),
               "/chat/completions",
               { stream: true },
               "conv-1",
@@ -277,7 +355,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       const outcome = yield* withProviders(
         { local: { baseUrl: fake.url, apiKeyEnv: "KEY" } },
         (providers) =>
-          providers.send({ provider: "local", model: "m" }, "/responses", {}, "conv-1").pipe(
+          providers.send(route("local"), "/responses", {}, "conv-1").pipe(
             Effect.flatMap((response) =>
               response.stream.pipe(
                 Stream.tap(() => Deferred.succeed(received, undefined)),
@@ -296,7 +374,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
   it.effect("treats a route to a provider that isn't configured as a defect", () =>
     Effect.gen(function* () {
       const exit = yield* withProviders({}, (providers) =>
-        Effect.exit(providers.send({ provider: "nope", model: "m" }, "/responses", {}, "conv-1")),
+        Effect.exit(providers.send(route("nope"), "/responses", {}, "conv-1")),
       );
 
       expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
@@ -326,7 +404,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
-  it.effect("names every configured provider, whether or not it reports usage", () =>
+  it.effect("names every configured provider with its own key, not OpenCode Go", () =>
     Effect.gen(function* () {
       const names = yield* withProviders(
         {
@@ -336,11 +414,11 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         (providers) => Effect.succeed(providers.names),
       );
 
-      expect(names).toEqual(["opencode-go", "openrouter"]);
+      expect(names).toEqual(["openrouter"]);
     }),
   );
 
-  it.effect("reports OpenCode Go's usage, and none for a provider without a usage endpoint", () =>
+  it.effect("reports what OpenCode Go says an account's key has used", () =>
     Effect.gen(function* () {
       const fake = yield* startFakeProvider;
       fake.usage({
@@ -352,41 +430,36 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       });
 
       const usage = yield* withProviders(
-        {
-          "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" },
-          local: { baseUrl: fake.url, apiKeyEnv: "KEY" },
-        },
-        (providers) => providers.usage,
+        { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } },
+        (providers) => providers.usage(goKey),
       );
 
-      expect(usage).toEqual([
-        {
-          provider: "opencode-go",
-          windows: [
-            {
-              window: "rolling",
-              status: "ok",
-              usedPercent: 0,
-              resetsAt: "2026-09-26T23:40:07.697Z",
-            },
-            {
-              window: "weekly",
-              status: "ok",
-              usedPercent: 26,
-              resetsAt: "2026-09-28T00:00:00.000Z",
-            },
-            {
-              window: "monthly",
-              status: "ok",
-              usedPercent: 14,
-              resetsAt: "2026-10-13T09:11:26.000Z",
-            },
-          ],
-        },
-      ]);
+      expect(usage).toEqual({
+        provider: "opencode-go",
+        windows: [
+          {
+            window: "rolling",
+            status: "ok",
+            usedPercent: 0,
+            resetsAt: "2026-09-26T23:40:07.697Z",
+          },
+          {
+            window: "weekly",
+            status: "ok",
+            usedPercent: 26,
+            resetsAt: "2026-09-28T00:00:00.000Z",
+          },
+          {
+            window: "monthly",
+            status: "ok",
+            usedPercent: 14,
+            resetsAt: "2026-10-13T09:11:26.000Z",
+          },
+        ],
+      });
       expect(fake.usageRequests).toEqual([
         expect.objectContaining({
-          headers: expect.objectContaining({ authorization: "Bearer sk-test" }),
+          headers: expect.objectContaining({ authorization: "Bearer sk-go" }),
         }),
       ]);
     }),
@@ -399,10 +472,10 @@ layer(BunFileSystem.layer)("Providers", (it) => {
 
       const usage = yield* withProviders(
         { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } },
-        (providers) => providers.usage,
+        (providers) => providers.usage(goKey),
       );
 
-      expect(usage).toEqual([{ provider: "opencode-go", error: expect.any(String) }]);
+      expect(usage).toEqual({ provider: "opencode-go", error: expect.any(String) });
     }),
   );
 
@@ -413,12 +486,13 @@ layer(BunFileSystem.layer)("Providers", (it) => {
 
       const usage = yield* withProviders(
         { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } },
-        (providers) => providers.usage,
+        (providers) => providers.usage(goKey),
       );
 
-      expect(usage).toEqual([
-        { provider: "opencode-go", error: "opencode-go did not report usage (HTTP 401)" },
-      ]);
+      expect(usage).toEqual({
+        provider: "opencode-go",
+        error: "opencode-go did not report usage (HTTP 401)",
+      });
     }),
   );
 });

@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { describe, expect, it as test, layer } from "@effect/vitest";
-import { Effect, FileSystem, Redacted } from "effect";
+import { Effect, FileSystem, Option, Redacted } from "effect";
 import { TestClock } from "effect/testing";
 import {
   DuplicateOpencodeGoKeyError,
@@ -62,6 +62,31 @@ layer(BunFileSystem.layer)("OpencodeGoAccounts", (it) => {
         const first = yield* store.add(key("sk-1"), "first");
         const again = yield* store.add(key("sk-1"), "again").pipe(Effect.flip);
         expect(again).toEqual(new DuplicateOpencodeGoKeyError({ label: first.label }));
+      }),
+    ),
+  );
+
+  it.effect("imports a key from the environment once, as an account marked imported", () =>
+    withAccounts(() =>
+      Effect.gen(function* () {
+        const store = yield* OpencodeGoAccounts;
+        const imported = yield* store.importKey(key("sk-env"));
+        expect(Option.map(imported, ({ label }) => label)).toEqual(
+          Option.some("opencode Go (imported)"),
+        );
+        expect(yield* store.importKey(key("sk-env"))).toEqual(Option.none());
+        expect(yield* store.list).toHaveLength(1);
+      }),
+    ),
+  );
+
+  it.effect("does not import a key already stored under another label", () =>
+    withAccounts(() =>
+      Effect.gen(function* () {
+        const store = yield* OpencodeGoAccounts;
+        yield* store.add(key("sk-env"), "mine");
+        expect(yield* store.importKey(key("sk-env"))).toEqual(Option.none());
+        expect((yield* store.list).map(({ label }) => label)).toEqual(["mine"]);
       }),
     ),
   );

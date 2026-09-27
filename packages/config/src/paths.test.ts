@@ -9,6 +9,7 @@ describe("resolvePaths", () => {
       keys: "/tmp/via-test/keys.json",
       authDir: "/tmp/via-test/auth",
       state: "/tmp/via-test/state.json",
+      opencodeGo: "/tmp/via-test/opencode-go.json",
     });
   });
 
