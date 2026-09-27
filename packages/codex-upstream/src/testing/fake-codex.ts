@@ -353,9 +353,13 @@ export const startFakeCodex = Effect.gen(function* () {
     /** Where via should send Codex traffic (`VIA_CODEX_BASE_URL`). */
     url,
     /** Every request received so far, in order, except those for `/codex/models`. */
-    requests: requests as ReadonlyArray<CodexRequest>,
+    get requests(): ReadonlyArray<CodexRequest> {
+      return requests;
+    },
     /** Every `/codex/models` request received so far, in order. */
-    modelRequests: modelRequests as ReadonlyArray<CodexRequest>,
+    get modelRequests(): ReadonlyArray<CodexRequest> {
+      return modelRequests;
+    },
     /** Queues replies for any account, served in order. */
     script: (...replies: ReadonlyArray<Reply>) => void shared.push(...replies),
     /** Queues replies for one ChatGPT account, served before the shared queue. */

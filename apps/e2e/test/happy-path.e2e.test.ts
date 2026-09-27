@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { openai, startCodex, withVia, type Via } from "./harness.ts";
 
 // Everything that should just work: both endpoints, streaming and not, tool
@@ -17,8 +17,23 @@ const post = (via: Via, path: string, body: unknown) =>
     }),
   );
 
-const postJson = (via: Via, path: string, body: unknown) =>
-  post(via, path, body).pipe(Effect.flatMap((response) => Effect.promise(() => response.json())));
+/** POSTs one JSON body to via and decodes its JSON answer with `schema`. */
+const postJson = <S extends Schema.ConstraintDecoder<unknown>>(
+  via: Via,
+  path: string,
+  body: unknown,
+  schema: S,
+) =>
+  post(via, path, body).pipe(
+    Effect.flatMap((response) => Effect.promise(() => response.json())),
+    Effect.flatMap(Schema.decodeUnknownEffect(schema)),
+    // Test boundary: an answer that doesn't decode fails the test.
+    Effect.orDie,
+  );
+
+/** Decodes one JSON text, such as an SSE `data` line, with `schema`. */
+const decodeJson = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
+  Schema.decodeUnknownSync(Schema.fromJsonString(schema));
 
 const postText = (via: Via, path: string, body: unknown) =>
   post(via, path, body).pipe(Effect.flatMap((response) => Effect.promise(() => response.text())));
@@ -43,12 +58,17 @@ const parseResponsesSse = (text: string): ReadonlyArray<SseEvent> =>
       return { event: eventLine.replace(/^event: /, ""), data: dataLine.replace(/^data: /, "") };
     });
 
-type ChatChunk = {
-  choices: ReadonlyArray<{
-    delta: { role?: string; content?: string };
-    finish_reason: string | null;
-  }>;
-};
+const ChatChunk = Schema.Struct({
+  choices: Schema.Array(
+    Schema.Struct({
+      delta: Schema.Struct({
+        role: Schema.optional(Schema.String),
+        content: Schema.optional(Schema.String),
+      }),
+      finish_reason: Schema.NullOr(Schema.String),
+    }),
+  ),
+});
 
 layer(BunFileSystem.layer)("happy path", (it) => {
   it.effect("answers a non-streaming chat completion with usage and finish_reason", () =>
@@ -98,7 +118,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
           const text = yield* Effect.promise(() => response.text());
           const blocks = parseChatSse(text);
           expect(blocks.at(-1)).toBe("[DONE]");
-          const chunks = blocks.slice(0, -1).map((block) => JSON.parse(block) as ChatChunk);
+          const chunks = blocks.slice(0, -1).map((block) => decodeJson(ChatChunk)(block));
           expect(chunks[0]?.choices[0]).toMatchObject({
             delta: { role: "assistant", content: "" },
             finish_reason: null,
@@ -163,10 +183,18 @@ layer(BunFileSystem.layer)("happy path", (it) => {
           const blocks = parseChatSse(text);
           expect(blocks.at(-1)).toBe("[DONE]");
 
-          const usageChunk = JSON.parse(blocks.at(-2) ?? "{}") as {
-            choices: ReadonlyArray<unknown>;
-            usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
-          };
+          const usageChunk = decodeJson(
+            Schema.Struct({
+              choices: Schema.Array(Schema.Unknown),
+              usage: Schema.optional(
+                Schema.Struct({
+                  prompt_tokens: Schema.Finite,
+                  completion_tokens: Schema.Finite,
+                  total_tokens: Schema.Finite,
+                }),
+              ),
+            }),
+          )(blocks.at(-2) ?? "{}");
 
           expect(usageChunk.choices).toEqual([]);
           expect(usageChunk.usage).toEqual({
@@ -185,31 +213,45 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       upstream.script(reply.toolCall("get_weather", { city: "oslo" }));
       yield* withVia({ upstream: upstream.url }, (via) =>
         Effect.gen(function* () {
-          const body = (yield* postJson(via, "/v1/chat/completions", {
-            model: "gpt-6-astra",
-            messages: [{ role: "user", content: "weather in oslo, please" }],
-            tools: [
-              {
-                type: "function",
-                function: {
-                  name: "get_weather",
-                  parameters: { type: "object", properties: { city: { type: "string" } } },
+          const body = yield* postJson(
+            via,
+            "/v1/chat/completions",
+            {
+              model: "gpt-6-astra",
+              messages: [{ role: "user", content: "weather in oslo, please" }],
+              tools: [
+                {
+                  type: "function",
+                  function: {
+                    name: "get_weather",
+                    parameters: { type: "object", properties: { city: { type: "string" } } },
+                  },
                 },
-              },
-            ],
-          })) as {
-            choices: ReadonlyArray<{
-              message: {
-                content: string | null;
-                tool_calls?: ReadonlyArray<{
-                  id: string;
-                  type: string;
-                  function: { name: string; arguments: string };
-                }>;
-              };
-              finish_reason: string;
-            }>;
-          };
+              ],
+            },
+            Schema.Struct({
+              choices: Schema.Array(
+                Schema.Struct({
+                  message: Schema.Struct({
+                    content: Schema.NullOr(Schema.String),
+                    tool_calls: Schema.optional(
+                      Schema.Array(
+                        Schema.Struct({
+                          id: Schema.String,
+                          type: Schema.String,
+                          function: Schema.Struct({
+                            name: Schema.String,
+                            arguments: Schema.String,
+                          }),
+                        }),
+                      ),
+                    ),
+                  }),
+                  finish_reason: Schema.String,
+                }),
+              ),
+            }),
+          );
 
           expect(body.choices[0]?.message.content).toBeNull();
           expect(body.choices[0]?.finish_reason).toBe("tool_calls");
@@ -232,41 +274,66 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       );
       yield* withVia({ upstream: upstream.url }, (via) =>
         Effect.gen(function* () {
-          const first = (yield* postJson(via, "/v1/chat/completions", {
-            model: "gpt-6-astra",
-            messages: [{ role: "user", content: "what's the weather in berlin?" }],
-          })) as {
-            choices: ReadonlyArray<{
-              message: {
-                tool_calls?: ReadonlyArray<{ id: string; function: { name: string } }>;
-              };
-            }>;
-          };
+          const first = yield* postJson(
+            via,
+            "/v1/chat/completions",
+            {
+              model: "gpt-6-astra",
+              messages: [{ role: "user", content: "what's the weather in berlin?" }],
+            },
+            Schema.Struct({
+              choices: Schema.Array(
+                Schema.Struct({
+                  message: Schema.Struct({
+                    tool_calls: Schema.optional(
+                      Schema.Array(
+                        Schema.Struct({
+                          id: Schema.String,
+                          function: Schema.Struct({ name: Schema.String }),
+                        }),
+                      ),
+                    ),
+                  }),
+                }),
+              ),
+            }),
+          );
 
           const call = first.choices[0]?.message.tool_calls?.[0];
           expect(call).toMatchObject({ id: "call_fake", function: { name: "get_weather" } });
 
-          const second = (yield* postJson(via, "/v1/chat/completions", {
-            model: "gpt-6-astra",
-            messages: [
-              { role: "user", content: "what's the weather in berlin?" },
-              {
-                role: "assistant",
-                content: null,
-                tool_calls: [
-                  {
-                    id: "call_fake",
-                    type: "function",
-                    function: {
-                      name: "get_weather",
-                      arguments: JSON.stringify({ city: "berlin" }),
+          const second = yield* postJson(
+            via,
+            "/v1/chat/completions",
+            {
+              model: "gpt-6-astra",
+              messages: [
+                { role: "user", content: "what's the weather in berlin?" },
+                {
+                  role: "assistant",
+                  content: null,
+                  tool_calls: [
+                    {
+                      id: "call_fake",
+                      type: "function",
+                      function: {
+                        name: "get_weather",
+                        arguments: JSON.stringify({ city: "berlin" }),
+                      },
                     },
-                  },
-                ],
-              },
-              { role: "tool", tool_call_id: "call_fake", content: "raw sensor reading" },
-            ],
-          })) as { choices: ReadonlyArray<{ message: { content: string | null } }> };
+                  ],
+                },
+                { role: "tool", tool_call_id: "call_fake", content: "raw sensor reading" },
+              ],
+            },
+            Schema.Struct({
+              choices: Schema.Array(
+                Schema.Struct({
+                  message: Schema.Struct({ content: Schema.NullOr(Schema.String) }),
+                }),
+              ),
+            }),
+          );
 
           expect(second.choices[0]?.message.content).toBe("sunny and 21c in berlin");
           expect(upstream.requests[1]?.body["input"]).toEqual(
@@ -326,7 +393,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
 
           const delta = events
             .filter((event) => event.event === "response.output_text.delta")
-            .map((event) => (JSON.parse(event.data) as { delta: string }).delta)
+            .map((event) => decodeJson(Schema.Struct({ delta: Schema.String }))(event.data).delta)
             .join("");
 
           expect(delta).toBe("streamed text");
@@ -341,24 +408,31 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       upstream.script(reply.toolCall("get_time", { tz: "Asia/Tokyo" }));
       yield* withVia({ upstream: upstream.url }, (via) =>
         Effect.gen(function* () {
-          const body = (yield* postJson(via, "/v1/responses", {
-            model: "gpt-6-astra",
-            input: "please tell me the time in tokyo",
-            tools: [
-              {
-                type: "function",
-                name: "get_time",
-                parameters: { type: "object", properties: { tz: { type: "string" } } },
-              },
-            ],
-          })) as {
-            output: ReadonlyArray<{
-              type: string;
-              call_id?: string;
-              name?: string;
-              arguments?: string;
-            }>;
-          };
+          const body = yield* postJson(
+            via,
+            "/v1/responses",
+            {
+              model: "gpt-6-astra",
+              input: "please tell me the time in tokyo",
+              tools: [
+                {
+                  type: "function",
+                  name: "get_time",
+                  parameters: { type: "object", properties: { tz: { type: "string" } } },
+                },
+              ],
+            },
+            Schema.Struct({
+              output: Schema.Array(
+                Schema.Struct({
+                  type: Schema.String,
+                  call_id: Schema.optional(Schema.String),
+                  name: Schema.optional(Schema.String),
+                  arguments: Schema.optional(Schema.String),
+                }),
+              ),
+            }),
+          );
 
           const call = body.output.find((item) => item.type === "function_call");
           expect(call).toMatchObject({

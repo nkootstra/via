@@ -151,11 +151,17 @@ export const startFakeProvider = Effect.gen(function* () {
     /** The provider's base URL, as config.yaml's `baseUrl`. */
     url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),
     /** Every completion request received so far, in order. */
-    requests: requests as ReadonlyArray<ProviderRequest>,
+    get requests(): ReadonlyArray<ProviderRequest> {
+      return requests;
+    },
     /** Every `GET /models` request received so far, in order. */
-    modelRequests: modelRequests as ReadonlyArray<ProviderRequest>,
+    get modelRequests(): ReadonlyArray<ProviderRequest> {
+      return modelRequests;
+    },
     /** Every `GET /usage` request received so far, in order. */
-    usageRequests: usageRequests as ReadonlyArray<ProviderRequest>,
+    get usageRequests(): ReadonlyArray<ProviderRequest> {
+      return usageRequests;
+    },
     /** Answers `GET /usage` with `body`, as OpenCode Go does; until then, it answers 500. */
     usage: (body: object, status = 200) =>
       void (usageAnswer = { status, body: JSON.stringify(body) }),
