@@ -3,17 +3,18 @@ import { Sse } from "effect/unstable/encoding";
 import { TERMINAL_EVENTS } from "./terminal-events.ts";
 
 // The Responses API's stream error event, which clients such as the openai SDK raise.
-const incomplete = Sse.encoder.write({
-  _tag: "Event",
-  event: "error",
-  id: undefined,
-  data: JSON.stringify({
-    type: "error",
-    code: "upstream_incomplete",
-    message: "The Codex stream ended before the response completed",
-    param: null,
+const incomplete = Sse.encoder.write(
+  Sse.Event.make({
+    event: "error",
+    id: undefined,
+    data: JSON.stringify({
+      type: "error",
+      code: "upstream_incomplete",
+      message: "The Codex stream ended before the response completed",
+      param: null,
+    }),
   }),
-});
+);
 
 /**
  * Relays a Codex Responses SSE stream to a client event by event. A stream

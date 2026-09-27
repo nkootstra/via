@@ -77,6 +77,7 @@ const mayServe = (offered: ReadonlyArray<Offered>, model: string) => {
   const known = new Set(offered.map(({ accountId }) => accountId));
   const offering = new Set(
     offered
+      .values()
       .filter(({ catalog }) => catalog.some((listed) => listed.model === base))
       .map(({ accountId }) => accountId),
   );
