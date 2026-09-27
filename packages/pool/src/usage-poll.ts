@@ -1,7 +1,8 @@
 import type { AccountState, PoolAccount, PoolState } from "./select.ts";
 
-/** A rate-limit window's usage, structurally compatible with `@via/codex-upstream`'s `UsageWindow`. */
+/** How much of one rate limit window an account has used, and when it starts over. */
 export type UsageWindow = {
+  readonly windowMinutes: number;
   readonly usedPercent: number;
   /** Epoch milliseconds. */
   readonly resetsAt: number;

@@ -1,3 +1,4 @@
+import type { UsageWindow } from "@via/pool";
 import { Context, Effect, Layer, Schema } from "effect";
 import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import type { CatalogModel } from "./models.ts";
@@ -69,14 +70,6 @@ const UsagePayload = Schema.Struct({
     secondary_window: Schema.NullOr(Window),
   }),
 });
-
-/** How much of one rate limit window an account has used, and when it starts over. */
-export type UsageWindow = {
-  readonly windowMinutes: number;
-  readonly usedPercent: number;
-  /** Epoch milliseconds. */
-  readonly resetsAt: number;
-};
 
 const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions) =>
   Effect.gen(function* () {

@@ -43,12 +43,12 @@ describe("pollable", () => {
 
 describe("decideUsagePoll", () => {
   it("does nothing when no window is exhausted", () => {
-    const windows = [{ usedPercent: 42, resetsAt: NOW + 1_000 }];
+    const windows = [{ windowMinutes: 300, usedPercent: 42, resetsAt: NOW + 1_000 }];
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({ changed: false });
   });
 
   it("cools the account down until an exhausted window's reset", () => {
-    const windows = [{ usedPercent: 100, resetsAt: NOW + 60_000 }];
+    const windows = [{ windowMinutes: 300, usedPercent: 100, resetsAt: NOW + 60_000 }];
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({
       changed: true,
       until: NOW + 60_000,
@@ -57,7 +57,7 @@ describe("decideUsagePoll", () => {
   });
 
   it("treats a window over 100% used as exhausted too", () => {
-    const windows = [{ usedPercent: 137, resetsAt: NOW + 60_000 }];
+    const windows = [{ windowMinutes: 300, usedPercent: 137, resetsAt: NOW + 60_000 }];
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({
       changed: true,
       until: NOW + 60_000,
@@ -66,14 +66,14 @@ describe("decideUsagePoll", () => {
   });
 
   it("ignores an exhausted window whose reset has already passed", () => {
-    const windows = [{ usedPercent: 100, resetsAt: NOW - 1 }];
+    const windows = [{ windowMinutes: 300, usedPercent: 100, resetsAt: NOW - 1 }];
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({ changed: false });
   });
 
   it("picks the latest reset when more than one window is exhausted", () => {
     const windows = [
-      { usedPercent: 100, resetsAt: NOW + 60_000 },
-      { usedPercent: 100, resetsAt: NOW + 120_000 },
+      { windowMinutes: 300, usedPercent: 100, resetsAt: NOW + 60_000 },
+      { windowMinutes: 300, usedPercent: 100, resetsAt: NOW + 120_000 },
     ];
 
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({
@@ -84,7 +84,7 @@ describe("decideUsagePoll", () => {
   });
 
   it("extends an already-cooling account to a later verified reset", () => {
-    const windows = [{ usedPercent: 100, resetsAt: NOW + 120_000 }];
+    const windows = [{ windowMinutes: 300, usedPercent: 100, resetsAt: NOW + 120_000 }];
 
     const current = {
       status: "cooling",
@@ -100,7 +100,7 @@ describe("decideUsagePoll", () => {
   });
 
   it("never shortens a running cooldown", () => {
-    const windows = [{ usedPercent: 100, resetsAt: NOW + 30_000 }];
+    const windows = [{ windowMinutes: 300, usedPercent: 100, resetsAt: NOW + 30_000 }];
 
     const current = {
       status: "cooling",
@@ -112,7 +112,7 @@ describe("decideUsagePoll", () => {
   });
 
   it("never readmits a cooling account early, even when nothing is exhausted", () => {
-    const windows = [{ usedPercent: 12, resetsAt: NOW + 60_000 }];
+    const windows = [{ windowMinutes: 300, usedPercent: 12, resetsAt: NOW + 60_000 }];
 
     const current = {
       status: "cooling",
@@ -124,7 +124,7 @@ describe("decideUsagePoll", () => {
   });
 
   it("never turns an auth lockout into a mere cooldown, even with an exhausted window", () => {
-    const windows = [{ usedPercent: 100, resetsAt: NOW + 60_000 }];
+    const windows = [{ windowMinutes: 300, usedPercent: 100, resetsAt: NOW + 60_000 }];
     const current = { status: "auth_error", reason: "invalid_grant" } as const;
     expect(decideUsagePoll(windows, current, NOW)).toEqual({ changed: false });
   });
@@ -147,7 +147,11 @@ describe("properties", () => {
   const currentSpecs = Arbitrary.schema(CurrentSpec);
 
   const toWindows = (specs: ReadonlyArray<typeof WindowSpec.Type>): ReadonlyArray<UsageWindow> =>
-    specs.map((spec) => ({ usedPercent: spec.usedPercent, resetsAt: NOW + spec.resetsAtOffset }));
+    specs.map((spec) => ({
+      windowMinutes: 300,
+      usedPercent: spec.usedPercent,
+      resetsAt: NOW + spec.resetsAtOffset,
+    }));
 
   const toCurrent = (spec: typeof CurrentSpec.Type): AccountState | undefined => {
     if (spec.kind === "none") return undefined;
