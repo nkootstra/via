@@ -1,5 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { createRef } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { Field, Input } from "./index.ts";
 
@@ -76,6 +77,17 @@ describe("Input adornments", () => {
     expect(input.parentElement?.contains(screen.getByRole("button", { name: "Show key" }))).toBe(
       true,
     );
+  });
+
+  it("hands a ref to its input, so a screen can focus it", () => {
+    const ref = createRef<HTMLInputElement>();
+    render(
+      <Field label="API key">
+        <Input ref={ref} leading={<span>🔑</span>} />
+      </Field>,
+    );
+
+    expect(ref.current).toBe(screen.getByLabelText("API key"));
   });
 
   it("focuses the input when its leading adornment is clicked", async () => {

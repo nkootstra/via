@@ -147,6 +147,38 @@ describe("adding an account", () => {
     expect(state.accounts).toEqual([work]);
   });
 
+  // Swapping in a new dialog would drop the backdrop for a frame and fade the
+  // next one in from nothing: the undimmed page flashes between the steps.
+  it.each([
+    [/ChatGPT \(Codex\)/, "Add a ChatGPT account"],
+    [/OpenCode Go/, "Add an OpenCode Go key"],
+  ])("moves on from the choice to %s in the same dialog", async (choice, title) => {
+    const { user } = renderApp("/accounts", {
+      accounts: [work],
+      nextLogin: [{ status: "pending" }],
+    });
+
+    await rowOf("work");
+    await user.click(screen.getAllByRole("button", { name: "Add account" })[0] ?? document.body);
+    const dialog = await screen.findByRole("dialog", { name: "Add an account" });
+    await user.click(within(dialog).getByRole("button", { name: choice }));
+
+    expect(await screen.findByRole("dialog", { name: title })).toBe(dialog);
+  });
+
+  it("puts the cursor in the key field once OpenCode Go is chosen", async () => {
+    const { user } = renderApp("/accounts", { accounts: [work] });
+
+    await rowOf("work");
+    await user.click(screen.getAllByRole("button", { name: "Add account" })[0] ?? document.body);
+    await user.click(await screen.findByRole("button", { name: /OpenCode Go/ }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go key" });
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(dialog).getByLabelText("API key")),
+    );
+  });
+
   it("says why when the login fails", async () => {
     const { user } = renderApp("/accounts", {
       accounts: [work],
