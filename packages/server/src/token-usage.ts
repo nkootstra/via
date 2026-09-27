@@ -11,8 +11,9 @@ export interface TokenUsage {
 const ResponsesUsage = Schema.Struct({
   input_tokens: Schema.Finite,
   output_tokens: Schema.Finite,
+  // Codex sends `null` details when it has none to report.
   input_tokens_details: Schema.optionalKey(
-    Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) }),
+    Schema.NullOr(Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) })),
   ),
 });
 

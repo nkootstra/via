@@ -22,6 +22,18 @@ describe("usageOf", () => {
     ).toEqual(Option.some({ inputTokens: 10, outputTokens: 2, cachedTokens: 4 }));
   });
 
+  it("reads a Responses usage object whose details are null, as Codex sends them", () => {
+    expect(
+      usageOf({
+        input_tokens: 10,
+        input_tokens_details: null,
+        output_tokens: 2,
+        output_tokens_details: null,
+        total_tokens: 12,
+      }),
+    ).toEqual(Option.some({ inputTokens: 10, outputTokens: 2 }));
+  });
+
   it("reads a Chat Completions usage object", () => {
     expect(usageOf({ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 })).toEqual(
       Option.some({ inputTokens: 10, outputTokens: 2 }),
