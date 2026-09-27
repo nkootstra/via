@@ -85,6 +85,9 @@ const showUsage = Effect.fnUntraced(function* (account: Account) {
       RefreshRejectedError: why,
       UsageUnavailableError: why,
       AuthRequestError: why,
+      // One account's usage that can't be fetched or read mustn't hide the others'.
+      HttpClientError: () => Effect.succeed(["  Could not reach ChatGPT for usage"]),
+      SchemaError: () => Effect.succeed(["  ChatGPT's usage answer could not be read"]),
     }),
   );
 
