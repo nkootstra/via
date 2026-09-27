@@ -2,8 +2,9 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Option, type Schema, Stream } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
-import { reply, startFakeCodex } from "./fake-codex.ts";
+import { startFakeCodex } from "./fake-codex.ts";
 import { codexErrorFixture, codexFixture, codexRefreshErrorFixture } from "./fixtures.ts";
+import { reply } from "./replies.ts";
 
 const post = (url: string, account: string, body: Schema.JsonObject = { model: "gpt-6-astra" }) =>
   Effect.gen(function* () {
