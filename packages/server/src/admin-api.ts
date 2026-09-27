@@ -105,17 +105,60 @@ export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   { httpApiStatus: 401 },
 ) {}
 
+/** Too many failed sign-ins in the last minute; the admin API refuses every sign-in for now. */
+export class TooManySignInsError extends Schema.TaggedError<TooManySignInsError>()(
+  "TooManySignInsError",
+  { message: Schema.String },
+  { httpApiStatus: 429 },
+) {}
+
+/**
+ * A request signed in with a session cookie that changes something, but without the
+ * `x-via-csrf` header or from another origin: what a cross-site request forgery looks like.
+ */
+export class Forbidden extends Schema.TaggedError<Forbidden>()(
+  "Forbidden",
+  { message: Schema.String },
+  { httpApiStatus: 403 },
+) {}
+
 /**
  * Bearer auth, spelled `bearer` in the spec: `HttpApiSecurity.bearer` says `Bearer`,
  * which Scalar's API client mistakes for Basic auth. Headers match either way.
  */
 const bearer = HttpApiSecurity.http({ scheme: "bearer" });
 
-/** Lets a request through only with `Authorization: Bearer <VIA_ADMIN_KEY>`. */
+/** The session cookie `POST /admin/session` sets. */
+export const session = HttpApiSecurity.apiKey({ key: "via_session", in: "cookie" });
+
+/**
+ * Lets a request through with `Authorization: Bearer <VIA_ADMIN_KEY>`, or with a
+ * session cookie. A request that changes something with only the cookie must also
+ * come from via's own origin and carry `x-via-csrf: 1`, which a cross-site form can't.
+ * Reading the cookie takes the request, as any HTTP middleware does.
+ *
+ * @effect-expect-leaking HttpServerRequest | ParsedSearchParams | RouteContext
+ */
 export class AdminAuthorization extends HttpApiMiddleware.Service<AdminAuthorization>()(
   "via/AdminAuthorization",
-  { security: { bearer }, error: Unauthorized },
+  { security: { bearer, session }, error: [Unauthorized, Forbidden] },
 ) {}
+
+/** Signing in to the admin API with the admin key, for a browser. */
+class SessionGroup extends HttpApiGroup.make("session")
+  .add(
+    HttpApiEndpoint.post("signIn", "/session", {
+      payload: Schema.Struct({ key: Schema.Redacted(Schema.String) }),
+      error: [Unauthorized, TooManySignInsError],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("get", "/session", { success: HttpApiSchema.Empty(200) }).middleware(
+      AdminAuthorization,
+    ),
+  )
+  .add(HttpApiEndpoint.delete("signOut", "/session").middleware(AdminAuthorization))
+  .prefix("/admin") {}
 
 class AccountsGroup extends HttpApiGroup.make("accounts")
   .add(HttpApiEndpoint.get("list", "/accounts", { success: Schema.Array(AdminAccount) }))
@@ -187,6 +230,7 @@ class ModelsGroup extends HttpApiGroup.make("models")
   .prefix("/admin") {}
 
 export class AdminApi extends HttpApi.make("via-admin")
+  .add(SessionGroup)
   .add(AccountsGroup)
   .add(KeysGroup)
   .add(UsageGroup)

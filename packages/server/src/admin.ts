@@ -1,12 +1,13 @@
-import { createHash, timingSafeEqual } from "node:crypto";
 import { type Account, AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
 import { Providers } from "@via/providers";
-import { Clock, Effect, Layer, Redacted, Schema } from "effect";
+import { Clock, type Duration, Effect, Layer, Redacted, Schema } from "effect";
+import { HttpServerRequest } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
 import { accountUsage } from "@via/account-pool";
 import { type PoolState, PoolStates } from "@via/pool";
-import { AdminApi, AdminAuthorization, Unauthorized } from "./admin-api.ts";
+import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
+import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { Logins } from "./logins.ts";
 
@@ -20,22 +21,96 @@ class AdminKeyTooShortError extends Schema.TaggedError<AdminKeyTooShortError>()(
   }
 }
 
-const hash = (key: string) => createHash("sha256").update(key).digest();
+/** A browser's `Origin` header, when it names an http(s) origin. */
+const originOf = (request: HttpServerRequest.HttpServerRequest) => {
+  const origin = URL.parse(request.headers.origin ?? "");
 
-const authorization = (adminKey: Redacted.Redacted<string>) => {
-  const expected = hash(Redacted.value(adminKey));
-
-  return Layer.succeed(
-    AdminAuthorization,
-    AdminAuthorization.of({
-      // Comparing hashes keeps the comparison constant-time whatever the length.
-      bearer: (handler, { credential }) =>
-        timingSafeEqual(hash(Redacted.value(credential)), expected)
-          ? handler
-          : Effect.fail(new Unauthorized({ message: "Missing or invalid admin key" })),
-    }),
-  );
+  return origin !== null && (origin.protocol === "http:" || origin.protocol === "https:")
+    ? origin
+    : undefined;
 };
+
+/**
+ * Whether a request that only has a session cookie comes from via's own page, and
+ * so may change something. A browser sets `Origin` itself, and a cross-site form
+ * can't add `x-via-csrf`. The origin's scheme isn't compared: behind a proxy that
+ * ends TLS, via sees plain HTTP while the browser says `https`.
+ */
+const fromOwnPage = (request: HttpServerRequest.HttpServerRequest) =>
+  request.headers["x-via-csrf"] === "1" && originOf(request)?.host === request.headers.host;
+
+/** Methods that only read, which need no check for a forged request. */
+const reads = new Set(["GET", "HEAD"]);
+
+const invalid = new Unauthorized({ message: "Missing or invalid admin key or session" });
+
+const authorization = Layer.effect(
+  AdminAuthorization,
+  Effect.gen(function* () {
+    const sessions = yield* AdminSessions;
+
+    return AdminAuthorization.of({
+      bearer: (handler, { credential }) =>
+        Effect.gen(function* () {
+          if (!(yield* sessions.isAdminKey(credential))) return yield* invalid;
+
+          return yield* handler;
+        }),
+      session: (handler, { credential }) =>
+        Effect.gen(function* () {
+          if (!(yield* sessions.verify(credential))) return yield* invalid;
+          const request = yield* HttpServerRequest.HttpServerRequest;
+
+          if (!reads.has(request.method) && !fromOwnPage(request)) {
+            return yield* new Forbidden({
+              message: "A change signed in with a session must come from via's own page",
+            });
+          }
+
+          return yield* handler;
+        }),
+    });
+  }),
+);
+
+/**
+ * Sets the session cookie to `token`. It is `Secure` when the browser signed in
+ * over HTTPS, which its `Origin` says even behind a proxy that ends TLS.
+ */
+const setSessionCookie = (token: Redacted.Redacted<string> | "", maxAge: Duration.Input) =>
+  Effect.gen(function* () {
+    const request = yield* HttpServerRequest.HttpServerRequest;
+
+    yield* HttpApiBuilder.securitySetCookie(session, token, {
+      httpOnly: true,
+      secure: originOf(request)?.protocol === "https:",
+      sameSite: "strict",
+      path: "/admin",
+      maxAge,
+    });
+  });
+
+const sessions = HttpApiBuilder.group(AdminApi, "session", (handlers) =>
+  Effect.gen(function* () {
+    const admin = yield* AdminSessions;
+
+    return handlers
+      .handle("signIn", ({ payload }) =>
+        Effect.flatMap(admin.signIn(payload.key), (token) =>
+          setSessionCookie(token, SESSION_LIFETIME),
+        ),
+      )
+      .handle("get", () => Effect.void)
+      .handle("signOut", () =>
+        Effect.gen(function* () {
+          const token = (yield* HttpServerRequest.HttpServerRequest).cookies[session.key];
+
+          if (token !== undefined) yield* admin.signOut(Redacted.make(token));
+          yield* setSessionCookie("", 0);
+        }),
+      );
+  }),
+);
 
 const withoutTokens = ({ id, label, email, plan, enabled, createdAt }: Account) => ({
   id,
@@ -228,8 +303,9 @@ export const adminRoutes = (adminKey: Redacted.Redacted<string> | undefined) =>
 
       return Layer.merge(
         HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
-          Layer.provide([accounts, keys, usage, pool, models]),
-          Layer.provide([authorization(adminKey), Logins.layer]),
+          Layer.provide([sessions, accounts, keys, usage, pool, models]),
+          Layer.provide([authorization, Logins.layer]),
+          Layer.provide(AdminSessions.layer(adminKey)),
         ),
         // Scalar's script is served inline rather than from a CDN: the page is where
         // the admin key gets typed in, so it runs no third-party code.

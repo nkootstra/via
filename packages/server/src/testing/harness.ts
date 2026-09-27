@@ -55,17 +55,20 @@ export type Via = {
   readonly get: (
     path: string,
     key?: string | null,
+    headers?: Record<string, string>,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** PATCHes JSON to the via server, with a valid API key unless `key` says otherwise. */
   readonly patch: (
     path: string,
     body: Schema.Json,
     key?: string | null,
+    headers?: Record<string, string>,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** DELETEs a path on the via server, with a valid API key unless `key` says otherwise. */
   readonly delete: (
     path: string,
     key?: string | null,
+    headers?: Record<string, string>,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** The via server's URL, e.g. `http://127.0.0.1:1234`. */
   readonly baseUrl: string;
@@ -79,6 +82,8 @@ export type Via = {
   readonly provider: FakeProvider;
   /** Waits for the first line via logs whose message or annotations contain `text`. */
   readonly logged: (text: string) => Effect.Effect<LogLine>;
+  /** Every line via logged so far. */
+  readonly logs: ReadonlyArray<LogLine>;
 };
 
 /** A line via logged, with the labels of its log spans. */
@@ -123,7 +128,7 @@ const collectLogs = () => {
       return Deferred.await(waiter.line);
     });
 
-  return { logger, logged };
+  return { logger, logged, lines };
 };
 
 /**
@@ -236,18 +241,27 @@ export const withVia = <A, E>(
           http.execute,
         );
 
-      const get: Via["get"] = (path, override) =>
-        http.execute(HttpClientRequest.get(`${base}${path}`).pipe(authorize(override)));
+      const get: Via["get"] = (path, override, headers = {}) =>
+        HttpClientRequest.get(`${base}${path}`).pipe(
+          authorize(override),
+          HttpClientRequest.setHeaders(headers),
+          http.execute,
+        );
 
-      const patch: Via["patch"] = (path, json, override) =>
+      const patch: Via["patch"] = (path, json, override, headers = {}) =>
         HttpClientRequest.patch(`${base}${path}`).pipe(
           authorize(override),
+          HttpClientRequest.setHeaders(headers),
           HttpClientRequest.bodyJsonUnsafe(json),
           http.execute,
         );
 
-      const del: Via["delete"] = (path, override) =>
-        http.execute(HttpClientRequest.delete(`${base}${path}`).pipe(authorize(override)));
+      const del: Via["delete"] = (path, override, headers = {}) =>
+        HttpClientRequest.delete(`${base}${path}`).pipe(
+          authorize(override),
+          HttpClientRequest.setHeaders(headers),
+          http.execute,
+        );
 
       return yield* body({
         post,
@@ -260,6 +274,7 @@ export const withVia = <A, E>(
         codexUsage: codex.usage,
         provider,
         logged: logs.logged,
+        logs: logs.lines,
       });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });
