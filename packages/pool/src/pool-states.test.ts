@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Clock, Effect, FileSystem, Schema } from "effect";
+import { Clock, Effect, Fiber, FileSystem, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
 import { PoolStates } from "./pool-states.ts";
@@ -59,6 +59,34 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
       expect(yield* states.get).toEqual({
         "acc-b": { status: "cooling", until: 500, reason: "usage_limit_reached" },
       });
+    }).pipe(Effect.provide(PoolStates.layer)),
+  );
+
+  it.effect("streams its state, then every change to it, and nothing for a no-op", () =>
+    Effect.gen(function* () {
+      const states = yield* PoolStates;
+      yield* states.coolDown("acc-a", 500, "usage_limit_reached");
+
+      const seen = yield* states.changes.pipe(Stream.take(4), Stream.runCollect, Effect.forkChild);
+      yield* Effect.yieldNow;
+      yield* states.coolDown("acc-a", 100, "server_error");
+      yield* states.lockOut("acc-b", "invalid_grant");
+      yield* states.coolDown("acc-a", 900, "usage_limit_reached");
+      yield* states.liftLockOut("acc-a");
+      yield* states.liftLockOut("acc-b");
+
+      expect(yield* Fiber.join(seen)).toEqual([
+        { "acc-a": { status: "cooling", until: 500, reason: "usage_limit_reached" } },
+        {
+          "acc-a": { status: "cooling", until: 500, reason: "usage_limit_reached" },
+          "acc-b": { status: "auth_error", reason: "invalid_grant" },
+        },
+        {
+          "acc-a": { status: "cooling", until: 900, reason: "usage_limit_reached" },
+          "acc-b": { status: "auth_error", reason: "invalid_grant" },
+        },
+        { "acc-a": { status: "cooling", until: 900, reason: "usage_limit_reached" } },
+      ]);
     }).pipe(Effect.provide(PoolStates.layer)),
   );
 
