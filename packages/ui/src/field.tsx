@@ -7,7 +7,7 @@
 import { Field as BaseField } from "@base-ui/react/field";
 import { Input as BaseInput } from "@base-ui/react/input";
 import * as stylex from "@stylexjs/stylex";
-import { useRef, type ComponentProps, type ReactNode } from "react";
+import type { ComponentProps, ReactNode, Ref } from "react";
 import { colors, durations, fonts, radii, space, text, weights } from "./tokens.stylex.ts";
 
 const styles = stylex.create({
@@ -149,6 +149,8 @@ export interface InputProps extends Omit<
   ComponentProps<typeof BaseInput>,
   "className" | "style" | "render" | "ref"
 > {
+  /** The underlying `<input>`, for a screen that moves focus to it. */
+  readonly ref?: Ref<HTMLInputElement>;
   /** Drawn inside the field before the text, such as a search glyph. Clicking it focuses the input. */
   readonly leading?: ReactNode;
   /** Drawn inside the field after the text, such as a show-key button. */
@@ -161,13 +163,11 @@ export interface InputProps extends Omit<
  * The input sits borderless in a box that owns the field's look, so leading
  * and trailing adornments share one border and one focus state with it.
  */
-export function Input({ leading, trailing, sunken = false, ...props }: InputProps) {
-  const input = useRef<HTMLElement>(null);
-
+export function Input({ leading, trailing, sunken = false, ref, ...props }: InputProps) {
   return (
     <BaseInput
       {...props}
-      ref={input}
+      ref={ref}
       render={(inputProps, state) => (
         <div
           {...stylex.props(
@@ -182,7 +182,7 @@ export function Input({ leading, trailing, sunken = false, ...props }: InputProp
               // Keep the press from taking focus, then hand it to the input.
               onMouseDown={(event) => {
                 event.preventDefault();
-                input.current?.focus();
+                event.currentTarget.parentElement?.querySelector("input")?.focus();
               }}
               {...stylex.props(styles.leading)}
             >
