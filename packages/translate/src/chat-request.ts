@@ -1,4 +1,4 @@
-import { Predicate, Schema } from "effect";
+import { Predicate, Schema, SchemaTransformation } from "effect";
 
 const TextPart = Schema.Struct({ type: Schema.Literal("text"), text: Schema.String });
 
@@ -9,6 +9,18 @@ const ImagePart = Schema.Struct({
 
 const UserPart = Schema.Union([TextPart, ImagePart]);
 
+/** Content that may only hold text, as a string or text parts, read as one string. */
+const TextContent = Schema.Union([Schema.String, Schema.Array(TextPart)]).pipe(
+  Schema.decodeTo(
+    Schema.String,
+    SchemaTransformation.transform({
+      decode: (content) =>
+        Predicate.isString(content) ? content : content.map((part) => part.text).join(""),
+      encode: (content) => content,
+    }),
+  ),
+);
+
 const ToolCall = Schema.Struct({
   id: Schema.String,
   type: Schema.Literal("function"),
@@ -17,7 +29,7 @@ const ToolCall = Schema.Struct({
 
 const InstructionMessage = Schema.Struct({
   role: Schema.Literals(["system", "developer"]),
-  content: Schema.String,
+  content: TextContent,
 });
 
 const UserMessage = Schema.Struct({
@@ -27,14 +39,14 @@ const UserMessage = Schema.Struct({
 
 const AssistantMessage = Schema.Struct({
   role: Schema.Literal("assistant"),
-  content: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  content: Schema.optionalKey(Schema.NullOr(TextContent)),
   tool_calls: Schema.optionalKey(Schema.Array(ToolCall)),
 });
 
 const ToolMessage = Schema.Struct({
   role: Schema.Literal("tool"),
   tool_call_id: Schema.String,
-  content: Schema.String,
+  content: TextContent,
 });
 
 const Message = Schema.Union([InstructionMessage, UserMessage, AssistantMessage, ToolMessage]);
