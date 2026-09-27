@@ -2,6 +2,7 @@ import { UsageSnapshots } from "@via/account-pool";
 import { AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
+import { OpencodeGoAccounts } from "@via/providers";
 import { Clock, Duration, Effect, FiberHandle, Queue, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import { type AdminState, StateEvent } from "./admin-api.ts";
@@ -23,6 +24,7 @@ const signals = Effect.gen(function* () {
     (yield* UsageSnapshots).changes,
     Stream.map((yield* PoolStates).changes, () => undefined),
     (yield* AccountStore).changes,
+    (yield* OpencodeGoAccounts).changes,
     (yield* KeyStore).changes,
     Stream.tick(RESYNC),
   ];

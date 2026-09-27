@@ -116,7 +116,7 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     ),
   );
 
-  it.effect("sends the state again when an account or a key changes", () =>
+  it.effect("sends the state again when an account, an OpenCode Go key or a key changes", () =>
     withAdmin(ok, (via) =>
       Effect.gen(function* () {
         const { states } = yield* listen(via);
@@ -128,6 +128,19 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
 
         yield* via.post("/admin/keys", { name: "laptop" }, adminKey);
         expect((yield* next(states)).keys.map(({ name }) => name)).toEqual(["test", "laptop"]);
+
+        // OpenCode Go takes the key: it reports its usage.
+        via.provider.usageFor("sk-go-5678", { usage: {} });
+        yield* via.post("/admin/opencode-go/accounts", { apiKey: "sk-go-5678" }, adminKey);
+        const added = yield* next(states, (state) => state.opencodeGo.length === 2);
+        expect(added.opencodeGo.map(({ key }) => key)).toEqual(["…ider", "…5678"]);
+        expect(added.pool.opencodeGo).toHaveLength(2);
+
+        // A key's first use is written down, so the page can say when it was used.
+        yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+        yield* next(states, (state) =>
+          state.keys.some(({ name, lastUsedAt }) => name === "test" && lastUsedAt !== null),
+        );
         // Sent as they happened, not on the next resync.
         expect((yield* Clock.currentTimeMillis) - since).toBeLessThan(1_000);
       }),
