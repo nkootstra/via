@@ -2,7 +2,8 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
-import { withVia } from "./harness.ts";
+import { TestClock } from "effect/testing";
+import { type Via, withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
 const adminKey = "admin-key-that-is-long-enough-000";
@@ -16,6 +17,20 @@ const account = (name: string) => ({
   enabled: true,
   createdAt: expect.any(String),
 });
+
+const loginId = (login: unknown) =>
+  Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }))(login).id;
+
+/** Polls a login, a minute of test time apart, until it is no longer pending. */
+const settled = (via: Via, id: string) =>
+  Effect.gen(function* () {
+    yield* TestClock.adjust("1 minute");
+    return yield* (yield* via.get(`/admin/accounts/logins/${id}`, adminKey)).json;
+  }).pipe(
+    Effect.repeat({
+      until: (login) => !Schema.is(Schema.Struct({ status: Schema.Literal("pending") }))(login),
+    }),
+  );
 
 layer(BunFileSystem.layer)("admin API", (it) => {
   it.effect("does not exist without VIA_ADMIN_KEY", () =>
@@ -151,6 +166,74 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             (yield* via.patch("/admin/accounts/nobody", { label: "x" }, adminKey)).status,
           ).toBe(404);
           expect((yield* via.delete("/admin/accounts/nobody", adminKey)).status).toBe(404);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("starts a device-code login that waits for approval", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const started = yield* via.post("/admin/accounts/logins", {}, adminKey);
+          expect(started.status).toBe(201);
+          const login = yield* started.json;
+          expect(login).toEqual({
+            id: expect.any(String),
+            userCode: "ABCD-1234",
+            verificationUrl: expect.stringMatching(/\/codex\/device$/),
+          });
+          const response = yield* via.get(`/admin/accounts/logins/${loginId(login)}`, adminKey);
+          expect(yield* response.json).toEqual({ status: "pending" });
+        }),
+      { adminKey, pendingPolls: Infinity, interval: "5" },
+    ),
+  );
+
+  it.effect("adds the account once the login is approved", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const login = yield* (yield* via.post("/admin/accounts/logins", {}, adminKey)).json;
+          const added = {
+            ...account("dev"),
+            label: "dev@example.com",
+            email: "dev@example.com",
+          };
+          expect(yield* settled(via, loginId(login))).toEqual({ status: "added", account: added });
+          expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([
+            account("a"),
+            account("b"),
+            added,
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("fails a login that is not approved in time", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const login = yield* (yield* via.post("/admin/accounts/logins", {}, adminKey)).json;
+          expect(yield* settled(via, loginId(login))).toEqual({
+            status: "failed",
+            error: expect.stringContaining("not approved"),
+          });
+        }),
+      { adminKey, pendingPolls: Infinity, interval: "5" },
+    ),
+  );
+
+  it.effect("answers 404 for a login that does not exist", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.get("/admin/accounts/logins/nope", adminKey)).status).toBe(404);
         }),
       { adminKey },
     ),
