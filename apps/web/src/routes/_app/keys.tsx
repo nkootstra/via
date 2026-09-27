@@ -29,9 +29,9 @@ import { colors, fonts, radii, space, text, weights } from "@via/ui/tokens.style
 import { useState } from "react";
 import { createKey, keysQuery, revokeKey, warm } from "../../api/admin.ts";
 import type { Key } from "../../api/types.ts";
-import { KeyIcon, PlusIcon } from "../../components/icons.tsx";
+import { KeyIcon, PlusIcon, TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, VisuallyHidden } from "../../components/page.tsx";
-import { formatDate } from "../../lib/time.ts";
+import { formatDate, formatTimestamp, timeAgo, useNow } from "../../lib/time.ts";
 
 export const Route = createFileRoute("/_app/keys")({
   head: () => ({ meta: [{ title: "Keys · via" }] }),
@@ -67,7 +67,15 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     fontVariantNumeric: "tabular-nums",
   },
-  actions: { textAlign: "right" },
+  // The button's cell hugs it at the table's right edge.
+  actions: {
+    display: "flex",
+    justifyContent: "flex-end",
+  },
+  // Narrow screens keep the trash icon and drop the word; the button's name stays.
+  revokeLabel: {
+    display: { default: "none", "@media (min-width: 640px)": "inline" },
+  },
   form: {
     display: "flex",
     flexDirection: "column",
@@ -217,12 +225,31 @@ function RevokeDialog({ apiKey, onClose }: { readonly apiKey: Key; readonly onCl
         </DialogHeader>
         <DialogFooter>
           <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-          <Button loading={mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button
+            variant="destructive"
+            loading={mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            <TrashIcon size={15} />
             Revoke key
           </Button>
         </DialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+/** When a key was last used, "3 min ago", ticking; the full time on hover. */
+function LastUsed({ at }: { readonly at: string | null }) {
+  // A minute is the finest step "min ago" shows.
+  const now = useNow(60_000);
+
+  if (at === null) return <span {...stylex.props(styles.date)}>Never</span>;
+
+  return (
+    <time dateTime={at} title={formatTimestamp(at)} {...stylex.props(styles.date)}>
+      {timeAgo(at, now)}
+    </time>
   );
 }
 
@@ -269,6 +296,7 @@ function Keys() {
                   <TableHead>Name</TableHead>
                   <TableHead>Id</TableHead>
                   <TableHead>Created</TableHead>
+                  <TableHead>Last used</TableHead>
                   <TableHead>
                     <VisuallyHidden>Actions</VisuallyHidden>
                   </TableHead>
@@ -292,14 +320,20 @@ function Keys() {
                       <span {...stylex.props(styles.date)}>{formatDate(key.createdAt)}</span>
                     </TableCell>
                     <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="compact"
-                        aria-label={`Revoke ${key.name}`}
-                        onClick={() => setOpen({ dialog: "revoke", key })}
-                      >
-                        Revoke
-                      </Button>
+                      <LastUsed at={key.lastUsedAt} />
+                    </TableCell>
+                    <TableCell>
+                      <div {...stylex.props(styles.actions)}>
+                        <Button
+                          variant="destructive"
+                          size="compact"
+                          aria-label={`Revoke ${key.name}`}
+                          onClick={() => setOpen({ dialog: "revoke", key })}
+                        >
+                          <TrashIcon size={14} />
+                          <span {...stylex.props(styles.revokeLabel)}>Revoke</span>
+                        </Button>
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

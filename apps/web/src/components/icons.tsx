@@ -1,4 +1,7 @@
-/** The app's glyphs: 24-unit stroke icons in Lucide's geometry, drawn at `size`. */
+/**
+ * The app's glyphs, drawn at `size`: mostly 24-unit stroke icons in Lucide's
+ * geometry, and a few filled ones (`Glyph`).
+ */
 import type { ReactNode } from "react";
 
 interface IconProps {
@@ -42,11 +45,24 @@ export const AccountsIcon = (props: IconProps) => (
 );
 
 export const KeyIcon = (props: IconProps) => (
-  <Icon {...props}>
-    <path d="m15.5 7.5 2.3 2.3a1 1 0 0 0 1.4 0l2.1-2.1a1 1 0 0 0 0-1.4L19 4" />
-    <path d="m21 2-9.6 9.6" />
-    <circle cx="7.5" cy="15.5" r="5.5" />
-  </Icon>
+  <Glyph {...props}>
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M22 8.5C22 12.0899 19.0899 15 15.5 15C14.7504 15 14.0304 14.8731 13.3604 14.6396L11.5858 16.4142C11.2107 16.7893 10.702 17 10.1716 17H9.5C9.22386 17 9 17.2239 9 17.5V18.1716C9 18.702 8.78929 19.2107 8.41421 19.5858L7.58579 20.4142C7.21071 20.7893 6.70201 21 6.17157 21H4C3.44772 21 3 20.5523 3 20V17.8284C3 17.298 3.21071 16.7893 3.58579 16.4142L9.36037 10.6396C9.12689 9.96959 9 9.24962 9 8.5C9 4.91015 11.9101 2 15.5 2C19.0899 2 22 4.91015 22 8.5ZM17 8.5C17 9.32843 16.3284 10 15.5 10C14.6716 10 14 9.32843 14 8.5C14 7.67157 14.6716 7 15.5 7C16.3284 7 17 7.67157 17 8.5Z"
+    />
+  </Glyph>
+);
+
+/** A destructive action's glyph: revoking a key, removing an account. */
+export const TrashIcon = (props: IconProps) => (
+  <Glyph {...props}>
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M7.86847 5H3.25C2.83579 5 2.5 5.33579 2.5 5.75C2.5 6.16421 2.83579 6.5 3.25 6.5H3.99997C3.99999 6.5174 4.00061 6.53492 4.00184 6.55253L4.90696 19.4426C5.00811 20.8831 6.20617 22 7.6502 22H16.3498C17.7938 22 18.9919 20.8831 19.093 19.4426L19.9982 6.55253C19.9994 6.53492 20 6.5174 20 6.5H20.75C21.1642 6.5 21.5 6.16421 21.5 5.75C21.5 5.33579 21.1642 5 20.75 5H16.1315C15.6816 3.13507 14.003 1.75 12 1.75C9.99701 1.75 8.31844 3.13507 7.86847 5ZM9.43728 5H14.5627C14.1628 3.97583 13.1658 3.25 12 3.25C10.8342 3.25 9.83724 3.97583 9.43728 5ZM10 9.75C10.4142 9.75 10.75 10.0858 10.75 10.5V16.25C10.75 16.6642 10.4142 17 10 17C9.58579 17 9.25 16.6642 9.25 16.25V10.5C9.25 10.0858 9.58579 9.75 10 9.75ZM14 9.75C14.4142 9.75 14.75 10.0858 14.75 10.5V16.25C14.75 16.6642 14.4142 17 14 17C13.5858 17 13.25 16.6642 13.25 16.25V10.5C13.25 10.0858 13.5858 9.75 14 9.75Z"
+    />
+  </Glyph>
 );
 
 export const ModelsIcon = (props: IconProps) => (
@@ -141,7 +157,7 @@ export function Mark({ size = 24 }: IconProps) {
   );
 }
 
-/** A brand mark: a 24-unit filled glyph in the current text colour, drawn at `size`. */
+/** A 24-unit filled glyph in the current text colour, drawn at `size`: a brand mark, a key. */
 function Glyph({ size = 16, children }: IconProps & { readonly children: ReactNode }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
