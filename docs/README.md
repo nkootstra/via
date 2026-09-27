@@ -261,19 +261,19 @@ cookie instead, so the key is never kept in the page:
 
 ## Commands
 
-| Command                                  | What it does                                                  |
-| ---------------------------------------- | ------------------------------------------------------------- |
-| `via accounts add`                       | Log in to a ChatGPT account with a device code.               |
-| `via accounts list`                      | List accounts in the order they are used.                     |
-| `via accounts status`                    | Show how much of each account's 5h and weekly limits is used. |
-| `via accounts label <account> <label>`   | Rename an account.                                            |
-| `via accounts disable <account>`         | Stop using an account without removing it.                    |
-| `via accounts enable <account>`          | Use it again.                                                 |
-| `via accounts remove <account>`          | Forget an account and delete its tokens.                      |
-| `via keys create --name <name>`          | Create an API key. It is printed once.                        |
-| `via keys list`                          | List keys.                                                    |
-| `via keys revoke <id-or-name>`           | Revoke a key.                                                 |
-| `via serve [--host <addr>] [--port <n>]` | Serve the API in the foreground.                              |
+| Command                                  | What it does                                                    |
+| ---------------------------------------- | --------------------------------------------------------------- |
+| `via accounts add`                       | Log in to a ChatGPT account with a device code.                 |
+| `via accounts list`                      | List accounts in the order they are used.                       |
+| `via accounts status`                    | Show each account's and provider's limits and how much is used. |
+| `via accounts label <account> <label>`   | Rename an account.                                              |
+| `via accounts disable <account>`         | Stop using an account without removing it.                      |
+| `via accounts enable <account>`          | Use it again.                                                   |
+| `via accounts remove <account>`          | Forget an account and delete its tokens.                        |
+| `via keys create --name <name>`          | Create an API key. It is printed once.                          |
+| `via keys list`                          | List keys.                                                      |
+| `via keys revoke <id-or-name>`           | Revoke a key.                                                   |
+| `via serve [--host <addr>] [--port <n>]` | Serve the API in the foreground.                                |
 
 `<account>` matches an account's id, label or email.
 

@@ -204,7 +204,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
-  it.effect("status also shows the usage of providers that report it", () =>
+  it.effect("status shows each provider like an account, its windows lined up with theirs", () =>
     Effect.gen(function* () {
       const provider = yield* startFakeProvider;
       provider.usage({
@@ -219,9 +219,51 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(0);
       expect(status.stdout).toMatch(/5h\s+12% used/);
-      expect(status.stdout).toMatch(/^opencode-go$/m);
+      expect(status.stdout).toMatch(/^opencode-go {2}provider {2}available$/m);
       expect(status.stdout).toMatch(/rolling\s+0% used\s+resets 2026-09-26 23:40/);
       expect(status.stdout).toMatch(/weekly\s+26% used\s+resets 2026-09-28 00:00/);
+
+      const columns = status.stdout
+        .split("\n")
+        .filter((line) => line.includes("% used"))
+        .map((line) => line.indexOf("% used"));
+
+      expect(columns).toHaveLength(4);
+      expect(new Set(columns).size).toBe(1);
+    }),
+  );
+
+  it.effect("status shows a provider with a used-up window as exhausted until it resets", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      provider.usage({
+        usage: {
+          rolling: { status: "ok", percent: 30, resetsAt: "2099-01-01T05:00:00.000Z" },
+          weekly: { status: "rate-limited", percent: 100, resetsAt: "2099-01-04T00:00:00.000Z" },
+        },
+      });
+      const { via, home } = yield* setup({ env: { GO_KEY: "sk-go" } });
+      yield* configureOpenCodeGo(home, provider);
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(
+        /^opencode-go {2}provider {2}exhausted until 2099-01-04 00:00 \(weekly\)$/m,
+      );
+      expect(status.stdout).toMatch(/weekly\s+100% used\s+resets 2099-01-04 00:00/);
+    }),
+  );
+
+  it.effect("status shows a provider that reports no usage as available", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      const { via, home } = yield* setup({ env: { LOCAL_KEY: "sk-local" } });
+      yield* writeConfig(
+        home,
+        `providers:\n  local:\n    baseUrl: ${provider.url}\n    apiKeyEnv: LOCAL_KEY\n`,
+      );
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(/^local {2}provider {2}available$/m);
     }),
   );
 
@@ -234,7 +276,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(0);
       expect(status.stdout).toMatch(
-        /^opencode-go\n {2}opencode-go did not report usage \(HTTP 500\)$/m,
+        /^opencode-go {2}provider {2}unavailable: opencode-go did not report usage \(HTTP 500\)$/m,
       );
     }),
   );

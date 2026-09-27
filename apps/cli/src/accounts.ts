@@ -3,8 +3,9 @@ import { type Account, AccountStore, AccountTokens, CodexAuth } from "@via/codex
 import { CodexUpstream } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
 import type { UsageWindow } from "@via/pool";
-import { Providers } from "@via/providers";
-import { Console, Effect, Layer } from "effect";
+import { Providers, providerState } from "@via/providers";
+import type { ProviderState } from "@via/providers/schemas";
+import { Clock, Console, Effect, Layer } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 import { apiKeys } from "./api-keys.ts";
 import { version } from "./version.ts";
@@ -41,46 +42,73 @@ const list = Command.make("list", {}, () =>
 
 const pad = (n: number) => String(n).padStart(2, "0");
 
-/** A window as `5h    12% used  resets 2023-11-14 23:13`, in local time. */
-const usageLine = (name: string, usedPercent: number, resetsAt: Date) => {
-  const date = `${resetsAt.getFullYear()}-${pad(resetsAt.getMonth() + 1)}-${pad(resetsAt.getDate())}`;
-  const time = `${pad(resetsAt.getHours())}:${pad(resetsAt.getMinutes())}`;
+/** A time as `2023-11-14 23:13`, in local time. */
+const localTime = (at: Date) =>
+  `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
 
-  return `  ${name.padEnd(4)} ${String(usedPercent).padStart(3)}% used  resets ${date} ${time}`;
+/** A usage window as a line shows it. */
+type Row = { readonly name: string; readonly usedPercent: number; readonly resetsAt: Date };
+
+/**
+ * A window as `5h    12% used  resets 2023-11-14 23:13`, its name padded to `width`
+ * so that every account's and provider's windows line up.
+ */
+const usageLine = (width: number, { name, usedPercent, resetsAt }: Row) =>
+  `  ${name.padEnd(width)} ${String(usedPercent).padStart(3)}% used  resets ${localTime(resetsAt)}`;
+
+const accountRow = ({ windowMinutes, usedPercent, resetsAt }: UsageWindow): Row => ({
+  name: windowMinutes % 1440 === 0 ? `${windowMinutes / 1440}d` : `${windowMinutes / 60}h`,
+  usedPercent,
+  resetsAt: new Date(resetsAt),
+});
+
+/** A provider's state as its line ends: `available`, or why it isn't. */
+const describeState = (state: ProviderState) => {
+  switch (state.status) {
+    case "available":
+      return "available";
+    case "exhausted":
+      return `exhausted until ${localTime(new Date(state.until))} (${state.window})`;
+    case "unavailable":
+      return `unavailable: ${state.reason}`;
+  }
 };
 
-const formatWindow = ({ windowMinutes, usedPercent, resetsAt }: UsageWindow) =>
-  usageLine(
-    windowMinutes % 1440 === 0 ? `${windowMinutes / 1440}d` : `${windowMinutes / 60}h`,
-    usedPercent,
-    new Date(resetsAt),
-  );
+/**
+ * Each configured provider, like an account: a line with its state, as the admin
+ * API's pool tells it, and the windows of one that reports usage, such as OpenCode Go.
+ */
+const providerSections = Effect.gen(function* () {
+  const providers = yield* Providers;
+  const reports = yield* providers.usage;
+  const now = yield* Clock.currentTimeMillis;
 
-/** Each configured provider that reports usage, such as OpenCode Go, with its windows. */
-const showProviderUsage = Effect.gen(function* () {
-  for (const usage of yield* (yield* Providers).usage) {
-    yield* Console.log(usage.provider);
+  return providers.names.map((name) => {
+    const usage = reports.find(({ provider }) => provider === name);
 
-    if ("error" in usage) {
-      yield* Console.log(`  ${usage.error}`);
-      continue;
-    }
-
-    for (const { window, usedPercent, resetsAt } of usage.windows) {
-      yield* Console.log(usageLine(window, usedPercent, new Date(resetsAt)));
-    }
-  }
+    return {
+      line: `${name}  provider  ${describeState(providerState(usage, now))}`,
+      rows:
+        usage === undefined || "error" in usage
+          ? []
+          : usage.windows.map(({ window, usedPercent, resetsAt }) => ({
+              name: window,
+              usedPercent,
+              resetsAt: new Date(resetsAt),
+            })),
+    };
+  });
 });
 
 /** Why an account's usage is missing, in place of its windows. */
 const why = (error: { readonly message: string }) => Effect.succeed([`  ${error.message}`]);
 
-const showUsage = Effect.fnUntraced(function* (account: Account) {
+const showUsage = Effect.fnUntraced(function* (width: number, account: Account) {
   yield* Console.log(describe(account));
 
   // `status` runs apart from `via serve`, so a failed refresh is only reported here.
   const lines = yield* accountUsage(account).pipe(
-    Effect.map((windows) => windows.map(formatWindow)),
+    Effect.map((windows) => windows.map((window) => usageLine(width, accountRow(window)))),
     Effect.catchTags({
       RefreshRejectedError: why,
       UsageUnavailableError: why,
@@ -94,7 +122,9 @@ const showUsage = Effect.fnUntraced(function* (account: Account) {
   for (const line of lines) yield* Console.log(line);
 });
 
-const say = (error: { readonly message: string }) => Console.log(error.message);
+/** A provider that can't be set up, e.g. for a missing API key, says so in its place. */
+const say = (error: { readonly message: string }) =>
+  Effect.succeed([{ line: error.message, rows: [] }]);
 
 const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
   Command.make("status", {}, () =>
@@ -102,16 +132,8 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
       const config = yield* loadConfig(configPath);
       const accounts = yield* (yield* AccountStore).list;
 
-      if (accounts.length === 0) yield* Console.log(noAccounts);
-      yield* Effect.forEach(accounts, showUsage, { discard: true }).pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            AccountTokens.layer,
-            CodexUpstream.layer({ baseUrl: upstreamBaseUrl, cloak: config.codex.cloak, version }),
-          ),
-        ),
-      );
-      yield* showProviderUsage.pipe(
+      // Asked first, so the accounts' windows can line up with the providers' longer names.
+      const providers = yield* providerSections.pipe(
         Effect.provide(
           Providers.layer({
             providers: config.providers,
@@ -119,9 +141,31 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
             version,
           }),
         ),
-        // A provider that can't be set up, e.g. for a missing API key, says so here.
         Effect.catchTags({ MissingApiKeyError: say, UnknownProviderError: say }),
       );
+
+      const width = Math.max(
+        4,
+        ...providers.flatMap(({ rows }) => rows.map(({ name }) => name.length)),
+      );
+
+      if (accounts.length === 0) yield* Console.log(noAccounts);
+      yield* Effect.forEach(accounts, (account) => showUsage(width, account), {
+        discard: true,
+      }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            AccountTokens.layer,
+            CodexUpstream.layer({ baseUrl: upstreamBaseUrl, cloak: config.codex.cloak, version }),
+          ),
+        ),
+      );
+
+      for (const { line, rows } of providers) {
+        yield* Console.log(line);
+
+        for (const row of rows) yield* Console.log(usageLine(width, row));
+      }
     }),
   ).pipe(
     Command.withDescription("Show how much of its rate limits each account and provider has used"),
