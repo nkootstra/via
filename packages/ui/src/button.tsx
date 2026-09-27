@@ -176,9 +176,16 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // The spinner's box is the control's height, so the glyph stays in
+  // proportion at either size.
   spinner: {
-    height: "100%",
-    aspectRatio: "1",
+    flexShrink: 0,
+    width: space.control,
+    height: space.control,
+  },
+  spinnerCompact: {
+    width: space.controlCompact,
+    height: space.controlCompact,
   },
   spinnerPath: {
     strokeDasharray: "15 85",
@@ -197,10 +204,15 @@ const surfaces = {
 } as const;
 
 /** The spinner: a figure eight traced by a dash that runs and breathes. */
-function Spinner() {
+function Spinner({ compact }: { readonly compact: boolean }) {
   return (
     <span {...stylex.props(styles.spinnerBox)}>
-      <svg {...stylex.props(styles.spinner)} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <svg
+        {...stylex.props(styles.spinner, compact && styles.spinnerCompact)}
+        viewBox="0 0 24 24"
+        fill="none"
+        aria-hidden="true"
+      >
         <path
           {...stylex.props(styles.spinnerPath)}
           d="M 12 12 C 14 8.5 19 8.5 19 12 C 19 15.5 14 15.5 12 12 C 10 8.5 5 8.5 5 12 C 5 15.5 10 15.5 12 12 Z"
@@ -244,7 +256,7 @@ export function Button({
         {loading ? (
           <>
             <span {...stylex.props(styles.content, styles.hidden)}>{children}</span>
-            <Spinner />
+            <Spinner compact={size === "compact" || size === "icon-compact"} />
           </>
         ) : (
           children

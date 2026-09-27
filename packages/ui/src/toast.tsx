@@ -12,7 +12,7 @@ import { Button } from "./button.tsx";
 import { XIcon } from "./icons.tsx";
 import { forMotion } from "./motion-props.ts";
 import { spring } from "./springs.ts";
-import { colors, radii, shadows, space, text, weights } from "./tokens.stylex.ts";
+import { colors, fonts, radii, shadows, space, text, weights } from "./tokens.stylex.ts";
 
 const styles = stylex.create({
   viewport: {
@@ -38,6 +38,8 @@ const styles = stylex.create({
     borderRadius: radii.container,
     backgroundColor: colors.surface5,
     boxShadow: shadows.surface5,
+    // Portalled to <body>, so it brings its own font.
+    fontFamily: fonts.sans,
     outline: {
       default: "none",
       ":focus-visible": `1px solid ${colors.focusRing}`,

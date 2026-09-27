@@ -10,7 +10,7 @@ import { createContext, use, useId, type ReactNode } from "react";
 import { FluidHighlight, useFluidHover } from "./fluid-hover.tsx";
 import { forMotion } from "./motion-props.ts";
 import { spring } from "./springs.ts";
-import { colors, durations, radii, shadows, space, text, weights } from "./tokens.stylex.ts";
+import { colors, durations, fonts, radii, shadows, space, text, weights } from "./tokens.stylex.ts";
 
 const styles = stylex.create({
   positioner: {
@@ -29,6 +29,8 @@ const styles = stylex.create({
     borderRadius: radii.container,
     backgroundColor: colors.surface3,
     boxShadow: shadows.surface3,
+    // Portalled to <body>, so it brings its own font.
+    fontFamily: fonts.sans,
     userSelect: "none",
     outline: "none",
   },
