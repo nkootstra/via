@@ -112,7 +112,7 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
         yield* TestClock.adjust("15 minutes");
         yield* logged(`${account.label} is cooling down`);
         expect(yield* states.get).toEqual({
-          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_limit_reached" },
+          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_exhausted" },
         });
       }),
     ),
@@ -135,7 +135,7 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
         yield* logged(`${account.label}'s usage is unchanged`);
         expect(codex.requests).toHaveLength(2);
         expect(yield* states.get).toEqual({
-          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_limit_reached" },
+          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_exhausted" },
         });
       }),
     ),
@@ -153,7 +153,7 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
         yield* TestClock.adjust("15 minutes");
         yield* logged(`${account.label} is cooling down until`);
         expect(yield* states.get).toEqual({
-          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_limit_reached" },
+          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_exhausted" },
         });
       }),
     ),

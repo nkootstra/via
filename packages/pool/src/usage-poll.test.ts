@@ -52,7 +52,7 @@ describe("decideUsagePoll", () => {
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({
       changed: true,
       until: NOW + 60_000,
-      reason: "usage_limit_reached",
+      reason: "usage_exhausted",
     });
   });
 
@@ -61,7 +61,7 @@ describe("decideUsagePoll", () => {
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({
       changed: true,
       until: NOW + 60_000,
-      reason: "usage_limit_reached",
+      reason: "usage_exhausted",
     });
   });
 
@@ -79,7 +79,7 @@ describe("decideUsagePoll", () => {
     expect(decideUsagePoll(windows, undefined, NOW)).toEqual({
       changed: true,
       until: NOW + 120_000,
-      reason: "usage_limit_reached",
+      reason: "usage_exhausted",
     });
   });
 
@@ -95,7 +95,7 @@ describe("decideUsagePoll", () => {
     expect(decideUsagePoll(windows, current, NOW)).toEqual({
       changed: true,
       until: NOW + 120_000,
-      reason: "usage_limit_reached",
+      reason: "usage_exhausted",
     });
   });
 
