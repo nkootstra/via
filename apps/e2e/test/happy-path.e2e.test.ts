@@ -2,7 +2,17 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
-import { chat, frames, json, launchVia, openai, post, startCodex, type Via } from "./harness.ts";
+import {
+  chat,
+  decodeJson,
+  frames,
+  json,
+  launchVia,
+  openai,
+  post,
+  startCodex,
+  type Via,
+} from "./harness.ts";
 
 // Everything that should just work: both endpoints, streaming and not, tool
 // calls, usage accounting, model listing, and the upstream shape via forwards.
@@ -20,10 +30,6 @@ const postJson = <S extends Schema.ConstraintDecoder<unknown>>(
     // Test boundary: an answer that doesn't decode fails the test.
     Effect.orDie,
   );
-
-/** Decodes one JSON text, such as an SSE `data` line, with `schema`. */
-const decodeJson = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
-  Schema.decodeUnknownSync(Schema.fromJsonString(schema));
 
 const postText = (via: Via, path: string, body: Schema.JsonObject) =>
   post(via, path, body).pipe(Effect.flatMap((response) => Effect.promise(() => response.text())));
