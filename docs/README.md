@@ -123,7 +123,8 @@ with Compose or a platform with volumes. What via needs from it:
 - **A health check** on `GET /healthz`. It answers `200 ok` without a key and
   isn't logged.
 - **Provider keys as the host's secrets**, passed as the environment variables
-  `config.yaml` names.
+  `config.yaml` names. So is `VIA_ADMIN_KEY`, if you want the
+  [admin API](#admin-api) instead of `docker exec`.
 
 The image is private while the repository is. Log the host in to ghcr.io
 with a GitHub token that has only the `read:packages` scope:
@@ -160,6 +161,47 @@ Add an effort suffix to a model id to pick the reasoning effort, as in
 `gpt-6-astra-high`. The list shows each model with the suffixes it supports,
 from `-none`, `-low`, `-medium`, `-high`, `-xhigh`, `-max` and `-ultra`. Other
 model ids are passed through to Codex unchanged.
+
+### Admin API
+
+With `VIA_ADMIN_KEY` set, `via serve` also serves `/admin`, which does what the
+`via accounts` and `via keys` commands do, over HTTP. Without it, `/admin`
+doesn't exist and answers 404. The key must be at least 32 characters, or
+`via serve` refuses to start; `openssl rand -hex 32` makes one.
+
+Every `/admin` route needs `Authorization: Bearer <VIA_ADMIN_KEY>`. API keys
+from `via keys create` don't work on `/admin`, and the admin key doesn't work
+on `/v1`.
+
+| Route                              | What it does                                              |
+| ---------------------------------- | --------------------------------------------------------- |
+| `GET /admin/accounts`              | List accounts in the order they are used, without tokens. |
+| `PATCH /admin/accounts/<account>`  | Change `label` and/or `enabled`; returns the account.     |
+| `DELETE /admin/accounts/<account>` | Forget an account and delete its tokens.                  |
+| `POST /admin/accounts/logins`      | Start a device-code login.                                |
+| `GET /admin/accounts/logins/<id>`  | Check on a login: `pending`, `added` or `failed`.         |
+| `GET /admin/usage`                 | How much of each account's and provider's limits is used. |
+| `GET /admin/keys`                  | List API keys, never the keys themselves.                 |
+| `POST /admin/keys`                 | Create a key from `{"name": "..."}`. It is returned once. |
+| `DELETE /admin/keys/<id-or-name>`  | Revoke a key.                                             |
+
+`<account>` matches an account's id, label or email, as in the commands. An
+account, login or key that doesn't exist answers 404; a key name that is taken
+answers 409.
+
+To add an account, start a login, open `verificationUrl` and enter `userCode`,
+then poll the login until it's no longer `pending`:
+
+```sh
+curl -X POST -H "Authorization: Bearer $VIA_ADMIN_KEY" http://127.0.0.1:8317/admin/accounts/logins
+# {"id":"<id>","userCode":"ABCD-1234","verificationUrl":"https://auth.openai.com/codex/device"}
+
+curl -H "Authorization: Bearer $VIA_ADMIN_KEY" http://127.0.0.1:8317/admin/accounts/logins/<id>
+# {"status":"added","account":{"id":"...","label":"you@example.com",...}}
+```
+
+A login fails if it isn't approved within 15 minutes. Logins in progress are
+kept in memory, so restarting via cancels them.
 
 ## Commands
 
@@ -319,6 +361,8 @@ each request it serves. The other standard variables work too:
   `0600`, directory `0700`). Anyone who can read them can use your ChatGPT
   accounts.
 - API keys are stored only as SHA-256 hashes.
+- `VIA_ADMIN_KEY` can add, change and remove accounts and API keys. Keep it
+  out of clients; only its SHA-256 hash is compared, in constant time.
 - The server speaks plain HTTP. Keep it on `127.0.0.1`, or put your own TLS in
   front of it before listening on another interface.
 
