@@ -8,7 +8,7 @@ import {
 } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "@via/keys";
-import { Providers } from "@via/providers";
+import { ProviderUsage, Providers } from "@via/providers";
 import { LoginNotFoundError, Logins } from "./logins.ts";
 import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
 import {
@@ -71,22 +71,6 @@ const AccountUsage = Schema.Union([
     ),
   }),
   Schema.Struct({ id: Schema.String, label: Schema.String, error: Schema.String }),
-]);
-
-/** A provider's usage windows, such as OpenCode Go's, or why it did not report them. */
-const ProviderUsage = Schema.Union([
-  Schema.Struct({
-    provider: Schema.String,
-    windows: Schema.Array(
-      Schema.Struct({
-        window: Schema.String,
-        status: Schema.String,
-        usedPercent: Schema.Finite,
-        resetsAt: Schema.String,
-      }),
-    ),
-  }),
-  Schema.Struct({ provider: Schema.String, error: Schema.String }),
 ]);
 
 const Usage = Schema.Struct({

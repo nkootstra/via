@@ -54,9 +54,9 @@ export class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()
 }
 
 /** A provider answered its usage endpoint with something other than 200. */
-class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableError>()(
-  "UsageUnavailableError",
-  { provider: Schema.String, status: Schema.Number },
+class ProviderUsageUnavailableError extends Schema.TaggedError<ProviderUsageUnavailableError>()(
+  "ProviderUsageUnavailableError",
+  { provider: Schema.String, status: Schema.Finite },
 ) {
   override get message() {
     return `${this.provider} did not report usage (HTTP ${this.status})`;
@@ -78,19 +78,27 @@ const UsagePayload = Schema.Struct({
   ),
 });
 
-/** How much of one of a provider's limits is used, and when it starts over. */
-export type ProviderUsageWindow = {
-  readonly window: string;
-  readonly status: string;
-  readonly usedPercent: number;
-  /** ISO 8601, as the provider gives it. */
-  readonly resetsAt: string;
-};
+/**
+ * A provider's usage windows, such as OpenCode Go's, or why it could not report
+ * them. Each window says how much of one of its limits is used, and when it
+ * starts over (ISO 8601, as the provider gives it).
+ */
+export const ProviderUsage = Schema.Union([
+  Schema.Struct({
+    provider: Schema.String,
+    windows: Schema.Array(
+      Schema.Struct({
+        window: Schema.String,
+        status: Schema.String,
+        usedPercent: Schema.Finite,
+        resetsAt: Schema.String,
+      }),
+    ),
+  }),
+  Schema.Struct({ provider: Schema.String, error: Schema.String }),
+]);
 
-/** A provider's usage windows, or why it could not report them. */
-export type ProviderUsage =
-  | { readonly provider: string; readonly windows: ReadonlyArray<ProviderUsageWindow> }
-  | { readonly provider: string; readonly error: string };
+export type ProviderUsage = typeof ProviderUsage.Type;
 
 type Provider = {
   name: string;
@@ -148,7 +156,10 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         const response = yield* client.get(path);
 
         if (response.status !== 200) {
-          return yield* new UsageUnavailableError({ provider: name, status: response.status });
+          return yield* new ProviderUsageUnavailableError({
+            provider: name,
+            status: response.status,
+          });
         }
 
         const { usage } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
