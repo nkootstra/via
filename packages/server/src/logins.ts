@@ -7,14 +7,11 @@ type LoginState =
   | { readonly status: "added"; readonly account: Account }
   | { readonly status: "failed"; readonly error: string };
 
+/** No login with this id was started since the server did; the admin API answers it as a 404. */
 export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()(
   "LoginNotFoundError",
   { id: Schema.String },
-) {
-  override get message() {
-    return `No login with id "${this.id}"`;
-  }
-}
+) {}
 
 const make = Effect.gen(function* () {
   const auth = yield* CodexAuth;
