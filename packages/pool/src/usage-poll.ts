@@ -34,7 +34,7 @@ export const pollable = <A extends PoolAccount>(
  * for via to trust.
  */
 export const decideUsagePoll = (
-  windows: ReadonlyArray<UsageWindow>,
+  windows: ReadonlyArray<Pick<UsageWindow, "usedPercent" | "resetsAt">>,
   current: AccountState | undefined,
   now: number,
 ): UsagePollResult => {

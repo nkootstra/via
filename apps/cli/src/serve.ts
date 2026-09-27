@@ -4,7 +4,7 @@ import { AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
-import { OpencodeGoPool, Providers } from "@via/providers";
+import { OpencodeGoPool, OpencodeGoUsagePoll, Providers } from "@via/providers";
 import { type EmbeddedUi, ViaServer } from "@via/server";
 import {
   Config,
@@ -116,6 +116,7 @@ export const serve = ({
         const server = Layer.mergeAll(
           ViaServer.layer({ adminKey, ui }),
           UsagePoll.layer,
+          OpencodeGoUsagePoll.layer,
           importDeprecatedKey(config.providers, keys),
         ).pipe(
           Layer.provideMerge(
