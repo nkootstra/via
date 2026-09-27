@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import { Arbitrary } from "effect/unstable/arbitrary";
-import { classify, Verdict } from "./index.ts";
+import { classify, select, Verdict } from "./index.ts";
 
 const NOW = 1_700_000_000_000;
 
@@ -41,6 +41,16 @@ describe("classify", () => {
       { "retry-after": "120" },
       "",
       Verdict.Cooldown({ until: NOW + 2 * MINUTE, reason: "rate_limited" }),
+    ],
+    [
+      "a resets_at already past counts as no reset time",
+      429,
+      { "retry-after": "0" },
+      codexError({ type: "usage_limit_reached", resets_at: NOW / 1000 - 60 }),
+      Verdict.Cooldown({
+        until: NOW + 30 * MINUTE,
+        reason: "usage_limit_reached",
+      }),
     ],
     [
       "a quota error without reset time cools down for 30 minutes",
@@ -189,24 +199,32 @@ describe("properties", () => {
     },
   );
 
-  it.prop("a Cooldown's until is never before now", { input: inputs }, ({ input }) =>
-    Verdict.$match(toVerdict(input), {
-      Cooldown: (verdict) => verdict.until >= NOW,
-      Unauthorized: () => true,
-      PassThrough: () => true,
-    }),
+  it.prop(
+    "a Cooldown takes the account out of rotation right away",
+    { input: inputs },
+    ({ input }) =>
+      Verdict.$match(toVerdict(input), {
+        Cooldown: ({ until, reason }) => {
+          const account = { id: "a", enabled: true };
+          const state = { a: { status: "cooling", until, reason } } as const;
+
+          return Option.isNone(select([account], state, NOW));
+        },
+        Unauthorized: () => false,
+        PassThrough: () => false,
+      }),
   );
 
   it.prop(
-    "until is the later of resets_at/Retry-After, or the fixed fallback",
+    "until is the later of resets_at/Retry-After still ahead, or the fixed fallback",
     { input: inputs },
     ({ input }) => {
-      const known = [
+      const ahead = [
         input.hasResetsAt ? NOW + input.resetsAtOffsetSeconds * SECOND : undefined,
         input.hasRetryAfter ? NOW + input.retryAfterSeconds * SECOND : undefined,
-      ].filter((value): value is number => value !== undefined);
+      ].filter((value): value is number => value !== undefined && value > NOW);
 
-      const until = Math.max(NOW, known.length > 0 ? Math.max(...known) : NOW + 30 * MINUTE);
+      const until = ahead.length > 0 ? Math.max(...ahead) : NOW + 30 * MINUTE;
       expect(toVerdict(input)).toEqual(Verdict.Cooldown({ until, reason: QUOTA_CODE }));
     },
   );
