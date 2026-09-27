@@ -1,4 +1,4 @@
-import { readJsonFile, writeJsonFile } from "@via/config";
+import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
 import { Context, DateTime, Effect, FileSystem, Layer, Option, Schema, Semaphore } from "effect";
 import { createHash, timingSafeEqual } from "node:crypto";
 
@@ -53,8 +53,12 @@ const make = (path: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     // create and revoke read the file, then write it whole: run them one at a time, or
-    // concurrent changes (say, through the admin API) overwrite each other.
-    const serialized = Semaphore.withPermit(yield* Semaphore.make(1));
+    // concurrent changes overwrite each other. The semaphore orders this process's changes;
+    // the file lock orders them against another process's (`via keys` next to `via serve`).
+    const permit = Semaphore.withPermit(yield* Semaphore.make(1));
+
+    const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      permit(withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)));
 
     const read = readJsonFile(path, StoredKeys, () => []).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),

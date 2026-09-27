@@ -84,12 +84,22 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
           if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
 
           return withoutTokens(yield* store.find(id));
-        }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+        }).pipe(
+          Effect.catchTag(
+            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
+            Effect.die,
+          ),
+        ),
       )
       .handle("remove", ({ params }) =>
         Effect.gen(function* () {
           yield* (yield* AccountStore).remove((yield* byId(params.id)).id);
-        }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+        }).pipe(
+          Effect.catchTag(
+            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
+            Effect.die,
+          ),
+        ),
       );
   }),
 );
@@ -100,12 +110,12 @@ const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
     .handle("list", () => Effect.flatMap(KeyStore, (store) => store.list).pipe(Effect.orDie))
     .handle("create", ({ payload }) =>
       Effect.flatMap(KeyStore, (store) => store.create(payload.name)).pipe(
-        Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die),
+        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
       ),
     )
     .handle("revoke", ({ params }) =>
       Effect.flatMap(KeyStore, (store) => store.revoke(params.idOrName)).pipe(
-        Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die),
+        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
       ),
     ),
 );

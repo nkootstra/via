@@ -1,4 +1,4 @@
-import { CorruptFileError, writeJsonFile } from "@via/config";
+import { CorruptFileError, withFileLock, writeJsonFile } from "@via/config";
 import { Context, DateTime, Effect, FileSystem, Layer, Schema, Semaphore } from "effect";
 import { decodeIdToken } from "./claims.ts";
 import type { Tokens } from "./codex-auth.ts";
@@ -37,8 +37,13 @@ const make = (authDir: string) => {
     const fs = yield* FileSystem.FileSystem;
     // Changes read an account, then write it whole, one at a time: otherwise a label
     // change during a token refresh could write back the old, already-rotated tokens.
-    const lock = yield* Semaphore.make(1);
-    const serialized = Semaphore.withPermit(lock);
+    // The semaphore orders this process's changes; the lock on the whole directory (a login
+    // looks through every account) orders them against another process's, such as
+    // `via accounts label` next to `via serve` refreshing tokens.
+    const permit = Semaphore.withPermit(yield* Semaphore.make(1));
+
+    const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+      permit(withFileLock(authDir, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)));
 
     const readAccount = (path: string) =>
       fs.readFileString(path).pipe(

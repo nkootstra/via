@@ -1,7 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { CorruptFileError } from "@via/config";
-import { Effect, FileSystem, Option } from "effect";
+import { Context, Effect, FileSystem, Layer, Option } from "effect";
+import { TestClock } from "effect/testing";
 import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "./index.ts";
 
 const withKeyStore = <A, E>(
@@ -131,6 +132,35 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
         expect((yield* store.list).map((k) => k.name).toSorted()).toEqual(names);
       }),
     ),
+  );
+
+  it.effect("keeps every change made by two processes sharing the key file", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = `${yield* fs.makeTempDirectoryScoped()}/keys.json`;
+      // Two layers are two stores, each with its own in-process lock, as `via keys create`
+      // and a running `via serve` are.
+      const storeAt = Layer.build(KeyStore.layer(file)).pipe(Effect.map(Context.get(KeyStore)));
+      const cli = yield* storeAt;
+      const serve = yield* storeAt;
+      const revoked = yield* serve.create("old");
+
+      const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
+
+      // Live time: a store waiting on the other's lock file polls for it in real time.
+      yield* TestClock.withLive(
+        Effect.all(
+          [
+            Effect.forEach(names.slice(0, 4), cli.create, { concurrency: "unbounded" }),
+            Effect.forEach(names.slice(4), serve.create, { concurrency: "unbounded" }),
+            cli.revoke(revoked.id),
+          ],
+          { concurrency: "unbounded", discard: true },
+        ),
+      );
+
+      expect((yield* serve.list).map((k) => k.name).toSorted()).toEqual(names);
+    }),
   );
 
   it.effect("revokes only the key with a matching id when another key is named after that id", () =>
