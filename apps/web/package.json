@@ -3,9 +3,15 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./embedded": {
+      "types": "./embedded.d.ts",
+      "default": "./dist/embedded.ts"
+    }
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && bun scripts/embed.ts",
     "test": "bun --bun vitest run",
     "typecheck": "tsc -p ."
   },
