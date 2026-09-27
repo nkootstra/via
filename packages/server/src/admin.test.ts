@@ -22,6 +22,14 @@ const account = (name: string) => ({
 /** Decodes a started login, as `POST /admin/accounts/logins` answers it. */
 const decodeLogin = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }));
 
+/** The parts of an OpenAPI spec the tests look at. */
+const decodeSpec = Schema.decodeUnknownSync(
+  Schema.Struct({
+    paths: Schema.Record(Schema.String, Schema.Json),
+    components: Schema.Struct({ securitySchemes: Schema.Record(Schema.String, Schema.Json) }),
+  }),
+);
+
 /** The id of account `name` from the harness, as the admin API lists it. */
 const accountId = (via: Via, name: string) =>
   Effect.gen(function* () {
@@ -49,6 +57,47 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     withVia(ok, (via) =>
       Effect.gen(function* () {
         expect((yield* via.get("/admin/accounts", adminKey)).status).toBe(404);
+      }),
+    ),
+  );
+
+  it.effect("publishes its OpenAPI spec without the admin key", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.get("/admin/openapi.json", null);
+          expect(response.status).toBe(200);
+          const spec = decodeSpec(yield* response.json);
+          expect(Object.keys(spec.paths)).toEqual(
+            expect.arrayContaining(["/admin/accounts", "/admin/keys", "/admin/usage"]),
+          );
+          expect(Object.values(spec.components.securitySchemes)).toEqual([
+            { type: "http", scheme: "Bearer" },
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("serves an API reference page for the spec", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.get("/admin/docs", null);
+          expect(response.status).toBe(200);
+          expect(response.headers["content-type"]).toMatch(/^text\/html/);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("has no spec or reference page without VIA_ADMIN_KEY", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        expect((yield* via.get("/admin/openapi.json", null)).status).toBe(404);
+        expect((yield* via.get("/admin/docs", null)).status).toBe(404);
       }),
     ),
   );
