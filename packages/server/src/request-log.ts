@@ -29,10 +29,13 @@ export class RequestLog extends Context.Service<
     readonly refused: (code: string) => Effect.Effect<void>;
     /** Records the token usage the upstream reported for the answer. */
     readonly usage: (usage: TokenUsage) => Effect.Effect<void>;
-    /** `stream`, timed: the line waits for it to end and says when its first chunk came. */
+    /**
+     * `stream`, timed: the line waits for it to end and says when its first chunk came.
+     * It still fails as `stream` does, but without its error, which Bun would print.
+     */
     readonly timed: <A, E, R>(
       stream: Stream.Stream<A, E, R>,
-    ) => Effect.Effect<Stream.Stream<A, E, R>>;
+    ) => Effect.Effect<Stream.Stream<A, undefined, R>>;
   }
 >()("via/RequestLog") {}
 
@@ -166,6 +169,10 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
             Stream.onExit((exit) =>
               Effect.andThen(Ref.set(ended, Option.some(streamEnd(exit))), finish),
             ),
+            // Bun prints the error a response body fails with, stack and request included.
+            // Failing with `undefined` still cuts the client off, so a truncated answer never
+            // looks complete, but quietly: this line already says the stream failed.
+            Stream.mapError(() => undefined),
           ),
         ),
     });
