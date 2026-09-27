@@ -8,13 +8,11 @@ import {
 import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { authenticated, collected, dispatch, forward, openAiError } from "./dispatch.ts";
+import { authenticated, collected, dispatch, forward, modelOf, openAiError } from "./dispatch.ts";
 import { RequestLog } from "./request-log.ts";
 import { resolveSession } from "./session.ts";
 import { withSharedPrefix } from "./shared-prefix.ts";
 import { spotUsage } from "./token-usage.ts";
-
-const RequestBody = Schema.Record(Schema.String, Schema.Unknown);
 
 /**
  * POST /v1/chat/completions: Chat Completions, translated to and from Responses
@@ -26,12 +24,12 @@ export const chatCompletions = authenticated(
     const providers = yield* Providers;
 
     const raw = Option.map(
-      yield* HttpServerRequest.schemaBodyJson(RequestBody).pipe(Effect.option),
+      yield* HttpServerRequest.schemaBodyJson(Schema.JsonObject).pipe(Effect.option),
       withSharedPrefix,
     );
 
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
-    const route = Option.flatMap(raw, (body) => providers.route(body.model));
+    const route = Option.flatMap(Option.flatMap(raw, modelOf), providers.route);
 
     if (Option.isSome(raw) && Option.isSome(route)) {
       const session = resolveSession(headers, raw.value);
@@ -40,7 +38,9 @@ export const chatCompletions = authenticated(
     }
 
     const decoded = yield* Effect.fromOption(raw).pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(ChatRequest)),
+      Effect.flatMap((body) =>
+        Effect.map(Schema.decodeUnknownEffect(ChatRequest)(body), (chat) => ({ body, chat })),
+      ),
       Effect.option,
     );
 
@@ -52,9 +52,9 @@ export const chatCompletions = authenticated(
       );
     }
 
-    const chat = decoded.value;
+    const { body, chat } = decoded.value;
 
-    return yield* dispatch(toResponsesRequest(chat), resolveSession(headers, chat), (upstream) =>
+    return yield* dispatch(toResponsesRequest(chat), resolveSession(headers, body), (upstream) =>
       chat.stream === true
         ? Effect.map(
             log.timed(

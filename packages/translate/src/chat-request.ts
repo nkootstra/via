@@ -1,4 +1,4 @@
-import { Schema } from "effect";
+import { Predicate, Schema } from "effect";
 
 const TextPart = Schema.Struct({ type: Schema.Literal("text"), text: Schema.String });
 
@@ -44,7 +44,7 @@ const FunctionTool = Schema.Struct({
   function: Schema.Struct({
     name: Schema.String,
     description: Schema.optionalKey(Schema.String),
-    parameters: Schema.optionalKey(Schema.Unknown),
+    parameters: Schema.optionalKey(Schema.Json),
     strict: Schema.optionalKey(Schema.Boolean),
   }),
 });
@@ -64,7 +64,7 @@ const JsonSchemaFormat = Schema.Struct({
   json_schema: Schema.Struct({
     name: Schema.String,
     description: Schema.optionalKey(Schema.String),
-    schema: Schema.optionalKey(Schema.Unknown),
+    schema: Schema.optionalKey(Schema.Json),
     strict: Schema.optionalKey(Schema.Boolean),
   }),
 });
@@ -96,14 +96,13 @@ const userPart = (part: typeof UserPart.Type) =>
     : { type: "input_image", image_url: part.image_url.url };
 
 /** The Responses input items a chat message becomes; instructions become none. */
-const inputItems = (message: typeof Message.Type): ReadonlyArray<object> => {
+const inputItems = (message: typeof Message.Type): ReadonlyArray<Schema.JsonObject> => {
   if (Schema.is(InstructionMessage)(message)) return [];
 
   if (Schema.is(UserMessage)(message)) {
-    const parts =
-      typeof message.content === "string"
-        ? [{ type: "text" as const, text: message.content }]
-        : message.content;
+    const parts = Predicate.isString(message.content)
+      ? [{ type: "text" as const, text: message.content }]
+      : message.content;
 
     return [{ type: "message", role: "user", content: parts.map(userPart) }];
   }
@@ -145,7 +144,7 @@ const textFormat = (format: typeof ResponseFormat.Type) =>
     : { type: format.type };
 
 /** The Responses API request equivalent to a Chat Completions request. */
-export const toResponsesRequest = (chat: ChatRequest): Record<string, unknown> => ({
+export const toResponsesRequest = (chat: ChatRequest) => ({
   model: chat.model,
   instructions: chat.messages
     .filter(Schema.is(InstructionMessage))

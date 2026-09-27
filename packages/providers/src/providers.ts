@@ -61,9 +61,7 @@ class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableError>()(
 }
 
 /** A model as a provider describes it: an id, plus whatever else it tells. */
-const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [
-  Schema.Record(Schema.String, Schema.Unknown),
-]);
+const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 
 export type ProviderModel = typeof Model.Type;
 
@@ -179,7 +177,6 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         concurrency: "unbounded",
       }).pipe(Effect.map((lists) => lists.flat())),
       route: (model) => {
-        if (typeof model !== "string") return Option.none();
         const slash = model.indexOf("/");
         const provider = model.slice(0, slash);
 
@@ -223,7 +220,7 @@ export class Providers extends Context.Service<
   Providers,
   {
     /** The provider a `<provider>/<model>` id names, if it is configured. */
-    readonly route: (model: unknown) => Option.Option<Route>;
+    readonly route: (model: string) => Option.Option<Route>;
     /** The base URL requests to `provider` go to. */
     readonly baseUrl: (provider: string) => string | undefined;
     /**
@@ -240,7 +237,7 @@ export class Providers extends Context.Service<
     readonly send: (
       route: Route,
       path: ProviderPath,
-      body: Record<string, unknown>,
+      body: Schema.JsonObject,
       session: string,
     ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
   }

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { Schema } from "effect";
 
 type Headers = Readonly<Record<string, string | undefined>>;
 
@@ -11,7 +12,7 @@ type Headers = Readonly<Record<string, string | undefined>>;
 // (OpenCode Go among them) route by session, so sharing the parent's keeps
 // them on one warm prompt cache instead of each prefilling it cold.
 const sources: ReadonlyArray<
-  (headers: Headers, body: Readonly<Record<string, unknown>>) => unknown
+  (headers: Headers, body: Schema.JsonObject) => Schema.Json | undefined
 > = [
   (headers) => headers["x-parent-session-id"],
   (headers) => headers["x-opencode-session"],
@@ -30,24 +31,33 @@ const MAX_LENGTH = 256;
 
 const sha256 = (text: string) => createHash("sha256").update(text).digest("hex");
 
-const role = (message: unknown) =>
-  typeof message === "object" && message !== null && "role" in message ? message.role : undefined;
+const isId = Schema.is(Schema.NonEmptyString);
+
+const isInstruction = Schema.is(Schema.Struct({ role: Schema.Literals(["system", "developer"]) }));
+
+const isUser = Schema.is(Schema.Struct({ role: Schema.Literal("user") }));
+
+const isMessages = Schema.is(Schema.Array(Schema.Json));
+
+// A Responses input: a single string or a list of items.
+const isInput = Schema.is(Schema.Union([Schema.String, Schema.Array(Schema.Json)]));
 
 /**
  * The start of a conversation, which every later turn repeats: the first
  * system or developer message and the first user message, or for the
  * Responses API the instructions and the first input item.
  */
-const opening = (body: Readonly<Record<string, unknown>>) => {
-  const messages = Array.isArray(body["messages"]) ? body["messages"] : [];
+const opening = (body: Schema.JsonObject) => {
+  const messages = body["messages"];
   const input = body["input"];
 
-  return Array.isArray(input) || typeof input === "string" || body["instructions"] !== undefined
-    ? [body["instructions"], Array.isArray(input) ? input[0] : input]
-    : [
-        messages.find((message) => role(message) === "system" || role(message) === "developer"),
-        messages.find((message) => role(message) === "user"),
-      ];
+  if (isInput(input) || body["instructions"] !== undefined) {
+    return [body["instructions"], isMessages(input) ? input[0] : input];
+  }
+
+  const list = isMessages(messages) ? messages : [];
+
+  return [list.find(isInstruction), list.find(isUser)];
 };
 
 /**
@@ -55,14 +65,11 @@ const opening = (body: Readonly<Record<string, unknown>>) => {
  * on a warm prompt cache: the id the client sent, else one derived from the
  * conversation's opening, as OpenRouter does itself.
  */
-export const resolveSession = (
-  headers: Headers,
-  body: Readonly<Record<string, unknown>>,
-): string => {
+export const resolveSession = (headers: Headers, body: Schema.JsonObject): string => {
   for (const source of sources) {
     const id = source(headers, body);
 
-    if (typeof id === "string" && id !== "") return id.length > MAX_LENGTH ? sha256(id) : id;
+    if (isId(id)) return id.length > MAX_LENGTH ? sha256(id) : id;
   }
 
   return sha256(JSON.stringify(opening(body)));

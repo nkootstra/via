@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import type { ProviderConfig } from "@via/config";
-import { ConfigProvider, Effect, Layer, Option } from "effect";
+import { ConfigProvider, Effect, Layer, Option, Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { Providers } from "./index.ts";
 import { providerReply, startFakeProvider } from "./testing/index.ts";
@@ -24,7 +24,7 @@ const withProviders = <A, E, R>(
   );
 
 /** The request `name` sends for `body` in session "conv-1", configured as `config`. */
-const sent = (name: string, body: Record<string, unknown>, config: Partial<ProviderConfig> = {}) =>
+const sent = (name: string, body: Schema.JsonObject, config: Partial<ProviderConfig> = {}) =>
   Effect.gen(function* () {
     const fake = yield* startFakeProvider;
     fake.respond(providerReply.json({}));
@@ -46,7 +46,6 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         );
         expect(providers.route("gpt-6-astra")).toEqual(Option.none());
         expect(providers.route("other/qwen3")).toEqual(Option.none());
-        expect(providers.route(42)).toEqual(Option.none());
       }),
     ),
   );
