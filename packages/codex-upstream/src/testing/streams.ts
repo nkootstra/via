@@ -1,4 +1,4 @@
-// Test-only: Codex stream and usage payloads, for tests that need the raw bytes.
+// Test-only: Codex stream, usage and catalog payloads, for tests that need the raw bytes.
 import type { Schema } from "effect";
 
 /** A Responses stream event, named by its `type`. */
@@ -50,4 +50,36 @@ export const usagePayload = {
       reset_at: 1_700_086_400,
     },
   },
+};
+
+const levels = (efforts: ReadonlyArray<string>) =>
+  efforts.map((effort) => ({ effort, description: `${effort} effort` }));
+
+/** A `/codex/models` answer listing the models via bundles, with the same efforts. */
+export const modelsPayload = {
+  models: [
+    {
+      slug: "gpt-6-astra",
+      visibility: "list",
+      supported_reasoning_levels: levels(["low", "medium", "high", "xhigh", "max", "ultra"]),
+    },
+    {
+      slug: "gpt-6-sol",
+      visibility: "list",
+      supported_reasoning_levels: levels([
+        "none",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max",
+        "ultra",
+      ]),
+    },
+    {
+      slug: "gpt-6-luna",
+      visibility: "list",
+      supported_reasoning_levels: levels(["none", "low", "medium", "high", "xhigh", "max"]),
+    },
+  ],
 };

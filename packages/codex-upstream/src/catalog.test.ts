@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { CodexUpstream, ModelsUnavailableError } from "./index.ts";
+import { CodexUpstream, modelIds, ModelsUnavailableError } from "./index.ts";
 import { startFakeCodex } from "./testing/fake-codex.ts";
 
 const account = { accessToken: "at-1", accountId: "acc-1" };
@@ -41,6 +41,13 @@ layer(BunFileSystem.layer)("CodexUpstream.models", (it) => {
     }),
   );
 
+  it.effect("gets the bundled models from a fake Codex whose catalog is not scripted", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      expect(modelIds(yield* models(codex.url))).toEqual(modelIds());
+    }),
+  );
+
   it.effect("asks as the account, naming the Codex version it presents", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
@@ -58,10 +65,11 @@ layer(BunFileSystem.layer)("CodexUpstream.models", (it) => {
   it.effect("fails with ModelsUnavailableError when Codex does not answer 200", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
-      const error = yield* Effect.flip(models(codex.url));
+      // No Codex route lives under this prefix, so the fake answers 404.
+      const error = yield* Effect.flip(models(`${codex.url}/elsewhere`));
       expect(error).toBeInstanceOf(ModelsUnavailableError);
-      expect(error).toMatchObject({ status: 599 });
-      expect(error.message).toBe("Codex did not list its models (HTTP 599)");
+      expect(error).toMatchObject({ status: 404 });
+      expect(error.message).toBe("Codex did not list its models (HTTP 404)");
     }),
   );
 });

@@ -9,7 +9,7 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { type CodexEvent, sse, usagePayload } from "./streams.ts";
+import { type CodexEvent, modelsPayload, sse, usagePayload } from "./streams.ts";
 
 /** One request as via sent it: nothing redacted, nothing converted. */
 export type CodexRequest = {
@@ -238,7 +238,7 @@ export const startFakeCodex = Effect.gen(function* () {
   const shared: Array<Reply> = [];
   const perAccount = new Map<string, Array<Reply>>();
   const usageByAccount = new Map<string, { status: number; body: string }>();
-  let catalog: string | undefined;
+  let catalog = JSON.stringify(modelsPayload);
   const catalogByAccount = new Map<string, string>();
 
   const waiters: Array<{
@@ -316,11 +316,10 @@ export const startFakeCodex = Effect.gen(function* () {
       "/codex/models",
       Effect.gen(function* () {
         const request = yield* record({}, modelRequests);
-        const body = ofAccount(catalogByAccount, request) ?? catalog;
 
-        return body === undefined
-          ? yield* respond(unscripted(request))
-          : HttpServerResponse.text(body, { contentType: "application/json" });
+        return HttpServerResponse.text(ofAccount(catalogByAccount, request) ?? catalog, {
+          contentType: "application/json",
+        });
       }),
     ),
   );
@@ -354,7 +353,7 @@ export const startFakeCodex = Effect.gen(function* () {
       void usageByAccount.set(account, { status, body: jsonText(body) }),
     /**
      * Sets the `/codex/models` answer, for one account when `account` is given;
-     * until then, the catalog is unscripted.
+     * until then, it lists the models via bundles.
      */
     models: (body: Schema.Json, account?: string) => {
       if (account === undefined) catalog = jsonText(body);

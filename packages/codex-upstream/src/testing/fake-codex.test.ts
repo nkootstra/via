@@ -253,15 +253,6 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
     }),
   );
 
-  it.effect("fails an unscripted /codex/models request loudly", () =>
-    Effect.gen(function* () {
-      const codex = yield* startFakeCodex;
-      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
-      const response = yield* http.execute(HttpClientRequest.get(`${codex.url}/codex/models`));
-      expect(response.status).toBe(599);
-    }),
-  );
-
   it.effect("reads one of codex's HTTP error fixtures by name", () =>
     Effect.gen(function* () {
       const fixture = yield* codexErrorFixture("usage_limit_reached");
