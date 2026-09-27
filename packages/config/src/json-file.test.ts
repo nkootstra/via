@@ -61,4 +61,24 @@ layer(BunFileSystem.layer)("json files", (it) => {
       expect(yield* fs.readDirectory(dir)).toEqual(["a.json"]);
     }),
   );
+
+  it.effect("creates missing parent directories readable only by the owner", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = `${yield* tempDir}/nested`;
+      yield* writeJsonFile(`${dir}/secret.json`, Greeting, { hello: "x" });
+      expect((yield* fs.stat(dir)).mode & 0o777).toBe(0o700);
+    }),
+  );
+
+  it.effect("removes its temporary file when the write fails", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = yield* tempDir;
+      // A non-empty directory where the file should go makes the final rename fail.
+      yield* fs.makeDirectory(`${dir}/a.json/occupied`, { recursive: true });
+      yield* Effect.flip(writeJsonFile(`${dir}/a.json`, Greeting, { hello: "x" }));
+      expect(yield* fs.readDirectory(dir)).toEqual(["a.json"]);
+    }),
+  );
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { CodexUpstream, type ResponsesBody } from "./index.ts";
 import { reply, startFakeCodex } from "./testing/index.ts";
 
@@ -84,6 +84,42 @@ describe("CodexUpstream.send", () => {
       const { response } = yield* sendAndRecord({ model: "gpt-6-astra" });
       expect(response.status).toBe(200);
       expect(yield* response.text).toContain("response.completed");
+    }),
+  );
+});
+
+describe("CodexUpstream", () => {
+  it.effect("talks to the ChatGPT backend unless given another URL", () =>
+    Effect.gen(function* () {
+      const urls: Array<string> = [];
+
+      // Nothing leaves the process: every request is recorded and refused.
+      const recording = HttpClient.make((request, url) => {
+        urls.push(`${url.origin}${url.pathname}`);
+
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response(null, { status: 503 })),
+        );
+      });
+
+      yield* Effect.gen(function* () {
+        const codex = yield* CodexUpstream;
+        yield* codex.send(account, { model: "gpt-6-astra" }, "conv-1");
+        yield* Effect.flip(codex.usage(account));
+        yield* Effect.flip(codex.models(account));
+      }).pipe(
+        Effect.provide(
+          CodexUpstream.layer({ cloak: true, version: "1.2.3" }).pipe(
+            Layer.provide(Layer.succeed(HttpClient.HttpClient, recording)),
+          ),
+        ),
+      );
+
+      expect(urls).toEqual([
+        "https://chatgpt.com/backend-api/codex/responses",
+        "https://chatgpt.com/backend-api/wham/usage",
+        "https://chatgpt.com/backend-api/codex/models",
+      ]);
     }),
   );
 });

@@ -1,11 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { type Via, withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { type Via, ok, withVia } from "./harness.ts";
+import { LoginNotFoundError } from "./logins.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";
 
@@ -366,7 +364,10 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       ok,
       (via) =>
         Effect.gen(function* () {
-          expect((yield* via.get("/admin/accounts/logins/nope", adminKey)).status).toBe(404);
+          const response = yield* via.get("/admin/accounts/logins/nope", adminKey);
+          expect(response.status).toBe(404);
+          const error = yield* Schema.decodeUnknownEffect(LoginNotFoundError)(yield* response.json);
+          expect(error.id).toBe("nope");
         }),
       { adminKey },
     ),

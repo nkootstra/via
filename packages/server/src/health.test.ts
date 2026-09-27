@@ -1,10 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
-import { withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { ok, withVia } from "./harness.ts";
 
 layer(BunFileSystem.layer)("GET /healthz", (it) => {
   it.effect("answers a health check without a key", () =>

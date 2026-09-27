@@ -8,6 +8,7 @@ import {
   errorFixture,
   json,
   launchVia,
+  openai,
   post,
   responsesOf,
   runVia,
@@ -265,6 +266,55 @@ layer(BunFileSystem.layer)("pool", (it) => {
       expect(yield* json(response)).toEqual(errorBody);
       // A client-fault error is not retried against another account.
       expect(accountsOf(codex)).toEqual(["acc-a"]);
+    }),
+  );
+
+  it.effect("keeps a conversation on the account that answered it, while new ones fill first", () =>
+    Effect.gen(function* () {
+      const codex = yield* startCodex;
+      codex.respond(() => reply.text("pong"));
+      const via = yield* launchVia({ upstream: codex.url, accounts: pair });
+      yield* runVia(via.home, ["accounts", "disable", "a"], via.env);
+      yield* chat(via, "conversation one");
+      yield* runVia(via.home, ["accounts", "enable", "a"], via.env);
+
+      // Its next turn: same opening message, so the same conversation.
+      yield* Effect.promise(() =>
+        openai(via).chat.completions.create({
+          model: "gpt-6-astra",
+          messages: [
+            { role: "user", content: "conversation one" },
+            { role: "assistant", content: "pong" },
+            { role: "user", content: "and again" },
+          ],
+        }),
+      );
+      yield* chat(via, "conversation two");
+
+      expect(accountsOf(codex)).toEqual(["acc-b", "acc-b", "acc-a"]);
+    }),
+  );
+
+  it.effect("sends a model only some plans offer to an account whose plan offers it", () =>
+    Effect.gen(function* () {
+      const codex = yield* startCodex;
+      codex.models({ models: [{ slug: "gpt-6-astra" }] }, "acc-a");
+      codex.models({ models: [{ slug: "gpt-6-astra" }, { slug: "daybreak" }] }, "acc-b");
+      codex.respond(() => reply.text("pong"));
+      const via = yield* launchVia({ upstream: codex.url, accounts: pair });
+
+      const ask = (model: string) =>
+        Effect.promise(() =>
+          openai(via).chat.completions.create({
+            model,
+            messages: [{ role: "user", content: `ask ${model}` }],
+          }),
+        );
+
+      yield* ask("daybreak");
+      yield* ask("gpt-6-astra");
+
+      expect(accountsOf(codex)).toEqual(["acc-b", "acc-a"]);
     }),
   );
 });

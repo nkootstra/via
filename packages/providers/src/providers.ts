@@ -21,7 +21,7 @@ export type ProviderPath = "/chat/completions" | "/responses";
 type SessionTarget = { header: string } | "body" | undefined;
 
 /** Providers via knows, so config.yaml only needs their API key. */
-const PRESETS = new Map<string, { baseUrl: string; session: SessionTarget; usage?: string }>([
+const PRESETS = new Map<string, { baseUrl: string; session: SessionTarget; usagePath?: string }>([
   // https://openrouter.ai/docs/guides/best-practices/prompt-caching
   ["openrouter", { baseUrl: "https://openrouter.ai/api/v1", session: "body" }],
   // https://opencode.ai/docs/go/
@@ -30,7 +30,7 @@ const PRESETS = new Map<string, { baseUrl: string; session: SessionTarget; usage
     {
       baseUrl: "https://opencode.ai/zen/go/v1",
       session: { header: "x-opencode-session" },
-      usage: "/usage",
+      usagePath: "/usage",
     },
   ],
 ]);
@@ -105,8 +105,80 @@ type Provider = {
   /** Sends requests under the provider's base URL, with its API key. */
   client: HttpClient.HttpClient;
   session: SessionTarget;
-  usage: string | undefined;
+  /** The path of its usage endpoint, for a provider that reports usage. */
+  usagePath: string | undefined;
 };
+
+/** The provider `name` as its config describes it, filled in from its preset. */
+const resolve = (
+  http: HttpClient.HttpClient,
+  version: string,
+  name: string,
+  config: ProviderConfig,
+) =>
+  Effect.gen(function* () {
+    const preset = PRESETS.get(name);
+    const baseUrl = config.baseUrl ?? preset?.baseUrl;
+
+    if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
+
+    const apiKey = yield* Config.Redacted(config.apiKeyEnv).pipe(
+      Effect.mapError(() => new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv })),
+    );
+
+    return {
+      name,
+      client: HttpClient.mapRequest(http, (request) =>
+        request.pipe(
+          HttpClientRequest.prependUrl(baseUrl),
+          HttpClientRequest.bearerToken(apiKey),
+          HttpClientRequest.setHeader("user-agent", `via/${version}`),
+        ),
+      ),
+      session:
+        config.sessionHeader === undefined ? preset?.session : { header: config.sessionHeader },
+      usagePath: preset?.usagePath,
+    } satisfies Provider;
+  });
+
+/** The provider's models, with `<provider>/<model>` ids. */
+const modelsOf = ({ name, client }: Provider) =>
+  client.get("/models").pipe(
+    Effect.flatMap(HttpClientResponse.filterStatusOk),
+    Effect.flatMap(HttpClientResponse.schemaBodyJson(ModelList)),
+    Effect.map(({ data }) =>
+      data.map((model) => ({ provider: name, model: { ...model, id: `${name}/${model.id}` } })),
+    ),
+    // A provider that is down or answers oddly just has no models to offer now.
+    Effect.orElseSucceed(() => []),
+  );
+
+/** The usage the provider reports at `path`, or why it couldn't. */
+const usageOf = ({ name, client }: Provider, path: string) =>
+  Effect.gen(function* () {
+    const response = yield* client.get(path);
+
+    if (response.status !== 200) {
+      return yield* new ProviderUsageUnavailableError({ provider: name, status: response.status });
+    }
+
+    const { usage } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
+
+    return {
+      provider: name,
+      windows: Object.entries(usage).map(([window, { status, percent, resetsAt }]) => ({
+        window,
+        status,
+        usedPercent: percent,
+        resetsAt,
+      })),
+    } satisfies ProviderUsage;
+  }).pipe(
+    // One provider's usage failing, for whatever reason, doesn't hide the others'.
+    Effect.catch((error) =>
+      Effect.succeed<ProviderUsage>({ provider: name, error: error.message }),
+    ),
+  );
 
 const make = (configs: Record<string, ProviderConfig>, version: string) =>
   Effect.gen(function* () {
@@ -114,82 +186,19 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
     const providers = new Map<string, Provider>();
 
     for (const [name, config] of Object.entries(configs)) {
-      const preset = PRESETS.get(name);
-      const baseUrl = config.baseUrl ?? preset?.baseUrl;
-
-      if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
-
-      const apiKey = yield* Config.Redacted(config.apiKeyEnv).pipe(
-        Effect.mapError(
-          () => new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv }),
-        ),
-      );
-
-      providers.set(name, {
-        name,
-        client: HttpClient.mapRequest(http, (request) =>
-          request.pipe(
-            HttpClientRequest.prependUrl(baseUrl),
-            HttpClientRequest.bearerToken(apiKey),
-            HttpClientRequest.setHeader("user-agent", `via/${version}`),
-          ),
-        ),
-        session:
-          config.sessionHeader === undefined ? preset?.session : { header: config.sessionHeader },
-        usage: preset?.usage,
-      });
+      providers.set(name, yield* resolve(http, version, name, config));
     }
-
-    const list = ({ name, client }: Provider) =>
-      client.get("/models").pipe(
-        Effect.flatMap(HttpClientResponse.filterStatusOk),
-        Effect.flatMap(HttpClientResponse.schemaBodyJson(ModelList)),
-        Effect.map(({ data }) =>
-          data.map((model) => ({ provider: name, model: { ...model, id: `${name}/${model.id}` } })),
-        ),
-        // A provider that is down or answers oddly just has no models to offer now.
-        Effect.orElseSucceed(() => []),
-      );
-
-    const usageOf = ({ name, client }: Provider, path: string) =>
-      Effect.gen(function* () {
-        const response = yield* client.get(path);
-
-        if (response.status !== 200) {
-          return yield* new ProviderUsageUnavailableError({
-            provider: name,
-            status: response.status,
-          });
-        }
-
-        const { usage } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
-
-        return {
-          provider: name,
-          windows: Object.entries(usage).map(([window, { status, percent, resetsAt }]) => ({
-            window,
-            status,
-            usedPercent: percent,
-            resetsAt,
-          })),
-        } satisfies ProviderUsage;
-      }).pipe(
-        // One provider's usage failing, for whatever reason, doesn't hide the others'.
-        Effect.catch((error) =>
-          Effect.succeed<ProviderUsage>({ provider: name, error: error.message }),
-        ),
-      );
 
     const configured = [...providers.values()];
 
     return Providers.of({
       usage: Effect.all(
         configured.flatMap((provider) =>
-          provider.usage === undefined ? [] : [usageOf(provider, provider.usage)],
+          provider.usagePath === undefined ? [] : [usageOf(provider, provider.usagePath)],
         ),
         { concurrency: "unbounded" },
       ),
-      models: Effect.forEach(configured, list, { concurrency: "unbounded" }).pipe(
+      models: Effect.forEach(configured, modelsOf, { concurrency: "unbounded" }).pipe(
         Effect.map((lists) => lists.flat()),
       ),
       route: (model) => {

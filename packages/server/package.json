@@ -11,7 +11,6 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@effect/platform-bun": "catalog:",
     "@via/codex-auth": "workspace:*",
     "@via/codex-upstream": "workspace:*",
     "@via/keys": "workspace:*",
@@ -21,6 +20,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
     "@via/tsconfig": "workspace:*",
     "openai": "^7.23.0",

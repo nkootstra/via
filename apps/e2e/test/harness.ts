@@ -7,7 +7,7 @@ import {
   reply,
   startFakeCodex,
 } from "@via/codex-upstream/testing";
-import { Effect, Predicate, type Schema } from "effect";
+import { Effect, Predicate, Schema } from "effect";
 import OpenAI from "openai";
 
 export { freePort, realTime, runVia, tempHome } from "@via/cli/testing";
@@ -34,6 +34,8 @@ export const launchVia = (options: {
   /** Seed these accounts instead of logging one in through the fake issuer. */
   accounts?: ReadonlyArray<SeededAccount>;
   issuer?: FakeIssuerOptions;
+  /** More environment for every `via` command, `via serve` included. */
+  env?: Record<string, string>;
 }) =>
   Effect.gen(function* () {
     const { home, env, via } = yield* viaHome(options);
@@ -91,6 +93,10 @@ export const frames = (text: string) =>
       event: /^event: (.*)$/m.exec(block)?.[1],
       data: /^data: (.*)$/m.exec(block)?.[1] ?? "",
     }));
+
+/** Decodes one JSON text, such as an SSE `data` line, with `schema`. */
+export const decodeJson = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
+  Schema.decodeUnknownSync(Schema.fromJsonString(schema));
 
 /** A response's JSON body. */
 export const json = (response: Response) => Effect.promise(() => response.json());

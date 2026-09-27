@@ -151,6 +151,22 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       }),
   );
 
+  it.effect("status says to log in again when the issuer rejects an account's refresh token", () =>
+    Effect.gen(function* () {
+      const { via, home } = yield* setup({
+        issuer: { refreshResponse: { status: 401, body: { error: "invalid_grant" } } },
+      });
+
+      yield* seedAccounts(home, [{ name: "dev", expiresAt: 0 }]);
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(/dev\s+dev@example\.com\s+pro\s+enabled/);
+      expect(status.stdout).toContain(
+        "The refresh token was rejected (invalid_grant); log in to this account again",
+      );
+    }),
+  );
+
   it.effect("status refuses an invalid config.yaml", () =>
     Effect.gen(function* () {
       const { via, home } = yield* setup();

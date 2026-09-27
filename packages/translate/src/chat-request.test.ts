@@ -5,6 +5,8 @@ import { ChatRequest, toResponsesRequest } from "./chat-request.ts";
 const translate = (chat: Schema.Json) =>
   toResponsesRequest(Schema.decodeUnknownSync(ChatRequest)(chat));
 
+const parts = (...texts: ReadonlyArray<string>) => texts.map((text) => ({ type: "text", text }));
+
 describe("toResponsesRequest", () => {
   it("moves system messages into instructions and user text into input", () => {
     expect(
@@ -66,6 +68,28 @@ describe("toResponsesRequest", () => {
     ]);
   });
 
+  it("carries an image's detail over", () => {
+    expect(
+      translate({
+        model: "gpt-6-astra",
+        messages: [
+          {
+            role: "user",
+            content: [
+              { type: "image_url", image_url: { url: "https://x.test/a.png", detail: "low" } },
+            ],
+          },
+        ],
+      }).input,
+    ).toEqual([
+      {
+        type: "message",
+        role: "user",
+        content: [{ type: "input_image", image_url: "https://x.test/a.png", detail: "low" }],
+      },
+    ]);
+  });
+
   it("turns assistant tool calls and tool results into function call items", () => {
     expect(
       translate({
@@ -95,6 +119,43 @@ describe("toResponsesRequest", () => {
       { type: "function_call", call_id: "call_1", name: "weather", arguments: '{"city":"Paris"}' },
       { type: "function_call_output", call_id: "call_1", output: "Sunny" },
     ]);
+  });
+
+  it("reads system, assistant and tool content given as text parts", () => {
+    expect(
+      translate({
+        model: "gpt-6-astra",
+        messages: [
+          { role: "system", content: parts("Be ", "brief.") },
+          { role: "user", content: "Weather in Paris?" },
+          {
+            role: "assistant",
+            content: parts("Checking."),
+            tool_calls: [
+              { id: "call_1", type: "function", function: { name: "weather", arguments: "{}" } },
+            ],
+          },
+          { role: "tool", tool_call_id: "call_1", content: parts("Sun", "ny") },
+        ],
+      }),
+    ).toEqual({
+      model: "gpt-6-astra",
+      instructions: "Be brief.",
+      input: [
+        {
+          type: "message",
+          role: "user",
+          content: [{ type: "input_text", text: "Weather in Paris?" }],
+        },
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: "Checking." }],
+        },
+        { type: "function_call", call_id: "call_1", name: "weather", arguments: "{}" },
+        { type: "function_call_output", call_id: "call_1", output: "Sunny" },
+      ],
+    });
   });
 
   it("flattens function tools and a forced tool choice", () => {

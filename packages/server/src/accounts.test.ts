@@ -1,11 +1,25 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, reply } from "@via/codex-upstream/testing";
-import { Effect } from "effect";
+import type { Account } from "@via/codex-auth";
+import { PoolStates } from "@via/pool";
+import { Effect, Logger } from "effect";
 import { TestClock } from "effect/testing";
-import { withVia } from "./harness.ts";
+import { coolDown } from "./accounts.ts";
+import { ok, withVia } from "./harness.ts";
 
-const ok = () => reply.sse(completedStream("hello"));
+const account: Account = {
+  id: "id-a",
+  label: "a@example.com",
+  email: "a@example.com",
+  plan: "pro",
+  accountId: "acc-a",
+  accessToken: "at",
+  refreshToken: "rt",
+  idToken: "it",
+  expiresAt: 0,
+  enabled: true,
+  createdAt: "2026-01-01T00:00:00.000Z",
+};
 
 layer(BunFileSystem.layer)("choosing an account", (it) => {
   it.effect(
@@ -36,5 +50,24 @@ layer(BunFileSystem.layer)("choosing an account", (it) => {
           aExpiresAt: 7 * 60 * 1000,
         },
       ),
+  );
+
+  it.effect("warns only when a cooldown takes an account out of rotation for longer", () =>
+    Effect.gen(function* () {
+      const lines: Array<string> = [];
+
+      const logger = Logger.make(({ message }) => {
+        lines.push(String(message));
+      });
+
+      const cooled = yield* Effect.all([
+        coolDown(account, 60_000, "rate_limited"),
+        coolDown(account, 60_000, "rate_limited"),
+        coolDown(account, 30_000, "rate_limited"),
+      ]).pipe(Effect.provide([PoolStates.layer, Logger.layer([logger])]));
+
+      expect(cooled).toEqual([true, false, false]);
+      expect(lines.filter((line) => line.includes("is cooling down"))).toHaveLength(1);
+    }),
   );
 });

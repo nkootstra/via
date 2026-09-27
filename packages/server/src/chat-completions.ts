@@ -8,15 +8,11 @@ import {
 import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import {
-  authenticated,
-  collected,
-  dispatch,
-  forward,
-  modelOf,
-  openAiError,
-  relayed,
-} from "./dispatch.ts";
+import { authenticated } from "./authenticated.ts";
+import { dispatch, modelOf } from "./dispatch.ts";
+import { forward } from "./forward.ts";
+import { openAiError } from "./openai-error.ts";
+import { collected, relayed } from "./relay.ts";
 import { resolveSession } from "./session.ts";
 import { withSharedPrefix } from "./shared-prefix.ts";
 

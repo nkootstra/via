@@ -1,10 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
-import { type CodexRequest, completedStream, reply } from "@via/codex-upstream/testing";
+import { refreshedTokens } from "@via/codex-auth/testing";
+import { type CodexRequest, completedStream, reply, sse } from "@via/codex-upstream/testing";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
-import { refreshedAccessToken, withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { ok, withVia } from "./harness.ts";
 
 const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
 
@@ -64,6 +63,26 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     ),
   );
 
+  it.effect("answers a completed response that reports no usage", () =>
+    withVia(
+      () =>
+        reply.sse(
+          sse([
+            {
+              type: "response.completed",
+              response: { id: "resp_1", status: "completed", output: [] },
+            },
+          ]),
+        ),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", request);
+          expect(response.status).toBe(200);
+          expect(yield* response.json).toEqual({ id: "resp_1", status: "completed", output: [] });
+        }),
+    ),
+  );
+
   it.effect("uses the first account while it works", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
@@ -85,6 +104,17 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
             expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
           }),
       ),
+  );
+
+  it.effect("judges an error by its status when its body breaks off, and moves on", () =>
+    withVia(
+      (received) => (accountOf(received) === "acc-a" ? reply.hangUp(usageLimit(3600), 1) : ok()),
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b"]);
+        }),
+    ),
   );
 
   it.effect("answers 429 with Retry-After when every account is cooling down", () =>
@@ -120,7 +150,7 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
   it.effect("refreshes a rejected access token and retries with the same account", () =>
     withVia(
       (received) =>
-        received.headers.authorization === `Bearer ${refreshedAccessToken}`
+        received.headers.authorization === `Bearer ${refreshedTokens.access_token}`
           ? ok()
           : reply.error(401, { error: { code: "token_expired" } }),
       (via) =>

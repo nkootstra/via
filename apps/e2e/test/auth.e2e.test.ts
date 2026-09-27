@@ -40,6 +40,26 @@ const postChatCompletions = (via: Via, headers: Record<string, string>) =>
     }),
   );
 
+const ADMIN_KEY = "admin-key-that-is-long-enough-000";
+
+/** Calls via's admin API with `token` as the bearer token. */
+const admin = (
+  via: Via,
+  method: "GET" | "POST" | "DELETE",
+  path: string,
+  token: string,
+  body?: Schema.JsonObject,
+) =>
+  Effect.promise(() =>
+    fetch(`${via.url}/admin${path}`, {
+      method,
+      headers: { "content-type": "application/json", authorization: `Bearer ${token}` },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    }),
+  );
+
+const CreatedKey = Schema.Struct({ key: Schema.String });
+
 layer(BunFileSystem.layer)("via auth and tokens", (it) => {
   it.effect("rejects missing, non-Bearer, and wrong API keys without ever calling upstream", () =>
     Effect.gen(function* () {
@@ -267,5 +287,42 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       expect(listed.exitCode).toBe(0);
       expect(listed.stdout).toContain("dev@example.com");
     }),
+  );
+
+  it.effect(
+    "manages API keys over a running via's admin API, keeping the two kinds of key apart",
+    () =>
+      Effect.gen(function* () {
+        const upstream = yield* startCodex;
+        upstream.respond(() => reply.text("pong"));
+        const via = yield* launchVia({ upstream: upstream.url, env: { VIA_ADMIN_KEY: ADMIN_KEY } });
+
+        // Neither kind of key opens the other's routes.
+        const apiKeyOnAdmin = yield* admin(via, "GET", "/keys", via.key);
+
+        const adminKeyOnApi = yield* postChatCompletions(via, {
+          authorization: `Bearer ${ADMIN_KEY}`,
+        });
+
+        expect(apiKeyOnAdmin.status).toBe(401);
+        expect(adminKeyOnApi.status).toBe(401);
+
+        const created = yield* admin(via, "POST", "/keys", ADMIN_KEY, { name: "laptop" });
+        expect(created.status).toBe(201);
+
+        const { key } = yield* json(created).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(CreatedKey)),
+        );
+
+        const laptop = yield* chat({ ...via, key }, "ping");
+        expect(laptop.choices[0]?.message.content).toBe("pong");
+
+        expect((yield* admin(via, "DELETE", "/keys/laptop", ADMIN_KEY)).status).toBe(204);
+        const revoked = yield* postChatCompletions(via, { authorization: `Bearer ${key}` });
+        expect(revoked.status).toBe(401);
+
+        // The key via started with still works.
+        expect((yield* chat(via, "ping")).choices[0]?.message.content).toBe("pong");
+      }),
   );
 });

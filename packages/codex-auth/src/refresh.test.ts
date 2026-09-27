@@ -110,6 +110,15 @@ describe("refresh", () => {
     ),
   );
 
+  it.effect("fails with AuthRequestError when the new access token is not a JWT", () =>
+    withIssuer({ refreshResponse: { status: 200, body: { access_token: "opaque" } } }, () =>
+      Effect.gen(function* () {
+        const error = yield* Effect.flip((yield* CodexAuth).refresh(current));
+        expect(error).toBeInstanceOf(AuthRequestError);
+      }),
+    ),
+  );
+
   it.effect("fails with AuthRequestError when the refresh answer has no access token", () =>
     withIssuer({ refreshResponse: { status: 200, body: { id_token: "x" } } }, () =>
       Effect.gen(function* () {

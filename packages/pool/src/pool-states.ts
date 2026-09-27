@@ -1,5 +1,5 @@
 import { readJsonFile, writeJsonFile } from "@via/config";
-import { Clock, Context, Effect, FileSystem, Layer, Ref, Schema, Semaphore } from "effect";
+import { Clock, Context, Effect, FileSystem, Layer, Schema, SynchronizedRef } from "effect";
 import type { AccountState, PoolState } from "./select.ts";
 
 /** The cooldowns still running, by account id: what outlives a restart. */
@@ -19,30 +19,26 @@ const running = (state: PoolState, now: number): typeof Cooldowns.Type =>
 
 const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void>) =>
   Effect.gen(function* () {
-    const states = yield* Ref.make(initial);
     // Updates run one at a time, so each decides on the latest state and the file
     // never ends up with an older one.
-    const lock = yield* Semaphore.make(1);
+    const states = yield* SynchronizedRef.make(initial);
 
     /** Sets `id`'s state to what `next` makes of it, unless that is none; says whether it did. */
     const update = (
       id: string,
       next: (current: AccountState | undefined) => AccountState | undefined,
     ) =>
-      Effect.gen(function* () {
-        const current = yield* Ref.get(states);
+      SynchronizedRef.modifyEffect(states, (current) => {
         const state = next(current[id]);
 
-        if (state === undefined) return false;
+        if (state === undefined) return Effect.succeed([false, current] as const);
         const updated = { ...current, [id]: state };
-        yield* Ref.set(states, updated);
-        yield* save(updated);
 
-        return true;
-      }).pipe(Semaphore.withPermit(lock));
+        return Effect.as(save(updated), [true, updated] as const);
+      });
 
     return PoolStates.of({
-      get: Ref.get(states),
+      get: SynchronizedRef.get(states),
       coolDown: (id, until, reason) =>
         update(id, (current) =>
           current?.status === "auth_error" ||

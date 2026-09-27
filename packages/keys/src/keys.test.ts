@@ -38,6 +38,16 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     ),
   );
 
+  it.effect("keeps the key file readable only by the owner", () =>
+    withKeyStore((file) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        yield* (yield* KeyStore).create("laptop");
+        expect((yield* fs.stat(file)).mode & 0o777).toBe(0o600);
+      }),
+    ),
+  );
+
   it.effect("rejects unknown keys", () =>
     withKeyStore(() =>
       Effect.gen(function* () {
@@ -108,6 +118,31 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
         yield* fs.writeFileString(file, JSON.stringify([stored]));
         const error = yield* Effect.flip((yield* KeyStore).verify("via_anything"));
         expect(error).toBeInstanceOf(CorruptFileError);
+      }),
+    ),
+  );
+
+  it.effect("keeps every key created concurrently", () =>
+    withKeyStore(() =>
+      Effect.gen(function* () {
+        const store = yield* KeyStore;
+        const names = ["a", "b", "c", "d", "e"];
+        yield* Effect.forEach(names, store.create, { concurrency: "unbounded" });
+        expect((yield* store.list).map((k) => k.name).toSorted()).toEqual(names);
+      }),
+    ),
+  );
+
+  it.effect("revokes only the key with a matching id when another key is named after that id", () =>
+    withKeyStore(() =>
+      Effect.gen(function* () {
+        const store = yield* KeyStore;
+        const laptop = yield* store.create("laptop");
+        const namedLikeId = yield* store.create(laptop.id);
+        yield* store.revoke(laptop.id);
+        expect(yield* store.verify(namedLikeId.key)).toEqual(
+          Option.some({ id: namedLikeId.id, name: laptop.id }),
+        );
       }),
     ),
   );

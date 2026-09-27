@@ -2,8 +2,10 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Option, type Schema, Stream } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
-import { reply, startFakeCodex } from "./fake-codex.ts";
+import { startFakeCodex } from "./fake-codex.ts";
 import { codexErrorFixture, codexFixture, codexRefreshErrorFixture } from "./fixtures.ts";
+import { reply } from "./replies.ts";
+import { usagePayload } from "./streams.ts";
 
 const post = (url: string, account: string, body: Schema.JsonObject = { model: "gpt-6-astra" }) =>
   Effect.gen(function* () {
@@ -197,6 +199,23 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
     }),
   );
 
+  it.effect("answers /wham/usage with usagePayload for an account nobody scripted", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
+      const answer = yield* http
+        .execute(
+          HttpClientRequest.get(`${codex.url}/wham/usage`).pipe(
+            HttpClientRequest.setHeader("chatgpt-account-id", "acc-a"),
+          ),
+        )
+        .pipe(Effect.flatMap((response) => response.json));
+
+      expect(answer).toEqual(usagePayload);
+    }),
+  );
+
   it.effect("answers /wham/usage with a scripted refusal", () =>
     Effect.gen(function* () {
       const codex = yield* startFakeCodex;
@@ -213,21 +232,26 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
     }),
   );
 
-  it.effect("serves a scripted /codex/models catalog, recording its requests apart", () =>
-    Effect.gen(function* () {
-      const codex = yield* startFakeCodex;
-      codex.models({ models: [{ slug: "gpt-6-astra" }] });
-      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+  it.effect(
+    "serves a scripted /codex/models catalog, recording its requests apart with their query",
+    () =>
+      Effect.gen(function* () {
+        const codex = yield* startFakeCodex;
+        codex.models({ models: [{ slug: "gpt-6-astra" }] });
+        const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
 
-      const answer = yield* http
-        .execute(HttpClientRequest.get(`${codex.url}/codex/models?client_version=1.0.0`))
-        .pipe(Effect.flatMap((response) => response.json));
+        const answer = yield* http
+          .execute(HttpClientRequest.get(`${codex.url}/codex/models?client_version=1.0.0`))
+          .pipe(Effect.flatMap((response) => response.json));
 
-      expect(answer).toEqual({ models: [{ slug: "gpt-6-astra" }] });
-      // Kept apart, so a catalog fetched as via starts doesn't shift `requests`.
-      expect(codex.modelRequests.at(-1)?.path).toBe("/codex/models");
-      expect(codex.requests).toEqual([]);
-    }),
+        expect(answer).toEqual({ models: [{ slug: "gpt-6-astra" }] });
+        // Kept apart, so a catalog fetched as via starts doesn't shift `requests`.
+        expect(codex.modelRequests.at(-1)).toMatchObject({
+          path: "/codex/models",
+          query: { client_version: "1.0.0" },
+        });
+        expect(codex.requests).toEqual([]);
+      }),
   );
 
   it.effect("serves an account its own /codex/models catalog, waiting for it on request", () =>

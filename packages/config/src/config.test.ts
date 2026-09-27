@@ -87,6 +87,17 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
     }),
   );
 
+  it.effect("rejects a port outside 1-65535", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = yield* tempFile("config.yaml");
+      yield* fs.writeFileString(file, "port: 65536\n");
+      const error = yield* Effect.flip(loadConfig(file));
+      expect(error).toBeInstanceOf(InvalidConfigError);
+      expect(error.message).toMatch(/port/);
+    }),
+  );
+
   it.effect("fails with InvalidConfigError on malformed YAML", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

@@ -139,7 +139,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
   it.effect("logs each request on one line, in logfmt", () =>
     Effect.gen(function* () {
       const { home, key, env } = yield* loggedIn;
-      const via = yield* startVia(home, ["--port", String(yield* freePort)], env);
+      const via = yield* startVia(home, ["--port", "0"], env);
       yield* postResponses(via.url, key);
       expect(yield* via.output("Sent HTTP response")).toMatch(
         /^timestamp=\S+ level=INFO fiber=#\d+ message="Sent HTTP response" http\.span=\d+ms request_id=[0-9a-f-]{36} http\.method=POST http\.url=\/v1\/responses http\.status=200 model=gpt-6-astra served_by=dev@example\.com input_tokens=10 output_tokens=2$/,
@@ -160,7 +160,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
   it.effect("picks up accounts and keys changed by other via commands without a restart", () =>
     Effect.gen(function* () {
       const { home, key, env } = yield* loggedIn;
-      const url = yield* serveVia(home, ["--port", String(yield* freePort)], env);
+      const url = yield* serveVia(home, ["--port", "0"], env);
       expect((yield* postResponses(url, key)).status).toBe(200);
 
       yield* runVia(home, ["accounts", "disable", "dev@example.com"]);
@@ -193,7 +193,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       const { home, env } = yield* loggedIn;
       const adminKey = "admin-key-that-is-long-enough-000";
 
-      const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+      const url = yield* serveVia(home, ["--port", "0"], {
         ...env,
         VIA_ADMIN_KEY: adminKey,
       });
@@ -209,9 +209,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
 
   it.effect("refuses to start with an admin key shorter than 32 characters", () =>
     Effect.gen(function* () {
-      const port = String(yield* freePort);
-
-      const result = yield* runVia(yield* tempHome, ["serve", "--port", port], {
+      const result = yield* runVia(yield* tempHome, ["serve", "--port", "0"], {
         VIA_ADMIN_KEY: "short",
       });
 
@@ -234,34 +232,38 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     Effect.gen(function* () {
       const { home, key, env, codex } = yield* loggedIn;
       codex.script(reply.error(429, "", { "retry-after": "3600" }));
-      const port = String(yield* freePort);
       yield* Effect.scoped(
         Effect.gen(function* () {
-          const url = yield* serveVia(home, ["--port", port], env);
+          const url = yield* serveVia(home, ["--port", "0"], env);
           expect((yield* postResponses(url, key)).status).toBe(429);
         }),
       );
-      const url = yield* serveVia(home, ["--port", port], env);
+      const url = yield* serveVia(home, ["--port", "0"], env);
       expect((yield* postResponses(url, key)).status).toBe(429);
       expect(codex.requests).toHaveLength(1);
     }),
   );
 
-  it.effect("exports traces to the OTLP endpoint in the standard OpenTelemetry variables", () =>
-    Effect.gen(function* () {
-      const { home, key, env } = yield* loggedIn;
-      const collector = yield* startCollector;
+  for (const [variable, endpoint] of [
+    ["OTEL_EXPORTER_OTLP_ENDPOINT", (collector: string) => collector],
+    ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT", (collector: string) => `${collector}/v1/traces`],
+  ] as const) {
+    it.effect(`exports traces to the OTLP endpoint ${variable} names`, () =>
+      Effect.gen(function* () {
+        const { home, key, env } = yield* loggedIn;
+        const collector = yield* startCollector;
 
-      const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
-        ...env,
-        OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
-        OTEL_BSP_SCHEDULE_DELAY: "50",
-      });
+        const url = yield* serveVia(home, ["--port", "0"], {
+          ...env,
+          [variable]: endpoint(collector.url),
+          OTEL_BSP_SCHEDULE_DELAY: "50",
+        });
 
-      expect((yield* postResponses(url, key)).status).toBe(200);
-      yield* collector.saw("dispatch").pipe(Effect.timeout("10 seconds"), realTime);
-    }),
-  );
+        expect((yield* postResponses(url, key)).status).toBe(200);
+        yield* collector.saw("dispatch").pipe(Effect.timeout("10 seconds"), realTime);
+      }),
+    );
+  }
 
   it.effect("flushes spans it has not exported yet when it stops", () =>
     Effect.gen(function* () {
@@ -269,7 +271,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       const collector = yield* startCollector;
       yield* Effect.scoped(
         Effect.gen(function* () {
-          const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+          const url = yield* serveVia(home, ["--port", "0"], {
             ...env,
             OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
             // Far beyond the test, so only the flush at shutdown can deliver the span.
@@ -290,7 +292,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       provider.respond(providerReply.json({ id: "chatcmpl-local" }));
       yield* configureLocal(home, provider);
 
-      const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+      const url = yield* serveVia(home, ["--port", "0"], {
         ...env,
         LOCAL_KEY: "sk-local",
       });
@@ -315,7 +317,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
         provider.respond(providerReply.json({ id: "chatcmpl-local" }));
         yield* configureLocal(home, provider);
 
-        const url = yield* serveVia(home, ["--port", String(yield* freePort)], {
+        const url = yield* serveVia(home, ["--port", "0"], {
           ...env,
           LOCAL_KEY: "sk-local",
         });
@@ -336,7 +338,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       );
       yield* configureLocal(home, provider);
 
-      const via = yield* startVia(home, ["--port", String(yield* freePort)], {
+      const via = yield* startVia(home, ["--port", "0"], {
         ...env,
         LOCAL_KEY: "sk-local",
       });

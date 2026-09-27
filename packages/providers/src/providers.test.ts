@@ -216,6 +216,19 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
+  it.effect("sends a built-in provider the session where its config's sessionHeader says", () =>
+    Effect.gen(function* () {
+      const request = yield* sent(
+        "openrouter",
+        { model: "openrouter/m" },
+        { sessionHeader: "x-session-id" },
+      );
+
+      expect(request?.headers["x-session-id"]).toBe("conv-1");
+      expect(request?.body).toEqual({ model: "m" });
+    }),
+  );
+
   it.effect("sends no session to a provider that has no place for it", () =>
     Effect.gen(function* () {
       const request = yield* sent("local", { model: "local/m" });

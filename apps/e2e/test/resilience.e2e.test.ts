@@ -1,10 +1,11 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { codexFixture, type Reply, reply } from "@via/codex-upstream/testing";
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Effect, Fiber, Schema } from "effect";
 import {
   chat,
   type Codex,
+  decodeJson,
   frames,
   freePort,
   json,
@@ -65,6 +66,14 @@ const faulted = <A, E, R>(
     yield* stillServes(via, codex);
   });
 
+/** The error chunk that ends a broken Chat Completions stream. */
+const ChatError = Schema.Struct({
+  error: Schema.Struct({ type: Schema.String, code: Schema.String }),
+});
+
+/** The `error` event that ends a broken Responses stream. */
+const ErrorEvent = Schema.Struct({ type: Schema.String, code: Schema.String });
+
 const cutOff = reply.truncated(reply.text("pong"), 5);
 
 const hungUp = reply.hangUp(reply.text("pong"), 5);
@@ -86,7 +95,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
           expect(all.filter((frame) => frame.data.startsWith('{"error"'))).toHaveLength(1);
           expect(all.some((frame) => frame.data === "[DONE]")).toBe(false);
           const last = all.at(-1);
-          expect(JSON.parse(last?.data ?? "null")).toMatchObject({
+          expect(decodeJson(ChatError)(last?.data ?? "")).toMatchObject({
             error: { type: "server_error", code },
           });
         }),
@@ -125,7 +134,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
           expect(all.filter((frame) => frame.event === "error")).toHaveLength(1);
           const last = all.at(-1);
           expect(last?.event).toBe("error");
-          expect(JSON.parse(last?.data ?? "null")).toMatchObject({
+          expect(decodeJson(ErrorEvent)(last?.data ?? "")).toMatchObject({
             type: "error",
             code: "upstream_incomplete",
           });

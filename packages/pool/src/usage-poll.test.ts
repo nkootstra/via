@@ -158,17 +158,15 @@ describe("properties", () => {
   };
 
   it.prop(
-    "never shortens a running cooldown",
+    "only ever extends a running cooldown, never shortens or restates it",
     { windows: windowSpecs, current: currentSpecs },
     ({ windows, current }) => {
       const state = toCurrent(current);
 
       if (state?.status !== "cooling") return true;
       const result = decideUsagePoll(toWindows(windows), state, NOW);
-      const effectiveUntil = result.changed ? result.until : state.until;
-      expect(effectiveUntil >= state.until).toBe(true);
 
-      return true;
+      return !result.changed || result.until > state.until;
     },
   );
 

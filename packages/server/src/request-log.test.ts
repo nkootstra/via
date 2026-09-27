@@ -1,11 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, reply } from "@via/codex-upstream/testing";
+import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
 import { Deferred, Effect, Stream } from "effect";
-import { withVia } from "./harness.ts";
-
-const ok = () => reply.sse(completedStream("hello"));
+import { ok, withVia } from "./harness.ts";
 
 const cachedTokens = () =>
   reply.sse(

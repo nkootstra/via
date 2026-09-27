@@ -12,8 +12,6 @@ const command = (args: ReadonlyArray<string>) => {
   return bin === undefined ? ["bun", source, ...args] : [bin, ...args];
 };
 
-export type RunResult = { exitCode: number; stdout: string; stderr: string };
-
 /**
  * Runs `effect` on the wall clock. Tests get a TestClock, which would never
  * let a timeout on a real process fire.
@@ -44,6 +42,14 @@ const spawnVia = (home: string, args: ReadonlyArray<string>, env: Record<string,
     stderr: "pipe",
   });
 
+/** Everything `stream` carries, as text, once it ends. */
+const readAll = (stream: ReadableStream<Uint8Array>) =>
+  Effect.promise(() => new Response(stream).text());
+
+/** Kills a running `via` and waits for it to exit. */
+const kill = (proc: ReturnType<typeof spawnVia>) =>
+  Effect.promise(() => (proc.kill(), proc.exited));
+
 /**
  * Runs one `via` command to completion. It runs asynchronously so fake servers
  * in the test process can answer it.
@@ -53,16 +59,17 @@ export const runVia = (
   args: ReadonlyArray<string>,
   env: Record<string, string> = {},
 ) =>
-  Effect.promise(async (): Promise<RunResult> => {
+  Effect.suspend(() => {
     const proc = spawnVia(home, args, env);
 
-    const [exitCode, stdout, stderr] = await Promise.all([
-      proc.exited,
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-    ]);
-
-    return { exitCode, stdout, stderr };
+    return Effect.all(
+      {
+        exitCode: Effect.promise(() => proc.exited),
+        stdout: readAll(proc.stdout),
+        stderr: readAll(proc.stderr),
+      },
+      { concurrency: "unbounded" },
+    );
   });
 
 /**
@@ -79,19 +86,21 @@ export const startVia = (
   Effect.gen(function* () {
     const proc = yield* Effect.acquireRelease(
       Effect.sync(() => spawnVia(home, ["serve", ...args], env)),
-      (running) => Effect.promise(() => (running.kill(), running.exited)),
+      kill,
     );
+
+    const stderr = readAll(proc.stderr);
 
     const lines = proc.stdout.pipeThrough(new TextDecoderStream()).getReader();
     let stdout = "";
 
     const readUntil = (found: () => string | undefined) =>
-      Effect.promise(async () => {
+      Effect.gen(function* () {
         for (;;) {
           const seen = found();
 
           if (seen !== undefined) return seen;
-          const chunk = await lines.read();
+          const chunk = yield* Effect.promise(() => lines.read());
 
           if (chunk.done) return undefined;
           stdout += chunk.value;
@@ -100,10 +109,8 @@ export const startVia = (
 
     const url = yield* readUntil(() => /Listening on (\S+)/.exec(stdout)?.[1]).pipe(
       Effect.filterOrElse(Predicate.isNotUndefined, () =>
-        Effect.promise(() => new Response(proc.stderr).text()).pipe(
-          Effect.flatMap((stderr) =>
-            Effect.die(new Error(`via serve exited before listening:\n${stderr}`)),
-          ),
+        Effect.flatMap(stderr, (written) =>
+          Effect.die(new Error(`via serve exited before listening:\n${written}`)),
         ),
       ),
       // Fail a via that never starts listening here, not at the test timeout.
@@ -123,12 +130,7 @@ export const startVia = (
           .find((line) => line.includes(text)),
       ).pipe(Effect.map((line) => line ?? ""));
 
-    const stop = Effect.promise(async () => {
-      proc.kill();
-      await proc.exited;
-
-      return new Response(proc.stderr).text();
-    });
+    const stop = Effect.andThen(kill(proc), stderr);
 
     return { url, output, stop };
   });

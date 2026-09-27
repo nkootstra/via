@@ -1,13 +1,26 @@
-import { Predicate, Schema } from "effect";
+import { Predicate, Schema, SchemaGetter } from "effect";
 
 const TextPart = Schema.Struct({ type: Schema.Literal("text"), text: Schema.String });
 
 const ImagePart = Schema.Struct({
   type: Schema.Literal("image_url"),
-  image_url: Schema.Struct({ url: Schema.String }),
+  image_url: Schema.Struct({
+    url: Schema.String,
+    detail: Schema.optionalKey(Schema.Literals(["auto", "low", "high"])),
+  }),
 });
 
 const UserPart = Schema.Union([TextPart, ImagePart]);
+
+/** Content that may only hold text, as a string or text parts, read as one string. */
+const TextContent = Schema.Union([Schema.String, Schema.Array(TextPart)]).pipe(
+  Schema.decodeTo(Schema.String, {
+    decode: SchemaGetter.transform((content) =>
+      Predicate.isString(content) ? content : content.map((part) => part.text).join(""),
+    ),
+    encode: SchemaGetter.passthroughSubtype(),
+  }),
+);
 
 const ToolCall = Schema.Struct({
   id: Schema.String,
@@ -17,7 +30,7 @@ const ToolCall = Schema.Struct({
 
 const InstructionMessage = Schema.Struct({
   role: Schema.Literals(["system", "developer"]),
-  content: Schema.String,
+  content: TextContent,
 });
 
 const UserMessage = Schema.Struct({
@@ -27,14 +40,14 @@ const UserMessage = Schema.Struct({
 
 const AssistantMessage = Schema.Struct({
   role: Schema.Literal("assistant"),
-  content: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  content: Schema.optionalKey(Schema.NullOr(TextContent)),
   tool_calls: Schema.optionalKey(Schema.Array(ToolCall)),
 });
 
 const ToolMessage = Schema.Struct({
   role: Schema.Literal("tool"),
   tool_call_id: Schema.String,
-  content: Schema.String,
+  content: TextContent,
 });
 
 const Message = Schema.Union([InstructionMessage, UserMessage, AssistantMessage, ToolMessage]);
@@ -105,7 +118,11 @@ const isJsonSchemaFormat = Schema.is(JsonSchemaFormat);
 const userPart = (part: typeof UserPart.Type) =>
   isTextPart(part)
     ? { type: "input_text", text: part.text }
-    : { type: "input_image", image_url: part.image_url.url };
+    : {
+        type: "input_image",
+        image_url: part.image_url.url,
+        ...(part.image_url.detail && { detail: part.image_url.detail }),
+      };
 
 /** The Responses input items a chat message becomes; instructions become none. */
 const inputItems = (message: typeof Message.Type): ReadonlyArray<Schema.JsonObject> => {

@@ -34,6 +34,8 @@ const badRequest = HttpServerResponse.jsonUnsafe({ error: "invalid_request" }, {
 export type FakeIssuerOptions = {
   /** Polls answered with 403 before the user "approves"; `Infinity` never approves. */
   pendingPolls?: number;
+  /** The status a pending poll gets: the issuer answers 403 or 404 until the user approves. */
+  pendingStatus?: 403 | 404;
   interval?: string;
   /** What the first refresh grant for "rt-1" answers with; reusing "rt-1" is rejected. */
   refreshResponse?: { status: number; body: object };
@@ -42,6 +44,7 @@ export type FakeIssuerOptions = {
 /** Serves the device-code and token endpoints of auth.openai.com. */
 const fakeIssuer = ({
   pendingPolls = 0,
+  pendingStatus = 403,
   interval = "0",
   refreshResponse = { status: 200, body: refreshedTokens },
 }: FakeIssuerOptions = {}) => {
@@ -76,7 +79,7 @@ const fakeIssuer = ({
 
         if (body.device_auth_id !== "dev-1" || body.user_code !== "ABCD-1234") return badRequest;
 
-        if (polls++ < pendingPolls) return HttpServerResponse.empty({ status: 403 });
+        if (polls++ < pendingPolls) return HttpServerResponse.empty({ status: pendingStatus });
 
         return HttpServerResponse.jsonUnsafe({
           authorization_code: "auth-code",

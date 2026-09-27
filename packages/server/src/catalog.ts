@@ -54,7 +54,7 @@ const stale = <A, E, R>(load: Effect.Effect<A, E, R>, maxAge: Duration.Input) =>
       return yield* reload;
     });
 
-    return Effect.gen(function* () {
+    const get = Effect.gen(function* () {
       const current = yield* Ref.get(kept);
 
       // Calls that find nothing kept wait for one shared load.
@@ -70,6 +70,9 @@ const stale = <A, E, R>(load: Effect.Effect<A, E, R>, maxAge: Duration.Input) =>
 
       return current.value.value;
     });
+
+    // The reader itself, not what it reads: each call runs it anew.
+    return yield* Effect.succeed(get);
   });
 
 /** The models one account's plan offers. */

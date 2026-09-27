@@ -56,11 +56,11 @@ export const classify = (
     );
 
     const retryAt = Option.map(decodeSeconds(headers["retry-after"]), (s) => now + s * 1000);
-    const known = [resetsAt, retryAt].flatMap(Option.toArray);
+    // A resets_at/Retry-After already past says nothing about when the limit lifts,
+    // and trusting it would put the account straight back into rotation.
+    const ahead = [resetsAt, retryAt].flatMap(Option.toArray).filter((at) => at > now);
 
-    // A stale resets_at/Retry-After from upstream must not shorten the cooldown to nothing.
-    const until =
-      known.length > 0 ? Math.max(now, ...known) : now + Duration.toMillis(QUOTA_FALLBACK);
+    const until = ahead.length > 0 ? Math.max(...ahead) : now + Duration.toMillis(QUOTA_FALLBACK);
 
     return Verdict.Cooldown({ until, reason: code ?? "rate_limited" });
   }

@@ -1,7 +1,8 @@
-import type { CatalogModel } from "./codex-upstream.ts";
+/** A model an account can pick, with the reasoning efforts it supports. */
+export type CatalogModel = { readonly model: string; readonly efforts: ReadonlyArray<string> };
 
 /** Reasoning efforts a client can pick by suffixing a model id, as in `gpt-6-astra-high`. */
-export const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
+const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 
 const isEffort = (effort: string): effort is (typeof EFFORTS)[number] =>
   EFFORTS.some((known) => known === effort);
@@ -10,7 +11,7 @@ const isEffort = (effort: string): effort is (typeof EFFORTS)[number] =>
  * The models the Codex backend serves to ChatGPT sign-in, with the efforts each
  * supports: what via lists when it cannot ask Codex itself.
  */
-const BUNDLED: ReadonlyArray<CatalogModel> = [
+export const BUNDLED: ReadonlyArray<CatalogModel> = [
   { model: "gpt-6-astra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
   { model: "gpt-6-sol", efforts: ["none", "low", "medium", "high", "xhigh", "max", "ultra"] },
   { model: "gpt-6-luna", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
