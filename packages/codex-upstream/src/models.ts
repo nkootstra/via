@@ -1,7 +1,8 @@
-import type { CatalogModel } from "./codex-upstream.ts";
+/** A model an account can pick, with the reasoning efforts it supports. */
+export type CatalogModel = { readonly model: string; readonly efforts: ReadonlyArray<string> };
 
 /** Reasoning efforts a client can pick by suffixing a model id, as in `gpt-6-astra-high`. */
-export const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
+const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"] as const;
 
 const isEffort = (effort: string): effort is (typeof EFFORTS)[number] =>
   EFFORTS.some((known) => known === effort);

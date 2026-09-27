@@ -1,5 +1,6 @@
 import { Context, Effect, Layer, Schema } from "effect";
 import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import type { CatalogModel } from "./models.ts";
 import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
@@ -54,9 +55,6 @@ const ModelsPayload = Schema.Struct({
     }),
   ),
 });
-
-/** A model an account can pick, with the reasoning efforts it supports. */
-export type CatalogModel = { readonly model: string; readonly efforts: ReadonlyArray<string> };
 
 const Window = Schema.Struct({
   used_percent: Schema.Finite,
