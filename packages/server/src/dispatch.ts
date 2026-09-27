@@ -1,7 +1,7 @@
 import { AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { classify, PoolStates, retryAfter, Verdict } from "@via/pool";
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
 import {
   accountsAllowed,
@@ -81,24 +81,22 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),
+      Effect.result,
     );
 
-    if (Option.isNone(sent)) {
-      return yield* openAiError(502, "upstream_unavailable", "Codex could not be reached");
-    }
+    if (Result.isSuccess(sent)) {
+      if (Option.isNone(sent.success)) {
+        return yield* openAiError(502, "upstream_unavailable", "Codex could not be reached");
+      }
 
-    const upstream = sent.value;
-
-    if (upstream.status === 200) {
       yield* log.served(account.label);
       yield* bindings.bind(session, account.id);
 
-      return yield* onSuccess(upstream);
+      return yield* onSuccess(sent.success.value);
     }
 
-    // An error body that breaks off still leaves its status to judge the answer by.
-    const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
-    const verdict = classify(upstream.status, upstream.headers, text, now);
+    const rejected = sent.failure;
+    const verdict = classify(rejected.rejection, now);
 
     if (Verdict.$is("Cooldown")(verdict)) {
       yield* coolDown(account, verdict.until, verdict.reason);
@@ -121,9 +119,9 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
 
     yield* log.served(account.label);
 
-    return HttpServerResponse.text(text, {
-      status: upstream.status,
-      contentType: upstream.headers["content-type"] ?? "application/json",
+    return HttpServerResponse.text(rejected.body, {
+      status: rejected.status,
+      contentType: rejected.contentType ?? "application/json",
     });
   }
 });

@@ -1,4 +1,31 @@
-import { Data, Duration, Option, Schema } from "effect";
+import { Data, Duration, Predicate } from "effect";
+
+/**
+ * Why an upstream refused a request, in the pool's own terms: each upstream reads
+ * its error format into one of these, and {@link classify} judges it.
+ */
+export type Rejection = Data.TaggedEnum<{
+  /** The account used up its quota or hit a rate limit. */
+  Exhausted: {
+    /** Names the limit; kept as the account's cooldown reason. */
+    readonly reason: string;
+    /** When the upstream says the limit lifts, in epoch milliseconds. */
+    readonly resetsAt?: number | undefined;
+    /** How long the upstream asks to wait before trying again, in milliseconds. */
+    readonly retryAfterMs?: number | undefined;
+  };
+  /** The upstream is failing or overloaded, whatever the account. */
+  Unavailable: {
+    /** Names the failure; kept as the account's cooldown reason. */
+    readonly reason: string;
+  };
+  /** The access token was refused. */
+  Unauthorized: {};
+  /** The request itself is at fault. */
+  Invalid: {};
+}>;
+
+export const Rejection = Data.taggedEnum<Rejection>();
 
 /** What a failed upstream response means for the account that got it. */
 export type Verdict = Data.TaggedEnum<{
@@ -16,63 +43,20 @@ const QUOTA_FALLBACK = Duration.minutes(30);
 
 const TRANSIENT_COOLDOWN = Duration.minutes(1);
 
-// Codex's own error mapping treats all of these as an exhausted account.
-const QUOTA_CODES = new Set([
-  "usage_limit_reached",
-  "insufficient_quota",
-  "usage_not_included",
-  "credit_balance_exhausted",
-  "organization_spend_limit_exceeded",
-  "project_spend_limit_exceeded",
-  "organization_usage_limit_exceeded",
-]);
+export const classify = (rejection: Rejection, now: number): Verdict =>
+  Rejection.$match(rejection, {
+    Exhausted: ({ reason, resetsAt, retryAfterMs }) => {
+      const retryAt = retryAfterMs === undefined ? undefined : now + retryAfterMs;
+      // A reset or Retry-After already past says nothing about when the limit lifts,
+      // and trusting it would put the account straight back into rotation.
+      const ahead = [resetsAt, retryAt].filter(Predicate.isNotUndefined).filter((at) => at > now);
 
-const CodexErrorBody = Schema.fromJsonString(
-  Schema.Struct({
-    error: Schema.Struct({
-      type: Schema.optionalKey(Schema.String),
-      code: Schema.optionalKey(Schema.NullOr(Schema.String)),
-      resets_at: Schema.optionalKey(Schema.Finite),
-    }),
-  }),
-);
+      const until = ahead.length > 0 ? Math.max(...ahead) : now + Duration.toMillis(QUOTA_FALLBACK);
 
-const decodeErrorBody = Schema.decodeUnknownOption(CodexErrorBody);
-
-const decodeSeconds = Schema.decodeUnknownOption(Schema.FiniteFromString);
-
-export const classify = (
-  status: number,
-  headers: Readonly<Record<string, string | undefined>>,
-  body: string,
-  now: number,
-): Verdict => {
-  const error = Option.map(decodeErrorBody(body), (b) => b.error);
-  const code = Option.getOrUndefined(Option.flatMapNullishOr(error, (e) => e.code ?? e.type));
-
-  if ((code !== undefined && QUOTA_CODES.has(code)) || status === 429) {
-    const resetsAt = Option.flatMapNullishOr(error, (e) => e.resets_at).pipe(
-      Option.map((s) => s * 1000),
-    );
-
-    const retryAt = Option.map(decodeSeconds(headers["retry-after"]), (s) => now + s * 1000);
-    // A resets_at/Retry-After already past says nothing about when the limit lifts,
-    // and trusting it would put the account straight back into rotation.
-    const ahead = [resetsAt, retryAt].flatMap(Option.toArray).filter((at) => at > now);
-
-    const until = ahead.length > 0 ? Math.max(...ahead) : now + Duration.toMillis(QUOTA_FALLBACK);
-
-    return Verdict.Cooldown({ until, reason: code ?? "rate_limited" });
-  }
-
-  if (status >= 500 || code === "server_is_overloaded") {
-    return Verdict.Cooldown({
-      until: now + Duration.toMillis(TRANSIENT_COOLDOWN),
-      reason: code ?? `upstream_${status}`,
-    });
-  }
-
-  if (status === 401) return Verdict.Unauthorized();
-
-  return Verdict.PassThrough();
-};
+      return Verdict.Cooldown({ until, reason });
+    },
+    Unavailable: ({ reason }) =>
+      Verdict.Cooldown({ until: now + Duration.toMillis(TRANSIENT_COOLDOWN), reason }),
+    Unauthorized: () => Verdict.Unauthorized(),
+    Invalid: () => Verdict.PassThrough(),
+  });
