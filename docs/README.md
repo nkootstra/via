@@ -124,7 +124,7 @@ with Compose or a platform with volumes. What via needs from it:
   isn't logged.
 - **Provider keys as the host's secrets**, passed as the environment variables
   `config.yaml` names. So is `VIA_ADMIN_KEY`, if you want the
-  [admin API](#admin-api) instead of `docker exec`.
+  [admin API](#admin-api) and [web UI](#web-ui) instead of `docker exec`.
 
 The image is private while the repository is. Log the host in to ghcr.io
 with a GitHub token that has only the `read:packages` scope:
@@ -258,6 +258,28 @@ cookie instead, so the key is never kept in the page:
   within a minute every sign-in answers 429 until the minute has passed. Each
   failed sign-in is logged, without the key. via never logs the key or the
   cookie.
+
+### Web UI
+
+With `VIA_ADMIN_KEY` set, `via serve` also serves a web UI for the admin API
+at `/ui/`, such as `http://127.0.0.1:8317/ui/`. Without the key it answers 404,
+as `/admin` does. It's built into the binary and the Docker image, so there is
+nothing else to run or download, and it loads nothing from other sites.
+
+Open it and sign in with the admin key. The page [signs in](#signing-in-from-a-browser)
+as above: it keeps only the session cookie, never the key, and a reload or a
+link to any page keeps you signed in until the session ends. From there you can
+see the pool at a glance, add accounts by device-code login, rename, disable
+and remove them, create and revoke API keys, and list the models.
+
+The page is the admin key's reach in a browser, so give it the same care:
+
+- Keep via on `127.0.0.1`, as it is by default, or put it behind TLS before
+  you open it anywhere else. Over plain HTTP the key and the cookie cross the
+  network readable.
+- The page runs only via's own code: its Content Security Policy allows
+  scripts, styles and requests from via alone, and it can't be framed by
+  another site.
 
 ## Commands
 
@@ -401,6 +423,8 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   seconds until an account frees up.
 - A request the client gave up on before via answered is logged with
   `http.status=499`, as nginx does. The client never sees that status.
+- Opening a page of the [web UI](#web-ui) logs one line for the page; the
+  scripts, stylesheet and icon it loads aren't logged.
 
 It also warns when an account cools down, is locked out, or has its token
 rejected, and says until when.
@@ -424,7 +448,10 @@ each request it serves. The other standard variables work too:
 - Admin sessions are kept in memory, each only as the SHA-256 hash of its
   cookie, and all end when via restarts.
 - The server speaks plain HTTP. Keep it on `127.0.0.1`, or put your own TLS in
-  front of it before listening on another interface.
+  front of it before listening on another interface. That goes double for the
+  [web UI](#web-ui), where the admin key is typed in.
+- The web UI runs only first-party code, under a Content Security Policy that
+  refuses scripts, styles and requests from anywhere but via.
 
 To report a vulnerability, see [SECURITY.md](../SECURITY.md).
 

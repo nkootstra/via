@@ -16,6 +16,7 @@
     "@via/tsconfig": "workspace:*",
     "effect": "catalog:",
     "openai": "^7.23.0",
+    "playwright": "1.63.0",
     "vitest": "catalog:"
   }
 }

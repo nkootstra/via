@@ -5,7 +5,7 @@ import { CodexUpstream } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
-import { ViaServer } from "@via/server";
+import { type EmbeddedUi, ViaServer } from "@via/server";
 import {
   Config,
   ConfigProvider,
@@ -59,18 +59,20 @@ const tracing = Layer.unwrap(
 /**
  * `via serve`, reading `configPath` and keeping cooldowns in `statePath`.
  * `upstreamBaseUrl` replaces the Codex backend, which only tests do. With
- * `adminKey`, the admin API is served behind it.
+ * `adminKey`, the admin API is served behind it, and `ui`, the admin UI, at `/ui`.
  */
 export const serve = ({
   configPath,
   statePath,
   upstreamBaseUrl,
   adminKey,
+  ui,
 }: {
   readonly configPath: string;
   readonly statePath: string;
   readonly upstreamBaseUrl: string | undefined;
   readonly adminKey: Redacted.Redacted<string> | undefined;
+  readonly ui: EmbeddedUi;
 }) =>
   Command.make(
     "serve",
@@ -88,7 +90,7 @@ export const serve = ({
       Effect.gen(function* () {
         const config = yield* loadConfig(configPath);
 
-        const server = Layer.mergeAll(ViaServer.layer({ adminKey }), UsagePoll.layer).pipe(
+        const server = Layer.mergeAll(ViaServer.layer({ adminKey, ui }), UsagePoll.layer).pipe(
           Layer.provideMerge(
             BunHttpServer.layer({
               hostname: Option.getOrElse(host, () => config.host),

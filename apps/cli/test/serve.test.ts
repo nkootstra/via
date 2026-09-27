@@ -207,6 +207,25 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
+  it.effect("serves the admin UI's build at /ui with VIA_ADMIN_KEY", () =>
+    Effect.gen(function* () {
+      const { home, env } = yield* loggedIn;
+
+      const url = yield* serveVia(home, ["--port", "0"], {
+        ...env,
+        VIA_ADMIN_KEY: "admin-key-that-is-long-enough-000",
+      });
+
+      const response = yield* HttpClient.get(`${url}/ui/accounts`).pipe(
+        Effect.provide(FetchHttpClient.layer),
+      );
+
+      expect(response.status).toBe(200);
+      expect(response.headers["content-security-policy"]).toMatch(/script-src 'self' 'sha256-/);
+      expect(yield* response.text).toMatch(/<script type="module" async="" src="\/ui\/assets\//);
+    }),
+  );
+
   it.effect("refuses to start with an admin key shorter than 32 characters", () =>
     Effect.gen(function* () {
       const result = yield* runVia(yield* tempHome, ["serve", "--port", "0"], {

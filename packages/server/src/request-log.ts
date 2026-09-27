@@ -29,6 +29,8 @@ export class RequestLog extends Context.Service<
     readonly refused: (code: string) => Effect.Effect<void>;
     /** Records the token usage the upstream reported for the answer. */
     readonly usage: (usage: TokenUsage) => Effect.Effect<void>;
+    /** Leaves the request out of the log, as a file a page fetches with it. */
+    readonly unlogged: Effect.Effect<void>;
     /**
      * `stream`, timed: the line waits for it to end and says when its first chunk came.
      * It still fails as `stream` does, but without its error, which Bun would print.
@@ -96,6 +98,7 @@ interface Noted {
   readonly streamed: boolean;
   readonly firstChunkAt: Option.Option<number>;
   readonly streamEnd: Option.Option<string>;
+  readonly logged: boolean;
   /** The line waits for both the response and, once it runs, its stream. */
   readonly pending: number;
 }
@@ -131,6 +134,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       streamed: false,
       firstChunkAt: Option.none(),
       streamEnd: Option.none(),
+      logged: true,
       pending: 1,
     });
 
@@ -170,7 +174,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     }).pipe(
       // A host's health checks would drown out the requests.
       Effect.flatMap((line) =>
-        line.pending === 0 && request.url !== "/healthz" ? log(line) : Effect.void,
+        line.pending === 0 && line.logged && request.url !== "/healthz" ? log(line) : Effect.void,
       ),
     );
 
@@ -179,6 +183,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       served: (by) => note({ servedBy: Option.some(by) }),
       refused: (code) => note({ error: Option.some(code) }),
       usage: (usage) => note({ usage: Option.some(usage) }),
+      unlogged: note({ logged: false }),
       timed: (stream) =>
         // The line waits for the stream only once it runs: a response sent without its body,
         // such as a 204, never runs it. The server starts it as it sends the response, which

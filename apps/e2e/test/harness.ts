@@ -7,8 +7,9 @@ import {
   reply,
   startFakeCodex,
 } from "@via/codex-upstream/testing";
-import { Effect, Predicate, Schema } from "effect";
+import { Effect, Exit, Predicate, Schema } from "effect";
 import OpenAI from "openai";
+import { type BrowserContextOptions, chromium } from "playwright";
 
 export { freePort, realTime, runVia, tempHome } from "@via/cli/testing";
 
@@ -91,6 +92,53 @@ export const json = (response: Response) => Effect.promise(() => response.json()
 /** The Responses requests Codex received, in order, leaving out usage lookups. */
 export const responsesOf = (codex: Codex): ReadonlyArray<CodexRequest> =>
   codex.requests.filter((request) => request.path === "/codex/responses");
+
+/**
+ * A Chromium page, for as long as the test's scope, and `problems`: every page
+ * error and console error it logs, a CSP violation among them. A 401 is left
+ * out: the app asks for its session to learn whether it's signed in, and
+ * Chromium logs the answer when it's no. The page records a trace, kept as
+ * `test-results/<name>.zip` when the test fails.
+ */
+export const openPage = (name: string, options: BrowserContextOptions = {}) =>
+  Effect.gen(function* () {
+    const browser = yield* Effect.acquireRelease(
+      Effect.promise(() => chromium.launch()),
+      (opened) => Effect.promise(() => opened.close()),
+    );
+
+    const context = yield* Effect.acquireRelease(
+      Effect.promise(async () => {
+        const opened = await browser.newContext(options);
+        await opened.tracing.start({ screenshots: true, snapshots: true });
+
+        return opened;
+      }),
+      (opened, exit) =>
+        Effect.promise(() =>
+          opened.tracing.stop(
+            Exit.isFailure(exit)
+              ? { path: `${import.meta.dirname}/../test-results/${name}.zip` }
+              : {},
+          ),
+        ),
+    );
+
+    const page = yield* Effect.promise(() => context.newPage());
+    const problems: Array<string> = [];
+    page.on("pageerror", (error) => problems.push(error.message));
+
+    page.on("console", (message) => {
+      if (
+        message.type() === "error" &&
+        !/^Failed to load resource: .* 401\b/.test(message.text())
+      ) {
+        problems.push(message.text());
+      }
+    });
+
+    return { page, problems };
+  });
 
 /** One of codex's recorded error answers, verbatim, as a reply. */
 export const errorFixture = (name: string) =>

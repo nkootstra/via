@@ -14,5 +14,5 @@
     }
   },
   "ignoreDependencies": ["@effect/language-service"],
-  "ignore": ["tools/oxlint/anti-slop/**"]
+  "ignore": ["tools/oxlint/anti-slop/**", "apps/web/embedded.d.ts"]
 }
