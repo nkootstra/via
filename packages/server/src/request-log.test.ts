@@ -116,6 +116,26 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs a provider's answer whose body is never sent, such as a 204", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        // A 204 has no body, so the server never runs the relayed stream.
+        via.provider.respond(providerReply.json({}, 204));
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          stream: true,
+          messages: [],
+        });
+
+        expect(response.status).toBe(204);
+        const { annotations } = yield* via.logged("Sent HTTP response");
+        expect(annotations).toMatchObject({ "http.status": 204, served_by: "opencode-go" });
+        expect(annotations).not.toHaveProperty("stream_end");
+      }),
+    ),
+  );
+
   it.effect("logs a streamed answer the upstream broke off as failed", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
