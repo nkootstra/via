@@ -1,8 +1,7 @@
-import { type Account, AccountStore, AccountTokens } from "@via/codex-auth";
-import { CodexUpstream } from "@via/codex-upstream";
+import { type Account, AccountStore } from "@via/codex-auth";
 import { decideUsagePoll, pollable, PoolStates } from "@via/pool";
 import { Clock, Duration, Effect, Layer, Schedule } from "effect";
-import { AccountPool } from "./account-pool.ts";
+import { AccountPool, accountUsage } from "./account-pool.ts";
 
 /** Not spammy: Codex's own usage endpoint, asked this often per account, at most. */
 const POLL_INTERVAL = Duration.minutes(15);
@@ -15,8 +14,7 @@ const POLL_INTERVAL = Duration.minutes(15);
  */
 const pollOne = (account: Account) =>
   Effect.gen(function* () {
-    const fresh = yield* (yield* AccountTokens).fresh(account);
-    const windows = yield* (yield* CodexUpstream).usage(fresh);
+    const windows = yield* accountUsage(account);
     const states = yield* PoolStates;
     const now = yield* Clock.currentTimeMillis;
     const decision = decideUsagePoll(windows, (yield* states.get)[account.id], now);

@@ -1,4 +1,5 @@
 import { type Account, AccountStore, AccountTokens } from "@via/codex-auth";
+import { CodexUpstream } from "@via/codex-upstream";
 import { available, PoolStates, retryAfter, select } from "@via/pool";
 import { Array, Clock, Context, Effect, Layer, Option } from "effect";
 
@@ -122,3 +123,17 @@ export class AccountPool extends Context.Service<AccountPool, Effect.Success<typ
 ) {
   static readonly layer = Layer.effect(AccountPool, make);
 }
+
+/**
+ * What ChatGPT says `account` has used of its rate limits, asked live, with its
+ * access token refreshed first when about to expire. It needs no pool, so
+ * `via accounts status` asks it too. A failed refresh fails it and sets nothing
+ * aside: the admin API and `via accounts status` report why, and the usage poll
+ * leaves that to the account's own next request.
+ */
+export const accountUsage = (account: Account) =>
+  Effect.gen(function* () {
+    const fresh = yield* (yield* AccountTokens).fresh(account);
+
+    return yield* (yield* CodexUpstream).usage(fresh);
+  });

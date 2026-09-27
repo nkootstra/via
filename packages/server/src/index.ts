@@ -9,6 +9,8 @@ import { logRequest } from "./request-log.ts";
 import { responses } from "./responses.ts";
 import { SessionBindings } from "./session-bindings.ts";
 
+export { accountUsage } from "./account-pool.ts";
+
 export { UsagePoll } from "./usage-poll.ts";
 
 /**

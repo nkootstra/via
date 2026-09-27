@@ -1,10 +1,10 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { type Account, AccountNotFoundError, AccountStore, AccountTokens } from "@via/codex-auth";
-import { CodexUpstream } from "@via/codex-upstream";
+import { type Account, AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
 import { Providers } from "@via/providers";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
+import { accountUsage } from "./account-pool.ts";
 import { AdminApi, AdminAuthorization, Unauthorized } from "./admin-api.ts";
 import { Logins } from "./logins.ts";
 
@@ -111,10 +111,9 @@ const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
 );
 
 /** What ChatGPT says `account` has used, asked live, as `via accounts status` does. */
-const accountUsage = (account: Account) =>
+const reportedUsage = (account: Account) =>
   Effect.gen(function* () {
-    const fresh = yield* (yield* AccountTokens).fresh(account);
-    const windows = yield* (yield* CodexUpstream).usage(fresh);
+    const windows = yield* accountUsage(account);
 
     return {
       id: account.id,
@@ -142,7 +141,7 @@ const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
 
       // One account at a time, so this never bursts requests at ChatGPT.
       return {
-        accounts: yield* Effect.forEach(all, accountUsage),
+        accounts: yield* Effect.forEach(all, reportedUsage),
         providers: yield* (yield* Providers).usage,
       };
     }),
