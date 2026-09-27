@@ -104,6 +104,17 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     ),
   );
 
+  it.effect("finds an account by its email after its label has changed", () =>
+    withAccountStore(() =>
+      Effect.gen(function* () {
+        const store = yield* AccountStore;
+        const saved = yield* store.save(tokensFor("a@example.com", "acc-a"));
+        yield* store.setLabel(saved.id, "work");
+        expect(yield* store.find("a@example.com")).toEqual({ ...saved, label: "work" });
+      }),
+    ),
+  );
+
   it.effect("an id finds its own account, even when another account has it as its label", () =>
     withAccountStore(() =>
       Effect.gen(function* () {
