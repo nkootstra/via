@@ -14,6 +14,7 @@ export const Route = createRootRouteWithContext<{ readonly queryClient: QueryCli
       { name: "color-scheme", content: "light dark" },
       { title: "via" },
     ],
+    links: [{ rel: "icon", type: "image/svg+xml", href: "/ui/favicon.svg" }],
   }),
   shellComponent: Shell,
   component: Root,
