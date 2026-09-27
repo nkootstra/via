@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply, sse, sseFrames } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
-import { withVia } from "./harness.ts";
+import { withVia } from "./testing/harness.ts";
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
 const response = {

@@ -37,7 +37,7 @@ import {
   HttpClientResponse,
   HttpServer,
 } from "effect/unstable/http";
-import { ViaServer } from "./index.ts";
+import { ViaServer } from "../index.ts";
 
 /** Codex's answer to a request that goes well: "hello", as a completed stream. */
 export const ok = () => reply.sse(completedStream("hello"));

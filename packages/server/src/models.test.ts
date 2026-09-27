@@ -5,7 +5,7 @@ import { startFakeProvider } from "@via/providers/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { HttpClientResponse } from "effect/unstable/http";
-import { type Via, ok, withVia } from "./harness.ts";
+import { type Via, ok, withVia } from "./testing/harness.ts";
 
 const ModelList = Schema.Struct({
   data: Schema.Array(Schema.Struct({ id: Schema.String })),

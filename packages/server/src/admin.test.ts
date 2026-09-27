@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { type Via, ok, withVia } from "./harness.ts";
+import { type Via, ok, withVia } from "./testing/harness.ts";
 import { LoginNotFoundError } from "./logins.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";

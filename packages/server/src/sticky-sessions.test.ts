@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
-import { withVia } from "./harness.ts";
+import { withVia } from "./testing/harness.ts";
 
 const CHAT = "/v1/chat/completions";
 

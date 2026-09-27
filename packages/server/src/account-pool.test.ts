@@ -6,7 +6,7 @@ import { Effect, FileSystem, Layer, Logger } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
 import { AccountPool } from "./account-pool.ts";
-import { ok, withVia } from "./harness.ts";
+import { ok, withVia } from "./testing/harness.ts";
 
 const account: Account = {
   id: "id-a",

@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
 import { Deferred, Effect, Stream } from "effect";
-import { ok, withVia } from "./harness.ts";
+import { ok, withVia } from "./testing/harness.ts";
 
 const cachedTokens = () =>
   reply.sse(
