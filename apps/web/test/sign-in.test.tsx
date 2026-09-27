@@ -1,5 +1,5 @@
 import { TooManySignInsError } from "@via/server/admin-api";
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import { failure } from "../src/testing/admin-handlers.ts";
@@ -95,12 +95,57 @@ describe("the session", () => {
     await waitFor(() => expect(router.history.location.pathname).toBe("/ui/sign-in"));
   });
 
-  it("signs out and forgets the session", async () => {
-    const { state, user, router } = renderApp("/");
+  it("asks before signing out, and sends nothing until confirmed", async () => {
+    const { state, user } = renderApp("/");
 
     const signOut = await screen.findByRole("button", { name: "Sign out" });
     expect(signOut.getAttribute("data-variant")).toBe("ghost-destructive");
     await user.click(signOut);
+
+    const dialog = await screen.findByRole("alertdialog", { name: "Sign out of via?" });
+    expect(dialog.textContent).toContain("You'll need the admin key to sign in again.");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" })),
+    );
+    expect(state.requests).not.toContain("DELETE /admin/session");
+  });
+
+  it("stays signed in when the viewer cancels, back on Sign out", async () => {
+    const { state, user, router } = renderApp("/");
+    const signOut = await screen.findByRole("button", { name: "Sign out" });
+
+    await user.click(signOut);
+    await user.click(await screen.findByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(document.activeElement).toBe(signOut);
+    expect(state.signedIn).toBe(true);
+    expect(state.requests).not.toContain("DELETE /admin/session");
+    expect(router.history.location.pathname).toBe("/ui/");
+  });
+
+  it("stays signed in when the viewer presses Escape", async () => {
+    const { state, user } = renderApp("/");
+    const signOut = await screen.findByRole("button", { name: "Sign out" });
+
+    await user.click(signOut);
+    await screen.findByRole("alertdialog");
+    await user.keyboard("{Escape}");
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(document.activeElement).toBe(signOut);
+    expect(state.signedIn).toBe(true);
+    expect(state.requests).not.toContain("DELETE /admin/session");
+  });
+
+  it("signs out once confirmed, and forgets the session", async () => {
+    const { state, user, router } = renderApp("/");
+
+    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Sign out of via?" });
+    const confirm = within(dialog).getByRole("button", { name: "Sign out" });
+    expect(confirm.getAttribute("data-variant")).toBe("destructive");
+    await user.click(confirm);
 
     await waitFor(() => expect(router.history.location.pathname).toBe("/ui/sign-in"));
     expect(state.signedIn).toBe(false);
