@@ -136,13 +136,16 @@ describe("UsageSnapshots", () => {
   );
 
   describe("latest", () => {
-    it.effect("waits for a refresh when none has finished yet", () =>
-      withSnapshots(({ snapshots, codex }) =>
+    it.effect("answers at once with nothing kept yet, and refreshes in the background", () =>
+      withSnapshots(({ snapshots }) =>
         Effect.gen(function* () {
-          const latest = yield* snapshots.latest;
-          expect(latest.accounts).toHaveLength(2);
-          expect(latest.providers).toBeDefined();
-          expect(codex.requests).toHaveLength(2);
+          expect(yield* snapshots.latest).toEqual({
+            accounts: [],
+            providers: undefined,
+            refreshing: true,
+          });
+          const done = yield* snapshots.refresh;
+          expect(yield* snapshots.latest).toEqual({ ...done, refreshing: false });
         }),
       ),
     );
@@ -150,9 +153,9 @@ describe("UsageSnapshots", () => {
     it.effect("answers what it holds, without asking again, for a minute", () =>
       withSnapshots(({ snapshots, codex, provider }) =>
         Effect.gen(function* () {
-          const first = yield* snapshots.latest;
+          const first = yield* snapshots.refresh;
           yield* TestClock.adjust("59 seconds");
-          expect(yield* snapshots.latest).toEqual(first);
+          expect(yield* snapshots.latest).toEqual({ ...first, refreshing: false });
           expect(codex.requests).toHaveLength(2);
           expect(provider.usageRequests).toHaveLength(1);
         }),
@@ -162,9 +165,9 @@ describe("UsageSnapshots", () => {
     it.effect("answers what it holds once a minute old, and refreshes it in the background", () =>
       withSnapshots(({ snapshots, codex, provider }) =>
         Effect.gen(function* () {
-          const first = yield* snapshots.latest;
+          const first = yield* snapshots.refresh;
           yield* TestClock.adjust("1 minute");
-          expect(yield* snapshots.latest).toEqual(first);
+          expect(yield* snapshots.latest).toEqual({ ...first, refreshing: true });
           yield* eventually(Effect.sync(() => provider.usageRequests.length === 2));
           expect(codex.requests).toHaveLength(4);
           const now = yield* Clock.currentTimeMillis;
@@ -175,19 +178,24 @@ describe("UsageSnapshots", () => {
       ),
     );
 
-    it.effect("waits for a refresh when an account was added since the last one", () =>
-      withSnapshots(({ snapshots, codex, store }) =>
+    it.effect("refreshes in the background when an account was added since the last refresh", () =>
+      withSnapshots(({ snapshots, store }) =>
         Effect.gen(function* () {
-          yield* snapshots.latest;
+          yield* snapshots.refresh;
           yield* TestClock.adjust("1 second");
           yield* store.save(tokensFor("c"));
           const latest = yield* snapshots.latest;
+          expect(latest.refreshing).toBe(true);
           expect(latest.accounts.map(({ account }) => account.label)).toEqual([
+            "a@example.com",
+            "b@example.com",
+          ]);
+          yield* eventually(Effect.map(snapshots.get, ({ accounts }) => accounts.length === 3));
+          expect((yield* snapshots.latest).accounts.map(({ account }) => account.label)).toEqual([
             "a@example.com",
             "b@example.com",
             "c@example.com",
           ]);
-          expect(codex.requests).toHaveLength(5);
         }),
       ),
     );
@@ -195,11 +203,11 @@ describe("UsageSnapshots", () => {
     it.effect("leaves out an account removed since the last refresh, and shows its new label", () =>
       withSnapshots(({ snapshots, store }) =>
         Effect.gen(function* () {
-          const before = yield* snapshots.latest;
-          const [a, b] = before.accounts;
+          const [a, b] = (yield* snapshots.refresh).accounts;
           yield* store.remove(a?.account.id ?? "");
           yield* store.setLabel(b?.account.id ?? "", "work");
           const latest = yield* snapshots.latest;
+          expect(latest.refreshing).toBe(false);
           expect(latest.accounts.map(({ account }) => account.label)).toEqual(["work"]);
           expect(latest.accounts[0]?.fetchedAt).toBe(b?.fetchedAt);
         }),

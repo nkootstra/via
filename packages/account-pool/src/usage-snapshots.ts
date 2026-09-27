@@ -112,23 +112,19 @@ const make = Effect.gen(function* () {
 
   const latest = Effect.gen(function* () {
     const listed = yield* store.list;
-    const snapshot = yield* get;
-    const byId = new Map(snapshot.accounts.map((entry) => [entry.account.id, entry]));
-
-    if (snapshot.providers === undefined || listed.some(({ id }) => !byId.has(id))) {
-      return current(listed, yield* refresh);
-    }
-
-    const shown = current(listed, snapshot);
+    const shown = current(listed, yield* get);
+    const now = yield* Clock.currentTimeMillis;
 
     const oldest = Math.min(
-      snapshot.providers.fetchedAt,
+      shown.providers?.fetchedAt ?? -Infinity,
       ...shown.accounts.map(({ fetchedAt }) => fetchedAt),
     );
 
-    if ((yield* Clock.currentTimeMillis) - oldest >= Duration.toMillis(MAX_AGE)) yield* start;
+    if (shown.accounts.length < listed.length || now - oldest >= Duration.toMillis(MAX_AGE)) {
+      yield* start;
+    }
 
-    return shown;
+    return { ...shown, refreshing: Option.isSome(yield* SynchronizedRef.get(running)) };
   });
 
   return {
@@ -141,9 +137,9 @@ const make = Effect.gen(function* () {
     /** What is kept now, without waiting. */
     get,
     /**
-     * What is kept, for the accounts there are now: after waiting for a refresh
-     * when there is nothing yet for one of them, and starting one in the
-     * background when it is a minute old or more.
+     * What is kept, for the accounts there are now, without waiting: it starts a
+     * refresh in the background when it has nothing yet for one of them or is a
+     * minute old or more, and says whether one is running.
      */
     latest,
   };
@@ -165,8 +161,8 @@ const current = (listed: ReadonlyArray<Account>, snapshot: UsageSnapshot): Usage
 
 /**
  * The latest usage every account and provider reported, kept in memory so the
- * dashboard shows it at once. The usage poll refreshes it; `latest` does too
- * when it is a minute old.
+ * dashboard shows it at once. The usage poll refreshes it; `latest` does too,
+ * in the background, when it is missing or a minute old.
  */
 export class UsageSnapshots extends Context.Service<UsageSnapshots, Effect.Success<typeof make>>()(
   "via/UsageSnapshots",
