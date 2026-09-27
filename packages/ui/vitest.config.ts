@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import { stylexPlugin } from "./test/stylex.ts";
+import { stylexPlugin } from "./stylex-plugin.ts";
 
 // Components call `stylex.create`, which only works once compiled, so tests
 // run the same unplugin transform the app build uses.

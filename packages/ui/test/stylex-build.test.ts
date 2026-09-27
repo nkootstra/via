@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { stylexPlugin } from "./stylex.ts";
+import { stylexPlugin } from "../stylex-plugin.ts";
 
 const fixture = fileURLToPath(new URL("build-fixture", import.meta.url));
 

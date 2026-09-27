@@ -13,6 +13,6 @@ export const stylexPlugin = () =>
     dev: false,
     unstable_moduleResolution: {
       type: "commonJS",
-      rootDir: fileURLToPath(new URL("../../..", import.meta.url)),
+      rootDir: fileURLToPath(new URL("../..", import.meta.url)),
     },
   });
