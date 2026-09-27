@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@base-ui/react": "catalog:",
-    "@stylexjs/stylex": "catalog:"
+    "@stylexjs/stylex": "catalog:",
+    "motion": "catalog:"
   },
   "devDependencies": {
     "@stylexjs/unplugin": "catalog:",
