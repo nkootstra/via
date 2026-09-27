@@ -8,9 +8,11 @@ const IdTokenClaims = Schema.Struct({
   }),
 });
 
-const IdTokenPayload = Schema.StringFromBase64Url.pipe(
-  Schema.decodeTo(Schema.fromJsonString(IdTokenClaims)),
-);
+/** A JWT's base64url payload segment, decoded to `claims`. */
+export const JwtPayload = <S extends Schema.Codec<unknown, unknown>>(claims: S) =>
+  Schema.StringFromBase64Url.pipe(Schema.decodeTo(Schema.fromJsonString(claims)));
+
+const IdTokenPayload = JwtPayload(IdTokenClaims);
 
 export class InvalidIdTokenError extends Schema.TaggedError<InvalidIdTokenError>()(
   "InvalidIdTokenError",
