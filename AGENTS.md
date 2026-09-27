@@ -67,8 +67,8 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 
 - `apps/cli`: the `via` binary (`effect/unstable/cli`); the composition root.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
-  `codex-upstream`, `providers`, `translate`, `server`). Create a package only when the first
-  test needs it.
+  `codex-upstream`, `account-pool`, `providers`, `translate`, `server`).
+  Create a package only when the first test needs it.
 - `docs/`: user-facing docs; `docs/README.md` is the repo's landing page.
 - `tools/oxlint/anti-slop`: vendored Oxlint rules, enabled in `.oxlintrc.json`.
   Changes to them are recorded in its `UPSTREAM.md`.

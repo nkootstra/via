@@ -1,12 +1,12 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type Account, AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
+import { seedAccount, startFakeIssuer } from "@via/codex-auth/testing";
 import { PoolStates } from "@via/pool";
-import { Effect, FileSystem, Layer, Logger } from "effect";
-import { TestClock } from "effect/testing";
+import { Effect, FileSystem, Layer, Logger, Option } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { AccountPool } from "./account-pool.ts";
-import { ok, withVia } from "./testing/harness.ts";
+import { collectLogs } from "./testing/logs.ts";
 
 const account: Account = {
   id: "id-a",
@@ -23,34 +23,32 @@ const account: Account = {
 };
 
 layer(BunFileSystem.layer)("choosing an account", (it) => {
-  it.effect(
-    "moves on to the next account when a request finds the first one's refresh rejected",
-    () =>
-      withVia(
-        ok,
-        (via) =>
-          Effect.gen(function* () {
-            // Only now is "a" close enough to expiring to be refreshed: as via started, it
-            // still had seven minutes, so asking Codex for the models needed no refresh.
-            yield* TestClock.adjust("3 minutes");
+  it.effect("moves on to the next account when the first one's refresh is rejected", () =>
+    Effect.gen(function* () {
+      const dir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
 
-            // No model, so via doesn't ask the model catalog which accounts may serve it:
-            // asking Codex for the catalog again would refresh "a" before the request did.
-            const response = yield* via.post("/v1/responses", { input: "hi" });
+      const issuer = yield* startFakeIssuer({
+        refreshResponse: { status: 400, body: { error: "invalid_grant" } },
+      });
 
-            expect(response.status).toBe(200);
-            expect(yield* via.logged("a@example.com is locked out")).toMatchObject({
-              level: "Warn",
-            });
-            expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
-              served_by: "b@example.com",
-            });
-          }),
-        {
-          refreshResponse: { status: 400, body: { error: "invalid_grant" } },
-          aExpiresAt: 7 * 60 * 1000,
-        },
-      ),
+      // "a" was added first, so it serves first, but its token has expired.
+      yield* seedAccount(dir, "a", { expiresAt: 0 });
+      yield* seedAccount(dir, "b", { createdAt: "2026-01-02T00:00:00.000Z" });
+      const logs = collectLogs();
+
+      const poolLayer = AccountPool.layer.pipe(
+        Layer.provide(AccountTokens.layer),
+        Layer.provide([AccountStore.layer(dir), CodexAuth.layer(issuer)]),
+        Layer.provide([PoolStates.layer, FetchHttpClient.layer]),
+      );
+
+      const next = yield* Effect.gen(function* () {
+        return yield* (yield* AccountPool).next(() => true, Option.none());
+      }).pipe(Effect.provide([poolLayer, Logger.layer([logs.logger])]));
+
+      expect(Option.map(next, ({ id }) => id)).toEqual(Option.some("b"));
+      expect(yield* logs.logged("a is locked out")).toMatchObject({ level: "Warn" });
+    }),
   );
 
   it.effect("warns only when a cooldown takes an account out of rotation for longer", () =>

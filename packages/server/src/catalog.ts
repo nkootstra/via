@@ -1,7 +1,7 @@
 import { type CatalogModel, CodexUpstream, modelIds, resolveAlias } from "@via/codex-upstream";
 import { type ProviderModel, Providers } from "@via/providers";
 import { Array, Clock, Context, Duration, Effect, Layer, Option, Ref, Semaphore } from "effect";
-import { AccountPool } from "./account-pool.ts";
+import { AccountPool } from "@via/account-pool";
 
 /** A model object with only what via knows about the model. */
 const entry = (id: string, ownedBy: string) => ({

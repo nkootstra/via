@@ -53,5 +53,5 @@ export const UsagePoll = {
         Effect.andThen(Effect.repeat(runPass, Schedule.spaced(POLL_INTERVAL))),
       ),
     ),
-  ).pipe(Layer.provide(AccountPool.layer)),
+  ),
 };

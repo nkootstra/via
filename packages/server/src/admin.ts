@@ -4,7 +4,7 @@ import { KeyStore } from "@via/keys";
 import { Providers } from "@via/providers";
 import { Effect, Layer, Redacted, Schema } from "effect";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
-import { accountUsage } from "./account-pool.ts";
+import { accountUsage } from "@via/account-pool";
 import { AdminApi, AdminAuthorization, Unauthorized } from "./admin-api.ts";
 import { Logins } from "./logins.ts";
 

@@ -1,6 +1,3 @@
-// Deliberately not `withVia` (testing/harness.ts): this poller has nothing to do with the
-// HTTP API surface `withVia` sets up, and a smaller, local setup keeps this test
-// isolated from changes other features make to that shared harness.
 import { BunFileSystem } from "@effect/platform-bun";
 import { type Account, AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
 import { startFakeIssuer, tokensFor } from "@via/codex-auth/testing";
@@ -11,7 +8,8 @@ import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
-import { collectLogs } from "./testing/harness.ts";
+import { AccountPool } from "./account-pool.ts";
+import { collectLogs } from "./testing/logs.ts";
 import { UsagePoll } from "./usage-poll.ts";
 
 /** Mirrors the poll's own interval: this suite shares one `TestClock` across its
@@ -75,6 +73,7 @@ const withPoll = <A, E>(
 
     const runtime = yield* Layer.build(
       UsagePoll.layer.pipe(
+        Layer.provide(AccountPool.layer),
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provideMerge(PoolStates.layer),
         Layer.provideMerge(Layer.succeedContext(built)),

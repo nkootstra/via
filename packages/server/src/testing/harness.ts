@@ -1,5 +1,6 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
+import { AccountPool } from "@via/account-pool";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
 import {
   type FakeIssuerOptions,
@@ -89,7 +90,7 @@ type LogLine = {
 };
 
 /** A logger that keeps every line, and `logged(text)`, which waits for one containing `text`. */
-export const collectLogs = () => {
+const collectLogs = () => {
   const lines: Array<LogLine> = [];
   const waiters: Array<{ text: string; line: Deferred.Deferred<LogLine> }> = [];
 
@@ -209,6 +210,7 @@ export const withVia = <A, E>(
       ViaServer.layer({
         adminKey: adminKey === undefined ? undefined : Redacted.make(adminKey),
       }).pipe(
+        Layer.provide(AccountPool.layer),
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provide(PoolStates.layer),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
