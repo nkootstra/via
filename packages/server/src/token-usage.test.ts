@@ -103,6 +103,22 @@ describe("spotUsage", () => {
     }),
   );
 
+  it.effect("reports nothing for a response.created event, whose usage is still null", () =>
+    Effect.gen(function* () {
+      const text =
+        'event: response.created\ndata: {"type":"response.created","response":{"status":"in_progress","usage":null}}\n\n';
+
+      const reported: Array<unknown> = [];
+
+      const stream = spotUsage(Stream.make(bytes(text)), true, (usage) =>
+        Effect.sync(() => reported.push(usage)),
+      );
+
+      yield* Stream.runDrain(stream);
+      expect(reported).toEqual([]);
+    }),
+  );
+
   it.effect("reports the usage of an SSE event split across chunks", () =>
     Effect.gen(function* () {
       const text =

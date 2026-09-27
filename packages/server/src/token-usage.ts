@@ -68,13 +68,8 @@ const EventPayload = Schema.Struct({
   usage: Schema.optionalKey(Schema.Json),
 });
 
-const usageFromPayload = (payload: typeof EventPayload.Type): Option.Option<TokenUsage> => {
-  const nested = payload.response?.usage;
-
-  return nested === undefined
-    ? usageOf(payload.usage)
-    : Option.orElse(usageOf(nested), () => usageOf(payload.usage));
-};
+const usageFromPayload = (payload: typeof EventPayload.Type): Option.Option<TokenUsage> =>
+  Option.orElse(usageOf(payload.response?.usage), () => usageOf(payload.usage));
 
 const decodePayload = Schema.decodeUnknownOption(Schema.fromJsonString(EventPayload));
 
