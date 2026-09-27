@@ -80,6 +80,24 @@ describe("toChatStream", () => {
     }),
   );
 
+  it.effect("streams a refusal as refusal deltas", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents([
+        created,
+        { type: "response.refusal.delta", delta: "I can't " },
+        { type: "response.refusal.delta", delta: "help with that." },
+        completed,
+      ]);
+
+      expect(deltas(events)).toEqual([
+        { index: 0, delta: { role: "assistant", content: "" }, finish_reason: null },
+        { index: 0, delta: { refusal: "I can't " }, finish_reason: null },
+        { index: 0, delta: { refusal: "help with that." }, finish_reason: null },
+        { index: 0, delta: {}, finish_reason: "stop" },
+      ]);
+    }),
+  );
+
   it.effect("streams function calls as tool call deltas and finishes for them", () =>
     Effect.gen(function* () {
       const events = yield* chatEvents([
@@ -345,6 +363,7 @@ describe("toChatStream and toChatCompletion", () => {
       name: Schema.String,
       deltas: Schema.Array(Schema.String),
     }),
+    Schema.Struct({ type: Schema.Literal("refusal"), deltas: Schema.Array(Schema.String) }),
     Schema.Struct({ type: Schema.Literal("reasoning") }),
   ]);
 
@@ -362,6 +381,8 @@ describe("toChatStream and toChatCompletion", () => {
 
   const isFunctionCall = Schema.is(Item.members[1]);
 
+  const isRefusal = Schema.is(Item.members[2]);
+
   const envelope = { id: "resp_1", created_at: 1_700_000_000, model: "gpt-6-astra" };
 
   /** The scenario's response as the Responses API sends it without streaming. */
@@ -376,6 +397,10 @@ describe("toChatStream and toChatCompletion", () => {
         const call = { call_id: `call_${index}`, name: item.name };
 
         return { type: "function_call", ...call, arguments: item.deltas.join("") };
+      }
+
+      if (isRefusal(item)) {
+        return { type: "message", content: [{ type: "refusal", refusal: item.deltas.join("") }] };
       }
 
       return { type: "reasoning", summary: [] };
@@ -408,6 +433,13 @@ describe("toChatStream and toChatCompletion", () => {
         ];
       }
 
+      if (isRefusal(item)) {
+        return [
+          { type: "response.output_item.added", output_index, item: { type: "message" } },
+          ...item.deltas.map((delta) => ({ type: "response.refusal.delta", delta })),
+        ];
+      }
+
       return [
         { type: "response.output_item.added", output_index, item: { type: "reasoning" } },
         { type: "response.reasoning_summary_text.delta", output_index, delta: "Hmm" },
@@ -435,6 +467,7 @@ describe("toChatStream and toChatCompletion", () => {
       Schema.Struct({
         delta: Schema.Struct({
           content: Schema.optionalKey(Schema.String),
+          refusal: Schema.optionalKey(Schema.String),
           tool_calls: Schema.optionalKey(Schema.Array(ToolCallDelta)),
         }),
         finish_reason: Schema.NullOr(Schema.String),
@@ -469,6 +502,7 @@ describe("toChatStream and toChatCompletion", () => {
       created: chunks[0]?.created,
       model: chunks[0]?.model,
       content: choices.map((choice) => choice.delta.content ?? "").join(""),
+      refusal: choices.map((choice) => choice.delta.refusal ?? "").join(""),
       calls,
       finish: choices.findLast((choice) => choice.finish_reason !== null)?.finish_reason,
       usage: chunks.find((chunk) => chunk.choices.length === 0)?.usage,
@@ -490,6 +524,7 @@ describe("toChatStream and toChatCompletion", () => {
             created: answer.created,
             model: answer.model,
             content: message.content ?? "",
+            refusal: "refusal" in message ? message.refusal : "",
             calls: message.tool_calls ?? [],
             finish: finish_reason,
             usage: answer.usage,

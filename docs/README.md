@@ -150,6 +150,11 @@ Every `/v1` route needs `Authorization: Bearer <key>` with a key from `via keys 
 
 A model named `<provider>/<model>` goes to that [provider](#providers) instead.
 
+The Codex backend refuses sampling and limit options, so via accepts and ignores
+them: `temperature`, `top_p`, `max_tokens`, `max_completion_tokens` and
+`max_output_tokens`, as well as `user`, `metadata` and `previous_response_id`.
+A refusal comes back as the chat message's `refusal`, as OpenAI sends it.
+
 `/v1/models` lists what the Codex model picker shows your accounts, combined,
 since plans offer different models. So new models appear without a via update.
 via fetches the list as it starts and answers from it at once; once it is five
@@ -347,6 +352,8 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   upstream dropped the connection).
 - For an error via answers itself, `error` is its code and `retry_after` the
   seconds until an account frees up.
+- A request the client gave up on before via answered is logged with
+  `http.status=499`, as nginx does. The client never sees that status.
 
 It also warns when an account cools down, is locked out, or has its token
 rejected, and says until when.

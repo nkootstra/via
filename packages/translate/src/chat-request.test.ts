@@ -220,4 +220,19 @@ describe("toResponsesRequest", () => {
       translate({ model: "gpt-6-astra", messages: [], reasoning_effort: "high", stream: true }),
     ).toMatchObject({ reasoning: { effort: "high" }, stream: true });
   });
+
+  it("accepts the sampling and limit options Codex refuses, and leaves them out", () => {
+    expect(
+      translate({
+        model: "gpt-6-astra",
+        messages: [],
+        max_tokens: 100,
+        max_completion_tokens: 100,
+        temperature: 0.2,
+        top_p: 0.9,
+        user: "u-1",
+        metadata: { run: "1" },
+      }),
+    ).toEqual({ model: "gpt-6-astra", instructions: "", input: [] });
+  });
 });

@@ -53,6 +53,28 @@ describe("toChatCompletion", () => {
     });
   });
 
+  it("puts a refusal in the message's refusal, with no content", () => {
+    const completion = translate({
+      id: "resp_1",
+      created_at: 1_700_000_000,
+      model: "gpt-6-astra",
+      output: [
+        {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "refusal", refusal: "I can't help with that." }],
+        },
+      ],
+      usage,
+    });
+
+    expect(completion.choices[0]).toEqual({
+      index: 0,
+      message: { role: "assistant", content: null, refusal: "I can't help with that." },
+      finish_reason: "stop",
+    });
+  });
+
   it("turns function calls into tool calls and finishes for them", () => {
     const completion = translate({
       id: "resp_1",

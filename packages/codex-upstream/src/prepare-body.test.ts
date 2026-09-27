@@ -33,7 +33,15 @@ describe("prepareBody", () => {
     expect(prepareBody({ ...request, instructions: "Be brief." }).instructions).toBe("Be brief.");
   });
 
-  for (const parameter of ["max_output_tokens", "temperature", "top_p", "previous_response_id"]) {
+  for (const parameter of [
+    "max_output_tokens",
+    "temperature",
+    "top_p",
+    "previous_response_id",
+    "user",
+    "metadata",
+    "context_management",
+  ]) {
     it(`drops ${parameter} to avoid "Unsupported parameter: ${parameter}"`, () => {
       expect(prepareBody({ ...request, [parameter]: 1 })).not.toHaveProperty(parameter);
     });

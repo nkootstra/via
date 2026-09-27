@@ -3,9 +3,13 @@ import { Schema } from "effect";
 
 const OutputText = Schema.Struct({ type: Schema.Literal("output_text"), text: Schema.String });
 
+const Refusal = Schema.Struct({ type: Schema.Literal("refusal"), refusal: Schema.String });
+
 const MessageItem = Schema.Struct({
   type: Schema.Literal("message"),
-  content: Schema.Array(Schema.Union([OutputText, Schema.Struct({ type: Schema.String })])),
+  content: Schema.Array(
+    Schema.Union([OutputText, Refusal, Schema.Struct({ type: Schema.String })]),
+  ),
 });
 
 const FunctionCallItem = Schema.Struct({
@@ -33,6 +37,8 @@ export const CompletedResponse = Schema.Struct({
 export type CompletedResponse = typeof CompletedResponse.Type;
 
 const isOutputText = Schema.is(OutputText);
+
+const isRefusal = Schema.is(Refusal);
 
 const isMessageItem = Schema.is(MessageItem);
 
@@ -77,10 +83,16 @@ export const toolCall = (id: string, name: string, args: string) => ({
 
 /** The Chat Completions answer equivalent to a completed Responses response. */
 export const toChatCompletion = (response: CompletedResponse) => {
-  const text = response.output
-    .filter(isMessageItem)
-    .flatMap((item) => item.content.filter(isOutputText))
+  const parts = response.output.filter(isMessageItem).flatMap((item) => item.content);
+
+  const text = parts
+    .filter(isOutputText)
     .map((part) => part.text)
+    .join("");
+
+  const refusal = parts
+    .filter(isRefusal)
+    .map((part) => part.refusal)
     .join("");
 
   const toolCalls = response.output
@@ -97,7 +109,9 @@ export const toChatCompletion = (response: CompletedResponse) => {
         index: 0,
         message: {
           role: "assistant",
-          content: text === "" && toolCalls.length > 0 ? null : text,
+          // A refusal, like a tool call, answers in place of content.
+          content: text === "" && (toolCalls.length > 0 || refusal !== "") ? null : text,
+          ...(refusal !== "" && { refusal }),
           ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
         },
         finish_reason: finishReason(response.incomplete_details, toolCalls.length > 0),

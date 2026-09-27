@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Deferred, Effect, Stream } from "effect";
+import { Deferred, Effect, Exit, Stream } from "effect";
 import { ok, withVia } from "./testing/harness.ts";
 
 const cachedTokens = () =>
@@ -115,6 +115,38 @@ layer(BunFileSystem.layer)("request log", (it) => {
       }),
     ),
   );
+
+  it.effect("logs a request the client gave up on before via answered as 499", () => {
+    const asked = Deferred.makeUnsafe<void>();
+    // Never opened: Codex takes longer than the client is willing to wait.
+    const gate = Deferred.makeUnsafe<void>();
+
+    return withVia(
+      () => (request) => {
+        Deferred.doneUnsafe(asked, Exit.void);
+
+        return reply.held(gate, ok())(request);
+      },
+      (via) =>
+        Effect.gen(function* () {
+          const abort = new AbortController();
+
+          const sent = fetch(`${via.baseUrl}/v1/responses`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${via.key}`, "content-type": "application/json" },
+            body: JSON.stringify({ model: "gpt-6-astra", input: "hi" }),
+            signal: abort.signal,
+          }).catch(() => undefined);
+
+          yield* Deferred.await(asked);
+          abort.abort();
+          yield* Effect.promise(() => sent);
+          expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+            "http.status": 499,
+          });
+        }),
+    );
+  });
 
   it.effect("logs a provider's answer whose body is never sent, such as a 204", () =>
     withVia(ok, (via) =>
