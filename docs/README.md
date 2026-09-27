@@ -198,7 +198,7 @@ work on `/v1`.
 | `GET /admin/usage`                | How much of each account's and provider's limits is used. |
 | `GET /admin/pool`                 | Each account's and provider's state (see below).          |
 | `GET /admin/models`               | The models `/v1/models` lists.                            |
-| `GET /admin/keys`                 | List API keys, never the keys themselves.                 |
+| `GET /admin/keys`                 | List API keys and when each was last used, not the keys.  |
 | `POST /admin/keys`                | Create a key from `{"name": "..."}`. It is returned once. |
 | `DELETE /admin/keys/<id-or-name>` | Revoke a key.                                             |
 
@@ -207,6 +207,11 @@ commands, the admin API doesn't take a label or email, which would otherwise
 end up in URLs and access logs. An account, login or key that doesn't exist
 answers 404; a key name that is taken
 answers 409.
+
+A key's `lastUsedAt` is `null` until a client first uses it. `via serve` knows
+it to the second, but writes it to `keys.json` at most once a minute per key
+rather than on every request, so after a restart, or in `via keys list` next
+to a running `via serve`, it can be up to a minute behind.
 
 To add an account, start a login, open `verificationUrl` and enter `userCode`,
 then poll the login until it's no longer `pending`:
@@ -309,7 +314,7 @@ The page is the admin key's reach in a browser, so give it the same care:
 | `via accounts enable <account>`          | Use it again.                                                   |
 | `via accounts remove <account>`          | Forget an account and delete its tokens.                        |
 | `via keys create --name <name>`          | Create an API key. It is printed once.                          |
-| `via keys list`                          | List keys.                                                      |
+| `via keys list`                          | List keys, when each was created and when it was last used.     |
 | `via keys revoke <id-or-name>`           | Revoke a key.                                                   |
 | `via serve [--host <addr>] [--port <n>]` | Serve the API in the foreground.                                |
 
@@ -351,7 +356,7 @@ via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set.
 | File             | Contents                                            |
 | ---------------- | --------------------------------------------------- |
 | `config.yaml`    | Optional settings; you write it, via only reads it. |
-| `keys.json`      | SHA-256 hashes of your API keys.                    |
+| `keys.json`      | Your API keys' SHA-256 hashes and last use.         |
 | `auth/<id>.json` | One account's OAuth tokens.                         |
 | `state.json`     | Running cooldowns; safe to delete.                  |
 
