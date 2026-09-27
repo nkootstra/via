@@ -4,6 +4,9 @@
   "workspaces": {
     "npm": {
       "entry": ["via/bin/via.js"]
+    },
+    "packages/ui": {
+      "includeEntryExports": false
     }
   },
   "ignoreDependencies": ["@effect/language-service"],
