@@ -19,10 +19,9 @@ layer(BunFileSystem.layer)("choosing an account", (it) => {
             // still had seven minutes, so asking Codex for the models needed no refresh.
             yield* TestClock.adjust("3 minutes");
 
-            const response = yield* via.post("/v1/responses", {
-              model: "gpt-6-astra",
-              input: "hi",
-            });
+            // No model, so via doesn't ask the model catalog which accounts may serve it:
+            // asking Codex for the catalog again would refresh "a" before the request did.
+            const response = yield* via.post("/v1/responses", { input: "hi" });
 
             expect(response.status).toBe(200);
             expect(yield* via.logged("a@example.com is locked out")).toMatchObject({
