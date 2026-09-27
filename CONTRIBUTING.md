@@ -43,12 +43,16 @@ Never use `bun test`; it's a different test runner.
 
 `apps/web` is the admin UI, which via serves at `/ui`. For a quick loop, run
 via with an admin key in one terminal and Vite in another; Vite sends `/admin`
-to via (or to `VIA_DEV_ADMIN_URL`):
+to via (or to `VIA_DEV_ADMIN_URL`), the `/admin/events` stream included:
 
 ```sh
 VIA_ADMIN_KEY=$(openssl rand -hex 32) bun apps/cli/src/index.ts serve
 bun run --cwd apps/web dev    # http://localhost:5173/ui/
 ```
+
+In dev the page comes from Vite, which can't put via's state in it as via
+does for a signed-in page, so the page fetches that state once when it loads
+and then listens to `/admin/events` as it would in production.
 
 The binary embeds the production build instead: `bun run --cwd apps/web build`
 writes `apps/web/dist`, and `dist/embedded.ts` lists its files and the CSP

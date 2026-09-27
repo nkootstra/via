@@ -204,6 +204,7 @@ work on `/v1`.
 | `GET /admin/usage`                        | How much of each account's limits is used.                       |
 | `GET /admin/pool`                         | Each account's and provider's state (see below).                 |
 | `GET /admin/models`                       | The models `/v1/models` lists.                                   |
+| `GET /admin/events`                       | The admin state as server-sent events, as it changes.            |
 | `GET /admin/keys`                         | List API keys and when each was last used, not the keys.         |
 | `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.        |
 | `DELETE /admin/keys/<id-or-name>`         | Revoke a key.                                                    |
@@ -264,6 +265,20 @@ minute however often the page refreshes. Each entry in `GET /admin/usage` says w
 (`fetchedAt`), an account via has no usage for yet is left out, and
 `refreshing` is `true` while a fetch runs.
 
+`GET /admin/events` is a stream of
+[server-sent events](https://html.spec.whatwg.org/multipage/server-sent-events.html)
+that pushes the admin state instead of making you poll. Each event is named
+`state` and carries all of it as JSON: `pool` and `usage` as the routes above
+answer them, `accounts` and `keys` as their lists do, and `session: true`. The
+first comes as soon as you connect; after that, one comes whenever something
+in it changes: an account or key is added, changed or removed, a cooldown or
+lockout starts, a cooldown runs out, or a usage fetch starts or ends. Changes
+that come together (within about 200 ms) arrive as one event, and a state the
+same as the last one isn't sent again. A `: keepalive` comment keeps a quiet
+stream open. Changes another process makes, such as `via accounts label`,
+show within 15 seconds, and while a stream is open via keeps usage from
+getting more than about a minute old, as it does for a page that polls.
+
 #### Signing in from a browser
 
 A browser signs in once with the admin key, and from then on sends a session
@@ -304,9 +319,16 @@ last four characters.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
-old, and says how long ago that was. The tab keeps what it last showed, for up
-to 10 minutes, so a reload paints it at once and then updates it; signing out
-forgets it.
+old, and says how long ago that was.
+
+The page shows the pool as it is right now, without reloading or polling. When
+a signed-in browser opens or reloads it, via puts the current state in the
+page itself, so it paints straight away without asking `/admin` for anything.
+The page then listens to [`GET /admin/events`](#admin-api), and a cooldown,
+a lockout, new usage or a change made in another tab shows up the moment via
+knows it. If that stream drops, the page asks every few seconds instead until
+the browser reconnects. The state in the page is the viewer's, so via tells
+browsers and proxies not to cache it.
 
 The page is the admin key's reach in a browser, so give it the same care:
 
