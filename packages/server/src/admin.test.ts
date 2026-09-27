@@ -166,4 +166,59 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       { adminKey },
     ),
   );
+
+  it.effect("reports every account's and provider's usage, or why it is unavailable", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          via.codexUsage("acc-b", {}, 403);
+          via.provider.usage({
+            usage: {
+              rolling: { status: "ok", percent: 0, resetsAt: "2026-09-26T23:40:07.697Z" },
+              weekly: { status: "ok", percent: 26, resetsAt: "2026-09-28T00:00:00.000Z" },
+            },
+          });
+          const response = yield* via.get("/admin/usage", adminKey);
+          expect(response.status).toBe(200);
+          expect(yield* response.json).toEqual({
+            accounts: [
+              {
+                id: expect.any(String),
+                label: "a@example.com",
+                windows: [
+                  { windowMinutes: 300, usedPercent: 12, resetsAt: "2023-11-14T23:13:20.000Z" },
+                  { windowMinutes: 10_080, usedPercent: 40, resetsAt: "2023-11-15T22:13:20.000Z" },
+                ],
+              },
+              {
+                id: expect.any(String),
+                label: "b@example.com",
+                error: "ChatGPT did not report usage (HTTP 403)",
+              },
+            ],
+            providers: [
+              {
+                provider: "opencode-go",
+                windows: [
+                  {
+                    window: "rolling",
+                    status: "ok",
+                    usedPercent: 0,
+                    resetsAt: "2026-09-26T23:40:07.697Z",
+                  },
+                  {
+                    window: "weekly",
+                    status: "ok",
+                    usedPercent: 26,
+                    resetsAt: "2026-09-28T00:00:00.000Z",
+                  },
+                ],
+              },
+            ],
+          });
+        }),
+      { adminKey },
+    ),
+  );
 });
