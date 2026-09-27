@@ -211,6 +211,7 @@ work on `/v1`.
 | `GET /admin/events`                       | The admin state as server-sent events, as it changes.            |
 | `GET /admin/keys`                         | List API keys and when each was last used, not the keys.         |
 | `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.        |
+| `PATCH /admin/keys/<id-or-name>`          | Rename a key from `{"name": "..."}`; the key stays the same.     |
 | `DELETE /admin/keys/<id-or-name>`         | Revoke a key.                                                    |
 
 Accounts are named by their `id` from `GET /admin/accounts`. Unlike the
@@ -318,7 +319,7 @@ Open it and sign in with the admin key. The page [signs in](#signing-in-from-a-b
 as above: it keeps only the session cookie, never the key, and a reload or a
 link to any page keeps you signed in until the session ends. From there you can
 see the pool at a glance, add ChatGPT accounts by device-code login or OpenCode
-Go keys by pasting them, rename, disable and remove them, create and revoke API
+Go keys by pasting them, rename, disable and remove them, create, rename and revoke API
 keys, and list the models. The Accounts page lists the ChatGPT accounts under
 Codex and the OpenCode Go keys under their own heading, each key only by its
 last four characters.
@@ -363,6 +364,7 @@ The page is the admin key's reach in a browser, so give it the same care:
 | `via accounts remove <account>`           | Forget an account and delete its tokens.                        |
 | `via keys create --name <name>`           | Create an API key. It is printed once.                          |
 | `via keys list`                           | List keys, when each was created and when it was last used.     |
+| `via keys rename <id-or-name> <new-name>` | Rename a key; clients keep using it.                            |
 | `via keys revoke <id-or-name>`            | Revoke a key.                                                   |
 | `via serve [--host <addr>] [--port <n>]`  | Serve the API in the foreground.                                |
 

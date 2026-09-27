@@ -135,6 +135,9 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         yield* via.post("/admin/keys", { name: "laptop" }, adminKey);
         expect((yield* next(states)).keys.map(({ name }) => name)).toEqual(["test", "laptop"]);
 
+        yield* via.patch("/admin/keys/laptop", { name: "desktop" }, adminKey);
+        expect((yield* next(states)).keys.map(({ name }) => name)).toEqual(["test", "desktop"]);
+
         // OpenCode Go takes the key: it reports its usage.
         via.provider.usageFor("sk-go-5678", { usage: {} });
         yield* via.post("/admin/opencode-go/accounts", { apiKey: "sk-go-5678" }, adminKey);

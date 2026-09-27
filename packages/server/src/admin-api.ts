@@ -351,6 +351,17 @@ class KeysGroup extends HttpApiGroup.make("keys")
     }),
   )
   .add(
+    HttpApiEndpoint.patch("rename", "/keys/:idOrName", {
+      params: { idOrName: Schema.String },
+      payload: Schema.Struct({ name: Schema.String }),
+      success: AdminKey,
+      error: [
+        KeyNotFoundError.pipe(HttpApiSchema.status(404)),
+        DuplicateKeyNameError.pipe(HttpApiSchema.status(409)),
+      ],
+    }),
+  )
+  .add(
     HttpApiEndpoint.delete("revoke", "/keys/:idOrName", {
       params: { idOrName: Schema.String },
       error: KeyNotFoundError.pipe(HttpApiSchema.status(404)),

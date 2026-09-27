@@ -247,6 +247,11 @@ const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
         Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
       ),
     )
+    .handle("rename", ({ params, payload }) =>
+      Effect.flatMap(KeyStore, (store) => store.rename(params.idOrName, payload.name)).pipe(
+        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
+      ),
+    )
     .handle("revoke", ({ params }) =>
       Effect.flatMap(KeyStore, (store) => store.revoke(params.idOrName)).pipe(
         Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),

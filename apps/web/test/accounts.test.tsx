@@ -52,6 +52,8 @@ describe("the accounts page", () => {
     await user.type(input, "office");
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
+    // By name: the "Account renamed" toast is a dialog too.
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename work" })).toBeNull());
     expect(await screen.findByText("office")).toBeDefined();
     expect(state.accounts[0]?.label).toBe("office");
   });
@@ -242,7 +244,10 @@ describe("the accounts page's OpenCode Go keys", () => {
     await user.clear(input);
     await user.type(input, "go work");
     await user.click(within(rename).getByRole("button", { name: "Save" }));
-    await waitFor(() => expect(state.opencodeGo[0]?.label).toBe("go work"));
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Rename go main" })).toBeNull(),
+    );
+    expect(state.opencodeGo[0]?.label).toBe("go work");
 
     await user.click(
       within(await goRow("go work")).getByRole("switch", { name: "go work enabled" }),

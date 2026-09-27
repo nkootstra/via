@@ -79,6 +79,41 @@ layer(BunFileSystem.layer)("via keys", (it) => {
     }),
   );
 
+  it.effect("rename gives a key a new name, and the key keeps its secret", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const home = yield* tempHome;
+      yield* createKey(home, "laptop");
+      const before = yield* fs.readFileString(`${home}/keys.json`);
+
+      const rename = yield* runVia(home, ["keys", "rename", "laptop", "desktop"]);
+      expect(rename.exitCode).toBe(0);
+      expect(rename.stdout).toContain('Renamed "laptop" to "desktop".');
+      // Only the name changed: the id, the key's hash and when it was created are as they were.
+      const after = yield* fs.readFileString(`${home}/keys.json`);
+      expect(after).toBe(before.replace('"laptop"', '"desktop"'));
+    }),
+  );
+
+  it.effect("renaming an unknown key fails", () =>
+    Effect.gen(function* () {
+      const result = yield* runVia(yield* tempHome, ["keys", "rename", "nope", "desktop"]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain('No key with id or name "nope"');
+    }),
+  );
+
+  it.effect("renaming a key to another key's name fails", () =>
+    Effect.gen(function* () {
+      const home = yield* tempHome;
+      yield* createKey(home, "laptop");
+      yield* createKey(home, "desktop");
+      const result = yield* runVia(home, ["keys", "rename", "laptop", "desktop"]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain('A key named "desktop" already exists');
+    }),
+  );
+
   it.effect("creating a duplicate name fails", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;

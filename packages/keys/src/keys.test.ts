@@ -138,6 +138,67 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     ),
   );
 
+  it.effect("renames a key, which keeps verifying, now to its new name", () =>
+    withKeyStore(() =>
+      Effect.gen(function* () {
+        const store = yield* KeyStore;
+        const { id, key } = yield* store.create("laptop");
+        const renamed = yield* store.rename(id, "desktop");
+        expect(renamed).toEqual({
+          id,
+          name: "desktop",
+          createdAt: expect.any(String),
+          lastUsedAt: null,
+        });
+        expect(yield* store.verify(key)).toEqual(Option.some({ id, name: "desktop" }));
+        expect((yield* store.list).map((k) => k.name)).toEqual(["desktop"]);
+      }),
+    ),
+  );
+
+  it.effect("renames by name too, and fails on an unknown target", () =>
+    withKeyStore(() =>
+      Effect.gen(function* () {
+        const store = yield* KeyStore;
+        yield* store.create("laptop");
+        yield* store.rename("laptop", "desktop");
+        expect(yield* Effect.flip(store.rename("laptop", "phone"))).toEqual(
+          new KeyNotFoundError({ idOrName: "laptop" }),
+        );
+      }),
+    ),
+  );
+
+  it.effect("refuses to rename a key to another key's name", () =>
+    withKeyStore(() =>
+      Effect.gen(function* () {
+        const store = yield* KeyStore;
+        yield* store.create("laptop");
+        yield* store.create("desktop");
+        expect(yield* Effect.flip(store.rename("laptop", "desktop"))).toEqual(
+          new DuplicateKeyNameError({ name: "desktop" }),
+        );
+        expect((yield* store.list).map((k) => k.name)).toEqual(["laptop", "desktop"]);
+      }),
+    ),
+  );
+
+  it.effect("keeps a key's hash and last use when it is renamed", () =>
+    withKeyStore((file) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* KeyStore;
+        const { key } = yield* store.create("laptop");
+        yield* store.verify(key);
+        const before = yield* storedLastUse(file);
+        const { lastUsedAt } = yield* store.rename("laptop", "desktop");
+        expect(yield* storedLastUse(file)).toEqual({ desktop: before["laptop"] });
+        expect(lastUsedAt).toBe(before["laptop"]);
+        expect(yield* fs.readFileString(file)).not.toContain(key);
+      }),
+    ),
+  );
+
   it.effect("reports a stored hash that is not a SHA-256 digest as a corrupt file", () =>
     withKeyStore((file) =>
       Effect.gen(function* () {
@@ -177,6 +238,7 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       const cli = yield* storeAt(file);
       const serve = yield* storeAt(file);
       const revoked = yield* serve.create("old");
+      const renamed = yield* cli.create("before");
 
       const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
@@ -187,12 +249,13 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
             Effect.forEach(names.slice(0, 4), cli.create, { concurrency: "unbounded" }),
             Effect.forEach(names.slice(4), serve.create, { concurrency: "unbounded" }),
             cli.revoke(revoked.id),
+            serve.rename(renamed.id, "renamed"),
           ],
           { concurrency: "unbounded", discard: true },
         ),
       );
 
-      expect((yield* serve.list).map((k) => k.name).toSorted()).toEqual(names);
+      expect((yield* serve.list).map((k) => k.name).toSorted()).toEqual([...names, "renamed"]);
     }),
   );
 
@@ -361,8 +424,10 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
         yield* store.verify(key);
         yield* store.verify(key);
         expect(yield* settled).toBe(3);
-        yield* store.revoke("laptop");
+        yield* store.rename("laptop", "desktop");
         expect(yield* settled).toBe(4);
+        yield* store.revoke("desktop");
+        expect(yield* settled).toBe(5);
       }),
     ),
   );

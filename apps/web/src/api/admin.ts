@@ -129,6 +129,17 @@ export const createKey = (name: string) =>
     ),
   );
 
+/** Renames a client API key, resolving to why via refused the name, if it did. */
+export const renameKey = (id: string, name: string) =>
+  run((admin) =>
+    admin.keys.rename({ params: { idOrName: id }, payload: { name } }).pipe(
+      Effect.as(undefined),
+      Effect.catchTag("DuplicateKeyNameError", (error) =>
+        Effect.succeed(`A key named "${error.name}" already exists.`),
+      ),
+    ),
+  );
+
 export const revokeKey = (id: string) =>
   run((admin) => admin.keys.revoke({ params: { idOrName: id } }));
 

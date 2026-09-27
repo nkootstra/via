@@ -1,6 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply } from "@via/codex-upstream/testing";
+import { DuplicateKeyNameError } from "@via/keys";
 import { providerReply } from "@via/providers/testing";
 import { Clock, Effect, Fiber, Schedule, Schema } from "effect";
 import { TestClock } from "effect/testing";
@@ -745,6 +746,82 @@ layer(BunFileSystem.layer)("admin API", (it) => {
         }),
       { adminKey },
     ),
+  );
+
+  it.effect("renames a client key, which keeps working on /v1", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.patch("/admin/keys/test", { name: "laptop" }, adminKey);
+          expect(response.status).toBe(200);
+          expect(yield* response.json).toEqual({
+            id: expect.any(String),
+            name: "laptop",
+            createdAt: expect.any(String),
+            lastUsedAt: null,
+          });
+          expect((yield* via.get("/v1/models")).status).toBe(200);
+          expect(yield* (yield* via.get("/admin/keys", adminKey)).json).toEqual([
+            expect.objectContaining({ name: "laptop" }),
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("refuses to rename a key to a name another key has", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* via.post("/admin/keys", { name: "laptop" }, adminKey);
+          const response = yield* via.patch("/admin/keys/test", { name: "laptop" }, adminKey);
+          expect(response.status).toBe(409);
+          expect(
+            yield* Schema.decodeUnknownEffect(DuplicateKeyNameError)(yield* response.json),
+          ).toEqual(new DuplicateKeyNameError({ name: "laptop" }));
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("answers 404 when renaming a key that does not exist", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.patch("/admin/keys/nope", { name: "x" }, adminKey)).status).toBe(404);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect(
+    "renames a key on a session cookie only from the UI, and never without signing in",
+    () =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const cookie = yield* sessionCookie(via);
+            const change = { name: "laptop" };
+            expect((yield* via.patch("/admin/keys/test", change, null)).status).toBe(401);
+            expect((yield* via.patch("/admin/keys/test", change, null, { cookie })).status).toBe(
+              403,
+            );
+
+            const renamed = yield* via.patch(
+              "/admin/keys/test",
+              change,
+              null,
+              fromTheUi(via, cookie),
+            );
+
+            expect(renamed.status).toBe(200);
+          }),
+        { adminKey },
+      ),
   );
 
   it.effect("answers at once before it has any usage, asking for it in the background", () =>
