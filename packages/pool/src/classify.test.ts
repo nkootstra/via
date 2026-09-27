@@ -9,7 +9,7 @@ const SECOND = 1_000;
 
 const MINUTE = 60 * SECOND;
 
-const codexError = (error: object) => JSON.stringify({ error });
+const codexError = (error: Schema.JsonObject) => JSON.stringify({ error });
 
 describe("classify", () => {
   const cases: ReadonlyArray<

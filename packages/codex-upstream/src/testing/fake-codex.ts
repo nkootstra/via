@@ -2,7 +2,7 @@
 // queued per test, so each test says exactly what Codex answers, including the
 // ways it fails. The golden fixtures in ./fixtures come from openai/codex.
 import { BunHttpServer } from "@effect/platform-bun";
-import { Clock, Deferred, Effect, Layer, Schema, Stream } from "effect";
+import { Clock, Deferred, Effect, Layer, Predicate, Schema, Stream } from "effect";
 import {
   HttpRouter,
   HttpServer,
@@ -15,7 +15,7 @@ import { usagePayload } from "./streams.ts";
 export type CodexRequest = {
   path: string;
   headers: Readonly<Record<string, string | undefined>>;
-  body: Record<string, unknown>;
+  body: Schema.JsonObject;
 };
 
 /** What the fake does with one request. */
@@ -36,7 +36,7 @@ type Plan = {
 
 export type Reply = (request: CodexRequest) => Plan;
 
-type Event = { type: string } & Record<string, unknown>;
+type Event = { type: string } & Schema.JsonObject;
 
 const frame = (event: Event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 
@@ -55,13 +55,13 @@ const envelope = (request: CodexRequest) => ({
   id: "resp_fake",
   object: "response",
   created_at: 1_700_000_000,
-  model: typeof request.body["model"] === "string" ? request.body["model"] : "gpt-6-astra",
+  model: Predicate.isString(request.body["model"]) ? request.body["model"] : "gpt-6-astra",
 });
 
 const lifecycle = (
   request: CodexRequest,
   items: ReadonlyArray<ReadonlyArray<Event>>,
-  output: ReadonlyArray<unknown>,
+  output: ReadonlyArray<Schema.Json>,
 ) => {
   const response = envelope(request);
 
@@ -108,7 +108,7 @@ export const reply = {
 
   /** Codex calls the tool `name` with `args`. */
   toolCall:
-    (name: string, args: unknown): Reply =>
+    (name: string, args: Schema.Json): Reply =>
     (request) => {
       const argumentsJson = JSON.stringify(args);
       const item = { id: "fc_fake", type: "function_call", call_id: "call_fake", name };
@@ -165,12 +165,12 @@ export const reply = {
 
   /** A plain HTTP error, as Codex sends before any stream starts. */
   error:
-    (status: number, body: unknown, headers: Record<string, string> = {}): Reply =>
+    (status: number, body: Schema.Json, headers: Record<string, string> = {}): Reply =>
     () => ({
       status,
       headers,
       contentType: "application/json",
-      chunks: [typeof body === "string" ? body : JSON.stringify(body)],
+      chunks: [Predicate.isString(body) ? body : JSON.stringify(body)],
       ending: "close",
     }),
 
@@ -238,7 +238,7 @@ const respond = (plan: Plan) =>
     });
   });
 
-const Body = Schema.Record(Schema.String, Schema.Unknown);
+const Body = Schema.JsonObject;
 
 /**
  * Starts the fake for the current scope. Replies are served per request in
@@ -263,7 +263,7 @@ export const startFakeCodex = Effect.gen(function* () {
 
   let handler: ((request: CodexRequest) => Reply) | undefined;
 
-  const record = (body: Record<string, unknown>, list: Array<CodexRequest> = requests) =>
+  const record = (body: Schema.JsonObject, list: Array<CodexRequest> = requests) =>
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
 
@@ -368,17 +368,17 @@ export const startFakeCodex = Effect.gen(function* () {
     /** Answers every request the queues don't. */
     respond: (answer: (request: CodexRequest) => Reply) => void (handler = answer),
     /** Sets one account's `/wham/usage` answer, a refusal when `status` is not 200. */
-    usage: (account: string, body: string | object, status = 200) =>
+    usage: (account: string, body: Schema.Json, status = 200) =>
       void usageByAccount.set(account, {
         status,
-        body: typeof body === "string" ? body : JSON.stringify(body),
+        body: Predicate.isString(body) ? body : JSON.stringify(body),
       }),
     /**
      * Sets the `/codex/models` answer, for one account when `account` is given;
      * until then, the catalog is unscripted.
      */
-    models: (body: string | object, account?: string) => {
-      const text = typeof body === "string" ? body : JSON.stringify(body);
+    models: (body: Schema.Json, account?: string) => {
+      const text = Predicate.isString(body) ? body : JSON.stringify(body);
 
       if (account === undefined) catalog = text;
       else catalogByAccount.set(account, text);

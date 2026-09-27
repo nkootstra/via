@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Schema, Stream } from "effect";
+import { Effect, Predicate, Schema, Stream } from "effect";
 import { toChatStream } from "./chat-stream.ts";
 
 const sse = (events: ReadonlyArray<object>) =>
@@ -22,6 +22,8 @@ const upstream = (events: ReadonlyArray<object>) =>
 const chatEvents = (events: ReadonlyArray<object>, options = { includeUsage: false }) =>
   chatEventsOf(upstream(events), options);
 
+const decodeEvent = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Json));
+
 const chatEventsOf = <E>(body: Stream.Stream<Uint8Array, E>, options = { includeUsage: false }) =>
   toChatStream(body, options).pipe(
     Stream.decodeText,
@@ -31,7 +33,7 @@ const chatEventsOf = <E>(body: Stream.Stream<Uint8Array, E>, options = { include
         .split("\n\n")
         .filter((block) => block !== "")
         .map((block) => block.replace(/^data: /, ""))
-        .map((data) => (data === "[DONE]" ? data : JSON.parse(data))),
+        .map((data) => (data === "[DONE]" ? data : decodeEvent(data))),
     ),
   );
 
@@ -160,9 +162,7 @@ describe("toChatStream", () => {
       );
 
       expect(events).not.toContain("[DONE]");
-      expect(events.filter((event) => typeof event === "object" && "error" in event)).toHaveLength(
-        1,
-      );
+      expect(events.filter((event) => Predicate.hasProperty(event, "error"))).toHaveLength(1);
       expect(events.at(-1)).toMatchObject({
         error: { type: "server_error", code: "upstream_incomplete" },
       });

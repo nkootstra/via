@@ -8,7 +8,16 @@ import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
-import { ConfigProvider, Deferred, Effect, FileSystem, Layer, Logger, References } from "effect";
+import {
+  ConfigProvider,
+  Deferred,
+  Effect,
+  FileSystem,
+  Layer,
+  Logger,
+  References,
+  type Schema,
+} from "effect";
 import { TestClock } from "effect/testing";
 import {
   FetchHttpClient,
@@ -43,7 +52,7 @@ export type Via = {
   /** POSTs JSON to the via server, with a valid API key unless `key` says otherwise. */
   readonly post: (
     path: string,
-    body: object,
+    body: Schema.Json,
     key?: string | null,
     headers?: Record<string, string | ReadonlyArray<string>>,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
@@ -55,7 +64,7 @@ export type Via = {
   /** PATCHes JSON to the via server, with a valid API key unless `key` says otherwise. */
   readonly patch: (
     path: string,
-    body: object,
+    body: Schema.Json,
     key?: string | null,
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** DELETEs a path on the via server, with a valid API key unless `key` says otherwise. */
@@ -70,7 +79,7 @@ export type Via = {
   /** Every request the fake Codex received so far. */
   readonly upstreamRequests: ReadonlyArray<CodexRequest>;
   /** Sets an account's `/wham/usage` answer on the fake Codex, by ChatGPT account id. */
-  readonly codexUsage: (account: string, body: object, status?: number) => void;
+  readonly codexUsage: (account: string, body: Schema.Json, status?: number) => void;
   /** The fake provider behind both `openrouter/` and `opencode-go/` models. */
   readonly provider: FakeProvider;
   /** Waits for the first line via logs whose message or annotations contain `text`. */
@@ -82,7 +91,7 @@ type LogLine = {
   readonly level: string;
   readonly message: string;
   readonly spans: ReadonlyArray<string>;
-  readonly annotations: Record<string, unknown>;
+  readonly annotations: typeof References.CurrentLogAnnotations.Service;
 };
 
 /** A logger that keeps every line, and `logged(text)`, which waits for one containing `text`. */

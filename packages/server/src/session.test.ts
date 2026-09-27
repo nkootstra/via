@@ -37,8 +37,8 @@ describe("resolveSession", () => {
       ["x-kilocode-taskid", "kilo"],
     ] as const;
 
-    const headers: Record<string, string> = { ...all };
-    const remaining: Record<string, Schema.Json> = { ...body };
+    const headers: Partial<typeof all> = { ...all };
+    const remaining: Partial<typeof body> = { ...body };
 
     for (const [source, id] of order) {
       expect(resolveSession(headers, remaining), source).toBe(id);
