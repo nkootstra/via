@@ -1,5 +1,5 @@
 import type { ProviderConfig } from "@via/config";
-import { Config, Context, Effect, identity, Layer, Option, Predicate, Schema } from "effect";
+import { Context, Effect, identity, Layer, Option, Predicate, type Redacted, Schema } from "effect";
 import {
   HttpBody,
   HttpClient,
@@ -115,6 +115,7 @@ const resolve = (
   version: string,
   name: string,
   config: ProviderConfig,
+  apiKey: Redacted.Redacted<string> | undefined,
 ) =>
   Effect.gen(function* () {
     const preset = PRESETS.get(name);
@@ -122,9 +123,9 @@ const resolve = (
 
     if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
 
-    const apiKey = yield* Config.Redacted(config.apiKeyEnv).pipe(
-      Effect.mapError(() => new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv })),
-    );
+    if (apiKey === undefined) {
+      return yield* new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv });
+    }
 
     return {
       name,
@@ -180,13 +181,17 @@ const usageOf = ({ name, client }: Provider, path: string) =>
     ),
   );
 
-const make = (configs: Record<string, ProviderConfig>, version: string) =>
+const make = (
+  configs: Record<string, ProviderConfig>,
+  apiKeys: Readonly<Record<string, Redacted.Redacted<string>>>,
+  version: string,
+) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
     const providers = new Map<string, Provider>();
 
     for (const [name, config] of Object.entries(configs)) {
-      providers.set(name, yield* resolve(http, version, name, config));
+      providers.set(name, yield* resolve(http, version, name, config, apiKeys[name]));
     }
 
     const configured = [...providers.values()];
@@ -262,11 +267,13 @@ export class Providers extends Context.Service<
   }
 >()("via/Providers") {
   /**
-   * Reads each provider's API key from the environment variable its config
-   * names, and says it is `via/<version>`.
+   * Sends each provider's requests with its key in `apiKeys`, by provider name,
+   * and says it is `via/<version>`. A provider without a key fails naming the
+   * environment variable its config reads the key from.
    */
   static readonly layer = (options: {
     readonly providers: Record<string, ProviderConfig>;
+    readonly apiKeys: Readonly<Record<string, Redacted.Redacted<string>>>;
     readonly version: string;
-  }) => Layer.effect(Providers, make(options.providers, options.version));
+  }) => Layer.effect(Providers, make(options.providers, options.apiKeys, options.version));
 }

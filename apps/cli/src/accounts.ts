@@ -4,6 +4,7 @@ import { loadConfig } from "@via/config";
 import { Providers } from "@via/providers";
 import { Console, Effect, Layer } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
+import { apiKeys } from "./api-keys.ts";
 import { version } from "./version.ts";
 
 const accountArg = Argument.String("account").pipe(
@@ -108,7 +109,13 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
         ),
       );
       yield* showProviderUsage.pipe(
-        Effect.provide(Providers.layer({ providers: config.providers, version })),
+        Effect.provide(
+          Providers.layer({
+            providers: config.providers,
+            apiKeys: yield* apiKeys(config.providers),
+            version,
+          }),
+        ),
         // A provider that can't be set up, e.g. for a missing API key, says so here.
         Effect.catchTags({ MissingApiKeyError: say, UnknownProviderError: say }),
       );

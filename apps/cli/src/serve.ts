@@ -19,6 +19,7 @@ import {
 import { Command, Flag } from "effect/unstable/cli";
 import { HttpClient, HttpServer } from "effect/unstable/http";
 import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
+import { apiKeys } from "./api-keys.ts";
 import { version } from "./version.ts";
 
 /**
@@ -102,7 +103,13 @@ export const serve = ({
               version,
             }),
           ),
-          Layer.provide(Providers.layer({ providers: config.providers, version })),
+          Layer.provide(
+            Providers.layer({
+              providers: config.providers,
+              apiKeys: yield* apiKeys(config.providers),
+              version,
+            }),
+          ),
           Layer.provideMerge(tracing),
           // One line per entry, as `key=value` pairs that grep and log tools read.
           Layer.provide(Logger.layer([Logger.consoleLogFmt])),

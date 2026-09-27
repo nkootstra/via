@@ -20,7 +20,6 @@ import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import {
-  ConfigProvider,
   Deferred,
   Effect,
   FileSystem,
@@ -176,6 +175,7 @@ export const withVia = <A, E>(
     const issuer = yield* startFakeIssuer({ refreshResponse, pendingPolls, interval });
     const provider = yield* startFakeProvider;
     const providerConfig = { baseUrl: providerUrl ?? provider.url, apiKeyEnv: "PROVIDER_KEY" };
+    const providerKey = Redacted.make("sk-provider");
 
     const services = Layer.mergeAll(
       AccountTokens.layer.pipe(
@@ -189,12 +189,9 @@ export const withVia = <A, E>(
       }),
       Providers.layer({
         providers: { openrouter: providerConfig, "opencode-go": providerConfig },
+        apiKeys: { openrouter: providerKey, "opencode-go": providerKey },
         version: "0.0.0",
-      }).pipe(
-        Layer.provide(
-          ConfigProvider.layer(ConfigProvider.fromUnknown({ PROVIDER_KEY: "sk-provider" })),
-        ),
-      ),
+      }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     // The accounts exist before via starts, as they do for `via serve`.
