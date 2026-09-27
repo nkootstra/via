@@ -39,6 +39,7 @@ import {
   HttpServer,
 } from "effect/unstable/http";
 import { ViaServer } from "../index.ts";
+import type { EmbeddedUi } from "../ui.ts";
 
 /** Codex's answer to a request that goes well: "hello", as a completed stream. */
 export const ok = () => reply.sse(completedStream("hello"));
@@ -139,7 +140,7 @@ const collectLogs = () => {
  * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
  * Models prefixed `openrouter/` and `opencode-go/` go to a fake provider, or
  * to `providerUrl` when it is given. With `adminKey`, via serves the admin API
- * behind that key. Device-code logins
+ * behind that key, and with `ui` as well, the admin UI. Device-code logins
  * go to the fake issuer, with its `pendingPolls` and `interval`.
  */
 export const withVia = <A, E>(
@@ -158,6 +159,7 @@ export const withVia = <A, E>(
     codexUrl,
     providerUrl,
     adminKey,
+    ui,
     pendingPolls = 0,
     interval = "0",
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
@@ -165,6 +167,7 @@ export const withVia = <A, E>(
     codexUrl?: string;
     providerUrl?: string;
     adminKey?: string;
+    ui?: EmbeddedUi;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -214,10 +217,12 @@ export const withVia = <A, E>(
     const server = yield* Layer.build(
       ViaServer.layer({
         adminKey: adminKey === undefined ? undefined : Redacted.make(adminKey),
+        ui,
       }).pipe(
         Layer.provide(AccountPool.layer),
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provide(PoolStates.layer),
+        Layer.provide(BunFileSystem.layer),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(Layer.succeedContext(built)),
       ),

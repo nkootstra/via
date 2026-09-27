@@ -7,13 +7,20 @@ import { models } from "./models.ts";
 import { logRequest } from "./request-log.ts";
 import { responses } from "./responses.ts";
 import { SessionBindings } from "./session-bindings.ts";
+import { type EmbeddedUi, uiRoutes } from "./ui.ts";
+
+export type { EmbeddedUi } from "./ui.ts";
 
 /**
  * The OpenAI-compatible HTTP API of `via serve`, serving Codex requests from
- * the `AccountPool`. With `adminKey`, it also serves the admin API behind that key.
+ * the `AccountPool`. With `adminKey`, it also serves the admin API behind that key,
+ * and with `ui` as well, the admin UI at `/ui`.
  */
 export const ViaServer = {
-  layer: (options: { readonly adminKey?: Redacted.Redacted<string> | undefined }) =>
+  layer: (options: {
+    readonly adminKey?: Redacted.Redacted<string> | undefined;
+    readonly ui?: EmbeddedUi | undefined;
+  }) =>
     HttpRouter.serve(
       Layer.mergeAll(
         HttpRouter.add("POST", "/v1/responses", responses),
@@ -22,6 +29,10 @@ export const ViaServer = {
         // For a host's health checks: needs no key, and isn't logged.
         HttpRouter.add("GET", "/healthz", Effect.succeed(HttpServerResponse.text("ok"))),
         adminRoutes(options.adminKey),
+        // Like the admin API, the page for it is only there with the key.
+        options.adminKey === undefined || options.ui === undefined
+          ? Layer.empty
+          : uiRoutes(options.ui),
       ),
       // One line per request from `logRequest`, instead of Effect's; `via serve`
       // announces the address itself.
