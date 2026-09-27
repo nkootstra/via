@@ -1,91 +1,37 @@
 /**
  * Design tokens, ported from Fluid Functionalism's `app/globals.css` and its
- * `lib/` token modules (MIT, see NOTICE). Every value is a CSS custom
- * property, so the app's own StyleX styles can use them through
- * `@via/ui/tokens.stylex`. Dark mode follows the OS: each colour and shadow
- * carries a `prefers-color-scheme: dark` value.
+ * `lib/` token modules (MIT, see NOTICE), for the app's own StyleX styles
+ * through `@via/ui/tokens.stylex`.
+ *
+ * Colours and shadows name the palette's CSS custom properties, which
+ * `themeStylesheet()` in `palette.ts` sets: from the OS setting, or forced by
+ * `data-theme` on an element. StyleX inlines these constants, so a forced
+ * theme reaches everything under its element.
  */
 import * as stylex from "@stylexjs/stylex";
 
-const DARK = "@media (prefers-color-scheme: dark)";
-
-// Light shadows stack halving drops; dark ones add an inset highlight and
-// ring. The recipes differ in structure, so each theme is written out whole.
-const LIGHT_DROP = "rgb(0 0 0 / 0.06)";
-
-const DARK_DROP = "rgba(0,0,0,0.18)";
-
-/**
- * The two palettes, each written once. `colors` and `shadows` pick between
- * them by the OS setting; a view that must show one scheme regardless (the
- * component preview) builds a `createTheme` from them.
- */
-export const lightScheme = stylex.defineConsts({
-  // The surface ladder: light steps up to flat white and lets the shadow do
-  // the work. Only the steps a component sits on are here.
-  surface3: "#FFFFFF",
-  surface4: "#FFFFFF",
-  surface5: "#FFFFFF",
-  background: "#FAFAFA",
-  foreground: "#171717",
-  muted: "#F4F4F5",
-  mutedForeground: "#737373",
-  accent: "#E5E5E5",
-  border: "color-mix(in oklab, #171717 12%, transparent)",
-  destructive: "#EF4444",
-  destructiveLight: "#FEF2F2",
-  // Surface-relative overlays: they tint whatever elevation they sit on.
-  hover: "rgb(0 0 0 / 0.04)",
-  active: "rgb(0 0 0 / 0.07)",
-  backdrop: "rgb(0 0 0 / 0.4)",
-  shadow3: `0 0 0 1px ${LIGHT_DROP}, 0 1px 1px -0.5px ${LIGHT_DROP}, 0 3px 3px -1.5px ${LIGHT_DROP}`,
-  shadow4: `0 0 0 1px ${LIGHT_DROP}, 0 1px 1px -0.5px ${LIGHT_DROP}, 0 3px 3px -1.5px ${LIGHT_DROP}, 0 6px 6px -3px ${LIGHT_DROP}`,
-  shadow5: `0 0 0 1px ${LIGHT_DROP}, 0 1px 1px -0.5px ${LIGHT_DROP}, 0 3px 3px -1.5px ${LIGHT_DROP}, 0 6px 6px -3px ${LIGHT_DROP}, 0 12px 12px -6px ${LIGHT_DROP}`,
-});
-
-export const darkScheme = stylex.defineConsts({
-  // Dark surfaces add white as they rise.
-  surface3: "#252525",
-  surface4: "#2C2C2C",
-  surface5: "#333333",
-  background: "#171717",
-  foreground: "#F5F5F5",
-  muted: "#1E1E1E",
-  mutedForeground: "#A3A3A3",
-  accent: "#525252",
-  border: "color-mix(in oklab, #F5F5F5 12%, transparent)",
-  destructive: "#F87171",
-  destructiveLight: "#450A0A",
-  hover: "rgb(255 255 255 / 0.06)",
-  active: "rgb(255 255 255 / 0.1)",
-  backdrop: "rgb(0 0 0 / 0.8)",
-  shadow3: `inset 0 1px 0 0 rgba(255,255,255,0.02), inset 0 0 0 1px rgba(255,255,255,0.01), 0 0 0 1px rgba(0,0,0,0.12), 0 1px 1px -0.5px ${DARK_DROP}, 0 3px 3px -1.5px ${DARK_DROP}`,
-  shadow4: `inset 0 1px 0 0 rgba(255,255,255,0.02), inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 0 1px rgba(0,0,0,0.14), 0 1px 1px -0.5px ${DARK_DROP}, 0 3px 3px -1.5px ${DARK_DROP}, 0 6px 6px -3px ${DARK_DROP}`,
-  shadow5: `inset 0 1px 0 0 rgba(255,255,255,0.04), inset 0 0 0 1px rgba(255,255,255,0.04), 0 0 0 1px rgba(0,0,0,0.16), 0 1px 1px -0.5px ${DARK_DROP}, 0 3px 3px -1.5px ${DARK_DROP}, 0 6px 6px -3px ${DARK_DROP}, 0 12px 12px -6px ${DARK_DROP}`,
-});
-
-export const colors = stylex.defineVars({
-  surface3: { default: lightScheme.surface3, [DARK]: darkScheme.surface3 },
-  surface4: { default: lightScheme.surface4, [DARK]: darkScheme.surface4 },
-  surface5: { default: lightScheme.surface5, [DARK]: darkScheme.surface5 },
-  background: { default: lightScheme.background, [DARK]: darkScheme.background },
-  foreground: { default: lightScheme.foreground, [DARK]: darkScheme.foreground },
-  muted: { default: lightScheme.muted, [DARK]: darkScheme.muted },
-  mutedForeground: { default: lightScheme.mutedForeground, [DARK]: darkScheme.mutedForeground },
-  accent: { default: lightScheme.accent, [DARK]: darkScheme.accent },
-  border: { default: lightScheme.border, [DARK]: darkScheme.border },
-  destructive: { default: lightScheme.destructive, [DARK]: darkScheme.destructive },
-  destructiveLight: { default: lightScheme.destructiveLight, [DARK]: darkScheme.destructiveLight },
+export const colors = stylex.defineConsts({
+  surface3: "var(--via-surface-3)",
+  surface4: "var(--via-surface-4)",
+  surface5: "var(--via-surface-5)",
+  background: "var(--via-background)",
+  foreground: "var(--via-foreground)",
+  muted: "var(--via-muted)",
+  mutedForeground: "var(--via-muted-foreground)",
+  accent: "var(--via-accent)",
+  border: "var(--via-border)",
+  destructive: "var(--via-destructive)",
+  destructiveLight: "var(--via-destructive-light)",
   focusRing: "#6B97FF",
-  hover: { default: lightScheme.hover, [DARK]: darkScheme.hover },
-  active: { default: lightScheme.active, [DARK]: darkScheme.active },
-  backdrop: { default: lightScheme.backdrop, [DARK]: darkScheme.backdrop },
+  hover: "var(--via-hover)",
+  active: "var(--via-active)",
+  backdrop: "var(--via-backdrop)",
 });
 
-export const shadows = stylex.defineVars({
-  surface3: { default: lightScheme.shadow3, [DARK]: darkScheme.shadow3 },
-  surface4: { default: lightScheme.shadow4, [DARK]: darkScheme.shadow4 },
-  surface5: { default: lightScheme.shadow5, [DARK]: darkScheme.shadow5 },
+export const shadows = stylex.defineConsts({
+  surface3: "var(--via-shadow-3)",
+  surface4: "var(--via-shadow-4)",
+  surface5: "var(--via-shadow-5)",
 });
 
 // The "rounded" shape: items 8px, containers 12px (concentric around a 4px

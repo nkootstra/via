@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 import { build } from "vite";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { stylexPlugin } from "../stylex-plugin.ts";
+import { themeScript } from "../src/theme-script.ts";
+import { themePlugin } from "../theme-plugin.ts";
 
 const fixture = fileURLToPath(new URL("build-fixture", import.meta.url));
 
@@ -26,7 +28,7 @@ describe("a production build with the StyleX unplugin", () => {
       configFile: false,
       root: fixture,
       logLevel: "silent",
-      plugins: [stylexPlugin()],
+      plugins: [stylexPlugin(), themePlugin()],
       build: { outDir, emptyOutDir: true },
     });
   }, 60_000);
@@ -39,9 +41,19 @@ describe("a production build with the StyleX unplugin", () => {
 
     expect(html).toMatch(/<link rel="stylesheet"[^>]*href="\/assets\/[^"]+\.css"/);
     expect(html).not.toContain("<style");
-    // A Button fill, and the tokens' dark-mode values.
+    // A Button fill, and the palette with its dark-mode values.
     expect(css).toContain("color-mix(in oklab");
     expect(css).toMatch(/prefers-color-scheme: ?dark/);
+    expect(css).toMatch(/\[data-theme="?dark"?\]\s*\{[^}]*--via-background:/);
+  });
+
+  it("inlines the theme script ahead of everything else in the head", () => {
+    const html = read("index.html");
+    const script = html.indexOf(`<script>${themeScript}</script>`);
+
+    expect(script).toBeGreaterThan(html.indexOf("<head>"));
+    expect(script).toBeLessThan(html.indexOf("<link"));
+    expect(script).toBeLessThan(html.indexOf('<script type="module"'));
   });
 
   it("injects no styles at runtime", () => {

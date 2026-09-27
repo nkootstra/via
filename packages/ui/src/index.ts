@@ -53,3 +53,7 @@ export {
 export { ToastProvider, useToast } from "./toast.tsx";
 
 export { CopyField, type CopyFieldProps } from "./copy-field.tsx";
+
+export { ThemeSwitch } from "./theme-switch.tsx";
+
+export { themeScript, themeScriptHash } from "./theme-script.ts";
