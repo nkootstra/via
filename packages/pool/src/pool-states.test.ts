@@ -75,6 +75,41 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
     }),
   );
 
+  it.effect("keeps serving from memory when the state file cannot be written", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const blocker = `${yield* fs.makeTempDirectoryScoped()}/not-a-directory`;
+      yield* fs.writeFileString(blocker, "");
+      const cooling = { status: "cooling", until: 60_000, reason: "usage_limit_reached" } as const;
+
+      const seen = yield* run(`${blocker}/state.json`, (states) =>
+        states.mark("acc-a", cooling).pipe(Effect.andThen(states.get)),
+      );
+
+      expect(seen).toEqual({ "acc-a": cooling });
+    }),
+  );
+
+  it.effect("saves every one of many concurrent marks", () =>
+    Effect.gen(function* () {
+      const path = `${yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()}/state.json`;
+      const until = (yield* Clock.currentTimeMillis) + 60_000;
+      const ids = Array.from({ length: 20 }, (_, i) => `acc-${i}`);
+
+      yield* run(path, (states) =>
+        Effect.forEach(
+          ids,
+          (id) => states.mark(id, { status: "cooling", until, reason: "server_error" }),
+          { concurrency: "unbounded", discard: true },
+        ),
+      );
+
+      expect(Object.keys(yield* run(path, (states) => states.get)).toSorted()).toEqual(
+        ids.toSorted(),
+      );
+    }),
+  );
+
   /** One account's fate before a restart: absent, cooling by a fixed offset, or locked out. */
   const Spec = Schema.Struct({
     kind: Schema.Literals(["none", "cooling", "auth_error"]),
