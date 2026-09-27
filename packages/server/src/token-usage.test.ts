@@ -156,6 +156,22 @@ describe("spotUsage", () => {
     }),
   );
 
+  it.effect("skips an SSE retry field and still reports the usage after it", () =>
+    Effect.gen(function* () {
+      const text =
+        'retry: 1000\n\ndata: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":2}}\n\n';
+
+      const reported: Array<unknown> = [];
+
+      const stream = spotUsage(Stream.make(bytes(text)), true, (usage) =>
+        Effect.sync(() => reported.push(usage)),
+      );
+
+      yield* Stream.runDrain(stream);
+      expect(reported).toEqual([{ inputTokens: 10, outputTokens: 2 }]);
+    }),
+  );
+
   it.effect("does not break the stream on a malformed event", () =>
     Effect.gen(function* () {
       const text = "event: response.completed\ndata: {not json\n\ndata: [DONE]\n\n";
