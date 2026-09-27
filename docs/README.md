@@ -178,14 +178,18 @@ With `VIA_ADMIN_KEY` set, `via serve` also serves `/admin`, which does what the
 doesn't exist and answers 404. The key must be at least 32 characters, or
 `via serve` refuses to start; `openssl rand -hex 32` makes one.
 
-Every `/admin` route needs `Authorization: Bearer <VIA_ADMIN_KEY>`, except the
-API's description: its OpenAPI spec at `/admin/openapi.json` and a reference
-page at `/admin/docs`, where you can also try the routes out. API keys from
-`via keys create` don't work on `/admin`, and the admin key doesn't work on
-`/v1`.
+Every `/admin` route needs `Authorization: Bearer <VIA_ADMIN_KEY>` or a
+session cookie from [signing in](#signing-in-from-a-browser), except signing in
+itself and the API's description: its OpenAPI spec at `/admin/openapi.json` and
+a reference page at `/admin/docs`, where you can also try the routes out. API
+keys from `via keys create` don't work on `/admin`, and the admin key doesn't
+work on `/v1`.
 
 | Route                             | What it does                                              |
 | --------------------------------- | --------------------------------------------------------- |
+| `POST /admin/session`             | Sign in with `{"key": "<VIA_ADMIN_KEY>"}`; sets a cookie. |
+| `GET /admin/session`              | 200 while signed in, else 401.                            |
+| `DELETE /admin/session`           | Sign out.                                                 |
 | `GET /admin/accounts`             | List accounts in the order they are used, without tokens. |
 | `PATCH /admin/accounts/<id>`      | Change `label` and/or `enabled`; returns the account.     |
 | `DELETE /admin/accounts/<id>`     | Forget an account and delete its tokens.                  |
@@ -223,6 +227,27 @@ kept in memory, so restarting via cancels them.
 while Codex has it rate-limited, or `{"status":"auth_error","reason":"..."}` once
 Codex rejects its tokens even after a refresh, until you log in to it again. A
 disabled account keeps its state but isn't used.
+
+#### Signing in from a browser
+
+A browser signs in once with the admin key, and from then on sends a session
+cookie instead, so the key is never kept in the page:
+
+- `POST /admin/session` with `{"key": "<VIA_ADMIN_KEY>"}` answers 204 and sets
+  `via_session`, an `HttpOnly`, `SameSite=Strict` cookie for `/admin`. The
+  cookie is `Secure` when the browser signed in over HTTPS, which via tells
+  from the request's `Origin` header, so a proxy that ends TLS in front of via
+  needs no setting for it.
+- A session ends 12 hours after sign-in, after an hour unused, on
+  `DELETE /admin/session`, or when via restarts; sessions are kept in memory.
+- A request that changes something (anything but `GET`) with only the cookie
+  must send `x-via-csrf: 1` and an `Origin` whose host is the `Host` it was
+  sent to; otherwise it answers 403. A proxy in front of via must pass the
+  `Host` header through unchanged. Requests with the bearer key need neither.
+- A wrong key answers 401 after a one-second delay, and after 10 wrong keys
+  within a minute every sign-in answers 429 until the minute has passed. Each
+  failed sign-in is logged, without the key. via never logs the key or the
+  cookie.
 
 ## Commands
 
@@ -386,6 +411,8 @@ each request it serves. The other standard variables work too:
 - API keys are stored only as SHA-256 hashes.
 - `VIA_ADMIN_KEY` can add, change and remove accounts and API keys. Keep it
   out of clients; only its SHA-256 hash is compared, in constant time.
+- Admin sessions are kept in memory, each only as the SHA-256 hash of its
+  cookie, and all end when via restarts.
 - The server speaks plain HTTP. Keep it on `127.0.0.1`, or put your own TLS in
   front of it before listening on another interface.
 
