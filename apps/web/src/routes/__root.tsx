@@ -1,8 +1,9 @@
 import "virtual:via-theme.css";
-import type { QueryClient } from "@tanstack/react-query";
+import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
-import { themeScript } from "@via/ui";
+import { themeScript, ToastProvider } from "@via/ui";
 import type { ReactNode } from "react";
+import { ErrorScreen } from "../components/error-screen.tsx";
 
 export const Route = createRootRouteWithContext<{ readonly queryClient: QueryClient }>()({
   head: () => ({
@@ -14,7 +15,8 @@ export const Route = createRootRouteWithContext<{ readonly queryClient: QueryCli
     ],
   }),
   shellComponent: Shell,
-  component: Outlet,
+  component: Root,
+  errorComponent: ErrorScreen,
 });
 
 function Shell({ children }: { readonly children: ReactNode }) {
@@ -23,7 +25,7 @@ function Shell({ children }: { readonly children: ReactNode }) {
     // React hydrates it.
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* First in the head: a stored theme applies before anything paints. */}
+        {/* Ahead of the app: a stored theme applies before anything paints. */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <HeadContent />
       </head>
@@ -32,5 +34,17 @@ function Shell({ children }: { readonly children: ReactNode }) {
         <Scripts />
       </body>
     </html>
+  );
+}
+
+function Root() {
+  const { queryClient } = Route.useRouteContext();
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <Outlet />
+      </ToastProvider>
+    </QueryClientProvider>
   );
 }
