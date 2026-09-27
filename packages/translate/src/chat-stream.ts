@@ -19,6 +19,11 @@ const TextDelta = Schema.Struct({
   delta: Schema.String,
 });
 
+const RefusalDelta = Schema.Struct({
+  type: Schema.Literal("response.refusal.delta"),
+  delta: Schema.String,
+});
+
 const FunctionCallAdded = Schema.Struct({
   type: Schema.Literal("response.output_item.added"),
   output_index: Schema.Int,
@@ -54,6 +59,7 @@ const Other = Schema.Struct({ type: Schema.String });
 const StreamEvent = Schema.Union([
   Created,
   TextDelta,
+  RefusalDelta,
   FunctionCallAdded,
   ArgumentsDelta,
   Completed,
@@ -81,6 +87,8 @@ const isEvent = <
 const isCreated = isEvent(Created);
 
 const isTextDelta = isEvent(TextDelta);
+
+const isRefusalDelta = isEvent(RefusalDelta);
 
 const isFunctionCallAdded = isEvent(FunctionCallAdded);
 
@@ -144,6 +152,8 @@ export const toChatStream = <E>(
     }
 
     if (isTextDelta(event)) return [state, [chunk(state, { content: event.delta })]];
+
+    if (isRefusalDelta(event)) return [state, [chunk(state, { refusal: event.delta })]];
 
     if (isFunctionCallAdded(event)) {
       const index = state.toolIndex.size;
