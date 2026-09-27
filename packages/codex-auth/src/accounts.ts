@@ -2,6 +2,7 @@ import { CorruptFileError, withFileLock, writeJsonFile } from "@via/config";
 import { Context, DateTime, Effect, FileSystem, Layer, Schema, Semaphore } from "effect";
 import { decodeIdToken } from "./claims.ts";
 import type { Tokens } from "./codex-auth.ts";
+import { AccountNotFoundError } from "./errors.ts";
 
 export const Account = Schema.Struct({
   id: Schema.String,
@@ -18,15 +19,6 @@ export const Account = Schema.Struct({
 });
 
 export type Account = typeof Account.Type;
-
-export class AccountNotFoundError extends Schema.TaggedError<AccountNotFoundError>()(
-  "AccountNotFoundError",
-  { query: Schema.String },
-) {
-  override get message() {
-    return `No account with id, label or email "${this.query}"`;
-  }
-}
 
 const decodeAccount = Schema.decodeEffect(Schema.fromJsonString(Account));
 
