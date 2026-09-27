@@ -1,10 +1,8 @@
-import { classify, PoolStates, Rejection, retryAfter, select, Verdict } from "@via/pool";
-import { Clock, Context, Effect, Layer, Option, Schema } from "effect";
+import { classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
+import { Clock, Context, Effect, Layer, type Option } from "effect";
 import { type OpencodeGoAccount, OpencodeGoAccounts } from "./opencode-go-accounts.ts";
 import { Providers } from "./providers.ts";
-import { providerState } from "./state.ts";
-
-const decodeSeconds = Schema.decodeUnknownOption(Schema.FiniteFromString);
+import { rateLimitRejection } from "./opencode-go-rejection.ts";
 
 const make = Effect.gen(function* () {
   const accounts = yield* OpencodeGoAccounts;
@@ -56,26 +54,14 @@ const make = Effect.gen(function* () {
 
   /**
    * Cools `account` down after opencode Go answered it 429: until its used-up
-   * usage window resets or for as long as `retryAfter` (the answer's
+   * usage window resets or for as long as `retryAfterHeader` (the answer's
    * `Retry-After`) asks, whichever is later, and for half an hour when neither says.
    */
   const rateLimited = (account: OpencodeGoAccount, retryAfterHeader: string | undefined) =>
     Effect.gen(function* () {
       const usage = yield* providers.usage(account.apiKey);
       const now = yield* Clock.currentTimeMillis;
-      const state = providerState(usage, now);
-      const exhausted = state.status === "exhausted" ? state : undefined;
-
-      const verdict = classify(
-        Rejection.Exhausted({
-          reason: exhausted === undefined ? "rate_limited" : `${exhausted.window}_exhausted`,
-          resetsAt: exhausted === undefined ? undefined : Date.parse(exhausted.until),
-          retryAfterMs: Option.getOrUndefined(
-            Option.map(decodeSeconds(retryAfterHeader), (seconds) => seconds * 1000),
-          ),
-        }),
-        now,
-      );
+      const verdict = classify(rateLimitRejection(usage, retryAfterHeader, now), now);
 
       // An exhausted account always gets a cooldown.
       if (Verdict.$is("Cooldown")(verdict)) yield* coolDown(account, verdict.until, verdict.reason);
