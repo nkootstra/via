@@ -10,7 +10,13 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { accountsAllowed, nextAccount } from "./accounts.ts";
+import {
+  accountsAllowed,
+  coolDown,
+  lockOut,
+  nextAccount,
+  setAsideOnFailedRefresh,
+} from "./accounts.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
@@ -228,41 +234,19 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     const verdict = classify(upstream.status, upstream.headers, text, now);
 
     if (Verdict.$is("Cooldown")(verdict)) {
-      yield* Effect.logWarning(
-        `${account.label} is cooling down until ${new Date(verdict.until).toISOString()} (${verdict.reason})`,
-      );
-      yield* states.mark(account.id, {
-        status: "cooling",
-        until: verdict.until,
-        reason: verdict.reason,
-      });
+      yield* coolDown(account, verdict.until, verdict.reason);
       continue;
     }
 
     if (Verdict.$is("Unauthorized")(verdict)) {
       if (refreshed.has(account.id)) {
-        yield* Effect.logWarning(
-          `${account.label} is out of use: Codex rejects its token even after a refresh`,
-        );
-        yield* states.mark(account.id, {
-          status: "auth_error",
-          reason: "unauthorized",
-        });
+        // Codex rejects its token even after a refresh.
+        yield* lockOut(account, "unauthorized");
       } else {
         refreshed.add(account.id);
-        yield* tokens.refreshRejected(account.id, account.accessToken).pipe(
-          Effect.catchTags({
-            // A dead refresh token takes the account out of rotation until it logs in again.
-            RefreshRejectedError: (error) => states.lockOut(account.id, error.code),
-            // An auth-server hiccup cools it down for a minute, as it does before a send.
-            AuthRequestError: () =>
-              states.mark(account.id, {
-                status: "cooling",
-                until: now + 60_000,
-                reason: "auth_unavailable",
-              }),
-          }),
-        );
+        yield* tokens
+          .refreshRejected(account.id, account.accessToken)
+          .pipe(setAsideOnFailedRefresh(account));
       }
 
       continue;

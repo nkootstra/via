@@ -3,39 +3,50 @@ import { available, PoolStates, select } from "@via/pool";
 import { Array, Clock, Effect, Option } from "effect";
 
 /**
- * The account with an access token fresh enough to send; none when refreshing
- * fails. A dead refresh token locks the account out; an auth-server hiccup
- * cools it down for a minute.
+ * Takes `account` out of rotation until `until` (epoch milliseconds), with a
+ * warning that says why.
  */
+export const coolDown = (account: Account, until: number, reason: string) =>
+  Effect.gen(function* () {
+    yield* (yield* PoolStates).mark(account.id, { status: "cooling", until, reason });
+    yield* Effect.logWarning(
+      `${account.label} is cooling down until ${new Date(until).toISOString()} (${reason})`,
+    );
+  });
+
+/** Takes `account` out of rotation until it logs in again, with a warning that says why. */
+export const lockOut = (account: Account, reason: string) =>
+  Effect.gen(function* () {
+    yield* (yield* PoolStates).lockOut(account.id, reason);
+    yield* Effect.logWarning(`${account.label} is locked out until it logs in again (${reason})`);
+  });
+
+/** How long an auth-server hiccup keeps an account out of rotation. */
+const AUTH_HICCUP_MS = 60_000;
+
+/**
+ * Runs a refresh of `account`'s token, none when it fails: a dead refresh token
+ * locks the account out; an auth-server hiccup cools it down for a minute.
+ */
+export const setAsideOnFailedRefresh =
+  (account: Account) => (refresh: ReturnType<AccountTokens["Service"]["fresh"]>) =>
+    refresh.pipe(
+      Effect.asSome,
+      Effect.catchTags({
+        RefreshRejectedError: (error) =>
+          Effect.as(lockOut(account, error.code), Option.none<Account>()),
+        AuthRequestError: () =>
+          Clock.currentTimeMillis.pipe(
+            Effect.flatMap((now) => coolDown(account, now + AUTH_HICCUP_MS, "auth_unavailable")),
+            Effect.as(Option.none<Account>()),
+          ),
+      }),
+    );
+
+/** The account with an access token fresh enough to send; none when refreshing fails. */
 const withFreshToken = (account: Account) =>
-  Effect.flatMap(AccountTokens, (tokens) => tokens.fresh(account)).pipe(
-    Effect.asSome,
-    // Only a failed refresh needs the pool's states or the time.
-    Effect.catchTags({
-      RefreshRejectedError: (error) =>
-        Effect.gen(function* () {
-          yield* Effect.logWarning(
-            `${account.label} is locked out until it logs in again (${error.code})`,
-          );
-          yield* (yield* PoolStates).lockOut(account.id, error.code);
-
-          return Option.none<Account>();
-        }),
-      AuthRequestError: () =>
-        Effect.gen(function* () {
-          const until = (yield* Clock.currentTimeMillis) + 60_000;
-          yield* Effect.logWarning(
-            `${account.label} is cooling down until ${new Date(until).toISOString()} (auth_unavailable)`,
-          );
-          yield* (yield* PoolStates).mark(account.id, {
-            status: "cooling",
-            until,
-            reason: "auth_unavailable",
-          });
-
-          return Option.none<Account>();
-        }),
-    }),
+  Effect.flatMap(AccountTokens, (tokens) =>
+    tokens.fresh(account).pipe(setAsideOnFailedRefresh(account)),
   );
 
 /** The accounts `allowed` lets serve a request, in the order they were added. */

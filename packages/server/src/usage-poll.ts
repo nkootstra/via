@@ -1,6 +1,7 @@
 import { type Account, AccountStore, AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { decideUsagePoll, pollable, PoolStates } from "@via/pool";
+import { coolDown } from "./accounts.ts";
 import { Clock, Duration, Effect, Layer, Schedule } from "effect";
 
 /** Not spammy: Codex's own usage endpoint, asked this often per account, at most. */
@@ -22,14 +23,7 @@ const pollOne = (account: Account) =>
 
     if (!decision.changed) return yield* Effect.logDebug(`${account.label}'s usage is unchanged`);
 
-    yield* states.mark(account.id, {
-      status: "cooling",
-      until: decision.until,
-      reason: decision.reason,
-    });
-    yield* Effect.logWarning(
-      `${account.label} is cooling down until ${new Date(decision.until).toISOString()} (${decision.reason})`,
-    );
+    yield* coolDown(account, decision.until, decision.reason);
   }).pipe(
     Effect.catch((error) =>
       Effect.logDebug(`Could not poll ${account.label}'s usage: ${error.message}`),
