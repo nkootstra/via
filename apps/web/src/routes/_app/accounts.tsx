@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { accountColumns } from "../../components/account-columns.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import {
@@ -259,7 +260,7 @@ function Accounts() {
         ) : (
           <Panel flush>
             <div {...stylex.props(styles.scroll)}>
-              <Table aria-label="Accounts">
+              <Table aria-label="Accounts" columns={accountColumns}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Account</TableHead>

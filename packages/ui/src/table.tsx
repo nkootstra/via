@@ -17,6 +17,7 @@ const styles = stylex.create({
     borderCollapse: "collapse",
     fontSize: text.body,
   },
+  fixed: { tableLayout: "fixed" },
   row: {
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
@@ -61,9 +62,15 @@ const TableContext = createContext<TableState>({ register: () => () => {}, activ
 
 const RowContext = createContext(false);
 
-export type TableProps = Omit<ComponentProps<"table">, "className" | "style">;
+export type TableProps = Omit<ComponentProps<"table">, "className" | "style"> & {
+  /**
+   * Each column's width, fixing the layout to them instead of the content, so
+   * separate tables that share the same widths line up.
+   */
+  readonly columns?: ReadonlyArray<string>;
+};
 
-export function Table(props: TableProps) {
+export function Table({ columns, children, ...props }: TableProps) {
   const { containerRef, register, active, handlers } = useFluidHover<HTMLDivElement, number>("y");
   const state = { register, activeIndex: active?.key ?? null };
 
@@ -71,7 +78,18 @@ export function Table(props: TableProps) {
     <TableContext value={state}>
       <div ref={containerRef} {...handlers} {...stylex.props(styles.container)}>
         <FluidHighlight rect={active?.rect ?? null} />
-        <table {...props} {...stylex.props(styles.table)} />
+        <table {...props} {...stylex.props(styles.table, columns !== undefined && styles.fixed)}>
+          {columns !== undefined && (
+            <colgroup>
+              {columns.map((width, index) => (
+                // The widths are the caller's data, so they are set per element, not
+                // as StyleX rules; React writes them through the DOM, which the CSP allows.
+                <col key={index} style={{ width }} />
+              ))}
+            </colgroup>
+          )}
+          {children}
+        </table>
       </div>
     </TableContext>
   );

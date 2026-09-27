@@ -49,6 +49,23 @@ describe("Table", () => {
     expect(screen.getByRole("cell", { name: "laptop" }).hasAttribute("data-secondary")).toBe(false);
   });
 
+  it("fixes its columns to given widths, so tables that share them line up", () => {
+    render(
+      <Table aria-label="Keys" columns={["40%", "60%"]}>
+        <TableBody>
+          <TableRow index={0}>
+            <TableCell>laptop</TableCell>
+            <TableCell>…abcd</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+
+    const table = screen.getByRole("table", { name: "Keys" });
+    const widths = [...table.querySelectorAll("col")].map((col) => col.style.width);
+    expect(widths).toEqual(["40%", "60%"]);
+  });
+
   it("is a native table with column headers and one row per item", () => {
     render(<Accounts />);
 

@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { accountColumns } from "./account-columns.ts";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertDialog,
@@ -253,7 +254,7 @@ export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNod
   return (
     <Panel flush>
       <div {...stylex.props(styles.scroll)}>
-        <Table aria-label="opencode Go keys">
+        <Table aria-label="opencode Go keys" columns={accountColumns}>
           <TableHeader>
             <TableRow>
               <TableHead>Account</TableHead>
