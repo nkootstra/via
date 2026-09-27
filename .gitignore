@@ -5,3 +5,4 @@ dist
 tmp-*/
 npm/via-*/bin/
 .claude/worktrees
+test-results/
