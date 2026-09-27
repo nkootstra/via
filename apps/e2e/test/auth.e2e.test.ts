@@ -41,19 +41,6 @@ const postChatCompletions = (via: Via, headers: Record<string, string>) =>
     }),
   );
 
-// The same line `formatWindow` in `apps/cli/src/accounts.ts` renders, so the usage test
-// can check `via accounts status`'s own local-time formatting without editing that file.
-const pad = (n: number) => String(n).padStart(2, "0");
-
-const formatWindow = (windowMinutes: number, usedPercent: number, resetsAtMs: number) => {
-  const length = windowMinutes % 1440 === 0 ? `${windowMinutes / 1440}d` : `${windowMinutes / 60}h`;
-  const at = new Date(resetsAtMs);
-  const date = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
-  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
-
-  return `  ${length.padEnd(4)} ${String(usedPercent).padStart(3)}% used  resets ${date} ${time}`;
-};
-
 layer(BunFileSystem.layer)("via auth and tokens", (it) => {
   it.effect("rejects missing, non-Bearer, and wrong API keys without ever calling upstream", () =>
     Effect.gen(function* () {
@@ -254,11 +241,11 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       upstream.usage("acc-123", usagePayload);
 
       const via = yield* launchVia({ upstream: upstream.url });
-      const status = yield* runVia(via.home, ["accounts", "status"], via.env);
+      const status = yield* runVia(via.home, ["accounts", "status"], { ...via.env, TZ: "UTC" });
       expect(status.exitCode).toBe(0);
       expect(status.stdout).toContain("dev@example.com");
-      expect(status.stdout).toContain(formatWindow(300, 12, 2_100_000_000 * 1000));
-      expect(status.stdout).toContain(formatWindow(10_080, 34, 2_200_000_000 * 1000));
+      expect(status.stdout).toContain("  5h    12% used  resets 2036-07-18 13:20");
+      expect(status.stdout).toContain("  7d    34% used  resets 2039-09-18 23:06");
       expect(upstream.requests.at(-1)).toMatchObject({
         path: "/wham/usage",
         headers: { "chatgpt-account-id": "acc-123" },
