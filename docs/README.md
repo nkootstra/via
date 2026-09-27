@@ -169,9 +169,11 @@ With `VIA_ADMIN_KEY` set, `via serve` also serves `/admin`, which does what the
 doesn't exist and answers 404. The key must be at least 32 characters, or
 `via serve` refuses to start; `openssl rand -hex 32` makes one.
 
-Every `/admin` route needs `Authorization: Bearer <VIA_ADMIN_KEY>`. API keys
-from `via keys create` don't work on `/admin`, and the admin key doesn't work
-on `/v1`.
+Every `/admin` route needs `Authorization: Bearer <VIA_ADMIN_KEY>`, except the
+API's description: its OpenAPI spec at `/admin/openapi.json` and a reference
+page at `/admin/docs`, where you can also try the routes out. API keys from
+`via keys create` don't work on `/admin`, and the admin key doesn't work on
+`/v1`.
 
 | Route                             | What it does                                              |
 | --------------------------------- | --------------------------------------------------------- |
