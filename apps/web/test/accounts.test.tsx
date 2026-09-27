@@ -31,6 +31,16 @@ describe("the accounts page", () => {
     ).toBe("true");
   });
 
+  it("gives every action in an account's menu an icon, so their labels line up", async () => {
+    const { user } = renderApp("/accounts", { accounts: [work] });
+
+    await user.click(within(await rowOf("work")).getByRole("button", { name: "Actions for work" }));
+
+    for (const name of ["Rename…", "Remove…"]) {
+      expect((await screen.findByRole("menuitem", { name })).querySelector("svg")).not.toBeNull();
+    }
+  });
+
   it("renames an account", async () => {
     const { state, user } = renderApp("/accounts", { accounts: [work] });
 

@@ -35,7 +35,7 @@ import { type ReactNode, useState } from "react";
 import { opencodeGoQuery, removeOpencodeGo, updateOpencodeGo } from "../api/admin.ts";
 import type { OpencodeGoAccount } from "../api/types.ts";
 import { formatDate } from "../lib/time.ts";
-import { MoreIcon, ProviderLogo, TrashIcon } from "./icons.tsx";
+import { MoreIcon, ProviderLogo, EditIcon, TrashIcon } from "./icons.tsx";
 import { Panel, VisuallyHidden } from "./page.tsx";
 
 const styles = stylex.create({
@@ -310,6 +310,7 @@ export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNod
                     <MenuContent>
                       <MenuItem
                         label="Rename…"
+                        icon={<EditIcon size={15} />}
                         onClick={() => setOpen({ dialog: "rename", account })}
                       />
                       <MenuSeparator />

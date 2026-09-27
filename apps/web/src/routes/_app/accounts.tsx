@@ -49,6 +49,7 @@ import {
   MoreIcon,
   PlusIcon,
   ProviderLogo,
+  EditIcon,
   TrashIcon,
 } from "../../components/icons.tsx";
 import { OpencodeGoAccounts } from "../../components/opencode-go-accounts.tsx";
@@ -311,6 +312,7 @@ function Accounts() {
                           <MenuContent>
                             <MenuItem
                               label="Rename…"
+                              icon={<EditIcon size={15} />}
                               onClick={() => setOpen({ dialog: "rename", account })}
                             />
                             <MenuSeparator />
