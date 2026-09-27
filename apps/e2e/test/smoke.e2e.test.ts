@@ -49,4 +49,40 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
       });
     }),
   );
+
+  it.effect("answers a health check without a key", () =>
+    Effect.gen(function* () {
+      const upstream = yield* startCodex;
+      const via = yield* launchVia({ upstream: upstream.url });
+
+      const response = yield* Effect.promise(() => fetch(`${via.url}/healthz`));
+
+      expect(response.status).toBe(200);
+      expect(yield* Effect.promise(() => response.text())).toBe("ok");
+    }),
+  );
+
+  it.effect("echoes the client's x-request-id, lower-cased, and makes one up otherwise", () =>
+    Effect.gen(function* () {
+      const upstream = yield* startCodex;
+      upstream.respond(() => reply.text("pong"));
+      const via = yield* launchVia({ upstream: upstream.url });
+      const sent = "0B7E4C1A-5D2F-4E8B-9C3A-1F6D2E4B8A70";
+
+      const request = (headers: Record<string, string>) =>
+        Effect.promise(() =>
+          openai(via)
+            .chat.completions.create(
+              { model: "gpt-6-astra", messages: [{ role: "user", content: "ping" }] },
+              { headers },
+            )
+            .withResponse(),
+        ).pipe(Effect.map(({ response }) => response.headers.get("x-request-id")));
+
+      expect(yield* request({ "x-request-id": sent })).toBe(sent.toLowerCase());
+      const made = yield* request({ "x-request-id": "not-a-uuid" });
+      expect(made).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+      expect(made).not.toBe(sent.toLowerCase());
+    }),
+  );
 });
