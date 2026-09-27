@@ -1,7 +1,17 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import type { ProviderConfig } from "@via/config";
-import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
+import {
+  Cause,
+  ConfigProvider,
+  Deferred,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  Schema,
+  Stream,
+} from "effect";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Providers } from "./index.ts";
 import { providerReply, startFakeProvider } from "./testing/index.ts";
@@ -243,13 +253,20 @@ layer(BunFileSystem.layer)("Providers", (it) => {
   it.effect("fails the answer's stream when the provider breaks it off", () =>
     Effect.gen(function* () {
       const fake = yield* startFakeProvider;
-      fake.respond(providerReply.sseThenDrop("data: {}\n\n", Effect.void));
+      const received = yield* Deferred.make<void>();
+      fake.respond(providerReply.sseThenDrop("data: {}\n\n", Deferred.await(received)));
 
       const outcome = yield* withProviders(
         { local: { baseUrl: fake.url, apiKeyEnv: "KEY" } },
         (providers) =>
           providers.send({ provider: "local", model: "m" }, "/responses", {}, "conv-1").pipe(
-            Effect.flatMap((response) => Stream.mkString(Stream.decodeText(response.stream))),
+            Effect.flatMap((response) =>
+              response.stream.pipe(
+                Stream.tap(() => Deferred.succeed(received, undefined)),
+                Stream.decodeText,
+                Stream.mkString,
+              ),
+            ),
             Effect.catchTag("HttpClientError", () => Effect.succeed("broke off")),
           ),
       );
