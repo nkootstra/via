@@ -16,6 +16,18 @@ const completed = {
   response: { usage: { input_tokens: 12, output_tokens: 5, total_tokens: 17 } },
 };
 
+const functionCall = (output_index: number, call_id: string) => ({
+  type: "response.output_item.added",
+  output_index,
+  item: { type: "function_call", call_id, name: "weather", arguments: "" },
+});
+
+const argumentsDelta = (output_index: number, delta: string) => ({
+  type: "response.function_call_arguments.delta",
+  output_index,
+  delta,
+});
+
 const upstream = (events: ReadonlyArray<object>) =>
   Stream.make(new TextEncoder().encode(sse(events)));
 
@@ -195,6 +207,49 @@ describe("toChatStream", () => {
         created,
         { type: "response.reasoning_summary_text.delta", output_index: 0, delta: "Hmm" },
         { type: "response.output_item.added", output_index: 1, item: { type: "message" } },
+        { type: "response.output_text.delta", delta: "Hi" },
+        completed,
+      ]);
+
+      expect(deltas(events)).toEqual([
+        { index: 0, delta: { role: "assistant", content: "" }, finish_reason: null },
+        { index: 0, delta: { content: "Hi" }, finish_reason: null },
+        { index: 0, delta: {}, finish_reason: "stop" },
+      ]);
+    }),
+  );
+
+  it.effect("routes interleaved argument deltas to the tool call they belong to", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents([
+        created,
+        functionCall(3, "call_a"),
+        functionCall(5, "call_b"),
+        argumentsDelta(5, "b"),
+        argumentsDelta(3, "a"),
+        completed,
+      ]);
+
+      expect(deltas(events).slice(3, 5)).toEqual([
+        {
+          index: 0,
+          delta: { tool_calls: [{ index: 1, function: { arguments: "b" } }] },
+          finish_reason: null,
+        },
+        {
+          index: 0,
+          delta: { tool_calls: [{ index: 0, function: { arguments: "a" } }] },
+          finish_reason: null,
+        },
+      ]);
+    }),
+  );
+
+  it.effect("drops argument deltas for a function call that was never announced", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents([
+        created,
+        argumentsDelta(2, "{}"),
         { type: "response.output_text.delta", delta: "Hi" },
         completed,
       ]);

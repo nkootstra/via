@@ -159,7 +159,10 @@ export const toChatStream = <E>(
     }
 
     if (isArgumentsDelta(event)) {
-      const index = state.toolIndex.get(event.output_index) ?? 0;
+      const index = state.toolIndex.get(event.output_index);
+
+      // Arguments for a call the client never saw announced belong to no tool call.
+      if (index === undefined) return [state, []];
 
       return [
         state,
