@@ -103,8 +103,9 @@ export type ProviderUsage =
   | { readonly provider: string; readonly error: string };
 
 type Provider = {
-  baseUrl: string;
-  apiKey: Redacted.Redacted;
+  name: string;
+  /** Sends requests under the provider's base URL, with its API key. */
+  client: HttpClient.HttpClient;
   session: SessionTarget;
   usage: string | undefined;
 };
@@ -119,11 +120,20 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
       const baseUrl = config.baseUrl ?? preset?.baseUrl;
 
       if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
+
+      const apiKey = yield* Config.Redacted(config.apiKeyEnv).pipe(
+        Effect.mapError(
+          () => new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv }),
+        ),
+      );
+
       providers.set(name, {
-        baseUrl,
-        apiKey: yield* Config.Redacted(config.apiKeyEnv).pipe(
-          Effect.mapError(
-            () => new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv }),
+        name,
+        client: HttpClient.mapRequest(http, (request) =>
+          request.pipe(
+            HttpClientRequest.prependUrl(baseUrl),
+            HttpClientRequest.bearerToken(Redacted.value(apiKey)),
+            HttpClientRequest.setHeader("user-agent", `via/${version}`),
           ),
         ),
         session:
@@ -132,14 +142,8 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
       });
     }
 
-    const authorized = (provider: Provider, request: HttpClientRequest.HttpClientRequest) =>
-      request.pipe(
-        HttpClientRequest.bearerToken(Redacted.value(provider.apiKey)),
-        HttpClientRequest.setHeader("user-agent", `via/${version}`),
-      );
-
-    const list = (name: string, provider: Provider) =>
-      http.execute(authorized(provider, HttpClientRequest.get(`${provider.baseUrl}/models`))).pipe(
+    const list = ({ name, client }: Provider) =>
+      client.get("/models").pipe(
         Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap(HttpClientResponse.schemaBodyJson(ModelList)),
         Effect.map(({ data }) =>
@@ -149,11 +153,9 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         Effect.orElseSucceed(() => []),
       );
 
-    const usageOf = (name: string, provider: Provider, path: string) =>
+    const usageOf = ({ name, client }: Provider, path: string) =>
       Effect.gen(function* () {
-        const response = yield* http.execute(
-          authorized(provider, HttpClientRequest.get(`${provider.baseUrl}${path}`)),
-        );
+        const response = yield* client.get(path);
 
         if (response.status !== 200) {
           return yield* new UsageUnavailableError({ provider: name, status: response.status });
@@ -177,17 +179,18 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         ),
       );
 
+    const configured = [...providers.values()];
+
     return Providers.of({
-      usage: Effect.forEach(
-        [...providers].flatMap(([name, provider]) =>
-          provider.usage === undefined ? [] : [{ name, provider, path: provider.usage }],
+      usage: Effect.all(
+        configured.flatMap((provider) =>
+          provider.usage === undefined ? [] : [usageOf(provider, provider.usage)],
         ),
-        ({ name, provider, path }) => usageOf(name, provider, path),
         { concurrency: "unbounded" },
       ),
-      models: Effect.forEach([...providers], ([name, provider]) => list(name, provider), {
-        concurrency: "unbounded",
-      }).pipe(Effect.map((lists) => lists.flat())),
+      models: Effect.forEach(configured, list, { concurrency: "unbounded" }).pipe(
+        Effect.map((lists) => lists.flat()),
+      ),
       route: (model) => {
         const slash = model.indexOf("/");
         const provider = model.slice(0, slash);
@@ -202,10 +205,7 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
 
         if (provider === undefined) return yield* Effect.die(`unrouted provider ${route.provider}`);
 
-        return yield* authorized(
-          provider,
-          HttpClientRequest.post(`${provider.baseUrl}${path}`),
-        ).pipe(
+        return yield* HttpClientRequest.post(path).pipe(
           Predicate.isObject(provider.session)
             ? HttpClientRequest.setHeader(provider.session.header, session)
             : identity,
@@ -220,7 +220,7 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
               { contentType: "application/json" },
             ),
           ),
-          http.execute,
+          provider.client.execute,
         );
       }),
     });

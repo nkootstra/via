@@ -24,6 +24,21 @@ const withProviders = <A, E, R>(
     ),
   );
 
+/** A network that answers every request 503, recording the URLs asked for. */
+const offline = () => {
+  const urls: Array<string> = [];
+
+  const client = HttpClient.make((request) =>
+    Effect.sync(() => {
+      urls.push(request.url);
+
+      return HttpClientResponse.fromWeb(request, new Response(null, { status: 503 }));
+    }),
+  );
+
+  return { urls, client: Layer.succeed(HttpClient.HttpClient, client) };
+};
+
 /** The request `name` sends for `body` in session "conv-1", configured as `config`. */
 const sent = (name: string, body: Schema.JsonObject, config: Partial<ProviderConfig> = {}) =>
   Effect.gen(function* () {
@@ -83,16 +98,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
 
   it.effect("knows OpenRouter's and OpenCode Go's URLs without a baseUrl", () =>
     Effect.gen(function* () {
-      const urls: Array<string> = [];
-      // Stands in for the network, so nothing reaches the real providers.
-      const offline = HttpClient.make((request) =>
-        Effect.sync(() => {
-          urls.push(request.url);
-
-          return HttpClientResponse.fromWeb(request, new Response(null, { status: 503 }));
-        }),
-      );
-
+      const { urls, client } = offline();
       yield* withProviders(
         { openrouter: { apiKeyEnv: "KEY" }, "opencode-go": { apiKeyEnv: "KEY" } },
         (providers) =>
@@ -102,7 +108,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
             yield* providers.send({ provider: "openrouter", model: "m" }, "/responses", {}, "c");
           }),
         undefined,
-        Layer.succeed(HttpClient.HttpClient, offline),
+        client,
       );
 
       expect(urls.toSorted()).toEqual([
@@ -133,6 +139,27 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       expect(error.message).toBe(
         `Provider "openrouter" reads its API key from OPENROUTER_API_KEY, which is not set`,
       );
+    }),
+  );
+
+  it.effect("joins a baseUrl that ends in a slash without doubling it", () =>
+    Effect.gen(function* () {
+      const { urls, client } = offline();
+      yield* withProviders(
+        { local: { baseUrl: "http://local.test/v1/", apiKeyEnv: "KEY" } },
+        (providers) =>
+          Effect.andThen(
+            providers.send({ provider: "local", model: "m" }, "/chat/completions", {}, "conv-1"),
+            providers.models,
+          ),
+        undefined,
+        client,
+      );
+
+      expect(urls).toEqual([
+        "http://local.test/v1/chat/completions",
+        "http://local.test/v1/models",
+      ]);
     }),
   );
 
