@@ -97,30 +97,6 @@ type Provider = {
   usage: string | undefined;
 };
 
-export interface ProvidersShape {
-  /** The provider a `<provider>/<model>` id names, if it is configured. */
-  readonly route: (model: unknown) => Option.Option<Route>;
-  /** The base URL requests to `provider` go to. */
-  readonly baseUrl: (provider: string) => string | undefined;
-  /**
-   * Every provider's models as it describes them, with `<provider>/<model>`
-   * ids; a provider that can't list them is left out.
-   */
-  readonly models: Effect.Effect<ReadonlyArray<{ provider: string; model: ProviderModel }>>;
-  /** The usage of every provider that reports it, such as OpenCode Go. */
-  readonly usage: Effect.Effect<ReadonlyArray<ProviderUsage>>;
-  /**
-   * Posts `body` to the route's provider, with its model in place of via's and
-   * `session` where the provider looks for it.
-   */
-  readonly send: (
-    route: Route,
-    path: ProviderPath,
-    body: Record<string, unknown>,
-    session: string,
-  ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
-}
-
 const make = (configs: Record<string, ProviderConfig>, version: string) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
@@ -234,7 +210,32 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
   });
 
 /** The OpenAI-compatible providers configured in config.yaml. */
-export class Providers extends Context.Service<Providers, ProvidersShape>()("via/Providers") {
+export class Providers extends Context.Service<
+  Providers,
+  {
+    /** The provider a `<provider>/<model>` id names, if it is configured. */
+    readonly route: (model: unknown) => Option.Option<Route>;
+    /** The base URL requests to `provider` go to. */
+    readonly baseUrl: (provider: string) => string | undefined;
+    /**
+     * Every provider's models as it describes them, with `<provider>/<model>`
+     * ids; a provider that can't list them is left out.
+     */
+    readonly models: Effect.Effect<ReadonlyArray<{ provider: string; model: ProviderModel }>>;
+    /** The usage of every provider that reports it, such as OpenCode Go. */
+    readonly usage: Effect.Effect<ReadonlyArray<ProviderUsage>>;
+    /**
+     * Posts `body` to the route's provider, with its model in place of via's and
+     * `session` where the provider looks for it.
+     */
+    readonly send: (
+      route: Route,
+      path: ProviderPath,
+      body: Record<string, unknown>,
+      session: string,
+    ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
+  }
+>()("via/Providers") {
   /**
    * Reads each provider's API key from the environment variable its config
    * names, and says it is `via/<version>`.

@@ -2,13 +2,6 @@ import { readJsonFile, writeJsonFile } from "@via/config";
 import { Clock, Context, Effect, FileSystem, Layer, Ref, Schema, Semaphore } from "effect";
 import type { AccountState, PoolState } from "./select.ts";
 
-export interface PoolStatesShape {
-  readonly get: Effect.Effect<PoolState>;
-  readonly mark: (id: string, state: AccountState) => Effect.Effect<void>;
-  /** Takes the account out of rotation until it logs in again. */
-  readonly lockOut: (id: string, reason: string) => Effect.Effect<void>;
-}
-
 /** The cooldowns still running, by account id: what outlives a restart. */
 const Cooldowns = Schema.Record(
   Schema.String,
@@ -42,7 +35,15 @@ const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void
   });
 
 /** Cooldowns and lockouts of the accounts, as learned from upstream answers. */
-export class PoolStates extends Context.Service<PoolStates, PoolStatesShape>()("via/PoolStates") {
+export class PoolStates extends Context.Service<
+  PoolStates,
+  {
+    readonly get: Effect.Effect<PoolState>;
+    readonly mark: (id: string, state: AccountState) => Effect.Effect<void>;
+    /** Takes the account out of rotation until it logs in again. */
+    readonly lockOut: (id: string, reason: string) => Effect.Effect<void>;
+  }
+>()("via/PoolStates") {
   /** Kept in memory only. */
   static readonly layer = Layer.effect(
     PoolStates,

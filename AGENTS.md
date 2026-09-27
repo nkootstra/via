@@ -41,8 +41,10 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 
 - Everything outside the CLI's `main` is an `Effect`. No `async`/`await`,
   `Promise`, `throw` or `try`/`catch` in library code.
-- Services: `class Foo extends Context.Service<Foo, FooShape>()("via/Foo") {}`
-  plus a `Layer` (`Foo.layer`). Depend on services, not modules with side effects.
+- Services: `class Foo extends Context.Service<Foo, { ... }>()("via/Foo") {}`
+  plus a `Layer` (`Foo.layer`), with the operations typed inline or as
+  `Effect.Success<typeof make>`. Name the type `Foo["Service"]`, never with a
+  separate `FooShape`. Depend on services, not modules with side effects.
 - Errors: `Schema.TaggedError` (serializable) or `Data.TaggedError`.
   Fail with `yield* new FooError({...})`. Handle with `Effect.catchTag`/`catchTags`.
   Never inspect `_tag` or use `instanceof` by hand.

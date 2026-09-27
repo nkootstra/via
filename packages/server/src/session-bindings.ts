@@ -9,17 +9,16 @@ const IDLE_TTL = "1 hour";
 // sessions bound at once.
 const CAPACITY = 10_000;
 
-export interface SessionBindingsShape {
-  /** The account that last answered `session`, if via still remembers it. */
-  readonly get: (session: string) => Effect.Effect<Option.Option<string>>;
-  /** Remembers that `accountId` answered `session`, so it is preferred next time. */
-  readonly bind: (session: string, accountId: string) => Effect.Effect<void>;
-}
-
 /** Which account last served each session, so its Codex requests stay on a warm cache. */
-export class SessionBindings extends Context.Service<SessionBindings, SessionBindingsShape>()(
-  "via/SessionBindings",
-) {
+export class SessionBindings extends Context.Service<
+  SessionBindings,
+  {
+    /** The account that last answered `session`, if via still remembers it. */
+    readonly get: (session: string) => Effect.Effect<Option.Option<string>>;
+    /** Remembers that `accountId` answered `session`, so it is preferred next time. */
+    readonly bind: (session: string, accountId: string) => Effect.Effect<void>;
+  }
+>()("via/SessionBindings") {
   /** Kept in memory only: a restart loses nothing a warm prompt cache needed anyway. */
   static readonly layer = Layer.effect(
     SessionBindings,

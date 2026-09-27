@@ -3,11 +3,11 @@ import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, FileSystem, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
-import { PoolStates, type PoolStatesShape } from "./pool-states.ts";
+import { PoolStates } from "./pool-states.ts";
 import type { PoolState } from "./select.ts";
 
 /** Runs `body` against the states kept in `path`, as one `via serve` process would. */
-const run = <A, E>(path: string, body: (states: PoolStatesShape) => Effect.Effect<A, E>) =>
+const run = <A, E>(path: string, body: (states: PoolStates["Service"]) => Effect.Effect<A, E>) =>
   Effect.gen(function* () {
     return yield* body(yield* PoolStates);
   }).pipe(Effect.provide(PoolStates.layerFile(path)));

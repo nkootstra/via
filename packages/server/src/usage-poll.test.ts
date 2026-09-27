@@ -6,7 +6,7 @@ import { type Account, AccountStore, AccountTokens, CodexAuth } from "@via/codex
 import { fakeIssuer, jwt } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
 import { startFakeCodex } from "@via/codex-upstream/testing";
-import { PoolStates, type PoolStatesShape } from "@via/pool";
+import { PoolStates } from "@via/pool";
 import { expect, layer } from "@effect/vitest";
 import { Clock, Deferred, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
@@ -77,7 +77,7 @@ const withPoll = <A, E>(
   body: (args: {
     account: Account;
     codex: Effect.Success<typeof startFakeCodex>;
-    states: PoolStatesShape;
+    states: PoolStates["Service"];
     logged: (text: string) => Effect.Effect<void>;
     start: number;
   }) => Effect.Effect<A, E>,
