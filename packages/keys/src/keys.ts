@@ -60,7 +60,7 @@ const latest = (a: DateTime.Utc | undefined, b: DateTime.Utc | undefined) =>
 const make = (path: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
-    // create and revoke read the file, then write it whole: run them one at a time, or
+    // create, rename and revoke read the file, then write it whole: run them one at a time, or
     // concurrent changes overwrite each other. The semaphore orders this process's changes;
     // the file lock orders them against another process's (`via keys` next to `via serve`).
     const permit = Semaphore.withPermit(yield* Semaphore.make(1));
@@ -97,27 +97,44 @@ const make = (path: string) =>
     const lastUsed = new Map<string, DateTime.Utc>();
     const persisted = new Map<string, DateTime.Utc>();
 
-    const list = read.pipe(
-      Effect.map((keys) =>
-        keys.map(({ id, name, createdAt, lastUsedAt }) => ({
-          id,
-          name,
-          createdAt,
-          lastUsedAt: latest(lastUsedAt, lastUsed.get(id)).pipe(
-            Option.map(DateTime.formatIso),
-            Option.getOrNull,
-          ),
-        })),
+    /** A stored key as `list` shows it: no hash, and its last use in this process if later. */
+    const shown = ({ id, name, createdAt, lastUsedAt }: (typeof StoredKeys.Type)[number]) => ({
+      id,
+      name,
+      createdAt,
+      lastUsedAt: latest(lastUsedAt, lastUsed.get(id)).pipe(
+        Option.map(DateTime.formatIso),
+        Option.getOrNull,
       ),
-    );
+    });
+
+    const list = read.pipe(Effect.map((keys) => keys.map(shown)));
+
+    // An id match wins over a name match, so one change never takes out two keys.
+    const find = (keys: typeof StoredKeys.Type, idOrName: string) =>
+      Effect.fromNullishOr(
+        keys.find((k) => k.id === idOrName) ?? keys.find((k) => k.name === idOrName),
+      ).pipe(Effect.mapError(() => new KeyNotFoundError({ idOrName })));
 
     const revoke = Effect.fn("KeyStore.revoke")(function* (idOrName: string) {
       const keys = yield* read;
-      // An id match wins over a name match, so one revoke never takes out two keys.
-      const target = keys.find((k) => k.id === idOrName) ?? keys.find((k) => k.name === idOrName);
-
-      if (target === undefined) return yield* new KeyNotFoundError({ idOrName });
+      const target = yield* find(keys, idOrName);
       yield* write(keys.filter((k) => k !== target));
+    }, serialized);
+
+    /** Renames a key; its secret, and so every client using it, is unchanged. */
+    const rename = Effect.fn("KeyStore.rename")(function* (idOrName: string, name: string) {
+      const keys = yield* read;
+      const target = yield* find(keys, idOrName);
+
+      if (keys.some((k) => k !== target && k.name === name)) {
+        return yield* new DuplicateKeyNameError({ name });
+      }
+
+      const renamed = { ...target, name };
+      yield* write(keys.map((k) => (k === target ? renamed : k)));
+
+      return shown(renamed);
     }, serialized);
 
     // Re-reads under the lock, so a key revoked since `verify` read the file stays revoked. A
@@ -160,11 +177,11 @@ const make = (path: string) =>
 
     /**
      * Signals now, then after every write this process makes to the keys: a key
-     * created or revoked, or a key's last use recorded, at most once a minute per key.
+     * created, renamed or revoked, or a key's last use recorded, at most once a minute per key.
      */
     const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
 
-    return { create, list, revoke, verify, changes };
+    return { create, list, rename, revoke, verify, changes };
   });
 
 /** API keys for clients of `via serve`; only SHA-256 hashes are stored. */
