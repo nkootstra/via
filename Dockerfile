@@ -10,6 +10,8 @@ WORKDIR /src
 COPY . .
 RUN bun install --frozen-lockfile --ignore-scripts
 RUN bun npm/set-version.ts "$VERSION"
+# The admin UI, which the binary embeds from apps/web/dist.
+RUN bun run --cwd apps/web build
 # Baseline x64 runs on CPUs without AVX2 too, as some servers have.
 RUN target=$([ "$TARGETARCH" = arm64 ] && echo linux-arm64 || echo linux-x64-baseline) \
  && bun build apps/cli/src/index.ts --compile --minify --target=bun-$target --outfile /out/via \

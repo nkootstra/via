@@ -13,6 +13,12 @@ const entry = `${here}/../apps/cli/src/index.ts`;
 
 const hostOnly = process.argv.includes("--host");
 
+// The binary embeds the admin UI's build; `bun run build` builds it first.
+if (!(await Bun.file(`${here}/../apps/web/dist/embedded.ts`).exists())) {
+  console.error("build: no admin UI build to embed; run `bun run --cwd apps/web build` first");
+  process.exit(1);
+}
+
 for (const [os, arch] of TARGETS) {
   if (hostOnly && (os !== process.platform || arch !== process.arch)) continue;
   const outfile = `${here}/via-${os}-${arch}/bin/via`;

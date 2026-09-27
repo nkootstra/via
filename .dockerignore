@@ -7,3 +7,4 @@
 npm/via-*/bin
 docs
 *.tgz
+apps/web/dist
