@@ -352,6 +352,8 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   upstream dropped the connection).
 - For an error via answers itself, `error` is its code and `retry_after` the
   seconds until an account frees up.
+- A request the client gave up on before via answered is logged with
+  `http.status=499`, as nginx does. The client never sees that status.
 
 It also warns when an account cools down, is locked out, or has its token
 rejected, and says until when.
