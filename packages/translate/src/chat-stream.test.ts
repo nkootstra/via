@@ -207,6 +207,15 @@ describe("toChatStream", () => {
     }),
   );
 
+  it.effect("does not take a malformed completion for the end of the response", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents([created, { type: "response.completed", response: {} }]);
+
+      expect(events).not.toContain("[DONE]");
+      expect(events.at(-1)).toMatchObject({ error: { code: "upstream_incomplete" } });
+    }),
+  );
+
   it.effect("finishes an incomplete response that reports no usage", () =>
     Effect.gen(function* () {
       const events = yield* chatEvents(
