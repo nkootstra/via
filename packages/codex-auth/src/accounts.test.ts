@@ -3,15 +3,8 @@ import { expect, layer } from "@effect/vitest";
 import { CorruptFileError } from "@via/config";
 import { Effect, FileSystem } from "effect";
 import { TestClock } from "effect/testing";
-import { idToken } from "./testing/index.ts";
-import { AccountNotFoundError, AccountStore, type Tokens } from "./index.ts";
-
-const tokensFor = (email: string, accountId: string, refreshToken = "rt"): Tokens => ({
-  idToken: idToken({ email, accountId, plan: "plus" }),
-  accessToken: "at",
-  refreshToken,
-  expiresAt: 1_000,
-});
+import { tokensFor } from "./testing/index.ts";
+import { AccountNotFoundError, AccountStore } from "./index.ts";
 
 const withAccountStore = <A, E>(
   body: (authDir: string) => Effect.Effect<A, E, AccountStore | FileSystem.FileSystem>,
@@ -36,12 +29,12 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const saved = yield* store.save(tokensFor("a@example.com", "acc-a"));
+        const saved = yield* store.save(tokensFor("a"));
         expect(saved).toMatchObject({
           label: "a@example.com",
           email: "a@example.com",
           accountId: "acc-a",
-          plan: "plus",
+          plan: "pro",
           enabled: true,
         });
         expect(yield* store.list).toEqual([saved]);
@@ -53,10 +46,10 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const first = yield* store.save(tokensFor("a@example.com", "acc-a", "rt-old"));
+        const first = yield* store.save(tokensFor("a", { refreshToken: "rt-old" }));
         yield* store.setLabel(first.id, "work");
         yield* store.setEnabled("work", false);
-        yield* store.save(tokensFor("a@example.com", "acc-a", "rt-new"));
+        yield* store.save(tokensFor("a", { refreshToken: "rt-new" }));
         expect(yield* store.list).toEqual([
           { ...first, label: "work", enabled: false, refreshToken: "rt-new" },
         ]);
@@ -68,10 +61,10 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const first = yield* store.save(tokensFor("a@example.com", "acc-a", "rt-old"));
+        const first = yield* store.save(tokensFor("a", { refreshToken: "rt-old" }));
         yield* Effect.all(
           [
-            store.save(tokensFor("a@example.com", "acc-a", "rt-new")),
+            store.save(tokensFor("a", { refreshToken: "rt-new" })),
             store.setLabel(first.id, "work"),
           ],
           { concurrency: "unbounded", discard: true },
@@ -85,9 +78,9 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        yield* store.save(tokensFor("b@example.com", "acc-b"));
+        yield* store.save(tokensFor("b"));
         yield* TestClock.adjust("1 second");
-        yield* store.save(tokensFor("a@example.com", "acc-a"));
+        yield* store.save(tokensFor("a"));
         expect((yield* store.list).map((a) => a.email)).toEqual(["b@example.com", "a@example.com"]);
       }),
     ),
@@ -97,7 +90,7 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        yield* store.save(tokensFor("a@example.com", "acc-a"));
+        yield* store.save(tokensFor("a"));
         yield* store.remove("a@example.com");
         expect(yield* store.list).toEqual([]);
       }),
@@ -108,7 +101,7 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const saved = yield* store.save(tokensFor("a@example.com", "acc-a"));
+        const saved = yield* store.save(tokensFor("a"));
         yield* store.setLabel(saved.id, "work");
         expect(yield* store.find("a@example.com")).toEqual({ ...saved, label: "work" });
       }),
@@ -119,9 +112,9 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore(() =>
       Effect.gen(function* () {
         const store = yield* AccountStore;
-        const a = yield* store.save(tokensFor("a@example.com", "acc-a"));
+        const a = yield* store.save(tokensFor("a"));
         yield* TestClock.adjust("1 second");
-        const b = yield* store.save(tokensFor("b@example.com", "acc-b"));
+        const b = yield* store.save(tokensFor("b"));
         yield* store.setLabel(a.id, b.id);
         expect(yield* store.find(b.id)).toEqual(b);
       }),
@@ -141,7 +134,7 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     withAccountStore((authDir) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        const { id } = yield* (yield* AccountStore).save(tokensFor("a@example.com", "acc-a"));
+        const { id } = yield* (yield* AccountStore).save(tokensFor("a"));
         expect(((yield* fs.stat(`${authDir}/${id}.json`)).mode & 0o777).toString(8)).toBe("600");
       }),
     ),
@@ -152,7 +145,7 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const store = yield* AccountStore;
-        const saved = yield* store.save(tokensFor("a@example.com", "acc-a"));
+        const saved = yield* store.save(tokensFor("a"));
         yield* fs.writeFileString(`${authDir}/${saved.id}.json.123.tmp`, "{");
         expect(yield* store.list).toEqual([saved]);
       }),
