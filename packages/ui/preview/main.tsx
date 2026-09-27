@@ -247,6 +247,39 @@ function Gallery() {
         </div>
       </Section>
 
+      <Section title="Input adornments (one border around icon and text)">
+        <div {...stylex.props(styles.stack)}>
+          <Input
+            type="search"
+            aria-label="Search models"
+            placeholder="Search 12 models"
+            sunken
+            leading={
+              <svg width={15} height={15} viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <circle cx="11" cy="11" r="7" stroke="currentColor" strokeWidth="1.8" />
+                <path d="m16.5 16.5 4 4" stroke="currentColor" strokeWidth="1.8" />
+              </svg>
+            }
+          />
+          <Field label="Label">
+            <Input
+              value={label}
+              onValueChange={setLabel}
+              trailing={
+                <Button
+                  variant="ghost"
+                  size="icon-compact"
+                  aria-label="Clear"
+                  onClick={() => setLabel("")}
+                >
+                  <XIcon size={14} />
+                </Button>
+              }
+            />
+          </Field>
+        </div>
+      </Section>
+
       <Section title="Tabs (the selection springs, hover glides)">
         <Tabs defaultValue="accounts">
           <TabsList aria-label="Pages">

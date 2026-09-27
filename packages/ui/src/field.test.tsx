@@ -48,3 +48,42 @@ describe("Field", () => {
     expect(screen.getByLabelText("Label")).toHaveProperty("disabled", true);
   });
 });
+
+describe("Input adornments", () => {
+  it("draws a leading adornment inside the field, beside the input", () => {
+    render(
+      <Input
+        type="search"
+        aria-label="Search models"
+        leading={<span data-testid="icon">⌕</span>}
+      />,
+    );
+
+    const input = screen.getByRole("searchbox", { name: "Search models" });
+    // One field: the input and its adornment share the box that draws it.
+    expect(input.parentElement?.contains(screen.getByTestId("icon"))).toBe(true);
+  });
+
+  it("keeps the name its Field label gives it, beside a trailing action", () => {
+    render(
+      <Field label="Admin key">
+        <Input type="password" trailing={<button type="button">Show key</button>} />
+      </Field>,
+    );
+
+    const input = screen.getByLabelText("Admin key");
+    expect(input.tagName).toBe("INPUT");
+    expect(input.parentElement?.contains(screen.getByRole("button", { name: "Show key" }))).toBe(
+      true,
+    );
+  });
+
+  it("focuses the input when its leading adornment is clicked", async () => {
+    const user = userEvent.setup();
+    render(<Input aria-label="Search models" leading={<span data-testid="icon">⌕</span>} />);
+
+    await user.click(screen.getByTestId("icon"));
+
+    expect(document.activeElement).toBe(screen.getByLabelText("Search models"));
+  });
+});

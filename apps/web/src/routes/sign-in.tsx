@@ -57,20 +57,6 @@ const styles = stylex.create({
     gap: space.s4,
     margin: 0,
   },
-  // The one field on the page, so it shows at rest: a sunken well the quiet
-  // input sits in.
-  keyInput: {
-    position: "relative",
-    display: "flex",
-    alignItems: "center",
-    borderRadius: radii.item,
-    backgroundColor: colors.muted,
-    boxShadow: `inset 0 0 0 1px ${colors.border}`,
-  },
-  reveal: {
-    position: "absolute",
-    right: space.s1,
-  },
   submit: { width: "100%" },
   alert: {
     display: "flex",
@@ -175,28 +161,29 @@ function SignIn() {
         }}
       >
         <Field label="Admin key">
-          <div {...stylex.props(styles.keyInput)}>
-            <Input
-              type={shown ? "text" : "password"}
-              name="admin-key"
-              autoComplete="current-password"
-              spellCheck={false}
-              required
-              value={key}
-              onValueChange={setKey}
-            />
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon-compact"
-              aria-label={shown ? "Hide key" : "Show key"}
-              aria-pressed={shown}
-              xstyle={styles.reveal}
-              onClick={() => setShown((value) => !value)}
-            >
-              {shown ? <EyeOffIcon size={15} /> : <EyeIcon size={15} />}
-            </Button>
-          </div>
+          {/* The one field on the page, so it shows at rest. */}
+          <Input
+            type={shown ? "text" : "password"}
+            name="admin-key"
+            autoComplete="current-password"
+            spellCheck={false}
+            required
+            value={key}
+            onValueChange={setKey}
+            sunken
+            trailing={
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-compact"
+                aria-label={shown ? "Hide key" : "Show key"}
+                aria-pressed={shown}
+                onClick={() => setShown((value) => !value)}
+              >
+                {shown ? <EyeOffIcon size={15} /> : <EyeIcon size={15} />}
+              </Button>
+            }
+          />
         </Field>
         <AnimatePresence initial={false}>
           {problem !== null && <Alert key={problem.kind} problem={problem} />}

@@ -7,7 +7,7 @@
 import { Field as BaseField } from "@base-ui/react/field";
 import { Input as BaseInput } from "@base-ui/react/input";
 import * as stylex from "@stylexjs/stylex";
-import type { ComponentProps, ReactNode } from "react";
+import { useRef, type ComponentProps, type ReactNode } from "react";
 import { colors, durations, fonts, radii, space, text, weights } from "./tokens.stylex.ts";
 
 const styles = stylex.create({
@@ -33,43 +33,82 @@ const styles = stylex.create({
     fontVariationSettings: weights.medium,
     color: colors.destructive,
   },
-  input: {
+  // The box that draws the field: the input and any adornments sit inside
+  // it, so hover and focus light one border around all of them.
+  box: {
     boxSizing: "border-box",
+    display: "flex",
+    alignItems: "center",
     width: "100%",
     height: space.control,
-    paddingInline: space.s2_5,
-    borderWidth: 0,
     borderRadius: radii.item,
-    outline: "none",
-    fontFamily: fonts.sans,
-    fontSize: text.body,
-    fontVariationSettings: weights.normal,
-    color: colors.foreground,
+    color: colors.mutedForeground,
     backgroundColor: {
       default: "transparent",
       ":hover": `color-mix(in srgb, ${colors.muted} 50%, transparent)`,
-      ":focus": colors.surface3,
+      ":focus-within": colors.surface3,
     },
     boxShadow: {
       default: "0 0 0 1px transparent",
       ":hover": `0 0 0 1px ${colors.border}`,
-      ":focus": `0 0 0 1px ${colors.border}`,
+      ":focus-within": `0 0 0 1px ${colors.border}`,
     },
     transitionProperty: "background-color, box-shadow",
     transitionDuration: durations.fast,
-    "::placeholder": { color: colors.mutedForeground },
   },
-  invalidInput: {
+  // Shows at rest, for a field that stands alone rather than in a form. Its
+  // border is already drawn, so hover deepens it and focus tints it.
+  sunken: {
+    backgroundColor: {
+      default: colors.muted,
+      ":hover": colors.muted,
+      ":focus-within": colors.surface3,
+    },
+    boxShadow: {
+      default: `0 0 0 1px ${colors.border}`,
+      ":hover": `0 0 0 1px color-mix(in srgb, ${colors.mutedForeground} 35%, ${colors.border})`,
+      ":focus-within": `0 0 0 1px color-mix(in srgb, ${colors.focusRing} 70%, ${colors.border})`,
+    },
+  },
+  invalidBox: {
     backgroundColor: {
       default: "transparent",
       ":hover": `color-mix(in srgb, ${colors.destructiveLight} 60%, transparent)`,
-      ":focus": colors.surface3,
+      ":focus-within": colors.surface3,
     },
     boxShadow: {
       default: "0 0 0 1px transparent",
       ":hover": `0 0 0 1px color-mix(in srgb, ${colors.destructive} 50%, transparent)`,
-      ":focus": `0 0 0 1px color-mix(in srgb, ${colors.destructive} 50%, transparent)`,
+      ":focus-within": `0 0 0 1px color-mix(in srgb, ${colors.destructive} 50%, transparent)`,
     },
+  },
+  input: {
+    boxSizing: "border-box",
+    flex: 1,
+    minWidth: 0,
+    height: "100%",
+    paddingInline: space.s2_5,
+    borderWidth: 0,
+    borderRadius: radii.item,
+    outline: "none",
+    backgroundColor: "transparent",
+    fontFamily: fonts.sans,
+    fontSize: text.body,
+    fontVariationSettings: weights.normal,
+    color: colors.foreground,
+    "::placeholder": { color: colors.mutedForeground },
+  },
+  afterLeading: { paddingLeft: space.s1_5 },
+  leading: {
+    display: "flex",
+    flexShrink: 0,
+    paddingLeft: space.s2_5,
+    cursor: "text",
+  },
+  trailing: {
+    display: "flex",
+    flexShrink: 0,
+    paddingRight: space.s1,
   },
 });
 
@@ -106,15 +145,57 @@ export function Field({ label, error, disabled = false, children }: FieldProps) 
   );
 }
 
-export type InputProps = Omit<ComponentProps<typeof BaseInput>, "className" | "style" | "render">;
+export interface InputProps extends Omit<
+  ComponentProps<typeof BaseInput>,
+  "className" | "style" | "render" | "ref"
+> {
+  /** Drawn inside the field before the text, such as a search glyph. Clicking it focuses the input. */
+  readonly leading?: ReactNode;
+  /** Drawn inside the field after the text, such as a show-key button. */
+  readonly trailing?: ReactNode;
+  /** Shows the field at rest, for one that stands alone rather than in a form. */
+  readonly sunken?: boolean;
+}
 
-export function Input(props: InputProps) {
+/**
+ * The input sits borderless in a box that owns the field's look, so leading
+ * and trailing adornments share one border and one focus state with it.
+ */
+export function Input({ leading, trailing, sunken = false, ...props }: InputProps) {
+  const input = useRef<HTMLElement>(null);
+
   return (
     <BaseInput
       {...props}
-      className={(state) =>
-        stylex.props(styles.input, state.valid === false && styles.invalidInput).className ?? ""
-      }
+      ref={input}
+      render={(inputProps, state) => (
+        <div
+          {...stylex.props(
+            styles.box,
+            sunken && styles.sunken,
+            state.valid === false && styles.invalidBox,
+          )}
+        >
+          {leading !== undefined && (
+            <span
+              aria-hidden="true"
+              // Keep the press from taking focus, then hand it to the input.
+              onMouseDown={(event) => {
+                event.preventDefault();
+                input.current?.focus();
+              }}
+              {...stylex.props(styles.leading)}
+            >
+              {leading}
+            </span>
+          )}
+          <input
+            {...inputProps}
+            {...stylex.props(styles.input, leading !== undefined && styles.afterLeading)}
+          />
+          {trailing !== undefined && <span {...stylex.props(styles.trailing)}>{trailing}</span>}
+        </div>
+      )}
     />
   );
 }
