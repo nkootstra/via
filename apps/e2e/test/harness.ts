@@ -34,6 +34,8 @@ export const launchVia = (options: {
   /** Seed these accounts instead of logging one in through the fake issuer. */
   accounts?: ReadonlyArray<SeededAccount>;
   issuer?: FakeIssuerOptions;
+  /** More environment for every `via` command, `via serve` included. */
+  env?: Record<string, string>;
 }) =>
   Effect.gen(function* () {
     const { home, env, via } = yield* viaHome(options);
