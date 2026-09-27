@@ -6,9 +6,9 @@ on your machine.
 via logs in to each of your ChatGPT accounts, hands out its own API keys, and
 serves `/v1/responses`, `/v1/chat/completions` and `/v1/models` on
 `127.0.0.1:8317`. Each request goes to the first account that still has
-capacity; when one hits its rate limit, via moves on to the next. It can also
-pass requests on to OpenAI-compatible providers such as OpenRouter and
-OpenCode Go.
+capacity; when one hits its rate limit, via moves on to the next. It pools
+several OpenCode Go API keys the same way, and can pass requests on to other
+OpenAI-compatible providers such as OpenRouter.
 
 > **Status:** early (`0.x`). Commands and file formats may still change before 1.0.
 
@@ -84,8 +84,10 @@ docker exec via via keys create --name laptop
 ```
 
 The running server picks up accounts and keys added this way without a
-restart. For [providers](#providers), put `config.yaml` in the volume and pass
-their keys as environment variables. With Compose:
+restart, and so does an OpenCode Go key added with
+`docker exec -i via via accounts add --provider opencode-go < key.txt`. For
+other [providers](#providers), put `config.yaml` in the volume and pass their
+keys as environment variables. With Compose:
 
 ```yaml
 services:
@@ -97,7 +99,7 @@ services:
     volumes:
       - via-data:/data
     environment:
-      OPENCODE_API_KEY: ${OPENCODE_API_KEY}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY}
 
 volumes:
   via-data:
@@ -304,21 +306,28 @@ The page is the admin key's reach in a browser, so give it the same care:
 
 ## Commands
 
-| Command                                  | What it does                                                    |
-| ---------------------------------------- | --------------------------------------------------------------- |
-| `via accounts add`                       | Log in to a ChatGPT account with a device code.                 |
-| `via accounts list`                      | List accounts in the order they are used.                       |
-| `via accounts status`                    | Show each account's and provider's limits and how much is used. |
-| `via accounts label <account> <label>`   | Rename an account.                                              |
-| `via accounts disable <account>`         | Stop using an account without removing it.                      |
-| `via accounts enable <account>`          | Use it again.                                                   |
-| `via accounts remove <account>`          | Forget an account and delete its tokens.                        |
-| `via keys create --name <name>`          | Create an API key. It is printed once.                          |
-| `via keys list`                          | List keys, when each was created and when it was last used.     |
-| `via keys revoke <id-or-name>`           | Revoke a key.                                                   |
-| `via serve [--host <addr>] [--port <n>]` | Serve the API in the foreground.                                |
+| Command                                   | What it does                                                    |
+| ----------------------------------------- | --------------------------------------------------------------- |
+| `via accounts add`                        | Log in to a ChatGPT account with a device code.                 |
+| `via accounts add --provider opencode-go` | Add an OpenCode Go API key as an account.                       |
+| `via accounts list`                       | List accounts in the order they are used.                       |
+| `via accounts status`                     | Show each account's and provider's limits and how much is used. |
+| `via accounts label <account> <label>`    | Rename an account.                                              |
+| `via accounts disable <account>`          | Stop using an account without removing it.                      |
+| `via accounts enable <account>`           | Use it again.                                                   |
+| `via accounts remove <account>`           | Forget an account and delete its tokens.                        |
+| `via keys create --name <name>`           | Create an API key. It is printed once.                          |
+| `via keys list`                           | List keys, when each was created and when it was last used.     |
+| `via keys revoke <id-or-name>`            | Revoke a key.                                                   |
+| `via serve [--host <addr>] [--port <n>]`  | Serve the API in the foreground.                                |
 
 `<account>` matches an account's id, label or email.
+
+`via accounts add --provider opencode-go` asks for the key without echoing it,
+or reads it from standard input when that isn't a terminal, so a script can
+pipe it in: `via accounts add --provider opencode-go < key.txt`. It never takes
+the key as an argument, which would end up in your shell history. `list` and
+`status` show only a key's last four characters.
 
 ## How the pool picks an account
 
@@ -349,16 +358,25 @@ The page is the admin key's reach in a browser, so give it the same care:
   already-exhausted account cools down before its next request would hit a 429. The web UI shows the same usage. This never ends a cooldown early, only starts one or
   extends it to a later reset that ChatGPT has confirmed.
 
+OpenCode Go accounts, for `opencode-go/` models, make a pool of their own that
+works the same way: fill-first in the order you added the keys, a conversation
+kept on the key that last answered it, and a `429` (or every key resting)
+handled as above. A key's cooldown lasts until its used-up usage window resets,
+or as long as the answer's `Retry-After` asks, whichever is later. A key
+OpenCode Go refuses (401) is taken out of use until `via serve` restarts. via
+asks OpenCode Go for each key's usage every 15 minutes too.
+
 ## Configuration
 
 via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set.
 
-| File             | Contents                                            |
-| ---------------- | --------------------------------------------------- |
-| `config.yaml`    | Optional settings; you write it, via only reads it. |
-| `keys.json`      | Your API keys' SHA-256 hashes and last use.         |
-| `auth/<id>.json` | One account's OAuth tokens.                         |
-| `state.json`     | Running cooldowns; safe to delete.                  |
+| File               | Contents                                            |
+| ------------------ | --------------------------------------------------- |
+| `config.yaml`      | Optional settings; you write it, via only reads it. |
+| `keys.json`        | Your API keys' SHA-256 hashes and last use.         |
+| `auth/<id>.json`   | One account's OAuth tokens.                         |
+| `state.json`       | Running cooldowns; safe to delete.                  |
+| `opencode-go.json` | Your OpenCode Go API keys, as accounts.             |
 
 `config.yaml`, with the defaults:
 
@@ -378,12 +396,21 @@ Add OpenAI-compatible providers under `providers`. Each one reads its API key
 from the environment variable `apiKeyEnv` names; `via serve` won't start while
 that variable is unset.
 
+OpenCode Go is the exception: it needs no entry at all. Add its keys as
+accounts with `via accounts add --provider opencode-go`, and via pools them
+like ChatGPT accounts (see [How the pool picks an account](#how-the-pool-picks-an-account)).
+
+> **Deprecated:** reading OpenCode Go's key from `apiKeyEnv` (such as
+> `OPENCODE_API_KEY`). While that variable is set, `via serve` and
+> `via accounts status` add its key as an account named
+> `opencode Go (imported)`, once, and `via serve` logs a warning at startup.
+> Remove the variable (and the `opencode-go` entry, unless you set its
+> `baseUrl` or `sessionHeader`); a later release stops reading it.
+
 ```yaml
 providers:
   openrouter:
     apiKeyEnv: OPENROUTER_API_KEY
-  opencode-go:
-    apiKeyEnv: OPENCODE_API_KEY
   # Any other OpenAI-compatible endpoint needs its baseUrl.
   local:
     baseUrl: http://localhost:11434/v1
@@ -421,7 +448,7 @@ start of the first user message; the model still sees it.
 `key=value` pairs:
 
 ```
-timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" request_id=592f9436-3ad2-4e0f-a239-d4803bdb9925 http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 model=opencode-go/deepseek-v4.1-flash served_by=opencode-go input_tokens=812 output_tokens=194 headers_ms=2712 first_chunk_ms=3433 stream_end=completed
+timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" request_id=592f9436-3ad2-4e0f-a239-d4803bdb9925 http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 model=opencode-go/deepseek-v4.1-flash served_by=go-work input_tokens=812 output_tokens=194 headers_ms=2712 first_chunk_ms=3433 stream_end=completed
 timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" request_id=2a374005-22ec-40ed-a5e5-1dfa5aa6a807 http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 model=gpt-6-astra error=rate_limit_exceeded retry_after=120
 ```
 
@@ -431,8 +458,8 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   warning logged while handling the request (a cooldown, say), even across a
   retry onto another account.
 - `http.span` is the whole time via took, a stream included.
-- `model` is the model asked for, and `served_by` the provider or Codex account
-  that answered.
+- `model` is the model asked for, and `served_by` the provider, or the Codex or
+  OpenCode Go account, that answered.
 - `input_tokens` and `output_tokens` are the token counts the upstream
   reported for an answered request, and `cached_tokens` joins them when the
   upstream reports a cache hit. Absent usage stays absent, never a zero.
@@ -463,6 +490,8 @@ each request it serves. The other standard variables work too:
 - Account tokens are stored as plaintext JSON, readable only by you (files
   `0600`, directory `0700`). Anyone who can read them can use your ChatGPT
   accounts.
+- OpenCode Go API keys are stored the same way, in plaintext in
+  `opencode-go.json`, readable only by you.
 - API keys are stored only as SHA-256 hashes.
 - `VIA_ADMIN_KEY` can add, change and remove accounts and API keys. Keep it
   out of clients; only its SHA-256 hash is compared, in constant time.
