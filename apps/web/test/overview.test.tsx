@@ -98,6 +98,28 @@ describe("the overview", () => {
     expect(within(await card("home")).getByText(/ChatGPT didn't answer/)).toBeDefined();
   });
 
+  it("shows only the weekly window of a plan without a 5-hour one", async () => {
+    renderApp("/", {
+      pool: { accounts: [accounts[0]], providers: [] },
+      usage: {
+        accounts: [
+          {
+            id: "acc-1",
+            label: "work",
+            windows: [
+              { windowMinutes: 10_080, usedPercent: 30, resetsAt: "2026-10-01T09:00:00.000Z" },
+            ],
+          },
+        ],
+        providers: [],
+      },
+    });
+
+    const work = await card("work");
+    expect(await within(work).findByRole("meter", { name: "7 days" })).toBeDefined();
+    expect(within(work).queryByRole("meter", { name: "5 hours" })).toBeNull();
+  });
+
   it("counts a cooldown down every second", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
     renderApp("/", { pool, usage });

@@ -54,6 +54,17 @@ describe("CodexUpstream.usage", () => {
     }),
   );
 
+  it.effect("reports only the weekly window of a plan without a 5-hour one", () =>
+    Effect.gen(function* () {
+      const { result } = yield* usage({
+        ...usagePayload,
+        rate_limit: { ...usagePayload.rate_limit, primary_window: null },
+      });
+
+      expect(result).toMatchObject({ success: [{ windowMinutes: 10_080 }] });
+    }),
+  );
+
   it.effect("fails with the status when the backend refuses", () =>
     Effect.gen(function* () {
       const { result } = yield* usage({}, 401);
