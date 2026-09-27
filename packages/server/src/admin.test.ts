@@ -1038,6 +1038,26 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("lists no Codex models once every account is disabled", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          for (const name of ["a", "b"]) {
+            const path = `/admin/accounts/${yield* accountId(via, name)}`;
+            yield* via.patch(path, { enabled: false }, adminKey);
+          }
+
+          const models = yield* Schema.decodeUnknownEffect(
+            Schema.Array(Schema.Struct({ owned_by: Schema.String })),
+          )(yield* (yield* via.get("/admin/models", adminKey)).json);
+
+          expect(models.filter(({ owned_by }) => owned_by === "openai")).toEqual([]);
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("keeps the pool and the models behind the admin key", () =>
     withVia(
       ok,

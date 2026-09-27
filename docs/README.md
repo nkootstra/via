@@ -163,10 +163,14 @@ in between closes the connection as idle. SSE clients skip comments.
 
 `/v1/models` lists what the Codex model picker shows your accounts, combined,
 since plans offer different models. So new models appear without a via update.
-via fetches the list as it starts and answers from it at once; once it is five
-minutes old, via fetches a new one in the background for the next request. When Codex can't be
-asked, it lists the models via knows: `gpt-6-astra`, `gpt-6-sol` and
-`gpt-6-luna`.
+Only accounts that can serve count: enabled ones, including one cooling down,
+as it serves again once its cooldown ends, but not one locked out until it
+signs in again. With no such account, no Codex models are listed. via fetches
+the list as it starts and answers from it at once; once it is five minutes old,
+via fetches a new one in the background for the next request. Disabling,
+enabling, adding or removing an account, or one being locked out, changes the
+list at once. When Codex can't be asked, it lists the models via knows:
+`gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna`.
 
 Add an effort suffix to a model id to pick the reasoning effort, as in
 `gpt-6-astra-high`. The list shows each model with the suffixes it supports,
@@ -473,7 +477,8 @@ the prefix taken off the model, and passes the provider's answer back the same
 way, errors included. Models OpenCode Go serves only through Anthropic's
 `/messages` API don't work through via. `/v1/models` lists every provider's
 models with their prefix and the details the provider gives, such as
-`context_length`; a provider that can't be reached is left out.
+`context_length`; a provider that can't be reached is left out, as is OpenCode
+Go while none of its accounts is enabled.
 
 To keep a conversation on a warm prompt cache, via gives each request a session
 id: the one the client sent, in `x-parent-session-id` (so OpenCode's sub-agents
