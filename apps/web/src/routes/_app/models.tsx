@@ -69,19 +69,18 @@ const styles = stylex.create({
   },
 });
 
-const OwnedBy = Schema.Struct({ owned_by: Schema.String });
-
 const WithContext = Schema.Struct({ context_length: Schema.Finite });
-
-const isOwned = Schema.is(OwnedBy);
 
 const hasContext = Schema.is(WithContext);
 
-/** Codex's models are via's own; every other owner is a provider. */
+/**
+ * Who serves a model, from its id: via names a provider's models `<provider>/<model>`,
+ * and Codex's have no prefix. `owned_by` is the provider's own say, so it can't be trusted.
+ */
 const ownerOf = (model: Model) => {
-  const owner = isOwned(model) ? model.owned_by : "other";
+  const slash = model.id.indexOf("/");
 
-  return owner === "openai" ? "Codex" : owner;
+  return slash > 0 ? model.id.slice(0, slash) : "Codex";
 };
 
 const contextOf = (model: Model) =>
