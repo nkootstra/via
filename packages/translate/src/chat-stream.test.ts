@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Predicate, Schema, Stream } from "effect";
+import { CompletedResponse, toChatCompletion } from "./chat-response.ts";
 import { toChatStream } from "./chat-stream.ts";
 
 const sse = (events: ReadonlyArray<object>) =>
@@ -188,6 +189,24 @@ describe("toChatStream", () => {
     }),
   );
 
+  it.effect("skips events that have no chat counterpart", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents([
+        created,
+        { type: "response.reasoning_summary_text.delta", output_index: 0, delta: "Hmm" },
+        { type: "response.output_item.added", output_index: 1, item: { type: "message" } },
+        { type: "response.output_text.delta", delta: "Hi" },
+        completed,
+      ]);
+
+      expect(deltas(events)).toEqual([
+        { index: 0, delta: { role: "assistant", content: "" }, finish_reason: null },
+        { index: 0, delta: { content: "Hi" }, finish_reason: null },
+        { index: 0, delta: {}, finish_reason: "stop" },
+      ]);
+    }),
+  );
+
   it.effect("finishes an incomplete response that reports no usage", () =>
     Effect.gen(function* () {
       const events = yield* chatEvents(
@@ -204,5 +223,168 @@ describe("toChatStream", () => {
       expect(deltas(events).at(-1)).toMatchObject({ finish_reason: "content_filter" });
       expect(events.at(-1)).toBe("[DONE]");
     }),
+  );
+});
+
+describe("toChatStream and toChatCompletion", () => {
+  /** One output item of a response, with the pieces its text streams in. */
+  const Item = Schema.Union([
+    Schema.Struct({ type: Schema.Literal("message"), deltas: Schema.Array(Schema.String) }),
+    Schema.Struct({
+      type: Schema.Literal("function_call"),
+      name: Schema.String,
+      deltas: Schema.Array(Schema.String),
+    }),
+    Schema.Struct({ type: Schema.Literal("reasoning") }),
+  ]);
+
+  const Count = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1_000_000 }));
+
+  const Scenario = Schema.Struct({
+    items: Schema.Array(Item),
+    incomplete: Schema.NullOr(Schema.Literals(["max_output_tokens", "content_filter"])),
+    usage: Schema.Struct({ input_tokens: Count, output_tokens: Count, total_tokens: Count }),
+  });
+
+  type Scenario = typeof Scenario.Type;
+
+  const isMessage = Schema.is(Item.members[0]);
+
+  const isFunctionCall = Schema.is(Item.members[1]);
+
+  const envelope = { id: "resp_1", created_at: 1_700_000_000, model: "gpt-6-astra" };
+
+  /** The scenario's response as the Responses API sends it without streaming. */
+  const whole = ({ items, incomplete, usage }: Scenario) => ({
+    ...envelope,
+    output: items.map((item, index) => {
+      if (isMessage(item)) {
+        return { type: "message", content: [{ type: "output_text", text: item.deltas.join("") }] };
+      }
+
+      if (isFunctionCall(item)) {
+        const call = { call_id: `call_${index}`, name: item.name };
+
+        return { type: "function_call", ...call, arguments: item.deltas.join("") };
+      }
+
+      return { type: "reasoning", summary: [] };
+    }),
+    usage,
+    incomplete_details: incomplete === null ? null : { reason: incomplete },
+  });
+
+  /** The scenario's response as the Responses API streams it. */
+  const streamed = ({ items, incomplete, usage }: Scenario) => [
+    { type: "response.created", response: envelope },
+    ...items.flatMap((item, output_index) => {
+      if (isMessage(item)) {
+        return [
+          { type: "response.output_item.added", output_index, item: { type: "message" } },
+          ...item.deltas.map((delta) => ({ type: "response.output_text.delta", delta })),
+        ];
+      }
+
+      if (isFunctionCall(item)) {
+        const call = { type: "function_call", call_id: `call_${output_index}`, name: item.name };
+
+        return [
+          { type: "response.output_item.added", output_index, item: call },
+          ...item.deltas.map((delta) => ({
+            type: "response.function_call_arguments.delta",
+            output_index,
+            delta,
+          })),
+        ];
+      }
+
+      return [
+        { type: "response.output_item.added", output_index, item: { type: "reasoning" } },
+        { type: "response.reasoning_summary_text.delta", output_index, delta: "Hmm" },
+      ];
+    }),
+    incomplete === null
+      ? { type: "response.completed", response: { usage } }
+      : {
+          type: "response.incomplete",
+          response: { incomplete_details: { reason: incomplete }, usage },
+        },
+  ];
+
+  const ToolCallDelta = Schema.Struct({
+    index: Schema.Int,
+    id: Schema.optionalKey(Schema.String),
+    function: Schema.Struct({ name: Schema.optionalKey(Schema.String), arguments: Schema.String }),
+  });
+
+  const Chunk = Schema.Struct({
+    id: Schema.String,
+    created: Schema.Finite,
+    model: Schema.String,
+    choices: Schema.Array(
+      Schema.Struct({
+        delta: Schema.Struct({
+          content: Schema.optionalKey(Schema.String),
+          tool_calls: Schema.optionalKey(Schema.Array(ToolCallDelta)),
+        }),
+        finish_reason: Schema.NullOr(Schema.String),
+      }),
+    ),
+    usage: Schema.optionalKey(Schema.Json),
+  });
+
+  const decodeChunk = Schema.decodeUnknownSync(Chunk);
+
+  /** Assembles streamed chat chunks into one answer, as a chat client does. */
+  const assemble = (events: ReadonlyArray<Schema.Json>) => {
+    const chunks = events.flatMap((event) => (event === "[DONE]" ? [] : [decodeChunk(event)]));
+    const choices = chunks.flatMap((chunk) => chunk.choices);
+    const toolDeltas = choices.flatMap((choice) => choice.delta.tool_calls ?? []);
+
+    const calls = [...new Set(toolDeltas.map((delta) => delta.index))].map((index) => {
+      const parts = toolDeltas.filter((delta) => delta.index === index);
+
+      return {
+        id: parts[0]?.id,
+        type: "function",
+        function: {
+          name: parts.map((part) => part.function.name ?? "").join(""),
+          arguments: parts.map((part) => part.function.arguments).join(""),
+        },
+      };
+    });
+
+    return {
+      id: chunks[0]?.id,
+      created: chunks[0]?.created,
+      model: chunks[0]?.model,
+      content: choices.map((choice) => choice.delta.content ?? "").join(""),
+      calls,
+      finish: choices.findLast((choice) => choice.finish_reason !== null)?.finish_reason,
+      usage: chunks.find((chunk) => chunk.choices.length === 0)?.usage,
+    };
+  };
+
+  it.effect.prop(
+    "a streamed response assembles into the answer sent without streaming",
+    { scenario: Scenario },
+    ({ scenario }) =>
+      Effect.gen(function* () {
+        const events = yield* chatEvents(streamed(scenario), { includeUsage: true });
+        const response = yield* Schema.decodeEffect(CompletedResponse)(whole(scenario));
+        const answer = toChatCompletion(response);
+
+        expect([assemble(events)]).toEqual(
+          answer.choices.map(({ message, finish_reason }) => ({
+            id: answer.id,
+            created: answer.created,
+            model: answer.model,
+            content: message.content ?? "",
+            calls: message.tool_calls ?? [],
+            finish: finish_reason,
+            usage: answer.usage,
+          })),
+        );
+      }),
   );
 });
