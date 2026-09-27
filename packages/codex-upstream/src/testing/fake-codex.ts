@@ -14,6 +14,7 @@ import { type CodexEvent, modelsPayload, sse, usagePayload } from "./streams.ts"
 /** One request as via sent it: nothing redacted, nothing converted. */
 export type CodexRequest = {
   path: string;
+  query: Readonly<Record<string, string>>;
   headers: Readonly<Record<string, string | undefined>>;
   body: Schema.JsonObject;
 };
@@ -253,8 +254,11 @@ export const startFakeCodex = Effect.gen(function* () {
     Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
 
+      const url = new URL(request.url, "http://fake");
+
       const recorded = {
-        path: new URL(request.url, "http://fake").pathname,
+        path: url.pathname,
+        query: Object.fromEntries(url.searchParams),
         headers: request.headers,
         body,
       };

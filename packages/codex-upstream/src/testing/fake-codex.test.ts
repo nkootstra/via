@@ -213,21 +213,26 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
     }),
   );
 
-  it.effect("serves a scripted /codex/models catalog, recording its requests apart", () =>
-    Effect.gen(function* () {
-      const codex = yield* startFakeCodex;
-      codex.models({ models: [{ slug: "gpt-6-astra" }] });
-      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+  it.effect(
+    "serves a scripted /codex/models catalog, recording its requests apart with their query",
+    () =>
+      Effect.gen(function* () {
+        const codex = yield* startFakeCodex;
+        codex.models({ models: [{ slug: "gpt-6-astra" }] });
+        const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
 
-      const answer = yield* http
-        .execute(HttpClientRequest.get(`${codex.url}/codex/models?client_version=1.0.0`))
-        .pipe(Effect.flatMap((response) => response.json));
+        const answer = yield* http
+          .execute(HttpClientRequest.get(`${codex.url}/codex/models?client_version=1.0.0`))
+          .pipe(Effect.flatMap((response) => response.json));
 
-      expect(answer).toEqual({ models: [{ slug: "gpt-6-astra" }] });
-      // Kept apart, so a catalog fetched as via starts doesn't shift `requests`.
-      expect(codex.modelRequests.at(-1)?.path).toBe("/codex/models");
-      expect(codex.requests).toEqual([]);
-    }),
+        expect(answer).toEqual({ models: [{ slug: "gpt-6-astra" }] });
+        // Kept apart, so a catalog fetched as via starts doesn't shift `requests`.
+        expect(codex.modelRequests.at(-1)).toMatchObject({
+          path: "/codex/models",
+          query: { client_version: "1.0.0" },
+        });
+        expect(codex.requests).toEqual([]);
+      }),
   );
 
   it.effect("serves an account its own /codex/models catalog, waiting for it on request", () =>

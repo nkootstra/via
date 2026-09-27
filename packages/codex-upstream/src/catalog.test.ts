@@ -55,6 +55,9 @@ layer(BunFileSystem.layer)("CodexUpstream.models", (it) => {
       yield* models(codex.url);
       const request = codex.modelRequests.at(-1);
       expect(request?.path).toBe("/codex/models");
+      const version = request?.query["client_version"];
+      expect(version).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(request?.headers["user-agent"]).toContain(`codex-tui/${version}`);
       expect(request?.headers).toMatchObject({
         authorization: "Bearer at-1",
         "chatgpt-account-id": "acc-1",
