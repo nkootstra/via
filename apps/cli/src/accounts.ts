@@ -11,8 +11,19 @@ import {
   providerState,
 } from "@via/providers";
 import type { ProviderState } from "@via/providers/schemas";
-import { Clock, Console, Effect, Layer, Record } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import {
+  Clock,
+  Console,
+  Effect,
+  Layer,
+  Record,
+  Redacted,
+  Schema,
+  Stdio,
+  Stream,
+  String as Str,
+} from "effect";
+import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
 import { apiKeys, importOpencodeGoKey } from "./api-keys.ts";
 import { localTime } from "./time.ts";
 import { version } from "./version.ts";
@@ -21,16 +32,72 @@ const accountArg = Argument.String("account").pipe(
   Argument.withDescription("Account id, label or email"),
 );
 
-const add = Command.make("add", {}, () =>
-  Effect.gen(function* () {
-    const auth = yield* CodexAuth;
-    const code = yield* auth.requestDeviceCode;
-    yield* Console.log(`Open ${code.verificationUrl} and enter the code ${code.userCode}`);
-    yield* Console.log("Waiting for approval...");
-    const saved = yield* (yield* AccountStore).save(yield* auth.awaitDeviceTokens(code));
-    yield* Console.log(`Added ${saved.email} (${saved.plan}) as "${saved.label}".`);
-  }),
-).pipe(Command.withDescription("Log in to a ChatGPT account with a device code"));
+class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()(
+  "MissingApiKeyError",
+  {},
+) {
+  override get message() {
+    return "No opencode Go API key was given";
+  }
+}
+
+/**
+ * An opencode Go API key: typed in, hidden, at a terminal, else read from
+ * standard input, so a script can pipe it in. Never an argument, which would
+ * end up in the shell's history and the process list.
+ */
+const readApiKey = Effect.gen(function* () {
+  const stdio = yield* Stdio.Stdio;
+
+  const key = (yield* stdio.stdinIsTerminal)
+    ? Redacted.value(yield* Prompt.run(Prompt.Password({ message: "opencode Go API key" })))
+    : yield* stdio.stdin.pipe(Stream.decodeText, Stream.mkString);
+
+  const trimmed = Str.trim(key);
+
+  if (trimmed === "") return yield* new MissingApiKeyError();
+
+  return Redacted.make(trimmed);
+});
+
+/** Logs in to a ChatGPT account with a device code. */
+const addCodex = Effect.gen(function* () {
+  const auth = yield* CodexAuth;
+  const code = yield* auth.requestDeviceCode;
+  yield* Console.log(`Open ${code.verificationUrl} and enter the code ${code.userCode}`);
+  yield* Console.log("Waiting for approval...");
+  const saved = yield* (yield* AccountStore).save(yield* auth.awaitDeviceTokens(code));
+  yield* Console.log(`Added ${saved.email} (${saved.plan}) as "${saved.label}".`);
+});
+
+/** Stores an opencode Go API key as an account. */
+const addOpencodeGo = Effect.gen(function* () {
+  const apiKey = yield* readApiKey;
+  const saved = yield* (yield* OpencodeGoAccounts).add(apiKey);
+  yield* Console.log(`Added opencode Go key ${maskKey(apiKey)} as "${saved.label}".`);
+});
+
+const add = Command.make(
+  "add",
+  {
+    provider: Flag.Literals("provider", ["codex", "opencode-go"]).pipe(
+      Flag.withDescription(
+        "codex logs in to a ChatGPT account; opencode-go asks for an opencode Go API key",
+      ),
+      Flag.withDefault("codex"),
+    ),
+  },
+  ({ provider }) =>
+    Effect.gen(function* () {
+      if (provider === "codex") return yield* addCodex;
+
+      return yield* addOpencodeGo;
+    }),
+).pipe(
+  Command.withDescription(
+    "Log in to a ChatGPT account with a device code, or add an opencode Go API key",
+  ),
+);
 
 const noAccounts = "No accounts. Add one with `via accounts add`.";
 
@@ -195,17 +262,41 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
     Command.withDescription("Show how much of its rate limits each account and provider has used"),
   );
 
+/**
+ * Changes a ChatGPT account as `codex` does, else, when it finds none, an opencode
+ * Go account as `opencodeGo` does; when that finds none either, fails as `codex` did.
+ */
+const change = (
+  codex: (store: AccountStore["Service"]) => ReturnType<AccountStore["Service"]["remove"]>,
+  opencodeGo: (
+    store: OpencodeGoAccounts["Service"],
+  ) => ReturnType<OpencodeGoAccounts["Service"]["remove"]>,
+) =>
+  Effect.flatMap(AccountStore, codex).pipe(
+    Effect.catchTag("AccountNotFoundError", (notFound) =>
+      Effect.flatMap(OpencodeGoAccounts, opencodeGo).pipe(
+        Effect.catchTag("OpencodeGoAccountNotFoundError", () => Effect.fail(notFound)),
+      ),
+    ),
+  );
+
 const remove = Command.make("remove", { account: accountArg }, ({ account }) =>
   Effect.gen(function* () {
-    yield* (yield* AccountStore).remove(account);
+    yield* change(
+      (store) => store.remove(account),
+      (store) => store.remove(account),
+    );
     yield* Console.log(`Removed "${account}".`);
   }),
-).pipe(Command.withDescription("Forget an account and its tokens"));
+).pipe(Command.withDescription("Forget an account and its tokens or key"));
 
 const setEnabled = (name: "enable" | "disable", enabled: boolean, description: string) =>
   Command.make(name, { account: accountArg }, ({ account }) =>
     Effect.gen(function* () {
-      yield* (yield* AccountStore).setEnabled(account, enabled);
+      yield* change(
+        (store) => store.setEnabled(account, enabled),
+        (store) => store.setEnabled(account, enabled),
+      );
       yield* Console.log(`${enabled ? "Enabled" : "Disabled"} "${account}".`);
     }),
   ).pipe(Command.withDescription(description));
@@ -218,7 +309,10 @@ const labelCommand = Command.make(
   },
   ({ account, label }) =>
     Effect.gen(function* () {
-      yield* (yield* AccountStore).setLabel(account, label);
+      yield* change(
+        (store) => store.setLabel(account, label),
+        (store) => store.setLabel(account, label),
+      );
       yield* Console.log(`Labelled "${account}" as "${label}".`);
     }),
 ).pipe(Command.withDescription("Rename an account"));
@@ -229,7 +323,7 @@ const labelCommand = Command.make(
  */
 export const accounts = (configPath: string, upstreamBaseUrl: string | undefined) =>
   Command.make("accounts").pipe(
-    Command.withDescription("Manage the ChatGPT accounts in the pool"),
+    Command.withDescription("Manage the ChatGPT and opencode Go accounts in the pool"),
     Command.withSubcommands([
       add,
       list,

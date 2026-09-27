@@ -35,9 +35,15 @@ export const freePort = Effect.sync(() => {
   return port;
 });
 
-const spawnVia = (home: string, args: ReadonlyArray<string>, env: Record<string, string>) =>
+const spawnVia = (
+  home: string,
+  args: ReadonlyArray<string>,
+  env: Record<string, string>,
+  input?: string,
+) =>
   Bun.spawn(command(args), {
     env: { ...process.env, ...env, VIA_HOME: home, NO_COLOR: "1" },
+    stdin: input === undefined ? "ignore" : new Blob([input]),
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -51,16 +57,17 @@ const kill = (proc: ReturnType<typeof spawnVia>) =>
   Effect.promise(() => (proc.kill(), proc.exited));
 
 /**
- * Runs one `via` command to completion. It runs asynchronously so fake servers
- * in the test process can answer it.
+ * Runs one `via` command to completion, with `input` on its standard input. It
+ * runs asynchronously so fake servers in the test process can answer it.
  */
 export const runVia = (
   home: string,
   args: ReadonlyArray<string>,
   env: Record<string, string> = {},
+  input?: string,
 ) =>
   Effect.suspend(() => {
-    const proc = spawnVia(home, args, env);
+    const proc = spawnVia(home, args, env, input);
 
     return Effect.all(
       {

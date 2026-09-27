@@ -4,7 +4,7 @@ import type { FakeIssuerOptions } from "@via/codex-auth/testing";
 import { startFakeCodex } from "@via/codex-upstream/testing";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import { Effect } from "effect";
-import { freePort, seedAccounts, viaHome, writeConfig } from "./helpers.ts";
+import { freePort, runVia, seedAccounts, viaHome, writeConfig } from "./helpers.ts";
 
 /**
  * A home with its own fake Codex backend, whose account logs in through a fake
@@ -86,6 +86,67 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const { via } = yield* setup();
       yield* via("accounts", "add");
       expect((yield* via("accounts", "remove", "dev@example.com")).exitCode).toBe(0);
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
+  it.effect("add --provider opencode-go stores the key it reads from stdin", () =>
+    Effect.gen(function* () {
+      const { home, env, via } = yield* setup();
+
+      const added = yield* runVia(
+        home,
+        ["accounts", "add", "--provider", "opencode-go"],
+        env,
+        "sk-go-secret-1234\n",
+      );
+
+      expect(added.exitCode).toBe(0);
+      expect(added.stdout).toBe('Added opencode Go key …1234 as "opencode Go …1234".\n');
+      const listed = yield* via("accounts", "list");
+      expect(listed.stdout).toMatch(
+        /^\w+ {2}opencode Go …1234 {2}opencode-go {2}…1234 {2}enabled$/m,
+      );
+      expect(listed.stdout).not.toContain("secret");
+    }),
+  );
+
+  it.effect("add --provider opencode-go refuses an empty key", () =>
+    Effect.gen(function* () {
+      const { home, env } = yield* setup();
+      const added = yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "");
+      expect(added.exitCode).toBe(1);
+      expect(added.stderr).toBe("error: No opencode Go API key was given\n");
+    }),
+  );
+
+  it.effect("add --provider opencode-go refuses a key it already stores", () =>
+    Effect.gen(function* () {
+      const { home, env } = yield* setup();
+      const args = ["accounts", "add", "--provider", "opencode-go"];
+      yield* runVia(home, args, env, "sk-go-1234");
+      const again = yield* runVia(home, args, env, "sk-go-1234");
+      expect(again.exitCode).toBe(1);
+      expect(again.stderr).toBe(
+        'error: That opencode Go key is already stored, as "opencode Go …1234"\n',
+      );
+    }),
+  );
+
+  it.effect("label, disable, enable and remove an opencode Go account", () =>
+    Effect.gen(function* () {
+      const { home, env, via } = yield* setup();
+      yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "sk-go-1234");
+      expect((yield* via("accounts", "label", "opencode Go …1234", "go")).exitCode).toBe(0);
+      yield* via("accounts", "disable", "go");
+      expect((yield* via("accounts", "list")).stdout).toMatch(
+        /go {2}opencode-go {2}…1234 {2}disabled/,
+      );
+      yield* via("accounts", "enable", "go");
+      expect((yield* via("accounts", "list")).stdout).toMatch(
+        /go {2}opencode-go {2}…1234 {2}enabled/,
+      );
+      expect((yield* via("accounts", "remove", "go")).exitCode).toBe(0);
       expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
     }),
   );
