@@ -228,6 +228,29 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
+  it.effect("keeps a stream open through a pause longer than Bun's 10s idle timeout", () =>
+    Effect.gen(function* () {
+      const { home, key, env, codex } = yield* loggedIn;
+      // A few events, then silence, as while the model reasons.
+      codex.script(reply.stalled(reply.text("hello"), 3));
+      const url = yield* serveVia(home, ["--port", "0"], env);
+
+      const response = yield* post(url, key, "/v1/chat/completions", {
+        model: "gpt-6-astra",
+        messages: [{ role: "user", content: "hi" }],
+        stream: true,
+      });
+
+      const received = yield* response.stream.pipe(
+        Stream.decodeText,
+        Stream.interruptWhen(realTime(Effect.sleep("12 seconds"))),
+        Stream.mkString,
+      );
+
+      expect(received).toContain(": keepalive");
+    }),
+  );
+
   it.effect("keeps an account cooling down across a restart", () =>
     Effect.gen(function* () {
       const { home, key, env, codex } = yield* loggedIn;

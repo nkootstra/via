@@ -155,6 +155,10 @@ them: `temperature`, `top_p`, `max_tokens`, `max_completion_tokens` and
 `max_output_tokens`, as well as `user`, `metadata` and `previous_response_id`.
 A refusal comes back as the chat message's `refusal`, as OpenAI sends it.
 
+A streamed answer that goes quiet, as while the model reasons, gets a
+`: keepalive` SSE comment every five seconds, so neither via's server nor a proxy
+in between closes the connection as idle. SSE clients skip comments.
+
 `/v1/models` lists what the Codex model picker shows your accounts, combined,
 since plans offer different models. So new models appear without a via update.
 via fetches the list as it starts and answers from it at once; once it is five
