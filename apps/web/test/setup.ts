@@ -10,3 +10,9 @@ MotionGlobalConfig.skipAnimations = true;
 configure({ asyncUtilTimeout: 5000 });
 
 afterEach(cleanup);
+
+// The app keeps its queries in sessionStorage; each test starts from a fresh tab.
+// The build's own tests run in Node, which has none.
+afterEach(() => {
+  if ("sessionStorage" in globalThis) sessionStorage.clear();
+});

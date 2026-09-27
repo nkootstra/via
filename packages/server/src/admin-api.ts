@@ -5,7 +5,7 @@
 import { AccountNotFoundError, AuthRequestError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
 import { ProviderState, ProviderUsage } from "@via/providers/schemas";
-import { Schema } from "effect";
+import { Schema, Tuple } from "effect";
 import {
   HttpApi,
   HttpApiEndpoint,
@@ -17,7 +17,7 @@ import {
 } from "effect/unstable/httpapi";
 
 /** An account as the admin API shows it: everything but its tokens. */
-const AdminAccount = Schema.Struct({
+export const AdminAccount = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   email: Schema.String,
@@ -50,11 +50,15 @@ const AdminKey = Schema.Struct({
 /** A newly created client API key; the only time the key is shown. */
 const CreatedKey = Schema.Struct({ id: Schema.String, name: Schema.String, key: Schema.String });
 
-/** An account's rate limit windows, or why ChatGPT did not report them. */
+/** When via last asked for a usage report (ISO 8601). */
+const fetched = { fetchedAt: Schema.String };
+
+/** An account's rate limit windows, or why ChatGPT did not report them, and when via asked. */
 const AccountUsage = Schema.Union([
   Schema.Struct({
     id: Schema.String,
     label: Schema.String,
+    ...fetched,
     windows: Schema.Array(
       Schema.Struct({
         windowMinutes: Schema.Finite,
@@ -63,12 +67,17 @@ const AccountUsage = Schema.Union([
       }),
     ),
   }),
-  Schema.Struct({ id: Schema.String, label: Schema.String, error: Schema.String }),
+  Schema.Struct({ id: Schema.String, label: Schema.String, ...fetched, error: Schema.String }),
 ]);
 
-const Usage = Schema.Struct({
+/**
+ * The latest usage via has, without waiting for any: an account it has none for
+ * yet is left out. `refreshing` says it is asking for newer usage now.
+ */
+export const Usage = Schema.Struct({
   accounts: Schema.Array(AccountUsage),
-  providers: Schema.Array(ProviderUsage),
+  providers: Schema.Array(ProviderUsage.mapMembers(Tuple.map(Schema.fieldsAssign(fetched)))),
+  refreshing: Schema.Boolean,
 });
 
 /** Whether the pool hands an account out: available, cooling down until when and why, or locked out. */
@@ -98,7 +107,7 @@ const PoolAccount = Schema.Struct({
 const PoolProvider = Schema.Struct({ name: Schema.String, state: ProviderState });
 
 /** Everything that serves requests: the pool's accounts, and the configured providers. */
-const Pool = Schema.Struct({
+export const Pool = Schema.Struct({
   accounts: Schema.Array(PoolAccount),
   providers: Schema.Array(PoolProvider),
 });

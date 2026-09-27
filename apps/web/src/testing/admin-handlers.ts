@@ -81,7 +81,7 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     logins: new Map(),
     nextLogin: [{ status: "pending" }],
     pool: { accounts: [], providers: [] },
-    usage: { accounts: [], providers: [] },
+    usage: { accounts: [], providers: [], refreshing: false },
     models: [],
     requests: [],
     ...seed,
@@ -164,7 +164,17 @@ export function adminHandlers(state: AdminState) {
 
         if (rest.length > 0) state.logins.set(params.id, rest);
 
-        if (status.status === "added") state.accounts = [...state.accounts, status.account];
+        if (status.status === "added") {
+          const { id, label, enabled } = status.account;
+          state.accounts = [...state.accounts, status.account];
+          state.pool = {
+            ...state.pool,
+            accounts: [
+              ...state.pool.accounts,
+              { id, label, enabled, state: { status: "available" } },
+            ],
+          };
+        }
 
         return ok(accounts.endpoints.loginStatus, status);
       }),

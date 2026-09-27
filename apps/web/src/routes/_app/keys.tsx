@@ -27,7 +27,7 @@ import {
 } from "@via/ui";
 import { colors, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { useState } from "react";
-import { createKey, keysQuery, revokeKey } from "../../api/admin.ts";
+import { createKey, keysQuery, revokeKey, warm } from "../../api/admin.ts";
 import type { Key } from "../../api/types.ts";
 import { KeyIcon, PlusIcon } from "../../components/icons.tsx";
 import { Page, Panel, VisuallyHidden } from "../../components/page.tsx";
@@ -35,6 +35,7 @@ import { formatDate } from "../../lib/time.ts";
 
 export const Route = createFileRoute("/_app/keys")({
   head: () => ({ meta: [{ title: "Keys · via" }] }),
+  loader: ({ context }) => warm(context.queryClient, keysQuery),
   component: Keys,
 });
 

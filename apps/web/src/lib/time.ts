@@ -15,6 +15,19 @@ export function useNow(interval = 1_000) {
 
 const pad = (value: number) => String(value).padStart(2, "0");
 
+/** How long ago something was, `ms` since: "just now", "40 s ago", "3 min ago", "2 h ago". */
+export function ago(ms: number) {
+  const seconds = Math.max(0, Math.floor(ms / 1_000));
+
+  if (seconds < 5) return "just now";
+
+  if (seconds < 60) return `${seconds} s ago`;
+
+  if (seconds < 3_600) return `${Math.floor(seconds / 60)} min ago`;
+
+  return `${Math.floor(seconds / 3_600)} h ago`;
+}
+
 /** A countdown to go: `4:07` under an hour, `2 h 05 min` under a day, then `3 d 4 h`. */
 export function countdown(ms: number) {
   const seconds = Math.max(0, Math.ceil(ms / 1_000));

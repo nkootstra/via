@@ -1,5 +1,7 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { delay, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { account } from "../src/testing/admin-handlers.ts";
 import { renderApp } from "./app.tsx";
 
 const now = Date.parse("2026-09-27T12:00:00.000Z");
@@ -44,21 +46,25 @@ const providers = [
 
 const pool = { accounts: [...accounts], providers: [...providers] };
 
+const fetchedAt = "2026-09-27T11:59:30.000Z";
+
 const usage = {
   accounts: [
     {
       id: "acc-1",
       label: "work",
+      fetchedAt,
       windows: [
         { windowMinutes: 300, usedPercent: 42, resetsAt: "2026-09-27T14:00:00.000Z" },
         { windowMinutes: 10_080, usedPercent: 81, resetsAt: "2026-10-01T09:00:00.000Z" },
       ],
     },
-    { id: "acc-2", label: "home", error: "ChatGPT didn't answer" },
+    { id: "acc-2", label: "home", fetchedAt, error: "ChatGPT didn't answer" },
   ],
   providers: [
     {
       provider: "opencode-go",
+      fetchedAt,
       windows: [
         { window: "rolling", status: "ok", usedPercent: 40, resetsAt: "2026-09-27T16:00:00.000Z" },
         {
@@ -70,8 +76,9 @@ const usage = {
         { window: "monthly", status: "ok", usedPercent: 12, resetsAt: "2026-10-01T00:00:00.000Z" },
       ],
     },
-    { provider: "local", error: "local did not report usage (HTTP 401)" },
+    { provider: "local", fetchedAt, error: "local did not report usage (HTTP 401)" },
   ],
+  refreshing: false,
 };
 
 const card = async (name: string) => screen.findByRole("article", { name });
@@ -106,12 +113,14 @@ describe("the overview", () => {
           {
             id: "acc-1",
             label: "work",
+            fetchedAt,
             windows: [
               { windowMinutes: 10_080, usedPercent: 30, resetsAt: "2026-10-01T09:00:00.000Z" },
             ],
           },
         ],
         providers: [],
+        refreshing: false,
       },
     });
 
@@ -193,13 +202,148 @@ describe("the overview", () => {
     expect(await card("opencode-go")).toBeDefined();
   });
 
-  it("invites the viewer to add an account when the pool is empty", async () => {
+  it("invites the viewer to add an account when the pool is empty, right there", async () => {
     const { user, router } = renderApp("/");
 
     const empty = await screen.findByRole("region", { name: "No accounts yet" });
     await user.click(within(empty).getByRole("button", { name: "Add account" }));
 
     expect(await screen.findByRole("dialog", { name: "Add a ChatGPT account" })).toBeDefined();
-    expect(router.history.location.pathname).toBe("/ui/accounts");
+    expect(router.history.location.pathname).toBe("/ui/");
+  });
+
+  it("shows an account added from the overview there, once its login is approved", async () => {
+    const { user, router } = renderApp("/", {
+      pool,
+      usage,
+      nextLogin: [{ status: "added", account: account({ id: "acc-9", label: "new" }) }],
+    });
+
+    await card("work");
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+
+    expect(await card("new")).toBeDefined();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Add a ChatGPT account" })).toBeNull(),
+    );
+    expect(router.history.location.pathname).toBe("/ui/");
+  });
+});
+
+/** Handlers for the overview's reads that never answer: nothing comes from via. */
+const silent = ["/session", "/pool", "/usage", "/accounts"].map((path) =>
+  http.get(`*/admin${path}`, () => delay("infinite")),
+);
+
+describe("the overview's usage", () => {
+  it("paints what the tab kept at once after a reload, before via answers", async () => {
+    renderApp("/", { pool, usage });
+    await card("work");
+    cleanup();
+
+    renderApp("/", {}, silent);
+
+    const work = await card("work");
+    expect(within(work).getByRole("meter", { name: "5 hours" }).getAttribute("aria-valuenow")).toBe(
+      "42",
+    );
+    expect(screen.queryByLabelText("Loading accounts")).toBeNull();
+  });
+
+  it("forgets what the tab kept once the viewer signs out", async () => {
+    const { user } = renderApp("/", { pool, usage });
+    await card("work");
+    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await screen.findByRole("heading", { name: "Sign in" });
+    cleanup();
+
+    const { router } = renderApp("/", { signedIn: false }, silent.slice(1));
+
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeDefined();
+    expect(router.history.location.pathname).toBe("/ui/sign-in");
+    expect(screen.queryByRole("article", { name: "work" })).toBeNull();
+  });
+
+  it("forgets what the tab kept once via answers 401", async () => {
+    const { state, user } = renderApp("/", { pool, usage });
+    await card("work");
+    state.signedIn = false;
+    await user.click(screen.getByRole("link", { name: "Keys" }));
+    await screen.findByRole("heading", { name: "Sign in" });
+    cleanup();
+
+    renderApp("/", { signedIn: false }, silent.slice(1));
+
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeDefined();
+    expect(screen.queryByRole("article", { name: "work" })).toBeNull();
+  });
+
+  it("says how long ago the usage was fetched, ticking", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now });
+    renderApp("/", { pool, usage });
+
+    const section = await screen.findByRole("region", { name: "Accounts and providers" });
+    expect(await within(section).findByText("Updated 30 s ago")).toBeDefined();
+
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+
+    expect(within(section).getByText("Updated 35 s ago")).toBeDefined();
+  });
+
+  it("keeps the usage on screen, without skeletons, while it is fetched again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now });
+    const { state } = renderApp("/", { pool, usage });
+
+    const work = await card("work");
+    await within(work).findByRole("meter", { name: "5 hours" });
+    const asked = state.requests.filter((request) => request === "GET /admin/usage").length;
+    state.usage = { ...usage, refreshing: true };
+
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+
+    expect(state.requests.filter((request) => request === "GET /admin/usage").length).toBe(
+      asked + 1,
+    );
+    expect(within(work).getByRole("meter", { name: "5 hours" })).toBeDefined();
+    expect(within(work).queryByLabelText("Loading usage")).toBeNull();
+    expect(screen.queryByLabelText("Loading accounts")).toBeNull();
+  });
+
+  it("shows bars loading only where via has no usage yet, asking every second until it has", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now });
+
+    const { state } = renderApp("/", {
+      pool,
+      usage: { accounts: usage.accounts.slice(0, 1), providers: [], refreshing: true },
+    });
+
+    const work = await card("work");
+    expect(await within(work).findByRole("meter", { name: "5 hours" })).toBeDefined();
+    expect(within(await card("home")).getByLabelText("Loading usage")).toBeDefined();
+    expect(within(await card("opencode-go")).getByLabelText("Loading usage")).toBeDefined();
+
+    const asked = state.requests.filter((request) => request === "GET /admin/usage").length;
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+    expect(
+      state.requests.filter((request) => request === "GET /admin/usage").length,
+    ).toBeGreaterThanOrEqual(asked + 2);
+
+    state.usage = usage;
+    await act(() => vi.advanceTimersByTimeAsync(1_000));
+
+    expect(await within(await card("home")).findByText(/ChatGPT didn't answer/)).toBeDefined();
+    expect(screen.queryByLabelText("Loading usage")).toBeNull();
+  });
+});
+
+describe("the navigation", () => {
+  it("fetches a page's data as soon as the viewer points at its link", async () => {
+    const { state, user } = renderApp("/", { pool, usage });
+    await card("work");
+    expect(state.requests).not.toContain("GET /admin/keys");
+
+    await user.hover(screen.getByRole("link", { name: "Keys" }));
+
+    await waitFor(() => expect(state.requests).toContain("GET /admin/keys"));
   });
 });

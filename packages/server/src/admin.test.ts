@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply } from "@via/codex-upstream/testing";
-import { Clock, Effect, Fiber, Schema } from "effect";
+import { Clock, Effect, Fiber, Schedule, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import type { HttpClientResponse } from "effect/unstable/http";
 import { type Via, ok, withVia } from "./testing/harness.ts";
@@ -88,6 +88,65 @@ const clocked = <A, E>(request: Effect.Effect<A, E>) =>
     return yield* Fiber.join(fiber);
   });
 
+/** The `/wham/usage` lookups the fake Codex received so far. */
+const usageLookups = (via: Via) =>
+  via.upstreamRequests.filter(({ path }) => path === "/wham/usage");
+
+/** Runs `read` until `done` says so, a few real milliseconds apart: for a refresh running in the background. */
+const eventually = <A, E>(read: Effect.Effect<A, E>, done: (value: A) => boolean) =>
+  TestClock.withLive(Effect.sleep("5 millis")).pipe(
+    Effect.andThen(read),
+    Effect.repeat({ until: done, schedule: Schedule.recurs(400) }),
+  );
+
+/** `GET /admin/usage`'s answer once via is no longer asking for newer usage. */
+const settledUsage = (via: Via) =>
+  eventually(
+    via.get("/admin/usage", adminKey).pipe(
+      Effect.flatMap((response) => response.json),
+      Effect.flatMap(
+        Schema.decodeUnknownEffect(
+          Schema.StructWithRest(Schema.Struct({ refreshing: Schema.Boolean }), [Schema.JsonObject]),
+        ),
+      ),
+    ),
+    ({ refreshing }) => !refreshing,
+  );
+
+/** The required fields of an object schema in an OpenAPI spec. */
+const Required = Schema.Struct({ required: Schema.Array(Schema.String) });
+
+/** What the spec says `GET /admin/usage` answers: the fields it and its entries require. */
+const decodeUsageSpec = Schema.decodeUnknownSync(
+  Schema.Struct({
+    paths: Schema.Struct({
+      "/admin/usage": Schema.Struct({
+        get: Schema.Struct({
+          responses: Schema.Struct({
+            "200": Schema.Struct({
+              content: Schema.Struct({
+                "application/json": Schema.Struct({
+                  schema: Schema.Struct({
+                    required: Schema.Array(Schema.String),
+                    properties: Schema.Struct({
+                      accounts: Schema.Struct({
+                        items: Schema.Struct({ anyOf: Schema.Array(Required) }),
+                      }),
+                      providers: Schema.Struct({
+                        items: Schema.Struct({ anyOf: Schema.Array(Required) }),
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    }),
+  }),
+);
+
 /** Signs in to the admin API with `key`, as the admin UI does. */
 const signIn = (via: Via, key: string, headers: Record<string, string> = {}) =>
   clocked(via.post("/admin/session", { key }, null, headers));
@@ -137,6 +196,29 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             { type: "http", scheme: "bearer" },
             { type: "apiKey", name: "via_session", in: "cookie" },
           ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("says in its spec when each usage report was fetched, and whether a refresh runs", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const spec = decodeUsageSpec(yield* (yield* via.get("/admin/openapi.json", null)).json);
+
+          const usage =
+            spec.paths["/admin/usage"].get.responses["200"].content["application/json"].schema;
+
+          expect(usage.required).toEqual(["accounts", "providers", "refreshing"]);
+
+          for (const entry of [
+            ...usage.properties.accounts.items.anyOf,
+            ...usage.properties.providers.items.anyOf,
+          ]) {
+            expect(entry.required).toContain("fetchedAt");
+          }
         }),
       { adminKey },
     ),
@@ -527,6 +609,23 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("answers at once before it has any usage, asking for it in the background", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.get("/admin/usage", adminKey);
+          expect(response.status).toBe(200);
+          expect(yield* response.json).toEqual({ accounts: [], providers: [], refreshing: true });
+          yield* eventually(
+            Effect.sync(() => usageLookups(via).length),
+            (lookups) => lookups === 2,
+          );
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("reports every account's and provider's usage, or why it is unavailable", () =>
     withVia(
       ok,
@@ -539,13 +638,13 @@ layer(BunFileSystem.layer)("admin API", (it) => {
               weekly: { status: "ok", percent: 26, resetsAt: "2026-09-28T00:00:00.000Z" },
             },
           });
-          const response = yield* via.get("/admin/usage", adminKey);
-          expect(response.status).toBe(200);
-          expect(yield* response.json).toEqual({
+          const fetchedAt = new Date(yield* Clock.currentTimeMillis).toISOString();
+          expect(yield* settledUsage(via)).toEqual({
             accounts: [
               {
                 id: expect.any(String),
                 label: "a@example.com",
+                fetchedAt,
                 windows: [
                   { windowMinutes: 300, usedPercent: 12, resetsAt: "2023-11-14T23:13:20.000Z" },
                   { windowMinutes: 10_080, usedPercent: 40, resetsAt: "2023-11-15T22:13:20.000Z" },
@@ -554,12 +653,14 @@ layer(BunFileSystem.layer)("admin API", (it) => {
               {
                 id: expect.any(String),
                 label: "b@example.com",
+                fetchedAt,
                 error: "ChatGPT did not report usage (HTTP 403)",
               },
             ],
             providers: [
               {
                 provider: "opencode-go",
+                fetchedAt,
                 windows: [
                   {
                     window: "rolling",
@@ -576,6 +677,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
                 ],
               },
             ],
+            refreshing: false,
           });
         }),
       { adminKey },
@@ -675,6 +777,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
                 weekly: { status: "rate-limited", percent: 100, resetsAt: reset },
               },
             });
+            yield* settledUsage(via);
             const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
             expect(pool.providers).toEqual([
               { name: "openrouter", state: { status: "available" } },
@@ -694,6 +797,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       (via) =>
         Effect.gen(function* () {
           via.provider.usage({ error: "unauthorized" }, 401);
+          yield* settledUsage(via);
           const pool = yield* poolOf(yield* via.get("/admin/pool", adminKey));
           expect(pool.providers).toContainEqual({
             name: "opencode-go",
@@ -707,8 +811,42 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("answers usage it already has without asking ChatGPT again", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const first = yield* settledUsage(via);
+          yield* TestClock.adjust("59 seconds");
+          expect(yield* (yield* via.get("/admin/usage", adminKey)).json).toEqual(first);
+          expect(usageLookups(via)).toHaveLength(2);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("answers usage a minute old at once, and asks for new usage in the background", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const first = yield* settledUsage(via);
+          yield* TestClock.adjust("1 minute");
+          expect(yield* (yield* via.get("/admin/usage", adminKey)).json).toEqual({
+            ...first,
+            refreshing: true,
+          });
+
+          const now = new Date(yield* Clock.currentTimeMillis).toISOString();
+          expect(JSON.stringify(yield* settledUsage(via))).toContain(now);
+          expect(usageLookups(via)).toHaveLength(4);
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect(
-    "asks a provider for its usage at most once a minute, however often the pool is read",
+    "asks a provider for its usage at most once a minute, however often the pool and usage are read",
     () =>
       withVia(
         ok,
@@ -716,13 +854,22 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           Effect.gen(function* () {
             via.provider.usage({ usage: {} });
             yield* via.get("/admin/pool", adminKey);
-            yield* TestClock.adjust("59 seconds");
-            yield* via.get("/admin/pool", adminKey);
+            yield* settledUsage(via);
+
+            for (let read = 0; read < 6; read++) {
+              yield* via.get("/admin/pool", adminKey);
+              yield* via.get("/admin/usage", adminKey);
+              yield* TestClock.adjust("9 seconds");
+            }
+
             expect(via.provider.usageRequests).toHaveLength(1);
 
-            yield* TestClock.adjust("1 second");
+            yield* TestClock.adjust("6 seconds");
             yield* via.get("/admin/pool", adminKey);
-            expect(via.provider.usageRequests).toHaveLength(2);
+            yield* eventually(
+              Effect.sync(() => via.provider.usageRequests.length),
+              (requests) => requests === 2,
+            );
           }),
         { adminKey },
       ),

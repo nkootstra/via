@@ -9,6 +9,7 @@ import {
   launchVia,
   openai,
   post,
+  responsesOf,
   startCodex,
   type Via,
 } from "./harness.ts";
@@ -299,7 +300,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       );
 
       expect(second.choices[0]?.message.content).toBe("sunny and 21c in berlin");
-      expect(upstream.requests[1]?.body["input"]).toEqual(
+      expect(responsesOf(upstream)[1]?.body["input"]).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             type: "function_call",
@@ -416,7 +417,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
             ],
           }),
         );
-        expect(upstream.requests[0]).toMatchObject({
+        expect(responsesOf(upstream)[0]).toMatchObject({
           body: {
             instructions: "You are terse.",
             model: "gpt-6-astra",
@@ -450,7 +451,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
           messages: [{ role: "user", content: "ping" }],
         }),
       );
-      expect(upstream.requests.at(-1)?.body).toMatchObject({
+      expect(responsesOf(upstream).at(-1)?.body).toMatchObject({
         model: "gpt-7",
         reasoning: { effort: "high" },
       });
@@ -474,7 +475,7 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       upstream.script(reply.text("pong"));
       const via = yield* launchVia({ upstream: upstream.url });
       yield* chat(via, "ping");
-      expect(upstream.requests[0]).toMatchObject({
+      expect(responsesOf(upstream)[0]).toMatchObject({
         headers: {
           // Derived from the conversation's opening, as the client sent no session.
           session_id: expect.stringMatching(/^[0-9a-f]{64}$/),

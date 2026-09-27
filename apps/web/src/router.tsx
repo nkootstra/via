@@ -1,6 +1,7 @@
 import { QueryClient } from "@tanstack/react-query";
 import { createRouter, type RouterHistory } from "@tanstack/react-router";
 import { onSignedOut } from "./api/client.ts";
+import { persistQueries } from "./api/persist.ts";
 import { routeTree } from "./routeTree.gen.ts";
 
 /** The app's router; tests pass a memory history. */
@@ -8,6 +9,8 @@ export function createAppRouter(history?: RouterHistory) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+
+  persistQueries(queryClient);
 
   const router = createRouter({
     routeTree,
@@ -17,7 +20,8 @@ export function createAppRouter(history?: RouterHistory) {
     ...(history === undefined ? {} : { history }),
   });
 
-  // A 401 anywhere means the session ended: forget what it showed, and sign in.
+  // A 401 anywhere means the session ended: forget what it showed, what the tab
+  // kept of it included, and sign in.
   onSignedOut(() => {
     queryClient.clear();
     void router.navigate({ to: "/sign-in" });

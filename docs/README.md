@@ -236,7 +236,17 @@ its usage windows is at 100% (until the last such window resets), or
 `{"status":"unavailable","reason":"..."}` when its usage can't be read. A
 provider that reports no usage, such as OpenRouter, is always available. The
 state is only shown: requests for `<provider>/<model>` still go straight to the
-provider. via asks the providers for their usage at most once a minute here.
+provider.
+
+`GET /admin/usage` and the providers' states in `GET /admin/pool` answer at
+once from the usage via last fetched, never waiting on ChatGPT or a provider.
+via fetches every account's and provider's usage in the background: when it
+starts, every 15 minutes after that, and whenever an answer would be a minute
+old or more, or would miss an account. So what you see is at most about a
+minute old, and via asks each provider at most once a minute however often
+the page refreshes. Each entry in `GET /admin/usage` says when it was fetched
+(`fetchedAt`), an account via has no usage for yet is left out, and
+`refreshing` is `true` while a fetch runs.
 
 #### Signing in from a browser
 
@@ -271,6 +281,12 @@ as above: it keeps only the session cookie, never the key, and a reload or a
 link to any page keeps you signed in until the session ends. From there you can
 see the pool at a glance, add accounts by device-code login, rename, disable
 and remove them, create and revoke API keys, and list the models.
+
+The overview shows each account's and provider's usage as via last fetched
+it in the background (see [the admin API](#admin-api)), at most about a minute
+old, and says how long ago that was. The tab keeps what it last showed, for up
+to 10 minutes, so a reload paints it at once and then updates it; signing out
+forgets it.
 
 The page is the admin key's reach in a browser, so give it the same care:
 
@@ -323,9 +339,9 @@ The page is the admin key's reach in a browser, so give it the same care:
   those accounts count.
 - Running cooldowns are saved in `state.json`, so a restarted `via serve` keeps
   them. Lockouts aren't saved: a restart gives a locked-out account one more try.
-- In the background, via also asks ChatGPT for each account's usage every 15
-  minutes, so an already-exhausted account cools down before its next request
-  would hit a 429. This never ends a cooldown early, only starts one or
+- In the background, via also asks ChatGPT for each account's usage when it
+  starts and every 15 minutes after that, a few accounts at a time, so an
+  already-exhausted account cools down before its next request would hit a 429. The web UI shows the same usage. This never ends a cooldown early, only starts one or
   extends it to a later reset that ChatGPT has confirmed.
 
 ## Configuration
