@@ -87,6 +87,22 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
     );
 
     it.effect(
+      `${path} answers a Codex stream asking to be retried with 502 upstream_incomplete`,
+      () =>
+        withVia(
+          () => reply.sse(`${sse([created])}retry: 1000\n\n`),
+          (via) =>
+            Effect.gen(function* () {
+              const answer = yield* via.post(path, bodies[path]);
+              expect(answer.status).toBe(502);
+              expect(yield* answer.json).toMatchObject({
+                error: { type: "server_error", code: "upstream_incomplete" },
+              });
+            }),
+        ),
+    );
+
+    it.effect(
       `${path} answers a Codex connection broken mid-stream with 502 upstream_incomplete`,
       () =>
         withVia(

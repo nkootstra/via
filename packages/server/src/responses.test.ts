@@ -1,5 +1,5 @@
 import { BunFileSystem } from "@effect/platform-bun";
-import { type CodexRequest, completedStream, reply } from "@via/codex-upstream/testing";
+import { type CodexRequest, completedStream, reply, sse } from "@via/codex-upstream/testing";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { refreshedAccessToken, withVia } from "./harness.ts";
@@ -61,6 +61,26 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
           status: "completed",
         });
       }),
+    ),
+  );
+
+  it.effect("answers a completed response that reports no usage", () =>
+    withVia(
+      () =>
+        reply.sse(
+          sse([
+            {
+              type: "response.completed",
+              response: { id: "resp_1", status: "completed", output: [] },
+            },
+          ]),
+        ),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", request);
+          expect(response.status).toBe(200);
+          expect(yield* response.json).toEqual({ id: "resp_1", status: "completed", output: [] });
+        }),
     ),
   );
 
