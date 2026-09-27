@@ -1,8 +1,11 @@
 // Test-only: Codex stream and usage payloads, for tests that need the raw bytes.
 import type { Schema } from "effect";
 
+/** A Responses stream event, named by its `type`. */
+export type CodexEvent = { type: string } & Schema.JsonObject;
+
 /** Formats Responses stream events as the SSE the Codex backend sends. */
-export const sse = (events: ReadonlyArray<{ type: string } & Schema.JsonObject>) =>
+export const sse = (events: ReadonlyArray<CodexEvent>) =>
   events.map((event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`).join("");
 
 const response = {
