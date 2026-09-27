@@ -1,9 +1,12 @@
 import { type Account, AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
-import { CodexUpstream, type UsageWindow } from "@via/codex-upstream";
+import { CodexUpstream } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
+import type { UsageWindow } from "@via/pool";
 import { Providers } from "@via/providers";
+import { accountUsage } from "@via/server";
 import { Console, Effect, Layer } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
+import { apiKeys } from "./api-keys.ts";
 import { version } from "./version.ts";
 
 const accountArg = Argument.String("account").pipe(
@@ -74,16 +77,17 @@ const why = (error: { readonly message: string }) => Effect.succeed([`  ${error.
 
 const showUsage = Effect.fnUntraced(function* (account: Account) {
   yield* Console.log(describe(account));
-  const tokens = yield* AccountTokens;
-  const codex = yield* CodexUpstream;
 
-  const lines = yield* tokens.fresh(account).pipe(
-    Effect.flatMap(codex.usage),
+  // `status` runs apart from `via serve`, so a failed refresh is only reported here.
+  const lines = yield* accountUsage(account).pipe(
     Effect.map((windows) => windows.map(formatWindow)),
     Effect.catchTags({
       RefreshRejectedError: why,
       UsageUnavailableError: why,
       AuthRequestError: why,
+      // One account's usage that can't be fetched or read mustn't hide the others'.
+      HttpClientError: () => Effect.succeed(["  Could not reach ChatGPT for usage"]),
+      SchemaError: () => Effect.succeed(["  ChatGPT's usage answer could not be read"]),
     }),
   );
 
@@ -108,7 +112,13 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
         ),
       );
       yield* showProviderUsage.pipe(
-        Effect.provide(Providers.layer({ providers: config.providers, version })),
+        Effect.provide(
+          Providers.layer({
+            providers: config.providers,
+            apiKeys: yield* apiKeys(config.providers),
+            version,
+          }),
+        ),
         // A provider that can't be set up, e.g. for a missing API key, says so here.
         Effect.catchTags({ MissingApiKeyError: say, UnknownProviderError: say }),
       );

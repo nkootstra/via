@@ -1,4 +1,4 @@
-// Deliberately not `withVia` (harness.ts): this poller has nothing to do with the
+// Deliberately not `withVia` (testing/harness.ts): this poller has nothing to do with the
 // HTTP API surface `withVia` sets up, and a smaller, local setup keeps this test
 // isolated from changes other features make to that shared harness.
 import { BunFileSystem } from "@effect/platform-bun";
@@ -11,7 +11,7 @@ import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
 import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
-import { collectLogs } from "./harness.ts";
+import { collectLogs } from "./testing/harness.ts";
 import { UsagePoll } from "./usage-poll.ts";
 
 /** Mirrors the poll's own interval: this suite shares one `TestClock` across its
@@ -112,7 +112,7 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
         yield* TestClock.adjust("15 minutes");
         yield* logged(`${account.label} is cooling down`);
         expect(yield* states.get).toEqual({
-          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_limit_reached" },
+          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_exhausted" },
         });
       }),
     ),
@@ -135,7 +135,7 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
         yield* logged(`${account.label}'s usage is unchanged`);
         expect(codex.requests).toHaveLength(2);
         expect(yield* states.get).toEqual({
-          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_limit_reached" },
+          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_exhausted" },
         });
       }),
     ),
@@ -153,7 +153,7 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
         yield* TestClock.adjust("15 minutes");
         yield* logged(`${account.label} is cooling down until`);
         expect(yield* states.get).toEqual({
-          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_limit_reached" },
+          [account.id]: { status: "cooling", until: resetsAt, reason: "usage_exhausted" },
         });
       }),
     ),

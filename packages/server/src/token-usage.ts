@@ -1,3 +1,4 @@
+import { ResponsesUsage } from "@via/codex-upstream";
 import { Effect, Option, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 
@@ -7,14 +8,6 @@ export interface TokenUsage {
   readonly outputTokens: number;
   readonly cachedTokens?: number;
 }
-
-const ResponsesUsage = Schema.Struct({
-  input_tokens: Schema.Finite,
-  output_tokens: Schema.Finite,
-  input_tokens_details: Schema.optionalKey(
-    Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) }),
-  ),
-});
 
 const ChatUsage = Schema.Struct({
   prompt_tokens: Schema.Finite,

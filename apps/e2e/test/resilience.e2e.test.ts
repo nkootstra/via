@@ -1,12 +1,11 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { codexFixture, type Reply, reply } from "@via/codex-upstream/testing";
+import { codexFixture, type Reply, reply, sseFrames } from "@via/codex-upstream/testing";
 import { Deferred, Effect, Fiber, Schema } from "effect";
 import {
   chat,
   type Codex,
   decodeJson,
-  frames,
   freePort,
   json,
   launchVia,
@@ -91,7 +90,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
         Effect.gen(function* () {
           const outcome = yield* read(yield* post(via, CHAT, chatBody(true)));
           expect(outcome.reset).toBe(false);
-          const all = frames(outcome.text);
+          const all = sseFrames(outcome.text);
           expect(all.filter((frame) => frame.data.startsWith('{"error"'))).toHaveLength(1);
           expect(all.some((frame) => frame.data === "[DONE]")).toBe(false);
           const last = all.at(-1);
@@ -130,7 +129,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
           const outcome = yield* read(yield* post(via, RESPONSES, responsesBody(true)));
 
           expect(outcome.reset).toBe(false);
-          const all = frames(outcome.text);
+          const all = sseFrames(outcome.text);
           expect(all.filter((frame) => frame.event === "error")).toHaveLength(1);
           const last = all.at(-1);
           expect(last?.event).toBe("error");
@@ -150,7 +149,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
         Effect.gen(function* () {
           const outcome = yield* read(yield* post(via, RESPONSES, responsesBody(true)));
 
-          expect(frames(outcome.text).at(-1)?.event).toBe("response.failed");
+          expect(sseFrames(outcome.text).at(-1)?.event).toBe("response.failed");
         }),
       );
     }),

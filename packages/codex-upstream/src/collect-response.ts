@@ -1,6 +1,12 @@
 import { Effect, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
-import { TERMINAL_EVENTS } from "./terminal-events.ts";
+import {
+  isTerminalEvent,
+  ResponseCompleted,
+  ResponseFailed,
+  ResponseIncomplete,
+  streamIncomplete,
+} from "./responses-events.ts";
 
 export class UpstreamFailedError extends Schema.TaggedError<UpstreamFailedError>()(
   "UpstreamFailedError",
@@ -16,26 +22,9 @@ export class IncompleteStreamError extends Schema.TaggedError<IncompleteStreamEr
   {},
 ) {
   override get message() {
-    return "The Codex stream ended before the response completed";
+    return streamIncomplete.message;
   }
 }
-
-const Completed = Schema.Struct({
-  type: Schema.Literal("response.completed"),
-  response: Schema.JsonObject,
-});
-
-const Failed = Schema.Struct({
-  type: Schema.Literal("response.failed"),
-  response: Schema.Struct({
-    error: Schema.Struct({ code: Schema.String, message: Schema.String }),
-  }),
-});
-
-const Incomplete = Schema.Struct({
-  type: Schema.Literal("response.incomplete"),
-  response: Schema.JsonObject,
-});
 
 const ItemDone = Schema.Struct({
   type: Schema.Literal("response.output_item.done"),
@@ -44,17 +33,23 @@ const ItemDone = Schema.Struct({
 
 const Progress = Schema.Struct({ type: Schema.String });
 
-const StreamEvent = Schema.Union([Completed, Failed, Incomplete, ItemDone, Progress]);
+const StreamEvent = Schema.Union([
+  ResponseCompleted,
+  ResponseFailed,
+  ResponseIncomplete,
+  ItemDone,
+  Progress,
+]);
 
-const isCompleted = Schema.is(Completed);
+const isCompleted = Schema.is(ResponseCompleted);
 
-const isFailed = Schema.is(Failed);
+const isFailed = Schema.is(ResponseFailed);
 
-const isIncomplete = Schema.is(Incomplete);
+const isIncomplete = Schema.is(ResponseIncomplete);
 
 const isItemDone = Schema.is(ItemDone);
 
-const isTerminal = (event: typeof StreamEvent.Type) => TERMINAL_EVENTS.has(event.type);
+const isTerminal = (event: typeof StreamEvent.Type) => isTerminalEvent(event.type);
 
 const hasOutput = Schema.is(
   Schema.Struct({ output: Schema.Array(Schema.Json).check(Schema.isMinLength(1)) }),

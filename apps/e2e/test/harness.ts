@@ -81,19 +81,6 @@ export const post = (
     }),
   );
 
-/**
- * An SSE body's blocks: `event` names a Responses API event, and a Chat
- * Completions block has only `data`.
- */
-export const frames = (text: string) =>
-  text
-    .split("\n\n")
-    .filter((block) => block.trim() !== "")
-    .map((block) => ({
-      event: /^event: (.*)$/m.exec(block)?.[1],
-      data: /^data: (.*)$/m.exec(block)?.[1] ?? "",
-    }));
-
 /** Decodes one JSON text, such as an SSE `data` line, with `schema`. */
 export const decodeJson = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
   Schema.decodeUnknownSync(Schema.fromJsonString(schema));

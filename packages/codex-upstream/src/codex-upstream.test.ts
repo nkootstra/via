@@ -1,8 +1,9 @@
 import { describe, expect, it } from "@effect/vitest";
+import { Rejection } from "@via/pool";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { CodexUpstream, type ResponsesBody } from "./index.ts";
-import { reply, startFakeCodex } from "./testing/index.ts";
+import { reply, type Reply, startFakeCodex } from "./testing/index.ts";
 
 const account = { accessToken: "at-1", accountId: "acc-1" };
 
@@ -23,6 +24,23 @@ const sendAndRecord = (body: ResponsesBody, cloak = true, session = "conv-1") =>
     );
 
     return { response, request: codex.requests[0]! };
+  });
+
+/** Sends one request to a fake Codex answering `answer`, and returns what it fails with. */
+const sendRejected = (answer: Reply) =>
+  Effect.gen(function* () {
+    const codex = yield* startFakeCodex;
+    codex.script(answer);
+
+    return yield* Effect.flatMap(CodexUpstream, (upstream) =>
+      upstream.send(account, { model: "gpt-6-astra" }, "conv-1").pipe(Effect.flip),
+    ).pipe(
+      Effect.provide(
+        CodexUpstream.layer({ baseUrl: codex.url, cloak: true, version: "1.2.3" }).pipe(
+          Layer.provide(FetchHttpClient.layer),
+        ),
+      ),
+    );
   });
 
 describe("CodexUpstream.send", () => {
@@ -79,11 +97,42 @@ describe("CodexUpstream.send", () => {
       }),
   );
 
-  it.effect("returns the upstream response as-is, errors included", () =>
+  it.effect("returns a successful response as-is", () =>
     Effect.gen(function* () {
       const { response } = yield* sendAndRecord({ model: "gpt-6-astra" });
       expect(response.status).toBe(200);
       expect(yield* response.text).toContain("response.completed");
+    }),
+  );
+
+  it.effect("fails any other answer with its status, body and what it means", () =>
+    Effect.gen(function* () {
+      const body = { error: { type: "usage_limit_reached", resets_at: 1_700_003_600 } };
+      const error = yield* sendRejected(reply.error(429, body, { "retry-after": "60" }));
+
+      expect(error).toMatchObject({
+        status: 429,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+        rejection: Rejection.Exhausted({
+          reason: "usage_limit_reached",
+          resetsAt: 1_700_003_600_000,
+          retryAfterMs: 60_000,
+        }),
+      });
+    }),
+  );
+
+  it.effect("judges an answer by its status when its body breaks off", () =>
+    Effect.gen(function* () {
+      const answer = reply.hangUp(reply.error(429, { error: { type: "usage_not_included" } }), 1);
+      const error = yield* sendRejected(answer);
+
+      expect(error).toMatchObject({
+        status: 429,
+        body: "",
+        rejection: Rejection.Exhausted({ reason: "rate_limited" }),
+      });
     }),
   );
 });
@@ -104,7 +153,7 @@ describe("CodexUpstream", () => {
 
       yield* Effect.gen(function* () {
         const codex = yield* CodexUpstream;
-        yield* codex.send(account, { model: "gpt-6-astra" }, "conv-1");
+        yield* Effect.flip(codex.send(account, { model: "gpt-6-astra" }, "conv-1"));
         yield* Effect.flip(codex.usage(account));
         yield* Effect.flip(codex.models(account));
       }).pipe(

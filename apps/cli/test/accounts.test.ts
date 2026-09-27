@@ -135,6 +135,33 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
+  it.effect("status still lists every account when ChatGPT can't be reached", () =>
+    Effect.gen(function* () {
+      const { via, home } = yield* viaHome({
+        upstream: `http://127.0.0.1:${yield* freePort}`,
+        env: { TZ: "UTC" },
+      });
+
+      yield* seedAccounts(home, [{ name: "a" }, { name: "b" }]);
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(/a\s+a@example\.com\s+pro\s+enabled/);
+      expect(status.stdout).toMatch(/b\s+b@example\.com\s+pro\s+enabled/);
+      expect(status.stdout).toContain("Could not reach ChatGPT for usage");
+    }),
+  );
+
+  it.effect("status says when ChatGPT's usage answer can't be read", () =>
+    Effect.gen(function* () {
+      const { via, codex } = yield* setup();
+      codex.usage("acc-123", { rate_limit: "nope" });
+      yield* via("accounts", "add");
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toContain("ChatGPT's usage answer could not be read");
+    }),
+  );
+
   it.effect(
     "status prints the account line and exits 0 when refresh hits an auth-server hiccup",
     () =>

@@ -1,7 +1,8 @@
 import type { AccountState, PoolAccount, PoolState } from "./select.ts";
 
-/** A rate-limit window's usage, structurally compatible with `@via/codex-upstream`'s `UsageWindow`. */
+/** How much of one rate limit window an account has used, and when it starts over. */
 export type UsageWindow = {
+  readonly windowMinutes: number;
   readonly usedPercent: number;
   /** Epoch milliseconds. */
   readonly resetsAt: number;
@@ -12,7 +13,8 @@ type UsagePollResult =
   | { readonly changed: false }
   | { readonly changed: true; readonly until: number; readonly reason: string };
 
-const REASON = "usage_limit_reached";
+/** Why a poll cools an account down, in the pool's words rather than an upstream's error code. */
+const REASON = "usage_exhausted";
 
 const UNCHANGED: UsagePollResult = { changed: false };
 
@@ -24,13 +26,12 @@ export const pollable = <A extends PoolAccount>(
   accounts.filter((account) => account.enabled && state[account.id]?.status !== "auth_error");
 
 /**
- * What an account's `/wham/usage` windows mean for its cooldown, given its current
- * state. A window at 100% or more used, with a reset still ahead of `now`, is
- * exhausted; `until` is the latest such reset. An already-cooling account's `until`
- * is only ever extended, never shortened, and a poll that finds nothing exhausted
- * never readmits it early — `CodexUpstream.usage()` does not currently surface the
- * wire payload's `allowed`/`limit_reached` fields, so there is no reset-independent
- * "allowed again" signal here for via to trust yet.
+ * What an account's usage windows mean for its cooldown, given its current state.
+ * A window at 100% or more used, with a reset still ahead of `now`, is exhausted;
+ * `until` is the latest such reset. An already-cooling account's `until` is only
+ * ever extended, never shortened, and a poll that finds nothing exhausted never
+ * readmits it early: a window carries no reset-independent "allowed again" signal
+ * for via to trust.
  */
 export const decideUsagePoll = (
   windows: ReadonlyArray<UsageWindow>,

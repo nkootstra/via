@@ -1,3 +1,4 @@
+import { ResponsesUsage } from "@via/codex-upstream";
 import { Schema } from "effect";
 
 const OutputText = Schema.Struct({ type: Schema.Literal("output_text"), text: Schema.String });
@@ -17,11 +18,8 @@ const FunctionCallItem = Schema.Struct({
 // Reasoning and other items have no Chat Completions counterpart.
 const OtherItem = Schema.Struct({ type: Schema.String });
 
-export const Usage = Schema.Struct({
-  input_tokens: Schema.Finite,
-  output_tokens: Schema.Finite,
-  total_tokens: Schema.Finite,
-});
+/** Responses usage with the total, which Chat Completions reports. */
+export const Usage = Schema.Struct({ ...ResponsesUsage.fields, total_tokens: Schema.Finite });
 
 export const CompletedResponse = Schema.Struct({
   id: Schema.String,
@@ -40,12 +38,21 @@ const isMessageItem = Schema.is(MessageItem);
 
 const isFunctionCallItem = Schema.is(FunctionCallItem);
 
-/** Token usage in Chat Completions terms. */
-export const chatUsage = (usage: typeof Usage.Type) => ({
-  prompt_tokens: usage.input_tokens,
-  completion_tokens: usage.output_tokens,
-  total_tokens: usage.total_tokens,
-});
+/** Token usage in Chat Completions terms, with only the details Codex reported. */
+export const chatUsage = (usage: typeof Usage.Type) => {
+  const cached = usage.input_tokens_details?.cached_tokens;
+  const reasoning = usage.output_tokens_details?.reasoning_tokens;
+
+  return {
+    prompt_tokens: usage.input_tokens,
+    completion_tokens: usage.output_tokens,
+    total_tokens: usage.total_tokens,
+    ...(cached !== undefined && { prompt_tokens_details: { cached_tokens: cached } }),
+    ...(reasoning !== undefined && {
+      completion_tokens_details: { reasoning_tokens: reasoning },
+    }),
+  };
+};
 
 /**
  * Why a chat choice finished: the reason a response stopped short, if it did,

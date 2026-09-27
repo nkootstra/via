@@ -3,12 +3,13 @@ import { expect, layer } from "@effect/vitest";
 import type { ProviderConfig } from "@via/config";
 import {
   Cause,
-  ConfigProvider,
   Deferred,
   Effect,
   Exit,
   Layer,
   Option,
+  Record,
+  Redacted,
   Schema,
   Stream,
 } from "effect";
@@ -16,21 +17,25 @@ import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable
 import { Providers } from "./index.ts";
 import { providerReply, startFakeProvider } from "./testing/index.ts";
 
-/** Runs `body` with `configs` providers, `env` as the environment, and `client` as the network. */
+/**
+ * Runs `body` with `configs` providers, `apiKeys` as their keys (by default
+ * `sk-test` for each), and `client` as the network.
+ */
 const withProviders = <A, E, R>(
   configs: Record<string, ProviderConfig>,
   body: (providers: Providers["Service"]) => Effect.Effect<A, E, R>,
-  env: Record<string, string> = { KEY: "sk-test" },
+  apiKeys: Record<string, string> = Record.map(configs, () => "sk-test"),
   client: Layer.Layer<HttpClient.HttpClient> = FetchHttpClient.layer,
 ) =>
   Effect.gen(function* () {
     return yield* body(yield* Providers);
   }).pipe(
     Effect.provide(
-      Providers.layer({ providers: configs, version: "1.2.3" }).pipe(
-        Layer.provide(client),
-        Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
-      ),
+      Providers.layer({
+        providers: configs,
+        apiKeys: Record.map(apiKeys, (key) => Redacted.make(key)),
+        version: "1.2.3",
+      }).pipe(Layer.provide(client)),
     ),
   );
 
@@ -140,7 +145,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
-  it.effect("fails naming the environment variable when the API key is missing", () =>
+  it.effect("fails naming the environment variable when its API key is not given", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(
         withProviders({ openrouter: { apiKeyEnv: "OPENROUTER_API_KEY" } }, () => Effect.void, {}),

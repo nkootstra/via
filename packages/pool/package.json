@@ -17,7 +17,6 @@
   "devDependencies": {
     "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
-    "@via/codex-upstream": "workspace:*",
     "@via/tsconfig": "workspace:*",
     "vitest": "catalog:"
   }

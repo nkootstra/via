@@ -33,9 +33,7 @@ export class RequestLog extends Context.Service<
      * `stream`, timed: the line waits for it to end and says when its first chunk came.
      * It still fails as `stream` does, but without its error, which Bun would print.
      */
-    readonly timed: <A, E, R>(
-      stream: Stream.Stream<A, E, R>,
-    ) => Effect.Effect<Stream.Stream<A, undefined, R>>;
+    readonly timed: <A, E, R>(stream: Stream.Stream<A, E, R>) => Stream.Stream<A, undefined, R>;
   }
 >()("via/RequestLog") {}
 
@@ -98,7 +96,7 @@ interface Noted {
   readonly streamed: boolean;
   readonly firstChunkAt: Option.Option<number>;
   readonly streamEnd: Option.Option<string>;
-  /** The line waits for both the response and, when there is one, its stream. */
+  /** The line waits for both the response and, once it runs, its stream. */
   readonly pending: number;
 }
 
@@ -182,23 +180,32 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       refused: (code) => note({ error: Option.some(code) }),
       usage: (usage) => note({ usage: Option.some(usage) }),
       timed: (stream) =>
-        Effect.as(
-          Ref.update(noting, (sofar) => ({ ...sofar, streamed: true, pending: sofar.pending + 1 })),
-          stream.pipe(
+        // The line waits for the stream only once it runs: a response sent without its body,
+        // such as a 204, never runs it. The server starts it as it sends the response, which
+        // is before `app` ends, so the request cannot write the line while the stream runs.
+        Stream.unwrap(
+          Effect.as(
+            Effect.acquireRelease(
+              Ref.update(noting, (sofar) => ({
+                ...sofar,
+                streamed: true,
+                pending: sofar.pending + 1,
+              })),
+              (_, exit) =>
+                Effect.andThen(note({ streamEnd: Option.some(streamEnd(exit)) }), finish),
+            ),
             // Only the first chunk is timed; `tap` would run an effect for every chunk.
-            Stream.onFirst(() =>
+            Stream.onFirst(stream, () =>
               Effect.flatMap(Clock.currentTimeMillis, (now) =>
                 note({ firstChunkAt: Option.some(now) }),
               ),
             ),
-            Stream.onExit((exit) =>
-              Effect.andThen(note({ streamEnd: Option.some(streamEnd(exit)) }), finish),
-            ),
-            // Bun prints the error a response body fails with, stack and request included.
-            // Failing with `undefined` still cuts the client off, so a truncated answer never
-            // looks complete, but quietly: this line already says the stream failed.
-            Stream.mapError(() => undefined),
           ),
+        ).pipe(
+          // Bun prints the error a response body fails with, stack and request included.
+          // Failing with `undefined` still cuts the client off, so a truncated answer never
+          // looks complete, but quietly: this line already says the stream failed.
+          Stream.mapError(() => undefined),
         ),
     });
 

@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
-import { ok, withVia } from "./harness.ts";
+import { ok, withVia } from "./testing/harness.ts";
 
 layer(BunFileSystem.layer)("GET /healthz", (it) => {
   it.effect("answers a health check without a key", () =>

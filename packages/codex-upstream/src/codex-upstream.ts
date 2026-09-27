@@ -1,7 +1,9 @@
+import type { UsageWindow } from "@via/pool";
 import { Context, Effect, Layer, Schema } from "effect";
 import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 import type { CatalogModel } from "./models.ts";
 import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
+import { readRejection, RequestRejectedError } from "./rejection.ts";
 
 const CODEX_BASE_URL = "https://chatgpt.com/backend-api";
 
@@ -69,14 +71,6 @@ const UsagePayload = Schema.Struct({
   }),
 });
 
-/** How much of one rate limit window an account has used, and when it starts over. */
-export type UsageWindow = {
-  readonly windowMinutes: number;
-  readonly usedPercent: number;
-  /** Epoch milliseconds. */
-  readonly resetsAt: number;
-};
-
 const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions) =>
   Effect.gen(function* () {
     const http = yield* HttpClient.HttpClient;
@@ -92,14 +86,14 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
 
     /**
      * Sends a Responses request as `account` in conversation `session`, which
-     * Codex caches prompts on; any status comes back for the caller to judge.
+     * Codex caches prompts on. Any answer but 200 OK fails with what it means.
      */
     const send = Effect.fn("CodexUpstream.send")(function* (
       account: UpstreamAccount,
       body: ResponsesBody,
       session: string,
     ) {
-      return yield* HttpClientRequest.post(`${baseUrl}/codex/responses`).pipe(
+      const response = yield* HttpClientRequest.post(`${baseUrl}/codex/responses`).pipe(
         asAccount(account),
         HttpClientRequest.setHeaders({ session_id: session, accept: "text/event-stream" }),
         // A raw string goes to fetch as-is; bodyJsonUnsafe would copy it into bytes first.
@@ -110,6 +104,18 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
         ),
         http.execute,
       );
+
+      if (response.status === 200) return response;
+
+      // An error body that breaks off still leaves its status to judge the answer by.
+      const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+
+      return yield* new RequestRejectedError({
+        status: response.status,
+        contentType: response.headers["content-type"],
+        body: text,
+        rejection: readRejection(response.status, response.headers, text),
+      });
     });
 
     /** The account's rate limit windows: the short (5-hour) one first, then the weekly one. */

@@ -5,12 +5,16 @@ import { CompletedResponse, toChatCompletion } from "./chat-response.ts";
 const translate = (response: Schema.Json) =>
   toChatCompletion(Schema.decodeUnknownSync(CompletedResponse)(response));
 
-const usage = {
-  input_tokens: 12,
-  output_tokens: 5,
-  total_tokens: 17,
-  output_tokens_details: { reasoning_tokens: 2 },
-};
+const usage = { input_tokens: 12, output_tokens: 5, total_tokens: 17 };
+
+const withUsage = (reported: Schema.Json) =>
+  translate({
+    id: "resp_1",
+    created_at: 1_700_000_000,
+    model: "gpt-6-astra",
+    output: [],
+    usage: reported,
+  }).usage;
 
 describe("toChatCompletion", () => {
   it("turns the output text into the assistant message, with token usage", () => {
@@ -101,5 +105,34 @@ describe("toChatCompletion", () => {
       message: { content: "Hel" },
       finish_reason: finish,
     });
+  });
+
+  it("reports cached and reasoning tokens as prompt and completion token details", () => {
+    expect(
+      withUsage({
+        ...usage,
+        input_tokens_details: { cached_tokens: 8 },
+        output_tokens_details: { reasoning_tokens: 2 },
+      }),
+    ).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 5,
+      total_tokens: 17,
+      prompt_tokens_details: { cached_tokens: 8 },
+      completion_tokens_details: { reasoning_tokens: 2 },
+    });
+  });
+
+  it("leaves out the token details Codex did not send", () => {
+    expect(withUsage({ ...usage, input_tokens_details: { cached_tokens: 8 } })).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 5,
+      total_tokens: 17,
+      prompt_tokens_details: { cached_tokens: 8 },
+    });
+
+    expect(
+      withUsage({ ...usage, input_tokens_details: null, output_tokens_details: null }),
+    ).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 });
   });
 });

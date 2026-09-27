@@ -1,11 +1,12 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import type { Account } from "@via/codex-auth";
+import { type Account, AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
 import { PoolStates } from "@via/pool";
-import { Effect, Logger } from "effect";
+import { Effect, FileSystem, Layer, Logger } from "effect";
 import { TestClock } from "effect/testing";
-import { coolDown } from "./accounts.ts";
-import { ok, withVia } from "./harness.ts";
+import { FetchHttpClient } from "effect/unstable/http";
+import { AccountPool } from "./account-pool.ts";
+import { ok, withVia } from "./testing/harness.ts";
 
 const account: Account = {
   id: "id-a",
@@ -54,17 +55,30 @@ layer(BunFileSystem.layer)("choosing an account", (it) => {
 
   it.effect("warns only when a cooldown takes an account out of rotation for longer", () =>
     Effect.gen(function* () {
+      const dir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
+
+      // Cooling down reads no account and refreshes no token, so nothing answers at the issuer.
+      const poolLayer = AccountPool.layer.pipe(
+        Layer.provide(AccountTokens.layer),
+        Layer.provide([AccountStore.layer(dir), CodexAuth.layer("http://127.0.0.1:1")]),
+        Layer.provide([PoolStates.layer, FetchHttpClient.layer]),
+      );
+
       const lines: Array<string> = [];
 
       const logger = Logger.make(({ message }) => {
         lines.push(String(message));
       });
 
-      const cooled = yield* Effect.all([
-        coolDown(account, 60_000, "rate_limited"),
-        coolDown(account, 60_000, "rate_limited"),
-        coolDown(account, 30_000, "rate_limited"),
-      ]).pipe(Effect.provide([PoolStates.layer, Logger.layer([logger])]));
+      const cooled = yield* Effect.gen(function* () {
+        const pool = yield* AccountPool;
+
+        return yield* Effect.all([
+          pool.coolDown(account, 60_000, "rate_limited"),
+          pool.coolDown(account, 60_000, "rate_limited"),
+          pool.coolDown(account, 30_000, "rate_limited"),
+        ]);
+      }).pipe(Effect.provide([poolLayer, Logger.layer([logger])]));
 
       expect(cooled).toEqual([true, false, false]);
       expect(lines.filter((line) => line.includes("is cooling down"))).toHaveLength(1);

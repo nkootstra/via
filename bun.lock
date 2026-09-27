@@ -74,7 +74,6 @@
       "devDependencies": {
         "@effect/platform-bun": "catalog:",
         "@effect/vitest": "catalog:",
-        "@via/codex-upstream": "workspace:*",
         "@via/tsconfig": "workspace:*",
         "vitest": "catalog:",
       },
@@ -83,6 +82,7 @@
       "name": "@via/codex-upstream",
       "version": "0.0.0",
       "dependencies": {
+        "@via/pool": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {
@@ -129,7 +129,6 @@
       "devDependencies": {
         "@effect/platform-bun": "catalog:",
         "@effect/vitest": "catalog:",
-        "@via/codex-upstream": "workspace:*",
         "@via/tsconfig": "workspace:*",
         "vitest": "catalog:",
       },
@@ -172,6 +171,7 @@
       "name": "@via/translate",
       "version": "0.0.0",
       "dependencies": {
+        "@via/codex-upstream": "workspace:*",
         "effect": "catalog:",
       },
       "devDependencies": {

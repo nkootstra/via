@@ -1,4 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
+import { sseFrames } from "@via/codex-upstream/testing";
 import { Effect, Predicate, Schema, Stream } from "effect";
 import { CompletedResponse, toChatCompletion } from "./chat-response.ts";
 import { toChatStream } from "./chat-stream.ts";
@@ -42,11 +43,7 @@ const chatEventsOf = <E>(body: Stream.Stream<Uint8Array, E>, options = { include
     Stream.decodeText,
     Stream.mkString,
     Effect.map((text) =>
-      text
-        .split("\n\n")
-        .filter((block) => block !== "")
-        .map((block) => block.replace(/^data: /, ""))
-        .map((data) => (data === "[DONE]" ? data : decodeEvent(data))),
+      sseFrames(text).map(({ data }) => (data === "[DONE]" ? data : decodeEvent(data))),
     ),
   );
 
@@ -134,6 +131,55 @@ describe("toChatStream", () => {
         choices: [],
         usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
       });
+    }),
+  );
+
+  it.effect("reports cached and reasoning tokens in the usage chunk", () =>
+    Effect.gen(function* () {
+      const usage = {
+        ...completed.response.usage,
+        input_tokens_details: { cached_tokens: 8 },
+        output_tokens_details: { reasoning_tokens: 2 },
+      };
+
+      const events = yield* chatEvents(
+        [created, { type: "response.completed", response: { usage } }],
+        { includeUsage: true },
+      );
+
+      expect(events.at(-2)).toMatchObject({
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 5,
+          total_tokens: 17,
+          prompt_tokens_details: { cached_tokens: 8 },
+          completion_tokens_details: { reasoning_tokens: 2 },
+        },
+      });
+    }),
+  );
+
+  it.effect("finishes a response whose usage details are null, as Codex sends them", () =>
+    Effect.gen(function* () {
+      const usage = {
+        input_tokens: 12,
+        input_tokens_details: null,
+        output_tokens: 5,
+        output_tokens_details: null,
+        total_tokens: 17,
+      };
+
+      const events = yield* chatEvents(
+        [created, { type: "response.completed", response: { usage } }],
+        { includeUsage: true },
+      );
+
+      expect(events.slice(-2)).toEqual([
+        expect.objectContaining({
+          usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+        }),
+        "[DONE]",
+      ]);
     }),
   );
 

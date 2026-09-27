@@ -1,8 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { reply, sse } from "@via/codex-upstream/testing";
+import { reply, sse, sseFrames } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
-import { withVia } from "./harness.ts";
+import { withVia } from "./testing/harness.ts";
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
 const response = {
@@ -156,13 +156,9 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
           stream: true,
         })).text;
 
-        const frames = text.trim().split("\n\n");
-        expect(frames.map((frame) => /^event: (.*)$/m.exec(frame)?.[1])).toEqual([
-          "response.created",
-          "error",
-        ]);
-        const last = frames.at(-1) ?? "";
-        expect(JSON.parse(last.replace(/^event: error\ndata: /, ""))).toMatchObject({
+        const frames = sseFrames(text);
+        expect(frames.map((frame) => frame.event)).toEqual(["response.created", "error"]);
+        expect(JSON.parse(frames.at(-1)?.data ?? "")).toMatchObject({
           type: "error",
           code: "upstream_incomplete",
         });

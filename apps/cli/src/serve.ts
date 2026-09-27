@@ -5,10 +5,21 @@ import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
 import { UsagePoll, ViaServer } from "@via/server";
-import { Config, ConfigProvider, Console, Effect, Layer, Logger, Option, References } from "effect";
+import {
+  Config,
+  ConfigProvider,
+  Console,
+  Effect,
+  Layer,
+  Logger,
+  Option,
+  type Redacted,
+  References,
+} from "effect";
 import { Command, Flag } from "effect/unstable/cli";
 import { HttpClient, HttpServer } from "effect/unstable/http";
 import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
+import { apiKeys } from "./api-keys.ts";
 import { version } from "./version.ts";
 
 /**
@@ -46,9 +57,20 @@ const tracing = Layer.unwrap(
 
 /**
  * `via serve`, reading `configPath` and keeping cooldowns in `statePath`.
- * `upstreamBaseUrl` replaces the Codex backend, which only tests do.
+ * `upstreamBaseUrl` replaces the Codex backend, which only tests do. With
+ * `adminKey`, the admin API is served behind it.
  */
-export const serve = (configPath: string, statePath: string, upstreamBaseUrl: string | undefined) =>
+export const serve = ({
+  configPath,
+  statePath,
+  upstreamBaseUrl,
+  adminKey,
+}: {
+  readonly configPath: string;
+  readonly statePath: string;
+  readonly upstreamBaseUrl: string | undefined;
+  readonly adminKey: Redacted.Redacted<string> | undefined;
+}) =>
   Command.make(
     "serve",
     {
@@ -65,7 +87,7 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
       Effect.gen(function* () {
         const config = yield* loadConfig(configPath);
 
-        const server = Layer.mergeAll(ViaServer.layer, UsagePoll.layer).pipe(
+        const server = Layer.mergeAll(ViaServer.layer({ adminKey }), UsagePoll.layer).pipe(
           Layer.provideMerge(
             BunHttpServer.layer({
               hostname: Option.getOrElse(host, () => config.host),
@@ -81,7 +103,13 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
               version,
             }),
           ),
-          Layer.provide(Providers.layer({ providers: config.providers, version })),
+          Layer.provide(
+            Providers.layer({
+              providers: config.providers,
+              apiKeys: yield* apiKeys(config.providers),
+              version,
+            }),
+          ),
           Layer.provideMerge(tracing),
           // One line per entry, as `key=value` pairs that grep and log tools read.
           Layer.provide(Logger.layer([Logger.consoleLogFmt])),

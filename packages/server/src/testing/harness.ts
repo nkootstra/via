@@ -20,12 +20,12 @@ import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import {
-  ConfigProvider,
   Deferred,
   Effect,
   FileSystem,
   Layer,
   Logger,
+  Redacted,
   References,
   type Schema,
 } from "effect";
@@ -37,7 +37,7 @@ import {
   HttpClientResponse,
   HttpServer,
 } from "effect/unstable/http";
-import { ViaServer } from "./index.ts";
+import { ViaServer } from "../index.ts";
 
 /** Codex's answer to a request that goes well: "hello", as a completed stream. */
 export const ok = () => reply.sse(completedStream("hello"));
@@ -133,7 +133,7 @@ export const collectLogs = () => {
  * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
  * Models prefixed `openrouter/` and `opencode-go/` go to a fake provider, or
  * to `providerUrl` when it is given. With `adminKey`, via serves the admin API
- * behind that key; the environment's `VIA_ADMIN_KEY` is never read. Device-code logins
+ * behind that key. Device-code logins
  * go to the fake issuer, with its `pendingPolls` and `interval`.
  */
 export const withVia = <A, E>(
@@ -175,6 +175,7 @@ export const withVia = <A, E>(
     const issuer = yield* startFakeIssuer({ refreshResponse, pendingPolls, interval });
     const provider = yield* startFakeProvider;
     const providerConfig = { baseUrl: providerUrl ?? provider.url, apiKeyEnv: "PROVIDER_KEY" };
+    const providerKey = Redacted.make("sk-provider");
 
     const services = Layer.mergeAll(
       AccountTokens.layer.pipe(
@@ -188,12 +189,9 @@ export const withVia = <A, E>(
       }),
       Providers.layer({
         providers: { openrouter: providerConfig, "opencode-go": providerConfig },
+        apiKeys: { openrouter: providerKey, "opencode-go": providerKey },
         version: "0.0.0",
-      }).pipe(
-        Layer.provide(
-          ConfigProvider.layer(ConfigProvider.fromUnknown({ PROVIDER_KEY: "sk-provider" })),
-        ),
-      ),
+      }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     // The accounts exist before via starts, as they do for `via serve`.
@@ -208,13 +206,10 @@ export const withVia = <A, E>(
     const logs = collectLogs();
 
     const server = yield* Layer.build(
-      ViaServer.layer.pipe(
+      ViaServer.layer({
+        adminKey: adminKey === undefined ? undefined : Redacted.make(adminKey),
+      }).pipe(
         Layer.provide(Logger.layer([logs.logger])),
-        Layer.provide(
-          ConfigProvider.layer(
-            ConfigProvider.fromUnknown(adminKey === undefined ? {} : { VIA_ADMIN_KEY: adminKey }),
-          ),
-        ),
         Layer.provide(PoolStates.layer),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(Layer.succeedContext(built)),

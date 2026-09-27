@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
 import { Deferred, Effect, Stream } from "effect";
-import { ok, withVia } from "./harness.ts";
+import { ok, withVia } from "./testing/harness.ts";
 
 const cachedTokens = () =>
   reply.sse(
@@ -86,6 +86,52 @@ layer(BunFileSystem.layer)("request log", (it) => {
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
           stream_end: "client_aborted",
         });
+      }),
+    ),
+  );
+
+  it.effect("logs a streamed answer the client abandoned before reading any of it", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.sseThenHang('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
+        );
+
+        // Aborted as soon as the headers arrive, so the body is never read.
+        const abort = new AbortController();
+        yield* Effect.promise(() =>
+          fetch(`${via.baseUrl}/v1/chat/completions`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${via.key}`, "content-type": "application/json" },
+            body: JSON.stringify({ model: "opencode-go/kimi-k3", stream: true, messages: [] }),
+            signal: abort.signal,
+          }),
+        );
+        abort.abort();
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          "http.status": 200,
+          stream_end: "client_aborted",
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs a provider's answer whose body is never sent, such as a 204", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        // A 204 has no body, so the server never runs the relayed stream.
+        via.provider.respond(providerReply.json({}, 204));
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          stream: true,
+          messages: [],
+        });
+
+        expect(response.status).toBe(204);
+        const { annotations } = yield* via.logged("Sent HTTP response");
+        expect(annotations).toMatchObject({ "http.status": 204, served_by: "opencode-go" });
+        expect(annotations).not.toHaveProperty("stream_end");
       }),
     ),
   );

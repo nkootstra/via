@@ -22,25 +22,11 @@ const ErrorFixtures = Schema.fromJsonString(
   ),
 );
 
-const RefreshErrorFixtures = Schema.fromJsonString(
-  Schema.Record(Schema.String, Schema.Struct({ status: Schema.Int, body: Schema.JsonObject })),
-);
-
-const entry = <A>(
-  file: string,
-  schema: Schema.Decoder<Readonly<Record<string, A>>>,
-  name: string,
-) =>
-  codexFixture(file).pipe(
-    Effect.flatMap(Schema.decodeUnknownEffect(schema)),
+/** One HTTP error codex's own tests expect from the backend, from errors.json. */
+export const codexErrorFixture = (name: string) =>
+  codexFixture("errors.json").pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(ErrorFixtures)),
     Effect.flatMap((fixtures) => Effect.fromNullishOr(fixtures[name])),
     // Test fixture: a missing or malformed fixture is a bug in the test.
     Effect.orDie,
   );
-
-/** One HTTP error codex's own tests expect from the backend, from errors.json. */
-export const codexErrorFixture = (name: string) => entry("errors.json", ErrorFixtures, name);
-
-/** One refresh failure codex's own tests expect from the issuer, from refresh-errors.json. */
-export const codexRefreshErrorFixture = (name: string) =>
-  entry("refresh-errors.json", RefreshErrorFixtures, name);

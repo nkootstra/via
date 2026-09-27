@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
-import { ok, withVia } from "./harness.ts";
+import { ok, withVia } from "./testing/harness.ts";
 
 const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
 
