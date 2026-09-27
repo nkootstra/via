@@ -1,5 +1,5 @@
 import { createHash, timingSafeEqual } from "node:crypto";
-import { type Account, AccountStore, AccountTokens } from "@via/codex-auth";
+import { type Account, AccountNotFoundError, AccountStore, AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "@via/keys";
 import { Providers } from "@via/providers";
@@ -85,6 +85,23 @@ class AdminAuthorization extends HttpApiMiddleware.Service<AdminAuthorization>()
 
 class AccountsGroup extends HttpApiGroup.make("accounts")
   .add(HttpApiEndpoint.get("list", "/accounts", { success: Schema.Array(AdminAccount) }))
+  .add(
+    HttpApiEndpoint.patch("update", "/accounts/:account", {
+      params: { account: Schema.String },
+      payload: Schema.Struct({
+        label: Schema.optional(Schema.String),
+        enabled: Schema.optional(Schema.Boolean),
+      }),
+      success: AdminAccount,
+      error: AccountNotFoundError.pipe(HttpApiSchema.status(404)),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.delete("remove", "/accounts/:account", {
+      params: { account: Schema.String },
+      error: AccountNotFoundError.pipe(HttpApiSchema.status(404)),
+    }),
+  )
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
@@ -143,23 +160,38 @@ const authorization = (adminKey: Redacted.Redacted<string>) => {
   );
 };
 
+const withoutTokens = ({ id, label, email, plan, enabled, createdAt }: Account) => ({
+  id,
+  label,
+  email,
+  plan,
+  enabled,
+  createdAt,
+});
+
+// The account files are via's own; one it can't read or write is a bug, not a request error.
 const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
-  handlers.handle("list", () =>
-    Effect.gen(function* () {
-      const all = yield* (yield* AccountStore).list;
-      return all.map(({ id, label, email, plan, enabled, createdAt }) => ({
-        id,
-        label,
-        email,
-        plan,
-        enabled,
-        createdAt,
-      }));
-    }).pipe(
-      // The account files are via's own; one it can't read is a bug, not a request error.
-      Effect.orDie,
+  handlers
+    .handle("list", () =>
+      Effect.gen(function* () {
+        return (yield* (yield* AccountStore).list).map(withoutTokens);
+      }).pipe(Effect.orDie),
+    )
+    .handle("update", ({ params, payload }) =>
+      Effect.gen(function* () {
+        const store = yield* AccountStore;
+        // Found once, then changed by id, so a new label can't lose track of the account.
+        const { id } = yield* store.find(params.account);
+        if (payload.label !== undefined) yield* store.setLabel(id, payload.label);
+        if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
+        return withoutTokens(yield* store.find(id));
+      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+    )
+    .handle("remove", ({ params }) =>
+      Effect.gen(function* () {
+        yield* (yield* AccountStore).remove(params.account);
+      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
     ),
-  ),
 );
 
 // The key file is via's own; one it can't read or write is a bug, not a request error.
