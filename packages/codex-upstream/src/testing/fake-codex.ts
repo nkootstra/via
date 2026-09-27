@@ -19,11 +19,11 @@ const unscripted: Reply = (request) =>
 
 // Bun only resets the socket when a body fails after the sent frames were
 // flushed; failing straight away ends the response cleanly and empty. The pause
-// runs on the real clock so a test's TestClock can't freeze it. Bun logs the
-// failure; a plain string keeps that to one line instead of a stack trace.
+// runs on the real clock so a test's TestClock can't freeze it. Bun logs any
+// failure but an `undefined` one, so that is what the body fails with.
 const hangUp = Stream.fromEffect(
   Effect.sleep("20 millis").pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue())),
-).pipe(Stream.drain, Stream.concat(Stream.fail("fake Codex hung up")));
+).pipe(Stream.drain, Stream.concat(Stream.fail(undefined)));
 
 const endings = { close: Stream.empty, hangUp, stall: Stream.never };
 
