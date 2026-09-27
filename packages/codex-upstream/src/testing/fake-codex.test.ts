@@ -5,6 +5,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/
 import { startFakeCodex } from "./fake-codex.ts";
 import { codexErrorFixture, codexFixture, codexRefreshErrorFixture } from "./fixtures.ts";
 import { reply } from "./replies.ts";
+import { usagePayload } from "./streams.ts";
 
 const post = (url: string, account: string, body: Schema.JsonObject = { model: "gpt-6-astra" }) =>
   Effect.gen(function* () {
@@ -195,6 +196,23 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
         .pipe(Effect.flatMap((response) => response.json));
 
       expect(answer).toMatchObject({ rate_limit: expect.any(Object) });
+    }),
+  );
+
+  it.effect("answers /wham/usage with usagePayload for an account nobody scripted", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+
+      const answer = yield* http
+        .execute(
+          HttpClientRequest.get(`${codex.url}/wham/usage`).pipe(
+            HttpClientRequest.setHeader("chatgpt-account-id", "acc-a"),
+          ),
+        )
+        .pipe(Effect.flatMap((response) => response.json));
+
+      expect(answer).toEqual(usagePayload);
     }),
   );
 
