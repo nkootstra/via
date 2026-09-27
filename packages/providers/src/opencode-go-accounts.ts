@@ -1,5 +1,16 @@
 import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
-import { Context, DateTime, Effect, FileSystem, Layer, Redacted, Schema, Semaphore } from "effect";
+import {
+  Context,
+  DateTime,
+  Effect,
+  FileSystem,
+  Layer,
+  Redacted,
+  Schema,
+  Semaphore,
+  Stream,
+  SubscriptionRef,
+} from "effect";
 import { DuplicateOpencodeGoKeyError, OpencodeGoAccountNotFoundError } from "./errors.ts";
 
 /** An OpenCode Go API key via pools, as it stores it. */
@@ -43,9 +54,13 @@ const make = (path: string) =>
     // changes overwrite each other. The semaphore orders this process's changes; the file
     // lock orders them against another process's (`via accounts` next to `via serve`).
     const permit = Semaphore.withPermit(yield* Semaphore.make(1));
+    // Counts this process's changes, so `changes` can signal each one.
+    const revision = yield* SubscriptionRef.make(0);
 
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      permit(withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)));
+      permit(
+        withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
+      ).pipe(Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)));
 
     // Old labels are respelled as they are read, so the next change writes them back.
     const list = readJsonFile(path, StoredAccounts, () => []).pipe(
@@ -131,7 +146,10 @@ const make = (path: string) =>
         Effect.catchTag("DuplicateOpencodeGoKeyError", () => Effect.succeedNone),
       );
 
-    return { list, find, add, importKey, setLabel, setEnabled, remove };
+    /** Signals now, then after every change this process makes to the accounts. */
+    const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
+
+    return { list, find, add, importKey, setLabel, setEnabled, remove, changes };
   });
 
 /**

@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { describe, expect, it as test, layer } from "@effect/vitest";
-import { Effect, FileSystem, Option, Redacted } from "effect";
+import { Effect, FileSystem, Option, Redacted, Ref, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import {
   DuplicateOpencodeGoKeyError,
@@ -199,6 +199,34 @@ layer(BunFileSystem.layer)("OpencodeGoAccounts", (it) => {
         const added = yield* (yield* OpencodeGoAccounts).add(key("sk-secret-1234"));
         expect(JSON.stringify(added)).not.toContain("sk-secret");
         expect(String(added.apiKey)).not.toContain("sk-secret");
+      }),
+    ),
+  );
+
+  it.effect("signals now, then after every change it makes, but not when read", () =>
+    withAccounts(() =>
+      Effect.gen(function* () {
+        const store = yield* OpencodeGoAccounts;
+        const signals = yield* Ref.make(0);
+        yield* store.changes.pipe(
+          Stream.runForEach(() => Ref.update(signals, (n) => n + 1)),
+          Effect.forkChild,
+        );
+
+        const settled = Effect.andThen(
+          Effect.repeat(Effect.yieldNow, { times: 20 }),
+          Ref.get(signals),
+        );
+
+        expect(yield* settled).toBe(1);
+        const { id } = yield* store.add(key("sk-go-1234"), "work");
+        yield* store.list;
+        yield* store.find(id);
+        expect(yield* settled).toBe(2);
+        yield* store.setLabel(id, "home");
+        yield* store.setEnabled(id, false);
+        yield* store.remove(id);
+        expect(yield* settled).toBe(5);
       }),
     ),
   );
