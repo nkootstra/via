@@ -56,13 +56,15 @@ const Body = Schema.Record(Schema.String, Schema.Unknown);
 /**
  * Starts the fake for the current scope. It answers `POST /chat/completions`
  * and `POST /responses` with the `respond` handler (500 until one is set) and
- * `GET /models` with the models given to `models`.
+ * `GET /models` with the models given to `models`, and `GET /usage` with `usage`.
  */
 export const startFakeProvider = Effect.gen(function* () {
   const requests: Array<ProviderRequest> = [];
   let handler = unscripted;
   let modelList: ReadonlyArray<Record<string, unknown>> | undefined;
   const modelRequests: Array<ProviderRequest> = [];
+  let usageAnswer = { status: 500, body: "" };
+  const usageRequests: Array<ProviderRequest> = [];
   const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
 
   const answer = HttpServerRequest.schemaBodyJson(Body).pipe(
@@ -120,8 +122,23 @@ export const startFakeProvider = Effect.gen(function* () {
     ),
   );
 
+  const usageRoute = HttpRouter.add(
+    "GET",
+    "/usage",
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+      usageRequests.push({ path: "/usage", headers: request.headers, body: {} });
+      return HttpServerResponse.text(usageAnswer.body, {
+        status: usageAnswer.status,
+        contentType: "application/json",
+      });
+    }),
+  );
+
   const server = yield* Layer.build(
-    HttpRouter.serve(routes).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 }))),
+    HttpRouter.serve(Layer.merge(routes, usageRoute)).pipe(
+      Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
+    ),
   );
   return {
     /** The provider's base URL, as config.yaml's `baseUrl`. */
@@ -130,6 +147,11 @@ export const startFakeProvider = Effect.gen(function* () {
     requests: requests as ReadonlyArray<ProviderRequest>,
     /** Every `GET /models` request received so far, in order. */
     modelRequests: modelRequests as ReadonlyArray<ProviderRequest>,
+    /** Every `GET /usage` request received so far, in order. */
+    usageRequests: usageRequests as ReadonlyArray<ProviderRequest>,
+    /** Answers `GET /usage` with `body`, as OpenCode Go does; until then, it answers 500. */
+    usage: (body: object, status = 200) =>
+      void (usageAnswer = { status, body: JSON.stringify(body) }),
     /** Waits until at least `count` `GET /models` requests have arrived. */
     modelsReceived: (count: number) =>
       Effect.gen(function* () {

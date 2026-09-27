@@ -180,4 +180,68 @@ layer(BunFileSystem.layer)("Providers", (it) => {
       expect(up.modelRequests[0]?.headers["authorization"]).toBe("Bearer sk-test");
     }),
   );
+
+  it.effect("reports OpenCode Go's usage, and none for a provider without a usage endpoint", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.usage({
+        usage: {
+          rolling: { status: "ok", percent: 0, resetsAt: "2026-09-26T23:40:07.697Z" },
+          weekly: { status: "ok", percent: 26, resetsAt: "2026-09-28T00:00:00.000Z" },
+          monthly: { status: "ok", percent: 14, resetsAt: "2026-10-13T09:11:26.000Z" },
+        },
+      });
+      const usage = yield* withProviders(
+        {
+          "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" },
+          local: { baseUrl: fake.url, apiKeyEnv: "KEY" },
+        },
+        (providers) => providers.usage,
+      );
+      expect(usage).toEqual([
+        {
+          provider: "opencode-go",
+          windows: [
+            {
+              window: "rolling",
+              status: "ok",
+              usedPercent: 0,
+              resetsAt: "2026-09-26T23:40:07.697Z",
+            },
+            {
+              window: "weekly",
+              status: "ok",
+              usedPercent: 26,
+              resetsAt: "2026-09-28T00:00:00.000Z",
+            },
+            {
+              window: "monthly",
+              status: "ok",
+              usedPercent: 14,
+              resetsAt: "2026-10-13T09:11:26.000Z",
+            },
+          ],
+        },
+      ]);
+      expect(fake.usageRequests).toEqual([
+        expect.objectContaining({
+          headers: expect.objectContaining({ authorization: "Bearer sk-test" }),
+        }),
+      ]);
+    }),
+  );
+
+  it.effect("says why a provider's usage is unavailable", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.usage({ error: "unauthorized" }, 401);
+      const usage = yield* withProviders(
+        { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } },
+        (providers) => providers.usage,
+      );
+      expect(usage).toEqual([
+        { provider: "opencode-go", error: "opencode-go did not report usage (HTTP 401)" },
+      ]);
+    }),
+  );
 });

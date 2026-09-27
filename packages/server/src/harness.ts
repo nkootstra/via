@@ -63,6 +63,8 @@ export type Via = {
   readonly key: string;
   /** Every request the fake Codex received so far. */
   readonly upstreamRequests: ReadonlyArray<CodexRequest>;
+  /** Sets an account's `/wham/usage` answer on the fake Codex, by ChatGPT account id. */
+  readonly codexUsage: (account: string, body: object, status?: number) => void;
   /** The fake provider behind both `openrouter/` and `opencode-go/` models. */
   readonly provider: FakeProvider;
   /** Waits for the first line via logs whose message or annotations contain `text`. */
@@ -220,6 +222,7 @@ export const withVia = <A, E>(
         baseUrl: base,
         key,
         upstreamRequests: codex.requests,
+        codexUsage: codex.usage,
         provider,
         logged: logs.logged,
       });
