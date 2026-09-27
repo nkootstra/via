@@ -122,4 +122,18 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       }),
     ),
   );
+
+  it.effect("revokes only the key with a matching id when another key is named after that id", () =>
+    withKeyStore(() =>
+      Effect.gen(function* () {
+        const store = yield* KeyStore;
+        const laptop = yield* store.create("laptop");
+        const namedLikeId = yield* store.create(laptop.id);
+        yield* store.revoke(laptop.id);
+        expect(yield* store.verify(namedLikeId.key)).toEqual(
+          Option.some({ id: namedLikeId.id, name: laptop.id }),
+        );
+      }),
+    ),
+  );
 });

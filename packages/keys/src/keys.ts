@@ -79,10 +79,11 @@ const make = (path: string) =>
 
     const revoke = Effect.fn("KeyStore.revoke")(function* (idOrName: string) {
       const keys = yield* read;
-      const remaining = keys.filter((k) => k.id !== idOrName && k.name !== idOrName);
+      // An id match wins over a name match, so one revoke never takes out two keys.
+      const target = keys.find((k) => k.id === idOrName) ?? keys.find((k) => k.name === idOrName);
 
-      if (remaining.length === keys.length) return yield* new KeyNotFoundError({ idOrName });
-      yield* write(remaining);
+      if (target === undefined) return yield* new KeyNotFoundError({ idOrName });
+      yield* write(keys.filter((k) => k !== target));
     }, serialized);
 
     const verify = Effect.fn("KeyStore.verify")(function* (key: string) {
