@@ -5,13 +5,14 @@ import { Badge, EmptyState, Input, Skeleton } from "@via/ui";
 import { colors, fonts, radii, space, text } from "@via/ui/tokens.stylex";
 import { Schema } from "effect";
 import { useDeferredValue, useState } from "react";
-import { modelsQuery } from "../../api/admin.ts";
+import { modelsQuery, warm } from "../../api/admin.ts";
 import type { Model } from "../../api/types.ts";
 import { CodexIcon, ModelsIcon, ProviderLogo, SearchIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 
 export const Route = createFileRoute("/_app/models")({
   head: () => ({ meta: [{ title: "Models · via" }] }),
+  loader: ({ context }) => warm(context.queryClient, modelsQuery),
   component: Models,
 });
 

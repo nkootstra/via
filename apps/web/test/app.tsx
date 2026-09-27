@@ -1,6 +1,7 @@
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
 import { render } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import type { RequestHandler } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import { createAppRouter } from "../src/router.tsx";
@@ -15,10 +16,17 @@ afterEach(() => server.resetHandlers());
 
 afterAll(() => server.close());
 
-/** Renders the app at `path` (under /ui) against a fake via holding `state`. */
-export function renderApp(path: string, seed: Partial<AdminState> = {}) {
+/**
+ * Renders the app at `path` (under /ui) against a fake via holding `state`;
+ * `handlers` answer ahead of the fake's own, such as one that never answers.
+ */
+export function renderApp(
+  path: string,
+  seed: Partial<AdminState> = {},
+  handlers: ReadonlyArray<RequestHandler> = [],
+) {
   const state = createAdminState(seed);
-  server.use(...adminHandlers(state));
+  server.use(...handlers, ...adminHandlers(state));
 
   const router = createAppRouter(createMemoryHistory({ initialEntries: [`/ui${path}`] }));
   const user = userEvent.setup();

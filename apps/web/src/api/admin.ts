@@ -2,7 +2,13 @@
  * The admin API's reads as TanStack Query options, and its calls for the
  * screens' mutations. Each goes through `run`, the one Effect boundary.
  */
-import { queryOptions } from "@tanstack/react-query";
+import {
+  type FetchQueryOptions,
+  keepPreviousData,
+  type QueryClient,
+  type QueryKey,
+  queryOptions,
+} from "@tanstack/react-query";
 import { Effect, Redacted } from "effect";
 import { run } from "./client.ts";
 
@@ -45,13 +51,18 @@ export const poolQuery = queryOptions({
   queryKey: ["pool"],
   queryFn: () => run((admin) => admin.pool.get()),
   refetchInterval: 5_000,
+  placeholderData: keepPreviousData,
 });
 
-/** Rate limit windows: via asks ChatGPT and each provider, so a minute is fresh enough. */
+/**
+ * Rate limit windows, as via last fetched them in the background, so asking is
+ * cheap: every 5 s, and every second while via is fetching newer ones.
+ */
 export const usageQuery = queryOptions({
   queryKey: ["usage"],
   queryFn: () => run((admin) => admin.usage.get()),
-  refetchInterval: 60_000,
+  refetchInterval: (query) => (query.state.data?.refreshing === true ? 1_000 : 5_000),
+  placeholderData: keepPreviousData,
 });
 
 export const keysQuery = queryOptions({
@@ -64,6 +75,17 @@ export const modelsQuery = queryOptions({
   queryFn: () => run((admin) => admin.models.list()),
   staleTime: 60_000,
 });
+
+/**
+ * Starts fetching `query` when it has no data yet, without waiting: a route's
+ * loader, run when the viewer points at its link, so the page opens on data.
+ */
+export function warm<Data, Key extends QueryKey>(
+  queryClient: QueryClient,
+  query: FetchQueryOptions<Data, Error, Data, Key> & { readonly queryKey: Key },
+) {
+  if (queryClient.getQueryData(query.queryKey) === undefined) void queryClient.prefetchQuery(query);
+}
 
 export const updateAccount = (
   id: string,

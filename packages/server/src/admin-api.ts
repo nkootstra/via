@@ -17,7 +17,7 @@ import {
 } from "effect/unstable/httpapi";
 
 /** An account as the admin API shows it: everything but its tokens. */
-const AdminAccount = Schema.Struct({
+export const AdminAccount = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   email: Schema.String,
@@ -74,7 +74,7 @@ const AccountUsage = Schema.Union([
  * The latest usage via has, without waiting for any: an account it has none for
  * yet is left out. `refreshing` says it is asking for newer usage now.
  */
-const Usage = Schema.Struct({
+export const Usage = Schema.Struct({
   accounts: Schema.Array(AccountUsage),
   providers: Schema.Array(ProviderUsage.mapMembers(Tuple.map(Schema.fieldsAssign(fetched)))),
   refreshing: Schema.Boolean,
@@ -107,7 +107,7 @@ const PoolAccount = Schema.Struct({
 const PoolProvider = Schema.Struct({ name: Schema.String, state: ProviderState });
 
 /** Everything that serves requests: the pool's accounts, and the configured providers. */
-const Pool = Schema.Struct({
+export const Pool = Schema.Struct({
   accounts: Schema.Array(PoolAccount),
   providers: Schema.Array(PoolProvider),
 });

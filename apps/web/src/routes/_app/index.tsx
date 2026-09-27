@@ -1,18 +1,31 @@
 import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { Badge, Button, EmptyState, Meter, Skeleton } from "@via/ui";
 import { colors, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
-import { accountsQuery, poolQuery, usageQuery } from "../../api/admin.ts";
+import { accountsQuery, poolQuery, usageQuery, warm } from "../../api/admin.ts";
+import { useAddAccount } from "../../components/add-account.tsx";
 import { AccountsIcon, CodexIcon, PlusIcon, ProviderLogo } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
-import { countdown, formatTime, providerWindowName, useNow, windowName } from "../../lib/time.ts";
+import {
+  ago,
+  countdown,
+  formatTime,
+  providerWindowName,
+  useNow,
+  windowName,
+} from "../../lib/time.ts";
 import type { PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({ meta: [{ title: "Overview · via" }] }),
+  loader: ({ context }) => {
+    warm(context.queryClient, poolQuery);
+    warm(context.queryClient, usageQuery);
+    warm(context.queryClient, accountsQuery);
+  },
   component: Overview,
 });
 
@@ -164,6 +177,31 @@ const styles = stylex.create({
     margin: 0,
     fontSize: text.caption,
     color: colors.mutedForeground,
+  },
+  updated: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.s1_5,
+    fontVariantNumeric: "tabular-nums",
+  },
+  // Sits beside "Updated …" while via fetches newer usage, and holds its place when idle.
+  fetching: {
+    width: "6px",
+    height: "6px",
+    borderRadius: radii.full,
+    backgroundColor: colors.mutedForeground,
+    opacity: 0,
+    transitionProperty: "opacity",
+    transitionDuration: "200ms",
+  },
+  fetchingOn: {
+    opacity: 1,
+    animationName: stylex.keyframes({
+      "0%, 100%": { opacity: 1 },
+      "50%": { opacity: 0.3 },
+    }),
+    animationDuration: "1.2s",
+    animationIterationCount: "infinite",
   },
 });
 
@@ -338,29 +376,26 @@ function Windows({
 
 function UsageLoading() {
   return (
-    <div {...stylex.props(styles.meters)}>
+    <output aria-label="Loading usage" {...stylex.props(styles.meters)}>
       <Skeleton width="40%" height="12px" />
       <Skeleton height="6px" />
       <Skeleton width="55%" height="12px" />
       <Skeleton height="6px" />
-    </div>
+    </output>
   );
 }
 
-function AccountUsage({
-  id,
-  usage,
-  loading,
-}: {
-  readonly id: string;
-  readonly usage: Usage | undefined;
-  readonly loading: boolean;
-}) {
-  if (loading) return <UsageLoading />;
-
+function AccountUsage({ id, usage }: { readonly id: string; readonly usage: Usage | undefined }) {
   const entry = usage?.accounts.find((account) => account.id === id);
 
-  if (entry === undefined) return <p {...stylex.props(styles.muted)}>No usage reported yet.</p>;
+  // Bars wait only for an account via has no usage for yet, and is fetching.
+  if (entry === undefined) {
+    return usage === undefined || usage.refreshing ? (
+      <UsageLoading />
+    ) : (
+      <p {...stylex.props(styles.muted)}>No usage reported yet.</p>
+    );
+  }
 
   if ("error" in entry)
     return <p {...stylex.props(styles.muted)}>Usage unavailable: {entry.error}</p>;
@@ -379,18 +414,17 @@ function AccountUsage({
 function ProviderUsage({
   provider,
   usage,
-  loading,
 }: {
   readonly provider: PoolProvider;
   readonly usage: Usage | undefined;
-  readonly loading: boolean;
 }) {
   // An unavailable provider's state already says why its usage is missing.
   if (provider.state.status === "unavailable") return null;
 
-  if (loading) return <UsageLoading />;
-
-  if (usage === undefined) return <p {...stylex.props(styles.muted)}>No usage reported yet.</p>;
+  // Before via's first fetch, no provider has reported yet.
+  if (usage === undefined || (usage.refreshing && usage.providers.length === 0)) {
+    return <UsageLoading />;
+  }
 
   const entry = usage.providers.find((report) => report.provider === provider.name);
 
@@ -472,8 +506,27 @@ function Loading() {
   );
 }
 
+/**
+ * When the usage shown was fetched, by its oldest report, ticking; a dot pulses
+ * beside it while newer usage is on its way.
+ */
+function Updated({ usage, fetching }: { readonly usage: Usage; readonly fetching: boolean }) {
+  const now = useNow();
+
+  const fetched = [...usage.accounts, ...usage.providers].map(({ fetchedAt }) =>
+    Date.parse(fetchedAt),
+  );
+
+  return (
+    <span {...stylex.props(styles.updated)}>
+      <span aria-hidden="true" {...stylex.props(styles.fetching, fetching && styles.fetchingOn)} />
+      {fetched.length === 0 ? "Fetching usage…" : `Updated ${ago(now - Math.min(...fetched))}`}
+    </span>
+  );
+}
+
 function Overview() {
-  const navigate = useNavigate();
+  const add = useAddAccount();
   const pool = useQuery(poolQuery);
   const usage = useQuery(usageQuery);
   const accounts = useQuery(accountsQuery);
@@ -490,7 +543,7 @@ function Overview() {
   const emailOf = (id: string) => accounts.data?.find((account) => account.id === id)?.email;
 
   const addAccount = (
-    <Button onClick={() => void navigate({ to: "/accounts", search: { add: true } })}>
+    <Button onClick={add.open}>
       <PlusIcon size={15} />
       Add account
     </Button>
@@ -532,7 +585,17 @@ function Overview() {
                 </Stat>
               </dl>
 
-              <Section title="Accounts and providers" aside="Refreshes every 5 seconds">
+              <Section
+                title="Accounts and providers"
+                aside={
+                  usage.data === undefined ? undefined : (
+                    <Updated
+                      usage={usage.data}
+                      fetching={usage.isFetching || usage.data.refreshing}
+                    />
+                  )
+                }
+              >
                 <div {...stylex.props(styles.grid)}>
                   {list.map((account, index) => (
                     <PoolCard
@@ -546,7 +609,7 @@ function Overview() {
                       badge={<AccountBadge account={account} />}
                     >
                       <AccountDetail account={account} />
-                      <AccountUsage id={account.id} usage={usage.data} loading={usage.isPending} />
+                      <AccountUsage id={account.id} usage={usage.data} />
                     </PoolCard>
                   ))}
                   {providers.map((provider, index) => (
@@ -559,11 +622,7 @@ function Overview() {
                       badge={<ProviderBadge provider={provider} />}
                     >
                       <ProviderDetail provider={provider} />
-                      <ProviderUsage
-                        provider={provider}
-                        usage={usage.data}
-                        loading={usage.isPending}
-                      />
+                      <ProviderUsage provider={provider} usage={usage.data} />
                     </PoolCard>
                   ))}
                 </div>
@@ -572,6 +631,7 @@ function Overview() {
           )}
         </>
       )}
+      {add.dialog}
     </Page>
   );
 }
