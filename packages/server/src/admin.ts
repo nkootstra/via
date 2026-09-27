@@ -6,7 +6,7 @@ import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
 import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
-import { hasLiveSession, signOutAll } from "./session-cookie.ts";
+import { hasLiveSession, signOutAll, staleSessionCookies } from "./session-cookie.ts";
 import {
   adminAccounts,
   adminOpencodeGo,
@@ -342,6 +342,7 @@ export const adminRoutes = ({
         ui === undefined
           ? Layer.empty
           : uiRoutes(ui, { environment: opencodeGoEnvironment, version }),
+        staleSessionCookies,
       ).pipe(Layer.provide(AdminSessions.layer(adminKey)));
     }),
   );

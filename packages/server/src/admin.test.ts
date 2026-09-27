@@ -1156,6 +1156,71 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("deletes a session cookie that no longer signs in, and the one from before /", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          // Every Set-Cookie of the answer: an HttpClient response keeps only one per name.
+          const expired = (cookie?: string) =>
+            Effect.promise(() =>
+              fetch(`${via.baseUrl}/admin/session`, {
+                headers: cookie === undefined ? {} : { cookie },
+              }),
+            ).pipe(
+              Effect.map((response) => {
+                const sets = response.headers.getSetCookie();
+
+                return {
+                  status: response.status,
+                  root: sets.some((set) => set.startsWith("via_session=; Max-Age=0; Path=/;")),
+                  admin: sets.some((set) =>
+                    set.startsWith("via_session=; Max-Age=0; Path=/admin;"),
+                  ),
+                };
+              }),
+            );
+
+          // A session that ended (or a via that restarted) leaves a dead cookie behind.
+          expect(yield* expired("via_session=ended")).toEqual({
+            status: 401,
+            root: true,
+            admin: true,
+          });
+
+          // A live session keeps its cookie; only the one from the old /admin path goes.
+          const cookie = `via_session=ended; ${yield* sessionCookie(via)}`;
+          expect(yield* expired(cookie)).toEqual({ status: 200, root: false, admin: true });
+
+          // No session cookie at all: nothing to delete.
+          expect(yield* expired()).toEqual({ status: 401, root: false, admin: false });
+
+          // Signing in while a dead cookie is still sent keeps the new session's cookie.
+          const signedIn = yield* Effect.promise(() =>
+            fetch(`${via.baseUrl}/admin/session`, {
+              method: "POST",
+              headers: {
+                cookie: "via_session=ended",
+                "content-type": "application/json",
+                origin: via.baseUrl,
+              },
+              body: JSON.stringify({ key: adminKey }),
+            }),
+          );
+
+          const sets = signedIn.headers.getSetCookie();
+          expect(signedIn.status).toBe(204);
+          expect(sets.some((set) => /^via_session=[^;]+; Max-Age=43200; Path=\/;/.test(set))).toBe(
+            true,
+          );
+          expect(sets.some((set) => set.startsWith("via_session=; Max-Age=0; Path=/;"))).toBe(
+            false,
+          );
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("takes a change on a session cookie only from via's own origin with x-via-csrf", () =>
     withVia(
       ok,
