@@ -143,7 +143,7 @@ export const addOpencodeGo = (apiKey: string) =>
         OpencodeGoKeyRejectedError: () =>
           notAdded("OpenCode Go refused this key. Check that you copied all of it."),
         DuplicateOpencodeGoKeyError: (error) =>
-          notAdded(`via already has this key, as ${error.label}.`),
+          notAdded(`That key is already in the pool, as ${error.label}.`),
         OpencodeGoUnavailableError: (error) => notAdded(error.message),
       }),
     ),

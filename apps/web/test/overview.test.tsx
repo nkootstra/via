@@ -1,7 +1,7 @@
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { delay, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { account } from "../src/testing/admin-handlers.ts";
+import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
 import { renderApp } from "./app.tsx";
 
 const now = Date.parse("2026-09-27T12:00:00.000Z");
@@ -254,6 +254,42 @@ describe("the overview", () => {
 
     expect(await within(dialog).findByText(/OpenCode Go refused this key/)).toBeDefined();
     expect(state.opencodeGo).toEqual([]);
+  });
+
+  it("says so when a pasted OpenCode Go key is already in the pool", async () => {
+    const stored = opencodeGoAccount({ id: "go-1", label: "go main", key: "…1234" });
+    const { state, user } = renderApp("/", { pool, usage, opencodeGo: [stored] });
+
+    await card("work");
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+    await user.click(await screen.findByRole("button", { name: /OpenCode Go/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go key" });
+    await user.type(within(dialog).getByLabelText("API key"), "sk-go-1234");
+    await user.click(within(dialog).getByRole("button", { name: "Add key" }));
+
+    expect(
+      await within(dialog).findByText("That key is already in the pool, as go main."),
+    ).toBeDefined();
+    expect(state.opencodeGo).toEqual([stored]);
+  });
+
+  it("puts a locked-out account back in rotation once it signs in again", async () => {
+    const { user } = renderApp("/", {
+      pool,
+      usage,
+      nextLogin: [{ status: "updated", account: account({ id: "acc-3", label: "spare" }) }],
+    });
+
+    expect(within(await card("spare")).getByText("Locked out")).toBeDefined();
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+    await user.click(await screen.findByRole("button", { name: /ChatGPT \(Codex\)/ }));
+
+    expect(await screen.findByRole("dialog", { name: "Signed in again" })).toBeDefined();
+    await waitFor(() =>
+      expect(
+        within(screen.getByRole("article", { name: "spare" })).getByText("Available"),
+      ).toBeDefined(),
+    );
   });
 
   it("shows an account added from the overview there, once its login is approved", async () => {
