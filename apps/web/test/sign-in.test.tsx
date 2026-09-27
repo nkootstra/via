@@ -1,4 +1,4 @@
-import { TooManySignInsError } from "@via/server/admin-api";
+import { TooManySignInsError, Unauthorized } from "@via/server/admin-api";
 import { screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
@@ -35,6 +35,25 @@ describe("signing in", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("That key isn't right");
     expect(state.signedIn).toBe(false);
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeDefined();
+  });
+
+  it("says so when via takes the key but the browser doesn't keep the session", async () => {
+    const { state, user } = renderApp("/sign-in", { signedIn: false });
+    // The sign-in answers 204, but the cookie never comes back: every check stays 401.
+    server.use(
+      http.get("*/admin/session", () =>
+        failure(
+          Unauthorized,
+          new Unauthorized({ message: "Missing or invalid admin key or session" }),
+          401,
+        ),
+      ),
+    );
+
+    await signIn(user, state.adminKey);
+
+    expect((await screen.findByRole("alert")).textContent).toContain("didn't keep the session");
     expect(screen.getByRole("heading", { name: "Sign in" })).toBeDefined();
   });
 
