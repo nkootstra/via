@@ -4,14 +4,15 @@ import { codexFixture, type Reply, reply, sseFrames } from "@via/codex-upstream/
 import { Deferred, Effect, Fiber, Schema } from "effect";
 import {
   chat,
-  type Codex,
   decodeJson,
   freePort,
   json,
   launchVia,
   post,
   realTime,
+  responsesOf,
   startCodex,
+  type Codex,
   type Via,
 } from "./harness.ts";
 
@@ -183,7 +184,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
             expect(yield* json(response)).toMatchObject({
               error: { type: "invalid_request_error", code: "invalid_request" },
             });
-            expect(codex.requests).toHaveLength(0);
+            expect(responsesOf(codex)).toHaveLength(0);
           }),
         ),
       );
@@ -199,7 +200,7 @@ layer(BunFileSystem.layer)("resilience", (it) => {
         yield* Effect.promise(() => reader.read());
         abort.abort();
         yield* Effect.promise(() => reader.cancel().catch(() => undefined));
-        expect(codex.requests).toHaveLength(1);
+        expect(responsesOf(codex)).toHaveLength(1);
       }),
     ),
   );

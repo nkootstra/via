@@ -1,6 +1,6 @@
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { reply, startFakeCodex } from "@via/codex-upstream/testing";
+import { type FakeCodex, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { type FakeProvider, providerReply, startFakeProvider } from "@via/providers/testing";
 import { Deferred, Effect, Exit, Layer, Schema, Stream } from "effect";
 import {
@@ -23,6 +23,10 @@ import {
   viaHome,
   writeConfig,
 } from "./helpers.ts";
+
+/** The Responses requests `codex` received, leaving out the usage poll's lookups. */
+const responsesOf = (codex: FakeCodex) =>
+  codex.requests.filter(({ path }) => path === "/codex/responses");
 
 /**
  * A `via` home with one account (from a fake issuer) and one API key, whose
@@ -129,7 +133,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       const response = yield* postResponses(url, key);
       expect(response.status).toBe(200);
       expect(yield* response.json).toMatchObject({ id: "resp_fake", status: "completed" });
-      expect(codex.requests[0]?.headers).toMatchObject({
+      expect(responsesOf(codex)[0]?.headers).toMatchObject({
         "chatgpt-account-id": "acc-123",
         originator: "via",
       });
@@ -282,7 +286,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       );
       const url = yield* serveVia(home, ["--port", "0"], env);
       expect((yield* postResponses(url, key)).status).toBe(429);
-      expect(codex.requests).toHaveLength(1);
+      expect(responsesOf(codex)).toHaveLength(1);
     }),
   );
 
@@ -342,7 +346,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       yield* postLocalChat(url, key);
       expect((yield* postResponses(url, key)).status).toBe(200);
 
-      for (const headers of [provider.requests[0]?.headers, codex.requests[0]?.headers]) {
+      for (const headers of [provider.requests[0]?.headers, responsesOf(codex)[0]?.headers]) {
         expect(headers).toBeDefined();
         expect(headers).not.toHaveProperty("traceparent");
         expect(headers).not.toHaveProperty("b3");

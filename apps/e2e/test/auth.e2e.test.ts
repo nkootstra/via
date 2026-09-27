@@ -160,7 +160,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
         // One upstream call, and it already carries the refreshed token: the
         // refresh happened before dispatch, not as a retry after a 401.
         expect(responsesOf(upstream)).toHaveLength(1);
-        expect(upstream.requests[0]?.headers).toMatchObject({
+        expect(responsesOf(upstream)[0]?.headers).toMatchObject({
           authorization: `Bearer ${refreshedAccessToken}`,
           "chatgpt-account-id": "acc-a",
         });
@@ -189,14 +189,14 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       expect(completion.choices[0]?.message.content).toBe("pong");
 
       expect(responsesOf(upstream)).toHaveLength(2);
-      const first = upstream.requests[0]?.headers.authorization;
-      const second = upstream.requests[1]?.headers.authorization;
+      const first = responsesOf(upstream)[0]?.headers.authorization;
+      const second = responsesOf(upstream)[1]?.headers.authorization;
       expect(first).toMatch(/^Bearer \S+/);
       expect(second).toMatch(/^Bearer \S+/);
       // The retry used a different (refreshed) access token, not the one that was
       // just refused.
       expect(second).not.toBe(first);
-      expect(upstream.requests[1]?.headers["chatgpt-account-id"]).toBe("acc-123");
+      expect(responsesOf(upstream)[1]?.headers["chatgpt-account-id"]).toBe("acc-123");
     }),
   );
 
@@ -222,7 +222,7 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
 
       // "a"'s rejected refresh never reaches upstream; only "b"'s request does.
       expect(responsesOf(upstream)).toHaveLength(1);
-      expect(upstream.requests[0]?.headers).toMatchObject({
+      expect(responsesOf(upstream)[0]?.headers).toMatchObject({
         authorization: "Bearer at-b",
         "chatgpt-account-id": "acc-b",
       });

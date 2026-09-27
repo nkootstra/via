@@ -23,7 +23,7 @@ const MAX_AGE = Duration.minutes(1);
 const CONCURRENCY = 4;
 
 /** What ChatGPT last said about an account's usage, or why it could not say, and when. */
-type AccountUsageSnapshot = {
+export type AccountUsageSnapshot = {
   readonly account: Account;
   /** Epoch milliseconds. */
   readonly fetchedAt: number;

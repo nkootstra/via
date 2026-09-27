@@ -33,5 +33,8 @@ export const collectLogs = () => {
       return Deferred.await(waiter.line);
     });
 
-  return { logger, logged };
+  /** Forgets every line so far, so `logged` waits for a new one. */
+  const forget = Effect.sync(() => void lines.splice(0));
+
+  return { logger, logged, forget };
 };

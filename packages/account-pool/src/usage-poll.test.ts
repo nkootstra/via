@@ -4,6 +4,7 @@ import { startFakeIssuer, tokensFor } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
 import { startFakeCodex } from "@via/codex-upstream/testing";
 import { PoolStates } from "@via/pool";
+import { Providers } from "@via/providers";
 import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
@@ -11,6 +12,7 @@ import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
 import { AccountPool } from "./account-pool.ts";
 import { collectLogs } from "./testing/logs.ts";
 import { UsagePoll } from "./usage-poll.ts";
+import { UsageSnapshots } from "./usage-snapshots.ts";
 
 /** Mirrors the poll's own interval: this suite shares one `TestClock` across its
  * tests (via `@effect/vitest`'s `layer`), so times are computed relative to
@@ -26,7 +28,9 @@ const window = (usedPercent: number, resetAtMs: number) => ({
 
 /**
  * Starts `UsagePoll` against a fake Codex, with one account named `name`, far
- * from token expiry unless `tokens` says otherwise. `body` gets the saved
+ * from token expiry unless `tokens` says otherwise, and waits for the pass it
+ * runs at startup, against the usage `startup` scripts (by default,
+ * `usagePayload`'s), before running `body`. `body` gets the saved
  * `account` (its `id` is random, so tests read it from here rather than
  * assuming one), the fake Codex (to script `/wham/usage`), the pool's
  * `PoolStates`, the account files' `authDir`, and `start`, the clock time (this suite's `TestClock` is
@@ -47,6 +51,7 @@ const withPoll = <A, E>(
   options: {
     authLayer?: Layer.Layer<CodexAuth, never, HttpClient.HttpClient>;
     tokens?: (start: number) => { expiresAt: number };
+    startup?: (codex: Effect.Success<typeof startFakeCodex>, start: number) => void;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -61,6 +66,7 @@ const withPoll = <A, E>(
         Layer.provideMerge(AccountStore.layer(`${dir}/auth`)),
       ),
       CodexUpstream.layer({ baseUrl: codex.url, cloak: true, version: "0.0.0" }),
+      Providers.layer({ providers: {}, apiKeys: {}, version: "0.0.0" }),
     ).pipe(Layer.provide(FetchHttpClient.layer));
 
     const built = yield* Layer.build(services);
@@ -70,15 +76,21 @@ const withPoll = <A, E>(
     }).pipe(Effect.provide(built));
 
     const logs = collectLogs();
+    options.startup?.(codex, start);
 
     const runtime = yield* Layer.build(
       UsagePoll.layer.pipe(
         Layer.provide(AccountPool.layer),
+        Layer.provide(UsageSnapshots.layer),
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provideMerge(PoolStates.layer),
         Layer.provideMerge(Layer.succeedContext(built)),
       ),
     );
+
+    // Every outcome of the startup pass logs a line naming the account.
+    yield* logs.logged(account.label);
+    yield* logs.forget;
 
     return yield* Effect.gen(function* () {
       const states = yield* PoolStates;
@@ -97,8 +109,30 @@ const withPoll = <A, E>(
   }).pipe(Effect.provideService(References.MinimumLogLevel, "Debug"));
 
 layer(BunFileSystem.layer)("UsagePoll", (it) => {
-  it.effect("does not poll before the first interval has passed", () =>
-    withPoll("a", ({ codex }) => Effect.sync(() => expect(codex.requests).toHaveLength(0))),
+  it.effect("polls once at startup, before the first interval has passed", () =>
+    withPoll("a", ({ codex }) => Effect.sync(() => expect(codex.requests).toHaveLength(1))),
+  );
+
+  it.effect("cools an exhausted account down at startup", () =>
+    withPoll(
+      "a",
+      ({ account, states, start }) =>
+        Effect.gen(function* () {
+          expect(yield* states.get).toEqual({
+            [account.id]: {
+              status: "cooling",
+              until: start + 100_000,
+              reason: "usage_exhausted",
+            },
+          });
+        }),
+      {
+        startup: (codex, start) =>
+          codex.usage("acc-a", {
+            rate_limit: { primary_window: window(100, start + 100_000), secondary_window: null },
+          }),
+      },
+    ),
   );
 
   it.effect("cools an exhausted account down after the first interval", () =>
@@ -126,13 +160,13 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
         });
         yield* TestClock.adjust("15 minutes");
         yield* logged(`${account.label} is cooling down`);
-        expect(codex.requests).toHaveLength(1);
+        expect(codex.requests).toHaveLength(2);
 
         // The scripted window's reset has now passed, so the second pass finds
         // nothing exhausted -- but it must still run, on its own 15-minute beat.
         yield* TestClock.adjust("15 minutes");
         yield* logged(`${account.label}'s usage is unchanged`);
-        expect(codex.requests).toHaveLength(2);
+        expect(codex.requests).toHaveLength(3);
         expect(yield* states.get).toEqual({
           [account.id]: { status: "cooling", until: resetsAt, reason: "usage_exhausted" },
         });
@@ -221,13 +255,13 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
           yield* fs.writeFileString(`${authDir}/broken.json`, "not json");
           yield* TestClock.adjust("15 minutes");
           yield* logged("usage poll pass failed");
-          expect(codex.requests).toHaveLength(0);
+          expect(codex.requests).toHaveLength(1);
 
           yield* fs.remove(`${authDir}/broken.json`);
           codex.usage("acc-a", {}, 401);
           yield* TestClock.adjust("15 minutes");
           yield* logged(`Could not poll ${account.label}'s usage`);
-          expect(codex.requests).toHaveLength(1);
+          expect(codex.requests).toHaveLength(2);
         }),
       );
     }),

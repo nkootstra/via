@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { reply } from "@via/codex-upstream/testing";
-import { chat, launchVia, openai, startCodex } from "./harness.ts";
+import { chat, launchVia, openai, responsesOf, startCodex } from "./harness.ts";
 
 // The whole product in one breath: login, key, serve, and a real OpenAI client
 // talking to it, with the fake Codex backend behind it.
@@ -16,8 +16,8 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
       const completion = yield* chat(via, "ping");
 
       expect(completion.choices[0]?.message.content).toBe("pong");
-      expect(upstream.requests).toHaveLength(1);
-      expect(upstream.requests[0]).toMatchObject({
+      expect(responsesOf(upstream)).toHaveLength(1);
+      expect(responsesOf(upstream)[0]).toMatchObject({
         path: "/codex/responses",
         headers: {
           authorization: expect.stringMatching(/^Bearer \S+/),
@@ -43,7 +43,7 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
       );
 
       expect(response.output_text).toBe("pong");
-      expect(upstream.requests[0]?.headers).toMatchObject({
+      expect(responsesOf(upstream)[0]?.headers).toMatchObject({
         authorization: "Bearer at-a",
         "chatgpt-account-id": "acc-a",
       });
