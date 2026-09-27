@@ -57,6 +57,7 @@ const styles = stylex.create({
     fontSize: text.caption,
     color: colors.mutedForeground,
   },
+  action: { alignSelf: "flex-start", marginTop: space.s2 },
   close: {
     position: "absolute",
     top: space.s2,
@@ -66,7 +67,8 @@ const styles = stylex.create({
 
 /**
  * Adds and closes toasts: `useToast().add({ title, description })`. A toast
- * of `type: "error"` shows its title in the destructive colour.
+ * of `type: "error"` shows its title in the destructive colour; one with
+ * `actionProps` shows a button, and `timeout: 0` keeps it until it is closed.
  */
 export const useToast = BaseToast.useToastManager;
 
@@ -109,6 +111,11 @@ function Toasts() {
         {...stylex.props(styles.title, toast.type === "error" && styles.errorTitle)}
       />
       <BaseToast.Description {...stylex.props(styles.description)} />
+      {toast.actionProps !== undefined && (
+        <BaseToast.Action
+          render={<Button size="compact" variant="secondary" xstyle={styles.action} />}
+        />
+      )}
       <BaseToast.Close
         render={
           <Button variant="ghost" size="icon-compact" aria-label="Close" xstyle={styles.close}>

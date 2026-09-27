@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { CorruptFileError } from "@via/config";
-import { Context, Effect, FileSystem, Layer } from "effect";
+import { Context, Effect, FileSystem, Layer, Ref, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { seedAccount, tokensFor } from "./testing/index.ts";
 import { AccountNotFoundError, AccountStore } from "./index.ts";
@@ -203,6 +203,35 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
         const error = yield* Effect.flip((yield* AccountStore).list);
         expect(error).toBeInstanceOf(CorruptFileError);
         expect(error).toMatchObject({ path: `${authDir}/broken.json` });
+      }),
+    ),
+  );
+
+  it.effect("signals now, then after every change it makes, but not when read", () =>
+    withAccountStore(() =>
+      Effect.gen(function* () {
+        const store = yield* AccountStore;
+        const signals = yield* Ref.make(0);
+        yield* store.changes.pipe(
+          Stream.runForEach(() => Ref.update(signals, (n) => n + 1)),
+          Effect.forkChild,
+        );
+
+        const settled = Effect.andThen(
+          Effect.repeat(Effect.yieldNow, { times: 20 }),
+          Ref.get(signals),
+        );
+
+        expect(yield* settled).toBe(1);
+        const { id } = (yield* store.save(tokensFor("a"))).account;
+        yield* store.list;
+        yield* store.find(id);
+        expect(yield* settled).toBe(2);
+        yield* store.setLabel(id, "work");
+        yield* store.setEnabled(id, false);
+        yield* store.saveRefreshed(id, tokensFor("a", { refreshToken: "rt-new" }));
+        yield* store.remove(id);
+        expect(yield* settled).toBe(6);
       }),
     ),
   );

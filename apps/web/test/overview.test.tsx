@@ -1,8 +1,8 @@
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
-import { delay, http } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
-import { renderApp } from "./app.tsx";
+import { embed, renderApp } from "./app.tsx";
+import { FakeEventSource, openSource } from "./event-source.ts";
 
 const now = Date.parse("2026-09-27T12:00:00.000Z");
 
@@ -311,56 +311,116 @@ describe("the overview", () => {
   });
 });
 
-/** Handlers for the overview's reads that never answer: nothing comes from via. */
-const silent = ["/session", "/pool", "/usage", "/accounts"].map((path) =>
-  http.get(`*/admin${path}`, () => delay("infinite")),
-);
+/** The state via embeds in a signed-in page's shell, and pushes as it changes. */
+const viaState = {
+  session: true,
+  version: "0.0.0",
+  pool,
+  usage,
+  accounts: accounts.map(({ id, label }) => account({ id, label })),
+  opencodeGo: opencodeGo.map(({ id, label }) => opencodeGoAccount({ id, label })),
+  keys: [{ id: "key-1", name: "laptop", createdAt: fetchedAt, lastUsedAt: fetchedAt }],
+  models: [{ id: "gpt-5.5", object: "model", created: 0, owned_by: "openai" }],
+} as const;
 
-describe("the overview's usage", () => {
-  it("paints what the tab kept at once after a reload, before via answers", async () => {
-    renderApp("/", { pool, usage });
-    await card("work");
-    cleanup();
+/** `viaState`, with "work" cooling down for a minute. */
+const coolingWork = {
+  ...viaState,
+  pool: {
+    ...pool,
+    accounts: [
+      {
+        ...accounts[0],
+        state: {
+          status: "cooling",
+          until: new Date(now + 60_000).toISOString(),
+          reason: "Usage limit reached",
+        },
+      },
+      ...accounts.slice(1),
+    ],
+  },
+} as const;
 
-    renderApp("/", {}, silent);
+describe("the overview, live", () => {
+  it("paints the state the shell carries at once, asking via for nothing", async () => {
+    embed(viaState);
+    const { state } = renderApp("/", { pool, usage });
 
     const work = await card("work");
     expect(within(work).getByRole("meter", { name: "5 hours" }).getAttribute("aria-valuenow")).toBe(
       "42",
     );
-    expect(screen.queryByLabelText("Loading accounts")).toBeNull();
+    expect(within(await card("home")).getByText("home@example.com")).toBeDefined();
+    expect(state.requests).toEqual([]);
+    expect(document.getElementById("via-state")).toBeNull();
   });
 
-  it("forgets what the tab kept once the viewer signs out", async () => {
+  it("renders every page from the state the shell carries, asking via for nothing", async () => {
+    for (const [path, heading, shown] of [
+      ["/accounts", "Accounts", "work@example.com"],
+      ["/keys", "Keys", "laptop"],
+      ["/models", "Models", "gpt-5.5"],
+    ] as const) {
+      embed(viaState);
+      const { state } = renderApp(path, { pool, usage });
+
+      expect(await screen.findByRole("heading", { name: heading, level: 1 })).toBeDefined();
+      expect(await screen.findByText(shown)).toBeDefined();
+      expect(state.requests).toEqual([]);
+      cleanup();
+    }
+  });
+
+  it("shows what via pushes as it happens, without asking", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now });
+    embed(viaState);
+    const { state } = renderApp("/", { pool, usage });
+    const work = await card("work");
+
+    act(() => openSource().push(coolingWork));
+
+    expect(await within(work).findByText("Cooling down")).toBeDefined();
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(state.requests).toEqual([]);
+  });
+
+  it("asks via every few seconds while the stream is down, and stops once it is back", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now });
+    embed(viaState);
+    const { state } = renderApp("/", { pool, usage });
+    const work = await card("work");
+    act(() => openSource().push(viaState));
+
+    act(() => openSource().fail());
+    state.pool = coolingWork.pool;
+    await act(() => vi.advanceTimersByTimeAsync(5_000));
+
+    expect(state.requests).toContain("GET /admin/pool");
+    expect(await within(work).findByText("Cooling down")).toBeDefined();
+
+    act(() => openSource().push(coolingWork));
+    const asked = state.requests.length;
+    await act(() => vi.advanceTimersByTimeAsync(20_000));
+    expect(state.requests).toHaveLength(asked);
+  });
+
+  it("closes the stream when the viewer signs out", async () => {
+    embed(viaState);
     const { user } = renderApp("/", { pool, usage });
     await card("work");
+    const source = openSource();
+
     await user.click(screen.getByRole("button", { name: "Sign out" }));
     const dialog = await screen.findByRole("alertdialog", { name: "Sign out of via?" });
     await user.click(within(dialog).getByRole("button", { name: "Sign out" }));
     await screen.findByRole("heading", { name: "Sign in" });
-    cleanup();
 
-    const { router } = renderApp("/", { signedIn: false }, silent.slice(1));
-
-    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeDefined();
-    expect(router.history.location.pathname).toBe("/ui/sign-in");
-    expect(screen.queryByRole("article", { name: "work" })).toBeNull();
+    expect(source.readyState).toBe(FakeEventSource.CLOSED);
   });
+});
 
-  it("forgets what the tab kept once via answers 401", async () => {
-    const { state, user } = renderApp("/", { pool, usage });
-    await card("work");
-    state.signedIn = false;
-    await user.click(screen.getByRole("link", { name: "Keys" }));
-    await screen.findByRole("heading", { name: "Sign in" });
-    cleanup();
-
-    renderApp("/", { signedIn: false }, silent.slice(1));
-
-    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeDefined();
-    expect(screen.queryByRole("article", { name: "work" })).toBeNull();
-  });
-
+describe("the overview's usage", () => {
   it("says how long ago the usage was fetched, ticking", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
     renderApp("/", { pool, usage });

@@ -1,6 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { accountColumns } from "./account-columns.ts";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import {
   AlertDialog,
   AlertDialogContent,
@@ -20,7 +20,6 @@ import {
   MenuItem,
   MenuSeparator,
   MenuTrigger,
-  Skeleton,
   Switch,
   Table,
   TableBody,
@@ -30,9 +29,10 @@ import {
   TableRow,
   useToast,
 } from "@via/ui";
-import { colors, fonts, space, text, weights } from "@via/ui/tokens.stylex";
+import { colors, fonts, text, weights } from "@via/ui/tokens.stylex";
 import { type ReactNode, useState } from "react";
 import { opencodeGoQuery, removeOpencodeGo, updateOpencodeGo } from "../api/admin.ts";
+import { useLiveOptions } from "../api/live.ts";
 import type { OpencodeGoAccount } from "../api/types.ts";
 import { formatDate } from "../lib/time.ts";
 import { MoreIcon, ProviderLogo, EditIcon, TrashIcon } from "./icons.tsx";
@@ -67,11 +67,6 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     margin: 0,
-  },
-  loading: {
-    display: "flex",
-    flexDirection: "column",
-    gap: space.s2,
   },
 });
 
@@ -203,7 +198,7 @@ type Open = {
 export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNode }) {
   const changed = useChanged();
   const toast = useToast();
-  const accounts = useQuery(opencodeGoQuery);
+  const accounts = useSuspenseQuery({ ...opencodeGoQuery, ...useLiveOptions() });
   const [open, setOpen] = useState<Open>(null);
   const close = () => setOpen(null);
 
@@ -223,22 +218,7 @@ export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNod
       toast.add({ type: "error", title: "Couldn't change it", description: error.message }),
   });
 
-  if (accounts.isPending) {
-    return (
-      <Panel>
-        <div
-          {...stylex.props(styles.loading)}
-          aria-busy="true"
-          aria-label="Loading OpenCode Go keys"
-        >
-          <Skeleton height="20px" />
-          <Skeleton height="20px" />
-        </div>
-      </Panel>
-    );
-  }
-
-  const list = accounts.data ?? [];
+  const list = accounts.data;
 
   if (list.length === 0) {
     return (

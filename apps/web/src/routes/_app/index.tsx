@@ -1,11 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
-import { useQuery } from "@tanstack/react-query";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { Badge, Button, EmptyState, Meter, Skeleton } from "@via/ui";
 import { colors, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
-import { accountsQuery, poolQuery, usageQuery, warm } from "../../api/admin.ts";
+import { accountsQuery, poolQuery, usageQuery } from "../../api/admin.ts";
+import { useLiveOptions } from "../../api/live.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
 import { AccountsIcon, CodexIcon, PlusIcon, ProviderLogo } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -22,11 +23,14 @@ import type { PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({ meta: [{ title: "Overview · via" }] }),
-  loader: ({ context }) => {
-    warm(context.queryClient, poolQuery);
-    warm(context.queryClient, usageQuery);
-    warm(context.queryClient, accountsQuery);
-  },
+  // Data the shell or the stream brought is there already; otherwise the page waits for it.
+  loader: ({ context: { queryClient } }) =>
+    Promise.all([
+      queryClient.ensureQueryData(poolQuery),
+      queryClient.ensureQueryData(usageQuery),
+      queryClient.ensureQueryData(accountsQuery),
+    ]),
+  pendingComponent: OverviewLoading,
   component: Overview,
 });
 
@@ -393,12 +397,12 @@ function UsageLoading() {
   );
 }
 
-function AccountUsage({ id, usage }: { readonly id: string; readonly usage: Usage | undefined }) {
-  const entry = usage?.accounts.find((account) => account.id === id);
+function AccountUsage({ id, usage }: { readonly id: string; readonly usage: Usage }) {
+  const entry = usage.accounts.find((account) => account.id === id);
 
   // Bars wait only for an account via has no usage for yet, and is fetching.
   if (entry === undefined) {
-    return usage === undefined || usage.refreshing ? (
+    return usage.refreshing ? (
       <UsageLoading />
     ) : (
       <p {...stylex.props(styles.muted)}>No usage reported yet.</p>
@@ -419,18 +423,12 @@ function AccountUsage({ id, usage }: { readonly id: string; readonly usage: Usag
   );
 }
 
-function OpencodeGoUsage({
-  id,
-  usage,
-}: {
-  readonly id: string;
-  readonly usage: Usage | undefined;
-}) {
-  const entry = usage?.opencodeGo.find((account) => account.id === id);
+function OpencodeGoUsage({ id, usage }: { readonly id: string; readonly usage: Usage }) {
+  const entry = usage.opencodeGo.find((account) => account.id === id);
 
   // Bars wait only for an account via has no usage for yet, and is fetching.
   if (entry === undefined) {
-    return usage === undefined || usage.refreshing ? (
+    return usage.refreshing ? (
       <UsageLoading />
     ) : (
       <p {...stylex.props(styles.muted)}>No usage reported yet.</p>
@@ -530,14 +528,30 @@ function Updated({ usage, fetching }: { readonly usage: Usage; readonly fetching
   );
 }
 
+const title = "Overview";
+
+const description =
+  "How the pool stands right now: which accounts and providers via can use, which are resting, and how much of each limit is used.";
+
+/** The overview while its data is on its way, which only a page without the shell's state waits for. */
+function OverviewLoading() {
+  return (
+    <Page title={title} description={description}>
+      <Loading />
+    </Page>
+  );
+}
+
 function Overview() {
   const add = useAddAccount();
-  const pool = useQuery(poolQuery);
-  const usage = useQuery(usageQuery);
-  const accounts = useQuery(accountsQuery);
-  const list = pool.data?.accounts ?? [];
-  const opencodeGo = pool.data?.opencodeGo ?? [];
-  const providers = pool.data?.providers ?? [];
+  // While via pushes the state, nothing here polls.
+  const live = useLiveOptions();
+  const pool = useSuspenseQuery({ ...poolQuery, ...live });
+  const usage = useSuspenseQuery({ ...usageQuery, ...live });
+  const accounts = useSuspenseQuery({ ...accountsQuery, ...live });
+  const list = pool.data.accounts;
+  const opencodeGo = pool.data.opencodeGo;
+  const providers = pool.data.providers;
   const everyAccount = [...list, ...opencodeGo];
   const enabled = everyAccount.filter((account) => account.enabled);
 
@@ -547,7 +561,7 @@ function Overview() {
   const providersIn = (status: PoolProvider["state"]["status"]) =>
     providers.filter((provider) => provider.state.status === status).length;
 
-  const emailOf = (id: string) => accounts.data?.find((account) => account.id === id)?.email;
+  const emailOf = (id: string) => accounts.data.find((account) => account.id === id)?.email;
 
   const addAccount = (
     <Button onClick={add.open}>
@@ -558,99 +572,88 @@ function Overview() {
 
   return (
     <Page
-      title="Overview"
-      description="How the pool stands right now: which accounts and providers via can use, which are resting, and how much of each limit is used."
+      title={title}
+      description={description}
       actions={everyAccount.length > 0 ? addAccount : undefined}
     >
-      {pool.isPending ? (
-        <Loading />
-      ) : (
+      {everyAccount.length === 0 && (
+        <EmptyState
+          icon={<AccountsIcon size={18} />}
+          title="No accounts yet"
+          description="Add a ChatGPT account or an OpenCode Go key, and via starts pooling it behind one endpoint."
+          action={addAccount}
+        />
+      )}
+      {everyAccount.length + providers.length > 0 && (
         <>
-          {everyAccount.length === 0 && (
-            <EmptyState
-              icon={<AccountsIcon size={18} />}
-              title="No accounts yet"
-              description="Add a ChatGPT account or an OpenCode Go key, and via starts pooling it behind one endpoint."
-              action={addAccount}
-            />
-          )}
-          {everyAccount.length + providers.length > 0 && (
-            <>
-              <dl {...stylex.props(styles.stats)}>
-                <Stat label="Available" color="green">
-                  {accountsIn("available") + providersIn("available")}{" "}
-                  <span {...stylex.props(styles.statOf)}>
-                    of {everyAccount.length + providers.length}
-                  </span>
-                </Stat>
-                <Stat label="Resting" color="amber">
-                  {accountsIn("cooling") + providersIn("exhausted")}
-                </Stat>
-                <Stat label="Needs attention" color="red">
-                  {accountsIn("auth_error") + providersIn("unavailable")}
-                </Stat>
-                <Stat label="Disabled" color="gray">
-                  {everyAccount.length - enabled.length}
-                </Stat>
-              </dl>
+          <dl {...stylex.props(styles.stats)}>
+            <Stat label="Available" color="green">
+              {accountsIn("available") + providersIn("available")}{" "}
+              <span {...stylex.props(styles.statOf)}>
+                of {everyAccount.length + providers.length}
+              </span>
+            </Stat>
+            <Stat label="Resting" color="amber">
+              {accountsIn("cooling") + providersIn("exhausted")}
+            </Stat>
+            <Stat label="Needs attention" color="red">
+              {accountsIn("auth_error") + providersIn("unavailable")}
+            </Stat>
+            <Stat label="Disabled" color="gray">
+              {everyAccount.length - enabled.length}
+            </Stat>
+          </dl>
 
-              <Section
-                title="Accounts and providers"
-                aside={
-                  usage.data === undefined ? undefined : (
-                    <Updated
-                      usage={usage.data}
-                      fetching={usage.isFetching || usage.data.refreshing}
-                    />
-                  )
-                }
-              >
-                <div {...stylex.props(styles.grid)}>
-                  {list.map((account, index) => (
-                    <PoolCard
-                      key={`account:${account.id}`}
-                      index={index}
-                      name={account.label}
-                      icon={<CodexIcon size={16} />}
-                      subtitle={
-                        <span {...stylex.props(styles.email)}>{emailOf(account.id) ?? " "}</span>
-                      }
-                      badge={<AccountBadge account={account} />}
-                    >
-                      <AccountDetail account={account} />
-                      <AccountUsage id={account.id} usage={usage.data} />
-                    </PoolCard>
-                  ))}
-                  {opencodeGo.map((account, index) => (
-                    <PoolCard
-                      key={`opencode-go:${account.id}`}
-                      index={list.length + index}
-                      name={account.label}
-                      icon={<ProviderLogo name="opencode-go" size={16} />}
-                      subtitle={<span {...stylex.props(styles.tag)}>OpenCode Go</span>}
-                      badge={<AccountBadge account={account} />}
-                    >
-                      <AccountDetail account={account} locked="OpenCode Go refused its key" />
-                      <OpencodeGoUsage id={account.id} usage={usage.data} />
-                    </PoolCard>
-                  ))}
-                  {providers.map((provider, index) => (
-                    <PoolCard
-                      key={`provider:${provider.name}`}
-                      index={everyAccount.length + index}
-                      name={providerName(provider.name)}
-                      icon={<ProviderLogo name={provider.name} size={16} />}
-                      subtitle={<span {...stylex.props(styles.tag)}>Provider</span>}
-                      badge={<ProviderBadge provider={provider} />}
-                    >
-                      <ProviderDetail provider={provider} />
-                      <p {...stylex.props(styles.muted)}>This provider doesn't report usage.</p>
-                    </PoolCard>
-                  ))}
-                </div>
-              </Section>
-            </>
-          )}
+          <Section
+            title="Accounts and providers"
+            aside={
+              <Updated usage={usage.data} fetching={usage.isFetching || usage.data.refreshing} />
+            }
+          >
+            <div {...stylex.props(styles.grid)}>
+              {list.map((account, index) => (
+                <PoolCard
+                  key={`account:${account.id}`}
+                  index={index}
+                  name={account.label}
+                  icon={<CodexIcon size={16} />}
+                  subtitle={
+                    <span {...stylex.props(styles.email)}>{emailOf(account.id) ?? " "}</span>
+                  }
+                  badge={<AccountBadge account={account} />}
+                >
+                  <AccountDetail account={account} />
+                  <AccountUsage id={account.id} usage={usage.data} />
+                </PoolCard>
+              ))}
+              {opencodeGo.map((account, index) => (
+                <PoolCard
+                  key={`opencode-go:${account.id}`}
+                  index={list.length + index}
+                  name={account.label}
+                  icon={<ProviderLogo name="opencode-go" size={16} />}
+                  subtitle={<span {...stylex.props(styles.tag)}>OpenCode Go</span>}
+                  badge={<AccountBadge account={account} />}
+                >
+                  <AccountDetail account={account} locked="OpenCode Go refused its key" />
+                  <OpencodeGoUsage id={account.id} usage={usage.data} />
+                </PoolCard>
+              ))}
+              {providers.map((provider, index) => (
+                <PoolCard
+                  key={`provider:${provider.name}`}
+                  index={everyAccount.length + index}
+                  name={providerName(provider.name)}
+                  icon={<ProviderLogo name={provider.name} size={16} />}
+                  subtitle={<span {...stylex.props(styles.tag)}>Provider</span>}
+                  badge={<ProviderBadge provider={provider} />}
+                >
+                  <ProviderDetail provider={provider} />
+                  <p {...stylex.props(styles.muted)}>This provider doesn't report usage.</p>
+                </PoolCard>
+              ))}
+            </div>
+          </Section>
         </>
       )}
       {add.dialog}

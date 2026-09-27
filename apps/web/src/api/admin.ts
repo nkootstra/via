@@ -1,14 +1,10 @@
 /**
- * The admin API's reads as TanStack Query options, and its calls for the
- * screens' mutations. Each goes through `run`, the one Effect boundary.
+ * The admin API's reads as TanStack Query options, one factory per query and
+ * the one place its key is written, and its calls for the screens' mutations.
+ * Each goes through `run`, the one Effect boundary. Routes' loaders ensure the
+ * data their page needs with these, and the page reads it with the same ones.
  */
-import {
-  type FetchQueryOptions,
-  keepPreviousData,
-  type QueryClient,
-  type QueryKey,
-  queryOptions,
-} from "@tanstack/react-query";
+import { queryOptions } from "@tanstack/react-query";
 import { Effect, Redacted } from "effect";
 import { run } from "./client.ts";
 
@@ -25,13 +21,22 @@ export const sessionQuery = queryOptions({
   staleTime: 30_000,
 });
 
-export type SignInOutcome = "signed-in" | "wrong-key" | "too-many";
+export type SignInOutcome = "signed-in" | "wrong-key" | "too-many" | "not-kept";
 
-/** Signs in with the admin key. A wrong key and the rate limit are outcomes, not failures. */
+/**
+ * Signs in with the admin key, then checks the session took: a browser that refuses
+ * or shadows the cookie would otherwise bounce straight back to sign-in without a word.
+ * A wrong key, the rate limit and a session not kept are outcomes, not failures.
+ */
 export const signIn = (key: string) =>
   run((admin) =>
     admin.session.signIn({ payload: { key: Redacted.make(key) } }).pipe(
-      Effect.as<SignInOutcome>("signed-in"),
+      Effect.andThen(
+        admin.session.get().pipe(
+          Effect.as<SignInOutcome>("signed-in"),
+          Effect.catchTag("Unauthorized", () => Effect.succeed<SignInOutcome>("not-kept")),
+        ),
+      ),
       Effect.catchTags({
         Unauthorized: () => Effect.succeed<SignInOutcome>("wrong-key"),
         TooManySignInsError: () => Effect.succeed<SignInOutcome>("too-many"),
@@ -41,33 +46,46 @@ export const signIn = (key: string) =>
 
 export const signOut = () => run((admin) => admin.session.signOut());
 
+/**
+ * How long what via sent, in the shell or over `/admin/events`, counts as fresh
+ * without the stream: long enough for the page to open the stream first. While
+ * the stream is open, it stays fresh (see `useLiveOptions`).
+ */
+const SENT_FRESH_MS = 10_000;
+
 export const accountsQuery = queryOptions({
   queryKey: ["accounts"],
   queryFn: () => run((admin) => admin.accounts.list()),
-});
-
-/** The pool as it hands accounts out; cooldowns come and go, so it refreshes every 5 s. */
-export const poolQuery = queryOptions({
-  queryKey: ["pool"],
-  queryFn: () => run((admin) => admin.pool.get()),
-  refetchInterval: 5_000,
-  placeholderData: keepPreviousData,
+  staleTime: SENT_FRESH_MS,
 });
 
 /**
- * Rate limit windows, as via last fetched them in the background, so asking is
- * cheap: every 5 s, and every second while via is fetching newer ones.
+ * The pool as it hands accounts out. via pushes its changes; without the stream,
+ * it is asked for every 5 s, as cooldowns come and go.
+ */
+export const poolQuery = queryOptions({
+  queryKey: ["pool"],
+  queryFn: () => run((admin) => admin.pool.get()),
+  staleTime: SENT_FRESH_MS,
+  refetchInterval: 5_000,
+});
+
+/**
+ * Rate limit windows, as via last fetched them in the background. via pushes
+ * them; without the stream, asking is cheap: every 5 s, and every second while
+ * via is fetching newer ones.
  */
 export const usageQuery = queryOptions({
   queryKey: ["usage"],
   queryFn: () => run((admin) => admin.usage.get()),
+  staleTime: SENT_FRESH_MS,
   refetchInterval: (query) => (query.state.data?.refreshing === true ? 1_000 : 5_000),
-  placeholderData: keepPreviousData,
 });
 
 export const keysQuery = queryOptions({
   queryKey: ["keys"],
   queryFn: () => run((admin) => admin.keys.list()),
+  staleTime: SENT_FRESH_MS,
 });
 
 export const modelsQuery = queryOptions({
@@ -75,17 +93,6 @@ export const modelsQuery = queryOptions({
   queryFn: () => run((admin) => admin.models.list()),
   staleTime: 60_000,
 });
-
-/**
- * Starts fetching `query` when it has no data yet, without waiting: a route's
- * loader, run when the viewer points at its link, so the page opens on data.
- */
-export function warm<Data, Key extends QueryKey>(
-  queryClient: QueryClient,
-  query: FetchQueryOptions<Data, Error, Data, Key> & { readonly queryKey: Key },
-) {
-  if (queryClient.getQueryData(query.queryKey) === undefined) void queryClient.prefetchQuery(query);
-}
 
 export const updateAccount = (
   id: string,
@@ -97,8 +104,15 @@ export const removeAccount = (id: string) =>
 
 export const startLogin = () => run((admin) => admin.accounts.login());
 
-export const loginStatus = (id: string) =>
-  run((admin) => admin.accounts.loginStatus({ params: { id } }));
+/** Where a device-code login stands: asked every 2 s while it is pending, and never kept. */
+export const loginStatusQuery = (id: string | undefined) =>
+  queryOptions({
+    queryKey: ["login", id],
+    queryFn: () => run((admin) => admin.accounts.loginStatus({ params: { id: id ?? "" } })),
+    enabled: id !== undefined,
+    refetchInterval: (query) => (query.state.data?.status === "pending" ? 2_000 : false),
+    gcTime: 0,
+  });
 
 export type CreateKeyOutcome =
   | { readonly created: true; readonly name: string; readonly key: string }
@@ -121,6 +135,7 @@ export const revokeKey = (id: string) =>
 export const opencodeGoQuery = queryOptions({
   queryKey: ["opencode-go"],
   queryFn: () => run((admin) => admin.opencodeGo.list()),
+  staleTime: SENT_FRESH_MS,
 });
 
 export type AddOpencodeGoOutcome =

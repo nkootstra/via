@@ -12,7 +12,8 @@ import {
   Option,
   Ref,
   Scope,
-  SynchronizedRef,
+  Stream,
+  SubscriptionRef,
 } from "effect";
 import { accountUsage } from "./account-pool.ts";
 
@@ -96,28 +97,29 @@ const make = Effect.gen(function* () {
     return snapshot;
   });
 
-  const running = yield* SynchronizedRef.make(
+  // Changes when a refresh starts, and again once it has kept what it fetched.
+  const running = yield* SubscriptionRef.make(
     Option.none<Deferred.Deferred<UsageSnapshot, Effect.Error<typeof fetchAll>>>(),
   );
 
   /** The refresh running now, or a new one when none is. */
-  const start = SynchronizedRef.modifyEffect(running, (current) =>
+  const start = SubscriptionRef.modifySomeEffect(running, (current) =>
     Option.match(current, {
-      onSome: (done) => Effect.succeed([done, current] as const),
+      onSome: (done) => Effect.succeed([done, Option.none()] as const),
       onNone: () =>
         Effect.gen(function* () {
           const done = yield* Deferred.make<UsageSnapshot, Effect.Error<typeof fetchAll>>();
 
           yield* fetchAll.pipe(
             Effect.onExit((exit) =>
-              SynchronizedRef.set(running, Option.none()).pipe(
+              SubscriptionRef.set(running, Option.none()).pipe(
                 Effect.andThen(Deferred.done(done, exit)),
               ),
             ),
             Effect.forkIn(scope),
           );
 
-          return [done, Option.some(done)] as const;
+          return [done, Option.some(Option.some(done))] as const;
         }),
     }),
   );
@@ -143,7 +145,7 @@ const make = Effect.gen(function* () {
       yield* start;
     }
 
-    return { ...shown, refreshing: Option.isSome(yield* SynchronizedRef.get(running)) };
+    return { ...shown, refreshing: Option.isSome(yield* SubscriptionRef.get(running)) };
   });
 
   return {
@@ -161,6 +163,11 @@ const make = Effect.gen(function* () {
      * minute old or more, and says whether one is running.
      */
     latest,
+    /**
+     * Signals now, then whenever what `latest` answers may have changed: when a
+     * refresh starts, and once it has kept what it fetched.
+     */
+    changes: SubscriptionRef.changes(running).pipe(Stream.map(() => undefined)),
   };
 });
 

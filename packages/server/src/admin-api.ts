@@ -23,7 +23,7 @@ import {
 } from "effect/unstable/httpapi";
 
 /** An account as the admin API shows it: everything but its tokens. */
-export const AdminAccount = Schema.Struct({
+const AdminAccount = Schema.Struct({
   id: Schema.String,
   label: Schema.String,
   email: Schema.String,
@@ -124,7 +124,7 @@ const OpencodeGoUsage = Schema.Union([
  * The latest usage via has, without waiting for any: an account it has none for
  * yet is left out. `refreshing` says it is asking for newer usage now.
  */
-export const Usage = Schema.Struct({
+const Usage = Schema.Struct({
   accounts: Schema.Array(AccountUsage),
   opencodeGo: Schema.Array(OpencodeGoUsage),
   refreshing: Schema.Boolean,
@@ -159,7 +159,7 @@ const PoolProvider = Schema.Struct({ name: Schema.String, state: ProviderState }
  * Everything that serves requests: the ChatGPT accounts, the OpenCode Go
  * accounts, and the configured providers.
  */
-export const Pool = Schema.Struct({
+const Pool = Schema.Struct({
   accounts: Schema.Array(PoolAccount),
   opencodeGo: Schema.Array(PoolAccount),
   providers: Schema.Array(PoolProvider),
@@ -167,6 +167,31 @@ export const Pool = Schema.Struct({
 
 /** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
+
+/**
+ * Everything the admin UI's pages show that via knows without asking anyone: the
+ * pool, the latest usage, the ChatGPT and OpenCode Go accounts (keys masked), the
+ * API keys and the models. A signed-in page gets it in its shell, and `GET /admin/events`
+ * sends it again whenever it changes. `session` says the page is signed in, which
+ * it always is when it gets this.
+ */
+export const AdminState = Schema.Struct({
+  session: Schema.Literal(true),
+  /** The version of the via that sent it: a page built for another was updated under it. */
+  version: Schema.String,
+  pool: Pool,
+  usage: Usage,
+  accounts: Schema.Array(AdminAccount),
+  opencodeGo: Schema.Array(AdminOpencodeGoAccount),
+  keys: Schema.Array(AdminKey),
+  models: Schema.Array(Model),
+});
+
+/** The one event `GET /admin/events` sends: the whole admin state, as JSON. */
+export const StateEvent = Schema.Struct({
+  event: Schema.Literal("state"),
+  data: Schema.fromJsonString(AdminState),
+});
 
 /** No login with this id was started since the server did; the admin API answers it as a 404. */
 export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()(
@@ -344,6 +369,16 @@ class PoolGroup extends HttpApiGroup.make("pool")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
+/** The admin state, pushed to a page as it changes, so the page needn't poll. */
+class EventsGroup extends HttpApiGroup.make("events")
+  .add(
+    HttpApiEndpoint.get("stream", "/events", {
+      success: HttpApiSchema.StreamSse({ events: StateEvent }),
+    }),
+  )
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
 class ModelsGroup extends HttpApiGroup.make("models")
   .add(HttpApiEndpoint.get("list", "/models", { success: Schema.Array(Model) }))
   .middleware(AdminAuthorization)
@@ -357,6 +392,7 @@ export class AdminApi extends HttpApi.make("via-admin")
   .add(UsageGroup)
   .add(PoolGroup)
   .add(ModelsGroup)
+  .add(EventsGroup)
   .annotate(OpenApi.Title, "via admin API")
   .annotate(
     OpenApi.Description,

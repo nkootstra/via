@@ -1,7 +1,18 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { CorruptFileError } from "@via/config";
-import { Clock, Context, Duration, Effect, FileSystem, Layer, Option, Schema } from "effect";
+import {
+  Clock,
+  Context,
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Ref,
+  Schema,
+  Stream,
+} from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
 import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "./index.ts";
@@ -325,5 +336,34 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       ),
     // Every run writes real files; a loaded machine (the whole repo's tests at once) needs longer.
     { timeout: 20_000 },
+  );
+
+  it.effect("signals now, then after every change it writes, but not when read", () =>
+    withKeyStore(() =>
+      Effect.gen(function* () {
+        const store = yield* KeyStore;
+        const signals = yield* Ref.make(0);
+        yield* store.changes.pipe(
+          Stream.runForEach(() => Ref.update(signals, (n) => n + 1)),
+          Effect.forkChild,
+        );
+
+        const settled = Effect.andThen(
+          Effect.repeat(Effect.yieldNow, { times: 20 }),
+          Ref.get(signals),
+        );
+
+        expect(yield* settled).toBe(1);
+        const { key } = yield* store.create("laptop");
+        yield* store.list;
+        expect(yield* settled).toBe(2);
+        // The first use is written; another within the minute isn't.
+        yield* store.verify(key);
+        yield* store.verify(key);
+        expect(yield* settled).toBe(3);
+        yield* store.revoke("laptop");
+        expect(yield* settled).toBe(4);
+      }),
+    ),
   );
 });

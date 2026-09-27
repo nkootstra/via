@@ -1,6 +1,7 @@
 import { cleanup, configure } from "@testing-library/react";
 import { MotionGlobalConfig } from "motion";
-import { afterEach } from "vitest";
+import { afterEach, vi } from "vitest";
+import { FakeEventSource, sources } from "./event-source.ts";
 
 // Tests assert behaviour, not motion: every animation completes at once.
 MotionGlobalConfig.skipAnimations = true;
@@ -11,8 +12,12 @@ configure({ asyncUtilTimeout: 5000 });
 
 afterEach(cleanup);
 
-// The app keeps its queries in sessionStorage; each test starts from a fresh tab.
-// The build's own tests run in Node, which has none.
+// happy-dom has no EventSource; the build's own tests run in Node, which needs none.
+if ("document" in globalThis) vi.stubGlobal("EventSource", FakeEventSource);
+
+// Each test starts from a fresh page: no state from a shell, no stream open.
 afterEach(() => {
-  if ("sessionStorage" in globalThis) sessionStorage.clear();
+  sources.length = 0;
+
+  if ("document" in globalThis) document.getElementById("via-state")?.remove();
 });

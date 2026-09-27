@@ -1,5 +1,15 @@
 import { readJsonFile, writeJsonFile } from "@via/config";
-import { Clock, Context, Effect, FileSystem, Layer, Schema, SynchronizedRef } from "effect";
+import {
+  Clock,
+  Context,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Schema,
+  type Stream,
+  SubscriptionRef,
+} from "effect";
 import type { AccountState, PoolState } from "./select.ts";
 
 /** The cooldowns still running, by account id: what outlives a restart. */
@@ -20,25 +30,26 @@ const running = (state: PoolState, now: number): typeof Cooldowns.Type =>
 const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     // Updates run one at a time, so each decides on the latest state and the file
-    // never ends up with an older one.
-    const states = yield* SynchronizedRef.make(initial);
+    // never ends up with an older one. Only an update that changes something is published.
+    const states = yield* SubscriptionRef.make(initial);
 
     /** Sets `id`'s state to what `next` makes of it, unless that is none; says whether it did. */
     const update = (
       id: string,
       next: (current: AccountState | undefined) => AccountState | undefined,
     ) =>
-      SynchronizedRef.modifyEffect(states, (current) => {
+      SubscriptionRef.modifySomeEffect(states, (current) => {
         const state = next(current[id]);
 
-        if (state === undefined) return Effect.succeed([false, current] as const);
+        if (state === undefined) return Effect.succeed([false, Option.none()] as const);
         const updated = { ...current, [id]: state };
 
-        return Effect.as(save(updated), [true, updated] as const);
+        return Effect.as(save(updated), [true, Option.some(updated)] as const);
       });
 
     return PoolStates.of({
-      get: SynchronizedRef.get(states),
+      get: SubscriptionRef.get(states),
+      changes: SubscriptionRef.changes(states),
       coolDown: (id, until, reason) =>
         update(id, (current) =>
           current?.status === "auth_error" ||
@@ -49,11 +60,11 @@ const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void
       lockOut: (id, reason) => Effect.asVoid(update(id, () => ({ status: "auth_error", reason }))),
       // Nothing to save: the file keeps only cooldowns, and this leaves them as they are.
       liftLockOut: (id) =>
-        SynchronizedRef.update(states, (current) => {
-          if (current[id]?.status !== "auth_error") return current;
+        SubscriptionRef.modifySome(states, (current) => {
+          if (current[id]?.status !== "auth_error") return [undefined, Option.none()] as const;
           const { [id]: _lifted, ...others } = current;
 
-          return others;
+          return [undefined, Option.some(others)] as const;
         }),
     });
   });
@@ -63,6 +74,8 @@ export class PoolStates extends Context.Service<
   PoolStates,
   {
     readonly get: Effect.Effect<PoolState>;
+    /** The state now, then the state after every update that changes it. */
+    readonly changes: Stream.Stream<PoolState>;
     /**
      * Takes the account out of rotation until `until`, unless it is locked out
      * or already cooling at least that long: a cooldown is never shortened.

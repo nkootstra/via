@@ -1,22 +1,30 @@
-import { type Account, AccountNotFoundError, AccountStore } from "@via/codex-auth";
+import { AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
-import {
-  maskKey,
-  type OpencodeGoAccount,
-  OpencodeGoAccountNotFoundError,
-  OpencodeGoAccounts,
-  Providers,
-  providerState,
-} from "@via/providers";
-import { Clock, type Duration, Effect, Layer, Redacted, Schema } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { OpencodeGoAccountNotFoundError, OpencodeGoAccounts, Providers } from "@via/providers";
+import { type Duration, Effect, Layer, Redacted, Schema, Stream } from "effect";
+import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
-import { UsageSnapshots } from "@via/account-pool";
-import { type PoolState, PoolStates } from "@via/pool";
 import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
+import { hasLiveSession, signOutAll, staleSessionCookies } from "./session-cookie.ts";
+import {
+  adminAccounts,
+  adminOpencodeGo,
+  adminPool,
+  adminUsage,
+  type OpencodeGoEnvironment,
+  type StateOptions,
+  opencodeGoAccount,
+  withoutTokens,
+} from "./admin-state.ts";
+import { adminEvents } from "./admin-events.ts";
 import { ModelCatalog } from "./catalog.ts";
+import { keepAlive } from "./keep-alive.ts";
 import { Logins } from "./logins.ts";
+import { RequestLog } from "./request-log.ts";
+import { type EmbeddedUi, uiRoutes } from "./ui.ts";
+
+export type { OpencodeGoEnvironment } from "./admin-state.ts";
 
 /** The admin key (`VIA_ADMIN_KEY`) is set, but too short to withstand guessing. */
 class AdminKeyTooShortError extends Schema.TaggedError<AdminKeyTooShortError>()(
@@ -63,10 +71,11 @@ const authorization = Layer.effect(
 
           return yield* handler;
         }),
-      session: (handler, { credential }) =>
+      session: (handler) =>
         Effect.gen(function* () {
-          if (!(yield* sessions.verify(credential))) return yield* invalid;
           const request = yield* HttpServerRequest.HttpServerRequest;
+
+          if (!(yield* hasLiveSession(sessions, request))) return yield* invalid;
 
           if (!reads.has(request.method) && !fromOwnPage(request)) {
             return yield* new Forbidden({
@@ -82,7 +91,8 @@ const authorization = Layer.effect(
 
 /**
  * Sets the session cookie to `token`. It is `Secure` when the browser signed in
- * over HTTPS, which its `Origin` says even behind a proxy that ends TLS.
+ * over HTTPS, which its `Origin` says even behind a proxy that ends TLS. Its path
+ * is `/`, so loading a page under `/ui` sends it too, for the page's state.
  */
 const setSessionCookie = (token: Redacted.Redacted<string> | "", maxAge: Duration.Input) =>
   Effect.gen(function* () {
@@ -92,7 +102,7 @@ const setSessionCookie = (token: Redacted.Redacted<string> | "", maxAge: Duratio
       httpOnly: true,
       secure: originOf(request)?.protocol === "https:",
       sameSite: "strict",
-      path: "/admin",
+      path: "/",
       maxAge,
     });
   });
@@ -110,23 +120,12 @@ const sessions = HttpApiBuilder.group(AdminApi, "session", (handlers) =>
       .handle("get", () => Effect.void)
       .handle("signOut", () =>
         Effect.gen(function* () {
-          const token = (yield* HttpServerRequest.HttpServerRequest).cookies[session.key];
-
-          if (token !== undefined) yield* admin.signOut(Redacted.make(token));
+          yield* signOutAll(admin, yield* HttpServerRequest.HttpServerRequest);
           yield* setSessionCookie("", 0);
         }),
       );
   }),
 );
-
-const withoutTokens = ({ id, label, email, plan, enabled, createdAt }: Account) => ({
-  id,
-  label,
-  email,
-  plan,
-  enabled,
-  createdAt,
-});
 
 /**
  * The account with id `id`. Unlike the CLI, the admin API doesn't take a label or email:
@@ -145,11 +144,7 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
     const logins = yield* Logins;
 
     return handlers
-      .handle("list", () =>
-        Effect.gen(function* () {
-          return (yield* (yield* AccountStore).list).map(withoutTokens);
-        }).pipe(Effect.orDie),
-      )
+      .handle("list", () => adminAccounts)
       .handle("login", () => logins.start())
       .handle("loginStatus", ({ params }) =>
         Effect.map(logins.status(params.id), (login) =>
@@ -188,28 +183,6 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
   }),
 );
 
-/** The deprecated environment variable OpenCode Go's key is read from, and its key, while it is set. */
-export type OpencodeGoEnvironment = {
-  readonly variable: string;
-  readonly apiKey: Redacted.Redacted<string>;
-};
-
-/**
- * `account` as the admin API shows it: its key masked, and the variable it came
- * from while `environment` still has it.
- */
-const opencodeGoAccount = (
-  account: OpencodeGoAccount,
-  environment: OpencodeGoEnvironment | undefined,
-) => {
-  const { id, label, apiKey, enabled, createdAt } = account;
-  const shown = { id, label, key: maskKey(apiKey), enabled, createdAt };
-
-  return environment !== undefined && Redacted.value(environment.apiKey) === Redacted.value(apiKey)
-    ? { ...shown, environmentVariable: environment.variable }
-    : shown;
-};
-
 /** The OpenCode Go account with id `id`; like the ChatGPT accounts, never by label. */
 const opencodeGoById = Effect.fn("admin.opencodeGoById")(function* (id: string) {
   const account = (yield* (yield* OpencodeGoAccounts).list).find((a) => a.id === id);
@@ -221,13 +194,7 @@ const opencodeGoById = Effect.fn("admin.opencodeGoById")(function* (id: string) 
 const opencodeGo = (environment: OpencodeGoEnvironment | undefined) =>
   HttpApiBuilder.group(AdminApi, "opencodeGo", (handlers) =>
     handlers
-      .handle("list", () =>
-        Effect.gen(function* () {
-          const all = yield* (yield* OpencodeGoAccounts).list;
-
-          return all.map((account) => opencodeGoAccount(account, environment));
-        }).pipe(Effect.orDie),
-      )
+      .handle("list", () => adminOpencodeGo(environment))
       .handle("add", ({ payload }) =>
         Effect.gen(function* () {
           // Checked first, so a mistyped key is never stored.
@@ -287,114 +254,37 @@ const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
     ),
 );
 
-const iso = (millis: number) => new Date(millis).toISOString();
-
-/**
- * The latest usage via has, answered at once: the usage poll and a snapshot a
- * minute old or missing refresh it in the background.
- */
-const latestUsage = Effect.flatMap(UsageSnapshots, (snapshots) => snapshots.latest).pipe(
-  // The account files are via's own; one it can't read is a bug, not a request error.
-  Effect.orDie,
-);
-
 const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
-  handlers.handle("get", () =>
-    Effect.gen(function* () {
-      const latest = yield* latestUsage;
-
-      return {
-        accounts: latest.accounts.map((entry) => {
-          const { id, label } = entry.account;
-          const fetchedAt = iso(entry.fetchedAt);
-
-          return "error" in entry
-            ? { id, label, fetchedAt, error: entry.error }
-            : {
-                id,
-                label,
-                fetchedAt,
-                windows: entry.windows.map(({ windowMinutes, usedPercent, resetsAt }) => ({
-                  windowMinutes,
-                  usedPercent,
-                  resetsAt: iso(resetsAt),
-                })),
-              };
-        }),
-        opencodeGo: latest.opencodeGo.map((entry) => {
-          const { id, label } = entry.account;
-          const fetchedAt = iso(entry.fetchedAt);
-
-          return "error" in entry
-            ? { id, label, fetchedAt, error: entry.error }
-            : { id, label, fetchedAt, windows: entry.windows };
-        }),
-        refreshing: latest.refreshing,
-      };
-    }),
-  ),
+  handlers.handle("get", () => adminUsage),
 );
-
-/** Account `id`'s state in `state` at `now`: a cooldown that has run out counts as available. */
-const poolState = (state: PoolState, id: string, now: number) => {
-  const current = state[id];
-
-  if (current === undefined || (current.status === "cooling" && current.until <= now))
-    return { status: "available" as const };
-
-  return current.status === "cooling"
-    ? {
-        status: current.status,
-        until: new Date(current.until).toISOString(),
-        reason: current.reason,
-      }
-    : current;
-};
 
 const pool = HttpApiBuilder.group(AdminApi, "pool", (handlers) =>
-  Effect.gen(function* () {
-    const providers = yield* Providers;
-
-    return handlers.handle("get", () =>
-      Effect.gen(function* () {
-        // The account files are via's own; one it can't read is a bug, not a request error.
-        const all = yield* Effect.orDie((yield* AccountStore).list);
-        const goAccounts = yield* Effect.orDie((yield* OpencodeGoAccounts).list);
-        const state = yield* (yield* PoolStates).get;
-        const now = yield* Clock.currentTimeMillis;
-
-        const inPool = ({
-          id,
-          label,
-          enabled,
-        }: {
-          id: string;
-          label: string;
-          enabled: boolean;
-        }) => ({
-          id,
-          label,
-          enabled,
-          state: poolState(state, id, now),
-        });
-
-        return {
-          accounts: all.map(inPool),
-          opencodeGo: goAccounts.map(inPool),
-          // A provider with its own key reports no usage, so it is always there to try.
-          providers: providers.names.map((name) => ({
-            name,
-            state: providerState(undefined, now),
-          })),
-        };
-      }),
-    );
-  }),
+  handlers.handle("get", () => adminPool),
 );
 
 const models = HttpApiBuilder.group(AdminApi, "models", (handlers) =>
   handlers.handle("list", () => Effect.flatMap(ModelCatalog, (catalog) => catalog.list)),
 );
+
+// Answered raw, to keep a quiet stream alive with comments, which the typed events can't carry.
+const events = (options: StateOptions) =>
+  HttpApiBuilder.group(AdminApi, "events", (handlers) =>
+    Effect.gen(function* () {
+      const stream = adminEvents(options);
+      const context = yield* Effect.context<Stream.Services<typeof stream>>();
+
+      return handlers.handleRaw("stream", () =>
+        Effect.gen(function* () {
+          const body = (yield* RequestLog).timed(keepAlive(stream));
+
+          return HttpServerResponse.stream(Stream.provideContext(body, context), {
+            contentType: "text/event-stream",
+            headers: { "cache-control": "no-store" },
+          });
+        }),
+      );
+    }),
+  );
 
 /**
  * The reference page shows the spec and nothing else: system fonts rather than
@@ -409,14 +299,22 @@ const scalarConfig = {
 };
 
 /**
- * The admin API under `/admin`, behind `adminKey` (`VIA_ADMIN_KEY`). Without that
- * key the routes are not registered at all, so `/admin` answers 404 like any unknown
- * path. Its OpenAPI spec and a Scalar reference page for it need no key.
+ * The admin API under `/admin`, behind `adminKey` (`VIA_ADMIN_KEY`), and with `ui`,
+ * the admin UI at `/ui`, whose signed-in pages share the API's sessions. Without
+ * that key neither is registered at all, so both answer 404 like any unknown path.
+ * The API's OpenAPI spec and a Scalar reference page for it need no key.
  */
-export const adminRoutes = (
-  adminKey: Redacted.Redacted<string> | undefined,
-  opencodeGoEnvironment?: OpencodeGoEnvironment,
-) =>
+export const adminRoutes = ({
+  adminKey,
+  ui,
+  opencodeGoEnvironment,
+  version,
+}: {
+  readonly adminKey: Redacted.Redacted<string> | undefined;
+  readonly ui: EmbeddedUi | undefined;
+  readonly opencodeGoEnvironment: OpencodeGoEnvironment | undefined;
+  readonly version: string;
+}) =>
   Layer.unwrap(
     Effect.gen(function* () {
       if (adminKey === undefined) return Layer.empty;
@@ -424,7 +322,7 @@ export const adminRoutes = (
 
       if (length < 32) return yield* new AdminKeyTooShortError({ length });
 
-      return Layer.merge(
+      return Layer.mergeAll(
         HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
           Layer.provide([
             sessions,
@@ -434,13 +332,17 @@ export const adminRoutes = (
             usage,
             pool,
             models,
+            events({ environment: opencodeGoEnvironment, version }),
           ]),
           Layer.provide([authorization, Logins.layer]),
-          Layer.provide(AdminSessions.layer(adminKey)),
         ),
         // Scalar's script is served inline rather than from a CDN: the page is where
         // the admin key gets typed in, so it runs no third-party code.
         HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }),
-      );
+        ui === undefined
+          ? Layer.empty
+          : uiRoutes(ui, { environment: opencodeGoEnvironment, version }),
+        staleSessionCookies,
+      ).pipe(Layer.provide(AdminSessions.layer(adminKey)));
     }),
   );

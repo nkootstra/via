@@ -229,17 +229,52 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect("serves an API reference page for the spec", () =>
+  it.effect("describes /admin/events in its spec as server-sent state events", () =>
     withVia(
       ok,
       (via) =>
         Effect.gen(function* () {
-          const response = yield* via.get("/admin/docs", null);
-          expect(response.status).toBe(200);
-          expect(response.headers["content-type"]).toMatch(/^text\/html/);
+          const spec = yield* Schema.decodeUnknownEffect(
+            Schema.Struct({
+              paths: Schema.Struct({
+                "/admin/events": Schema.Struct({
+                  get: Schema.Struct({
+                    responses: Schema.Struct({
+                      "200": Schema.Struct({
+                        content: Schema.Record(Schema.String, Schema.Json),
+                      }),
+                    }),
+                  }),
+                }),
+              }),
+            }),
+          )(yield* (yield* via.get("/admin/openapi.json", null)).json);
+
+          expect(Object.keys(spec.paths["/admin/events"].get.responses["200"].content)).toEqual([
+            "text/event-stream",
+          ]);
         }),
       { adminKey },
     ),
+  );
+
+  it.effect(
+    "serves an API reference page for the spec",
+    () =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.get("/admin/docs", null);
+            expect(response.status).toBe(200);
+            expect(response.headers["content-type"]).toMatch(/^text\/html/);
+          }),
+        { adminKey },
+      ),
+    // The first request for the page loads Scalar's inlined script, which takes a
+    // loaded CI runner longer than the default 5 s; the reference-page tests after it
+    // are fast.
+    30_000,
   );
 
   it.effect("keeps the reference page to system fonts instead of Scalar's web fonts", () =>
@@ -1027,7 +1062,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           expect(attributes.toSorted()).toEqual([
             "HttpOnly",
             "Max-Age=43200",
-            "Path=/admin",
+            "Path=/",
             "SameSite=Strict",
           ]);
         }),
@@ -1099,6 +1134,94 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           expect(
             (yield* via.get("/admin/accounts", null, { cookie: "via_session=made-up" })).status,
           ).toBe(401);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("finds the live session among stale ones a browser still sends", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          // A browser that signed in before the cookie's path widened from /admin to /
+          // keeps that old cookie, and sends it first to /admin: the more specific path.
+          const cookie = `via_session=from-before; ${yield* sessionCookie(via)}`;
+          expect((yield* via.get("/admin/session", null, { cookie })).status).toBe(200);
+          expect((yield* via.get("/admin/accounts", null, { cookie })).status).toBe(200);
+          expect(
+            (yield* via.patch(
+              `/admin/accounts/${yield* accountId(via, "a")}`,
+              { label: "work" },
+              null,
+              fromTheUi(via, cookie),
+            )).status,
+          ).toBe(200);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("deletes a session cookie that no longer signs in, and the one from before /", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          // Every Set-Cookie of the answer: an HttpClient response keeps only one per name.
+          const expired = (cookie?: string) =>
+            Effect.promise(() =>
+              fetch(`${via.baseUrl}/admin/session`, {
+                headers: cookie === undefined ? {} : { cookie },
+              }),
+            ).pipe(
+              Effect.map((response) => {
+                const sets = response.headers.getSetCookie();
+
+                return {
+                  status: response.status,
+                  root: sets.some((set) => set.startsWith("via_session=; Max-Age=0; Path=/;")),
+                  admin: sets.some((set) =>
+                    set.startsWith("via_session=; Max-Age=0; Path=/admin;"),
+                  ),
+                };
+              }),
+            );
+
+          // A session that ended (or a via that restarted) leaves a dead cookie behind.
+          expect(yield* expired("via_session=ended")).toEqual({
+            status: 401,
+            root: true,
+            admin: true,
+          });
+
+          // A live session keeps its cookie; only the one from the old /admin path goes.
+          const cookie = `via_session=ended; ${yield* sessionCookie(via)}`;
+          expect(yield* expired(cookie)).toEqual({ status: 200, root: false, admin: true });
+
+          // No session cookie at all: nothing to delete.
+          expect(yield* expired()).toEqual({ status: 401, root: false, admin: false });
+
+          // Signing in while a dead cookie is still sent keeps the new session's cookie.
+          const signedIn = yield* Effect.promise(() =>
+            fetch(`${via.baseUrl}/admin/session`, {
+              method: "POST",
+              headers: {
+                cookie: "via_session=ended",
+                "content-type": "application/json",
+                origin: via.baseUrl,
+              },
+              body: JSON.stringify({ key: adminKey }),
+            }),
+          );
+
+          const sets = signedIn.headers.getSetCookie();
+          expect(signedIn.status).toBe(204);
+          expect(sets.some((set) => /^via_session=[^;]+; Max-Age=43200; Path=\/;/.test(set))).toBe(
+            true,
+          );
+          expect(sets.some((set) => set.startsWith("via_session=; Max-Age=0; Path=/;"))).toBe(
+            false,
+          );
         }),
       { adminKey },
     ),

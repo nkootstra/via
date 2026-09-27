@@ -96,6 +96,7 @@ const styles = stylex.create({
 
 type Problem =
   | { readonly kind: "wrong-key" }
+  | { readonly kind: "not-kept" }
   | { readonly kind: "too-many"; readonly until: number }
   | { readonly kind: "unreachable"; readonly message: string };
 
@@ -112,6 +113,8 @@ function Alert({ problem }: { readonly problem: Problem }) {
         <span aria-hidden="true" {...stylex.props(styles.alertDot)} />
         <span>
           {problem.kind === "wrong-key" && "That key isn't right. Check it and try again."}
+          {problem.kind === "not-kept" &&
+            "via took the key, but this browser didn't keep the session. Clear this site's cookies and sign in again."}
           {problem.kind === "too-many" && <Lockout until={problem.until} />}
           {problem.kind === "unreachable" && problem.message}
         </span>
@@ -143,6 +146,8 @@ function SignIn() {
     mutationFn: signIn,
     onSuccess: (outcome) => {
       if (outcome === "wrong-key") return setProblem({ kind: "wrong-key" });
+
+      if (outcome === "not-kept") return setProblem({ kind: "not-kept" });
 
       if (outcome === "too-many")
         return setProblem({ kind: "too-many", until: Date.now() + LOCKOUT_MS });
