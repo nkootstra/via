@@ -14,6 +14,7 @@ import {
   Badge,
   Button,
   CopyField,
+  EmptyState,
   Dialog,
   DialogClose,
   DialogContent,
@@ -25,10 +26,15 @@ import {
   Field,
   Input,
   Menu,
+  Meter,
   MenuContent,
   MenuItem,
   MenuSeparator,
   MenuTrigger,
+  NavItem,
+  NavList,
+  Skeleton,
+  Switch,
   TabItem,
   TabPanel,
   Tabs,
@@ -170,6 +176,8 @@ function ToastButtons() {
 
 function Gallery() {
   const [label, setLabel] = useState("work");
+  const [enabled, setEnabled] = useState(true);
+  const [page, setPage] = useState("Overview");
 
   return (
     <>
@@ -317,6 +325,62 @@ function Gallery() {
             </AlertDialogContent>
           </AlertDialog>
         </div>
+      </Section>
+
+      <Section title="NavList (the current page springs, hover glides)">
+        <div {...stylex.props(styles.stack)}>
+          <NavList label="Pages">
+            {["Overview", "Accounts", "Keys", "Models"].map((item) => (
+              <NavItem
+                key={item}
+                label={item}
+                current={page === item}
+                render={(props) => (
+                  <a
+                    {...props}
+                    href={`#${item}`}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      setPage(item);
+                    }}
+                  >
+                    {props.children}
+                  </a>
+                )}
+              />
+            ))}
+          </NavList>
+        </div>
+      </Section>
+
+      <Section title="Switch and Meter">
+        <div {...stylex.props(styles.row)}>
+          <Switch aria-label="Enabled" checked={enabled} onCheckedChange={setEnabled} />
+          <Switch
+            aria-label="Disabled switch"
+            checked={false}
+            onCheckedChange={() => {}}
+            disabled
+          />
+        </div>
+        <div {...stylex.props(styles.stack)}>
+          <Meter label="5 hours" value={34} detail="Resets in 2 h 10 min" />
+          <Meter label="7 days" value={76} detail="Resets Tue 09:00" />
+          <Meter label="Monthly" value={96} />
+        </div>
+      </Section>
+
+      <Section title="Skeleton and EmptyState">
+        <div {...stylex.props(styles.stack)}>
+          <Skeleton width="60%" />
+          <Skeleton />
+          <Skeleton width="40%" height="28px" />
+        </div>
+        <EmptyState
+          title="No accounts yet"
+          description="Add a ChatGPT account and via starts pooling it."
+          action={<Button>Add account</Button>}
+        />
       </Section>
 
       <Section title="Toast">
