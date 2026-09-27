@@ -58,6 +58,10 @@ const StartedLogin = Schema.Struct({
 const LoginStatus = Schema.Union([
   Schema.Struct({ status: Schema.Literal("pending") }),
   Schema.Struct({ status: Schema.Literal("added"), account: AdminAccount }),
+  Schema.Struct({ status: Schema.Literal("updated"), account: AdminAccount }).annotate({
+    description:
+      "The account was already in the pool: it was signed in again with fresh tokens, and taken out of any lockout.",
+  }),
   Schema.Struct({ status: Schema.Literal("failed"), error: Schema.String }),
 ]);
 
