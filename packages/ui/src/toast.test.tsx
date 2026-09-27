@@ -52,4 +52,39 @@ describe("Toast", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
+
+  it("offers an action button, which a toast that stays until acted on can use", async () => {
+    const user = userEvent.setup();
+    let reloaded = 0;
+
+    function Updated() {
+      const toast = useToast();
+
+      return (
+        <Button
+          onClick={() =>
+            toast.add({
+              title: "Updated",
+              timeout: 0,
+              actionProps: { children: "Reload", onClick: () => reloaded++ },
+            })
+          }
+        >
+          Update
+        </Button>
+      );
+    }
+
+    render(
+      <ToastProvider>
+        <Updated />
+      </ToastProvider>,
+    );
+    await user.click(screen.getByRole("button", { name: "Update" }));
+    const toast = await screen.findByRole("dialog", { name: "Updated" });
+
+    await user.click(within(toast).getByRole("button", { name: "Reload" }));
+
+    expect(reloaded).toBe(1);
+  });
 });
