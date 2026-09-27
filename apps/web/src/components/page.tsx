@@ -59,6 +59,9 @@ const styles = stylex.create({
     gap: space.s3,
   },
   sectionTitle: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.s2,
     margin: 0,
     fontSize: text.subtitle,
     fontVariationSettings: weights.semibold,
@@ -122,17 +125,23 @@ export function Page({
 
 export function Section({
   title,
+  icon,
   aside,
   children,
 }: {
   readonly title: string;
+  /** A mark shown before the title, such as a provider's logo. */
+  readonly icon?: ReactNode;
   readonly aside?: ReactNode;
   readonly children?: ReactNode;
 }) {
   return (
     <section aria-label={title} {...stylex.props(styles.section)}>
       <div {...stylex.props(styles.sectionHeader)}>
-        <h2 {...stylex.props(styles.sectionTitle)}>{title}</h2>
+        <h2 {...stylex.props(styles.sectionTitle)}>
+          {icon}
+          {title}
+        </h2>
         {aside !== undefined && <span {...stylex.props(styles.sectionAside)}>{aside}</span>}
       </div>
       {children}

@@ -6,7 +6,7 @@ import { colors, fonts, radii, space, text, weights } from "@via/ui/tokens.style
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { accountsQuery, poolQuery, usageQuery } from "../../api/admin.ts";
-import { AccountsIcon, PlusIcon, ProviderIcon } from "../../components/icons.tsx";
+import { AccountsIcon, CodexIcon, PlusIcon, ProviderLogo } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { countdown, formatTime, useNow, windowName } from "../../lib/time.ts";
 import type { PoolAccount, Usage } from "../../api/types.ts";
@@ -68,6 +68,12 @@ const styles = stylex.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     gap: space.s3,
+  },
+  identity: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.s2_5,
+    minWidth: 0,
   },
   who: {
     display: "flex",
@@ -142,11 +148,12 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    width: "28px",
-    height: "28px",
+    flexShrink: 0,
+    width: "32px",
+    height: "32px",
     borderRadius: radii.item,
     backgroundColor: colors.muted,
-    color: colors.mutedForeground,
+    color: colors.foreground,
   },
 });
 
@@ -378,9 +385,16 @@ function Overview() {
                   <Panel xstyle={styles.card}>
                     <article aria-label={account.label} {...stylex.props(styles.card)}>
                       <div {...stylex.props(styles.cardHead)}>
-                        <div {...stylex.props(styles.who)}>
-                          <span {...stylex.props(styles.name)}>{account.label}</span>
-                          <span {...stylex.props(styles.email)}>{emailOf(account.id) ?? " "}</span>
+                        <div {...stylex.props(styles.identity)}>
+                          <span aria-hidden="true" {...stylex.props(styles.providerIcon)}>
+                            <CodexIcon size={16} />
+                          </span>
+                          <div {...stylex.props(styles.who)}>
+                            <span {...stylex.props(styles.name)}>{account.label}</span>
+                            <span {...stylex.props(styles.email)}>
+                              {emailOf(account.id) ?? " "}
+                            </span>
+                          </div>
                         </div>
                         <StateBadge account={account} />
                       </div>
@@ -417,7 +431,7 @@ function Providers({
             <article aria-label={provider.provider} {...stylex.props(styles.card)}>
               <div {...stylex.props(styles.providerHead)}>
                 <span aria-hidden="true" {...stylex.props(styles.providerIcon)}>
-                  <ProviderIcon size={15} />
+                  <ProviderLogo name={provider.provider} size={16} />
                 </span>
                 <span {...stylex.props(styles.name)}>{provider.provider}</span>
               </div>

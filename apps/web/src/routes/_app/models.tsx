@@ -7,7 +7,7 @@ import { Schema } from "effect";
 import { useDeferredValue, useState } from "react";
 import { modelsQuery } from "../../api/admin.ts";
 import type { Model } from "../../api/types.ts";
-import { ModelsIcon, SearchIcon } from "../../components/icons.tsx";
+import { CodexIcon, ModelsIcon, ProviderLogo, SearchIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 
 export const Route = createFileRoute("/_app/models")({
@@ -141,6 +141,13 @@ function Models() {
                   <Section
                     key={owner}
                     title={owner}
+                    icon={
+                      owner === "Codex" ? (
+                        <CodexIcon size={18} />
+                      ) : (
+                        <ProviderLogo name={owner} size={18} />
+                      )
+                    }
                     aside={
                       <Badge color={owner === "Codex" ? "blue" : "gray"}>
                         {owned.length} {owned.length === 1 ? "model" : "models"}
