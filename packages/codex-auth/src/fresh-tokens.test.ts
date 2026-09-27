@@ -29,7 +29,7 @@ const withAccount = <A, E>(
       const dir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
 
       return yield* Effect.gen(function* () {
-        const account = yield* (yield* AccountStore).save({
+        const { account } = yield* (yield* AccountStore).save({
           idToken: issuedTokens.id_token,
           accessToken: issuedTokens.access_token,
           refreshToken: "rt-1",

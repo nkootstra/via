@@ -74,7 +74,7 @@ const withPoll = <A, E>(
     const built = yield* Layer.build(services);
 
     const account = yield* Effect.gen(function* () {
-      return yield* (yield* AccountStore).save(tokensFor(name, options.tokens?.(start)));
+      return (yield* (yield* AccountStore).save(tokensFor(name, options.tokens?.(start)))).account;
     }).pipe(Effect.provide(built));
 
     const logs = collectLogs();

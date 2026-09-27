@@ -25,7 +25,7 @@ const make = Effect.gen(function* () {
     yield* set(id, { status: "pending" });
     yield* auth.awaitDeviceTokens(code).pipe(
       Effect.flatMap(store.save),
-      Effect.flatMap((account) => set(id, { status: "added", account })),
+      Effect.flatMap(({ account }) => set(id, { status: "added", account })),
       Effect.catch((error) => set(id, { status: "failed", error: error.message })),
       Effect.forkIn(scope),
     );
