@@ -235,7 +235,7 @@ layer(BunFileSystem.layer)("the admin UI at /ui", (it) => {
   it.effect("escapes the state so no label can end its script or start another", () =>
     withUi((via) =>
       Effect.gen(function* () {
-        const label = "</script><script>alert(1)</script> & <!-- \u2028\u2029";
+        const label = "</script><script>alert(1)</script> & <!-- \u2028\u2029 $` $& $'";
 
         const [first] = yield* Schema.decodeUnknownEffect(
           Schema.Array(Schema.Struct({ id: Schema.String })),

@@ -102,9 +102,11 @@ export const uiRoutes = (ui: EmbeddedUi, environment: OpencodeGoEnvironment | un
        */
       const withState = (state: string) =>
         HttpServerResponse.text(
+          // A function, so a `$&` or `` $` `` in the state is text, not a replacement pattern.
           html.replace(
             "</head>",
-            `<script type="application/json" id="via-state">${inScript(state)}</script></head>`,
+            () =>
+              `<script type="application/json" id="via-state">${inScript(state)}</script></head>`,
           ),
           { headers: { ...page, "cache-control": "no-store" } },
         );
