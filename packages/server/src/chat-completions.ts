@@ -8,11 +8,23 @@ import {
 import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { authenticated, collected, dispatch, forward, modelOf, openAiError } from "./dispatch.ts";
-import { RequestLog } from "./request-log.ts";
+import {
+  authenticated,
+  collected,
+  dispatch,
+  forward,
+  modelOf,
+  openAiError,
+  relayed,
+} from "./dispatch.ts";
 import { resolveSession } from "./session.ts";
 import { withSharedPrefix } from "./shared-prefix.ts";
-import { spotUsage } from "./token-usage.ts";
+
+const decodeChat = Schema.decodeUnknownEffect(ChatRequest);
+
+const decodeCompleted = Schema.decodeUnknownEffect(CompletedResponse);
+
+const invalid = openAiError(400, "invalid_request", "The request is not a valid chat completion");
 
 /**
  * POST /v1/chat/completions: Chat Completions, translated to and from Responses
@@ -20,52 +32,31 @@ import { spotUsage } from "./token-usage.ts";
  */
 export const chatCompletions = authenticated(
   Effect.gen(function* () {
-    const log = yield* RequestLog;
-    const providers = yield* Providers;
+    const json = yield* HttpServerRequest.schemaBodyJson(Schema.JsonObject).pipe(Effect.option);
 
-    const raw = Option.map(
-      yield* HttpServerRequest.schemaBodyJson(Schema.JsonObject).pipe(Effect.option),
-      withSharedPrefix,
-    );
+    if (Option.isNone(json)) return yield* invalid;
 
+    const body = withSharedPrefix(json.value);
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
-    const route = Option.flatMap(Option.flatMap(raw, modelOf), providers.route);
+    const session = resolveSession(headers, body);
+    const route = Option.flatMap(modelOf(body), (yield* Providers).route);
 
-    if (Option.isSome(raw) && Option.isSome(route)) {
-      const session = resolveSession(headers, raw.value);
+    if (Option.isSome(route))
+      return yield* forward(route.value, "/chat/completions", body, session);
 
-      return yield* forward(route.value, "/chat/completions", raw.value, session);
-    }
+    const chat = yield* decodeChat(body).pipe(Effect.option);
 
-    const decoded = yield* Effect.fromOption(raw).pipe(
-      Effect.flatMap((body) =>
-        Effect.map(Schema.decodeUnknownEffect(ChatRequest)(body), (chat) => ({ body, chat })),
-      ),
-      Effect.option,
-    );
+    if (Option.isNone(chat)) return yield* invalid;
 
-    if (Option.isNone(decoded)) {
-      return yield* openAiError(
-        400,
-        "invalid_request",
-        "The request is not a valid chat completion",
-      );
-    }
+    const { stream, stream_options } = chat.value;
 
-    const { body, chat } = decoded.value;
-
-    return yield* dispatch(toResponsesRequest(chat), resolveSession(headers, body), (upstream) =>
-      chat.stream === true
-        ? Effect.map(
-            log.timed(
-              toChatStream(spotUsage(upstream.stream, true, log.usage), {
-                includeUsage: chat.stream_options?.include_usage === true,
-              }),
-            ),
-            (stream) => HttpServerResponse.stream(stream, { contentType: "text/event-stream" }),
+    return yield* dispatch(toResponsesRequest(chat.value), session, (upstream) =>
+      stream === true
+        ? relayed(upstream, { contentType: "text/event-stream" }, (events) =>
+            toChatStream(events, { includeUsage: stream_options?.include_usage === true }),
           )
         : collected(upstream, (response) =>
-            Schema.decodeUnknownEffect(CompletedResponse)(response).pipe(
+            decodeCompleted(response).pipe(
               Effect.map((completed) => HttpServerResponse.jsonUnsafe(toChatCompletion(completed))),
             ),
           ),

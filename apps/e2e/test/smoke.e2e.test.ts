@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { reply } from "@via/codex-upstream/testing";
-import { openai, startCodex, withVia } from "./harness.ts";
+import { chat, launchVia, openai, startCodex } from "./harness.ts";
 
 // The whole product in one breath: login, key, serve, and a real OpenAI client
 // talking to it, with the fake Codex backend behind it.
@@ -11,27 +11,20 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("pong"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const completion = yield* Effect.promise(() =>
-            openai(via).chat.completions.create({
-              model: "gpt-6-astra",
-              messages: [{ role: "user", content: "ping" }],
-            }),
-          );
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          expect(completion.choices[0]?.message.content).toBe("pong");
-          expect(upstream.requests).toHaveLength(1);
-          expect(upstream.requests[0]).toMatchObject({
-            path: "/codex/responses",
-            headers: {
-              authorization: expect.stringMatching(/^Bearer \S+/),
-              "chatgpt-account-id": "acc-123",
-            },
-            body: { model: "gpt-6-astra", stream: true, store: false },
-          });
-        }),
-      );
+      const completion = yield* chat(via, "ping");
+
+      expect(completion.choices[0]?.message.content).toBe("pong");
+      expect(upstream.requests).toHaveLength(1);
+      expect(upstream.requests[0]).toMatchObject({
+        path: "/codex/responses",
+        headers: {
+          authorization: expect.stringMatching(/^Bearer \S+/),
+          "chatgpt-account-id": "acc-123",
+        },
+        body: { model: "gpt-6-astra", stream: true, store: false },
+      });
     }),
   );
 
@@ -39,19 +32,21 @@ layer(BunFileSystem.layer)("via end to end", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("pong"));
-      yield* withVia({ upstream: upstream.url, accounts: [{ name: "a" }, { name: "b" }] }, (via) =>
-        Effect.gen(function* () {
-          const response = yield* Effect.promise(() =>
-            openai(via).responses.create({ model: "gpt-6-astra", input: "ping" }),
-          );
 
-          expect(response.output_text).toBe("pong");
-          expect(upstream.requests[0]?.headers).toMatchObject({
-            authorization: "Bearer at-a",
-            "chatgpt-account-id": "acc-a",
-          });
-        }),
+      const via = yield* launchVia({
+        upstream: upstream.url,
+        accounts: [{ name: "a" }, { name: "b" }],
+      });
+
+      const response = yield* Effect.promise(() =>
+        openai(via).responses.create({ model: "gpt-6-astra", input: "ping" }),
       );
+
+      expect(response.output_text).toBe("pong");
+      expect(upstream.requests[0]?.headers).toMatchObject({
+        authorization: "Bearer at-a",
+        "chatgpt-account-id": "acc-a",
+      });
     }),
   );
 });

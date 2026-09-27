@@ -64,6 +64,21 @@ describe("withSharedPrefix", () => {
     ]);
   });
 
+  it("moves the line only into the first user message, leaving later turns as they are", () => {
+    const later = [
+      { role: "assistant", content: "Why did the chicken cross the road?" },
+      { role: "user", content: "Why?" },
+    ];
+
+    const body = subAgent("ses_a", "Tell a joke.");
+    const moved = withSharedPrefix({ ...body, messages: [...body.messages, ...later] });
+    expect(moved["messages"]).toEqual([
+      expect.anything(),
+      { role: "user", content: "Current conversation session ID: ses_a\n\nTell a joke." },
+      ...later,
+    ]);
+  });
+
   it.prop(
     "gives two sessions' requests the same bytes up to their first user message",
     {
@@ -82,6 +97,11 @@ describe("withSharedPrefix", () => {
 
   it("leaves the line where it is when there is no user message to take it", () => {
     const body = { model: "m", messages: [{ role: "system", content: system("ses_a") }] };
+    expect(withSharedPrefix(body)).toBe(body);
+  });
+
+  it("leaves the line where it is when the user message has neither text nor parts", () => {
+    const body = subAgent("ses_a", null);
     expect(withSharedPrefix(body)).toBe(body);
   });
 });

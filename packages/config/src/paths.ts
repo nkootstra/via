@@ -1,7 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type Paths = {
+type Paths = {
   home: string;
   config: string;
   keys: string;

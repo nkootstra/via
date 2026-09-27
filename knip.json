@@ -1,5 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
+  "includeEntryExports": true,
   "workspaces": {
     "npm": {
       "entry": ["via/bin/via.js"]

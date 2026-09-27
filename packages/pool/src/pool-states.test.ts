@@ -17,11 +17,7 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
     Effect.gen(function* () {
       const states = yield* PoolStates;
       expect(yield* states.get).toEqual({});
-      yield* states.mark("acc-a", {
-        status: "cooling",
-        until: 5,
-        reason: "usage_limit_reached",
-      });
+      yield* states.coolDown("acc-a", 5, "usage_limit_reached");
       yield* states.lockOut("acc-b", "refresh_token_expired");
       expect(yield* states.get).toEqual({
         "acc-a": { status: "cooling", until: 5, reason: "usage_limit_reached" },
@@ -30,11 +26,33 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
     }).pipe(Effect.provide(PoolStates.layer)),
   );
 
+  it.effect("never shortens a running cooldown, and says so", () =>
+    Effect.gen(function* () {
+      const states = yield* PoolStates;
+      expect(yield* states.coolDown("acc-a", 500, "usage_limit_reached")).toBe(true);
+      expect(yield* states.coolDown("acc-a", 100, "server_error")).toBe(false);
+      expect(yield* states.get).toEqual({
+        "acc-a": { status: "cooling", until: 500, reason: "usage_limit_reached" },
+      });
+    }).pipe(Effect.provide(PoolStates.layer)),
+  );
+
+  it.effect("never lets a cooldown lift a lockout", () =>
+    Effect.gen(function* () {
+      const states = yield* PoolStates;
+      yield* states.lockOut("acc-a", "invalid_grant");
+      expect(yield* states.coolDown("acc-a", 500, "usage_limit_reached")).toBe(false);
+      expect(yield* states.get).toEqual({
+        "acc-a": { status: "auth_error", reason: "invalid_grant" },
+      });
+    }).pipe(Effect.provide(PoolStates.layer)),
+  );
+
   it.effect("keeps a cooldown across a restart", () =>
     Effect.gen(function* () {
       const path = `${yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()}/state.json`;
       const cooling = { status: "cooling", until: 60_000, reason: "usage_limit_reached" } as const;
-      yield* run(path, (states) => states.mark("acc-a", cooling));
+      yield* run(path, (states) => states.coolDown("acc-a", cooling.until, cooling.reason));
       expect(yield* run(path, (states) => states.get)).toEqual({ "acc-a": cooling });
     }),
   );
@@ -44,7 +62,7 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
       const path = `${yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()}/state.json`;
       yield* run(path, (states) =>
         Effect.gen(function* () {
-          yield* states.mark("acc-a", { status: "cooling", until: 5, reason: "server_error" });
+          yield* states.coolDown("acc-a", 5, "server_error");
           yield* states.lockOut("acc-b", "refresh_token_expired");
         }),
       );
@@ -58,7 +76,7 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
       const path = `${yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()}/state.json`;
       yield* run(path, (states) =>
         Effect.gen(function* () {
-          yield* states.mark("acc-a", { status: "cooling", until: 60_000, reason: "server_error" });
+          yield* states.coolDown("acc-a", 60_000, "server_error");
           yield* states.lockOut("acc-a", "account_deactivated");
         }),
       );
@@ -72,6 +90,40 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
       const path = `${yield* fs.makeTempDirectoryScoped()}/state.json`;
       yield* fs.writeFileString(path, "{not json");
       expect(yield* run(path, (states) => states.get)).toEqual({});
+    }),
+  );
+
+  it.effect("keeps serving from memory when the state file cannot be written", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const blocker = `${yield* fs.makeTempDirectoryScoped()}/not-a-directory`;
+      yield* fs.writeFileString(blocker, "");
+      const cooling = { status: "cooling", until: 60_000, reason: "usage_limit_reached" } as const;
+
+      const seen = yield* run(`${blocker}/state.json`, (states) =>
+        states.coolDown("acc-a", cooling.until, cooling.reason).pipe(Effect.andThen(states.get)),
+      );
+
+      expect(seen).toEqual({ "acc-a": cooling });
+    }),
+  );
+
+  it.effect("saves every one of many concurrent marks", () =>
+    Effect.gen(function* () {
+      const path = `${yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()}/state.json`;
+      const until = (yield* Clock.currentTimeMillis) + 60_000;
+      const ids = Array.from({ length: 20 }, (_, i) => `acc-${i}`);
+
+      yield* run(path, (states) =>
+        Effect.forEach(ids, (id) => states.coolDown(id, until, "server_error"), {
+          concurrency: "unbounded",
+          discard: true,
+        }),
+      );
+
+      expect(Object.keys(yield* run(path, (states) => states.get)).toSorted()).toEqual(
+        ids.toSorted(),
+      );
     }),
   );
 
@@ -101,11 +153,7 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
               const id = `acc-${i}`;
 
               if (spec.kind === "cooling") {
-                return states.mark(id, {
-                  status: "cooling",
-                  until: now + spec.offsetMs,
-                  reason: spec.reason,
-                });
+                return states.coolDown(id, now + spec.offsetMs, spec.reason);
               }
 
               if (spec.kind === "auth_error") {
@@ -134,5 +182,41 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
 
         expect(restarted).toEqual(expected);
       }),
+  );
+
+  /** One write to an account's state: a cooldown until `until`, or a lockout. */
+  const Write = Schema.Struct({
+    kind: Schema.Literals(["cooling", "auth_error"]),
+    until: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1_000 })),
+  });
+
+  const writes = Arbitrary.array(Arbitrary.schema(Write), { minLength: 1, maxLength: 8 });
+
+  it.effect.prop(
+    "however concurrent writes interleave, a lockout sticks and the longest cooldown wins",
+    { writes },
+    ({ writes: values }) =>
+      Effect.gen(function* () {
+        const states = yield* PoolStates;
+        yield* Effect.forEach(
+          values,
+          (write) =>
+            write.kind === "cooling"
+              ? states.coolDown("acc-a", write.until, "server_error")
+              : states.lockOut("acc-a", "invalid_grant"),
+          { concurrency: "unbounded", discard: true },
+        );
+
+        const state = (yield* states.get)["acc-a"];
+
+        if (values.some((write) => write.kind === "auth_error")) {
+          expect(state?.status).toBe("auth_error");
+        } else {
+          expect(state).toMatchObject({
+            status: "cooling",
+            until: Math.max(...values.map((write) => write.until)),
+          });
+        }
+      }).pipe(Effect.provide(PoolStates.layer)),
   );
 });

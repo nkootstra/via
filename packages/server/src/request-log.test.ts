@@ -49,6 +49,28 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs a streamed answer that sent nothing without a first-chunk time", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.sse(""));
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          stream: true,
+          messages: [],
+        });
+
+        yield* response.text;
+        const { annotations } = yield* via.logged("Sent HTTP response");
+        expect(annotations).toMatchObject({
+          headers_ms: expect.any(Number),
+          stream_end: "completed",
+        });
+        expect(annotations).not.toHaveProperty("first_chunk_ms");
+      }),
+    ),
+  );
+
   it.effect("logs a streamed answer the client stopped reading as client_aborted", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
@@ -273,6 +295,22 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("warns when an account's refresh token is rejected after a 401, locking it out", () =>
+    withVia(
+      (request) =>
+        request.headers["chatgpt-account-id"] === "acc-a" ? reply.error(401, "") : ok(),
+      (via) =>
+        Effect.gen(function* () {
+          yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
+          expect(yield* via.logged("a@example.com")).toMatchObject({
+            level: "Warn",
+            message: "a@example.com is locked out until it logs in again (invalid_grant)",
+          });
+        }),
+      { refreshResponse: { status: 400, body: { error: "invalid_grant" } } },
+    ),
+  );
+
   it.effect("warns when the auth server cannot refresh an account's token", () =>
     withVia(
       ok,
@@ -299,7 +337,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
           expect(yield* via.logged("a@example.com")).toMatchObject({
             level: "Warn",
-            message: "a@example.com is out of use: Codex rejects its token even after a refresh",
+            message: "a@example.com is locked out until it logs in again (unauthorized)",
           });
         }),
     ),

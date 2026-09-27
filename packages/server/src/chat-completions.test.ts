@@ -90,6 +90,19 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
     ),
   );
 
+  it.effect("rejects a body that is not an object with 400", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.post("/v1/chat/completions", [request]);
+        expect(response.status).toBe(400);
+        expect(yield* response.json).toMatchObject({
+          error: { type: "invalid_request_error", code: "invalid_request" },
+        });
+        expect(via.upstreamRequests).toHaveLength(0);
+      }),
+    ),
+  );
+
   it.effect("asks Codex for the base model and effort behind a suffix alias", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

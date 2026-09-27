@@ -1,15 +1,22 @@
-import { AccountTokens, type RefreshRejectedError } from "@via/codex-auth";
+import { AccountTokens } from "@via/codex-auth";
 import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import { classify, PoolStates, retryAfter, Verdict } from "@via/pool";
 import { type ProviderPath, Providers, type Route } from "@via/providers";
-import { Clock, Effect, Option, Schema } from "effect";
+import { Clock, Effect, identity, Option, Schema, type Stream } from "effect";
 import {
+  type HttpClientError,
   type HttpClientResponse,
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { accountsAllowed, nextAccount } from "./accounts.ts";
+import {
+  accountsAllowed,
+  coolDown,
+  lockOut,
+  nextAccount,
+  setAsideOnFailedRefresh,
+} from "./accounts.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
@@ -74,6 +81,26 @@ export const collected = (
   );
 
 /**
+ * A response relaying `upstream`'s body through `relay` as it comes, with the
+ * token usage it reports and the time of its first chunk noted in the
+ * request's log line.
+ */
+export const relayed = <E>(
+  upstream: HttpClientResponse.HttpClientResponse,
+  options: { readonly status?: number; readonly contentType: string },
+  relay: (
+    body: Stream.Stream<Uint8Array, HttpClientError.HttpClientError>,
+  ) => Stream.Stream<Uint8Array, E>,
+) =>
+  Effect.gen(function* () {
+    const log = yield* RequestLog;
+    const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
+    const body = yield* log.timed(relay(spotUsage(upstream.stream, sse, log.usage)));
+
+    return HttpServerResponse.stream(body, options);
+  });
+
+/**
  * Sends a request for a provider's model to that provider and pipes its answer
  * back as it comes, errors included.
  */
@@ -88,28 +115,27 @@ export const forward = Effect.fn("forward")(function* (
   yield* log.served(route.provider);
 
   return yield* (yield* Providers).send(route, path, body, session).pipe(
-    Effect.flatMap((upstream) => {
-      const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
-      const tapped = spotUsage(upstream.stream, sse, log.usage);
-
-      return Effect.map(log.timed(tapped), (stream) =>
-        HttpServerResponse.stream(stream, {
+    Effect.flatMap((upstream) =>
+      relayed(
+        upstream,
+        {
           status: upstream.status,
           contentType: upstream.headers["content-type"] ?? "application/json",
-        }),
-      );
-    }),
+        },
+        identity,
+      ),
+    ),
     Effect.catchTag("HttpClientError", () =>
       openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
     ),
   );
 });
 
-const ModelField = Schema.Struct({ model: Schema.String });
+const namesModel = Schema.is(Schema.Struct({ model: Schema.String }));
 
 /** The model a request body asks for, if it names one. */
 export const modelOf = (body: Schema.JsonObject) =>
-  Option.map(Schema.decodeUnknownOption(ModelField)(body), ({ model }) => model);
+  namesModel(body) ? Option.some(body.model) : Option.none();
 
 /** The client's API key, if it presented a valid one. */
 const authenticate = Effect.gen(function* () {
@@ -167,9 +193,6 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     ? yield* (yield* ModelCatalog).mayServe(model.value)
     : () => true;
 
-  // A dead refresh token takes the account out of rotation until it logs in again.
-  const lockOut = (id: string) => (error: RefreshRejectedError) => states.lockOut(id, error.code);
-
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
   // The account that answered this session last time, if via still remembers it:
@@ -211,31 +234,19 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     const verdict = classify(upstream.status, upstream.headers, text, now);
 
     if (Verdict.$is("Cooldown")(verdict)) {
-      yield* Effect.logWarning(
-        `${account.label} is cooling down until ${new Date(verdict.until).toISOString()} (${verdict.reason})`,
-      );
-      yield* states.mark(account.id, {
-        status: "cooling",
-        until: verdict.until,
-        reason: verdict.reason,
-      });
+      yield* coolDown(account, verdict.until, verdict.reason);
       continue;
     }
 
     if (Verdict.$is("Unauthorized")(verdict)) {
       if (refreshed.has(account.id)) {
-        yield* Effect.logWarning(
-          `${account.label} is out of use: Codex rejects its token even after a refresh`,
-        );
-        yield* states.mark(account.id, {
-          status: "auth_error",
-          reason: "unauthorized",
-        });
+        // Codex rejects its token even after a refresh.
+        yield* lockOut(account, "unauthorized");
       } else {
         refreshed.add(account.id);
         yield* tokens
           .refreshRejected(account.id, account.accessToken)
-          .pipe(Effect.catchTag("RefreshRejectedError", lockOut(account.id)));
+          .pipe(setAsideOnFailedRefresh(account));
       }
 
       continue;

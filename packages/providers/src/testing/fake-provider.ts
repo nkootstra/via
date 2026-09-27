@@ -60,7 +60,7 @@ const Body = Schema.JsonObject;
 
 /**
  * Starts the fake for the current scope. It answers `POST /chat/completions`
- * and `POST /responses` with the `respond` handler (500 until one is set) and
+ * and `POST /responses` with the `respond` handler (599 until one is set),
  * `GET /models` with the models given to `models`, and `GET /usage` with `usage`.
  */
 export const startFakeProvider = Effect.gen(function* () {
@@ -72,34 +72,39 @@ export const startFakeProvider = Effect.gen(function* () {
   const usageRequests: Array<ProviderRequest> = [];
   const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
 
+  const record = (list: Array<ProviderRequest>, body: Schema.JsonObject) =>
+    Effect.gen(function* () {
+      const request = yield* HttpServerRequest.HttpServerRequest;
+
+      const recorded = {
+        path: new URL(request.url, "http://fake").pathname,
+        headers: request.headers,
+        body,
+      };
+
+      list.push(recorded);
+
+      return recorded;
+    });
+
   const answer = HttpServerRequest.schemaBodyJson(Body).pipe(
-    Effect.flatMap((body) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
+    Effect.flatMap((body) => record(requests, body)),
+    Effect.map((request) => {
+      const { status, contentType, body, ending } = handler(request);
 
-        const recorded = {
-          path: new URL(request.url, "http://fake").pathname,
-          headers: request.headers,
-          body,
-        };
+      if (ending === undefined) return HttpServerResponse.text(body, { status, contentType });
 
-        requests.push(recorded);
-        const { status, contentType, body: text, ending } = handler(recorded);
+      const rest =
+        ending === "hang"
+          ? Stream.never
+          : // Failing with `undefined` drops the connection without Bun printing the error.
+            Stream.fromEffect(Effect.andThen(ending.drop, Effect.fail(undefined)));
 
-        if (ending === undefined) return HttpServerResponse.text(text, { status, contentType });
-
-        const rest =
-          ending === "hang"
-            ? Stream.never
-            : // Failing with `undefined` drops the connection without Bun printing the error.
-              Stream.fromEffect(Effect.andThen(ending.drop, Effect.fail(undefined)));
-
-        return HttpServerResponse.stream(
-          Stream.concat(Stream.make(new TextEncoder().encode(text)), rest),
-          { status, contentType },
-        );
-      }),
-    ),
+      return HttpServerResponse.stream(
+        Stream.make(body).pipe(Stream.concat(rest), Stream.encodeText),
+        { status, contentType },
+      );
+    }),
     // Test fixture: a body that is not JSON is a bug in the code under test.
     Effect.orDie,
   );
@@ -111,8 +116,7 @@ export const startFakeProvider = Effect.gen(function* () {
       "GET",
       "/models",
       Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        modelRequests.push({ path: "/models", headers: request.headers, body: {} });
+        yield* record(modelRequests, {});
 
         for (const waiter of waiters) {
           if (modelRequests.length >= waiter.count) {
@@ -125,26 +129,20 @@ export const startFakeProvider = Effect.gen(function* () {
           : HttpServerResponse.jsonUnsafe({ object: "list", data: modelList });
       }),
     ),
-  );
-
-  const usageRoute = HttpRouter.add(
-    "GET",
-    "/usage",
-    Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      usageRequests.push({ path: "/usage", headers: request.headers, body: {} });
-
-      return HttpServerResponse.text(usageAnswer.body, {
-        status: usageAnswer.status,
-        contentType: "application/json",
-      });
-    }),
+    HttpRouter.add(
+      "GET",
+      "/usage",
+      Effect.map(record(usageRequests, {}), () =>
+        HttpServerResponse.text(usageAnswer.body, {
+          status: usageAnswer.status,
+          contentType: "application/json",
+        }),
+      ),
+    ),
   );
 
   const server = yield* Layer.build(
-    HttpRouter.serve(Layer.merge(routes, usageRoute)).pipe(
-      Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
-    ),
+    HttpRouter.serve(routes).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 }))),
   );
 
   return {

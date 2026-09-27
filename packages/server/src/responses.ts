@@ -2,15 +2,20 @@ import { relayStream } from "@via/codex-upstream";
 import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { authenticated, collected, dispatch, forward, modelOf, openAiError } from "./dispatch.ts";
-import { RequestLog } from "./request-log.ts";
+import {
+  authenticated,
+  collected,
+  dispatch,
+  forward,
+  modelOf,
+  openAiError,
+  relayed,
+} from "./dispatch.ts";
 import { resolveSession } from "./session.ts";
-import { spotUsage } from "./token-usage.ts";
 
 /** POST /v1/responses: the Responses API, passed through to Codex or the provider its model names. */
 export const responses = authenticated(
   Effect.gen(function* () {
-    const log = yield* RequestLog;
     const decoded = yield* HttpServerRequest.schemaBodyJson(Schema.JsonObject).pipe(Effect.option);
 
     if (Option.isNone(decoded)) {
@@ -26,10 +31,7 @@ export const responses = authenticated(
 
     return yield* dispatch(body, session, (upstream) =>
       body.stream === true
-        ? Effect.map(
-            log.timed(relayStream(spotUsage(upstream.stream, true, log.usage))),
-            (stream) => HttpServerResponse.stream(stream, { contentType: "text/event-stream" }),
-          )
+        ? relayed(upstream, { contentType: "text/event-stream" }, relayStream)
         : collected(upstream, (response) =>
             Effect.succeed(HttpServerResponse.jsonUnsafe(response)),
           ),

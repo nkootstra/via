@@ -20,19 +20,37 @@ const running = (state: PoolState, now: number): typeof Cooldowns.Type =>
 const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void>) =>
   Effect.gen(function* () {
     const states = yield* Ref.make(initial);
-    // Saves run one at a time, so the file never ends up with an older state.
+    // Updates run one at a time, so each decides on the latest state and the file
+    // never ends up with an older one.
     const lock = yield* Semaphore.make(1);
 
-    const mark = (id: string, state: AccountState) =>
-      Ref.updateAndGet(states, (current) => ({ ...current, [id]: state })).pipe(
-        Effect.flatMap(save),
-        Semaphore.withPermit(lock),
-      );
+    /** Sets `id`'s state to what `next` makes of it, unless that is none; says whether it did. */
+    const update = (
+      id: string,
+      next: (current: AccountState | undefined) => AccountState | undefined,
+    ) =>
+      Effect.gen(function* () {
+        const current = yield* Ref.get(states);
+        const state = next(current[id]);
+
+        if (state === undefined) return false;
+        const updated = { ...current, [id]: state };
+        yield* Ref.set(states, updated);
+        yield* save(updated);
+
+        return true;
+      }).pipe(Semaphore.withPermit(lock));
 
     return PoolStates.of({
       get: Ref.get(states),
-      mark,
-      lockOut: (id, reason) => mark(id, { status: "auth_error", reason }),
+      coolDown: (id, until, reason) =>
+        update(id, (current) =>
+          current?.status === "auth_error" ||
+          (current?.status === "cooling" && current.until >= until)
+            ? undefined
+            : { status: "cooling", until, reason },
+        ),
+      lockOut: (id, reason) => Effect.asVoid(update(id, () => ({ status: "auth_error", reason }))),
     });
   });
 
@@ -41,7 +59,12 @@ export class PoolStates extends Context.Service<
   PoolStates,
   {
     readonly get: Effect.Effect<PoolState>;
-    readonly mark: (id: string, state: AccountState) => Effect.Effect<void>;
+    /**
+     * Takes the account out of rotation until `until`, unless it is locked out
+     * or already cooling at least that long: a cooldown is never shortened.
+     * Says whether it changed the account's state.
+     */
+    readonly coolDown: (id: string, until: number, reason: string) => Effect.Effect<boolean>;
     /** Takes the account out of rotation until it logs in again. */
     readonly lockOut: (id: string, reason: string) => Effect.Effect<void>;
   }

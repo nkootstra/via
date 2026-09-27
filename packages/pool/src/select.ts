@@ -1,4 +1,4 @@
-import { Array, Option } from "effect";
+import { Option } from "effect";
 
 /** Why serve is not using an account right now; absent means it is available. */
 export type AccountState =
@@ -13,13 +13,11 @@ export type PoolState = Readonly<Record<string, AccountState>>;
 
 export type PoolAccount = { readonly id: string; readonly enabled: boolean };
 
-const isAvailable = (state: PoolState, now: number) => (account: PoolAccount) => {
+const isAvailable = (account: PoolAccount, state: PoolState, now: number) => {
+  if (!account.enabled) return false;
   const current = state[account.id];
 
-  return (
-    account.enabled &&
-    (current === undefined || (current.status === "cooling" && current.until <= now))
-  );
+  return current === undefined || (current.status === "cooling" && current.until <= now);
 };
 
 /** Every enabled account that is neither cooling nor locked out, in order. */
@@ -27,7 +25,7 @@ export const available = <A extends PoolAccount>(
   accounts: ReadonlyArray<A>,
   state: PoolState,
   now: number,
-): ReadonlyArray<A> => accounts.filter(isAvailable(state, now));
+): ReadonlyArray<A> => accounts.filter((account) => isAvailable(account, state, now));
 
 /**
  * Fill-first: the first enabled account, in order, that is neither cooling nor
@@ -40,13 +38,20 @@ export const select = <A extends PoolAccount>(
   now: number,
   preferred: Option.Option<string> = Option.none(),
 ): Option.Option<A> => {
-  const isAvail = isAvailable(state, now);
+  // Runs for every request: one pass, allocating nothing but the result.
+  const wanted = Option.getOrUndefined(preferred);
+  let first: A | undefined;
 
-  const sticky = Option.flatMap(preferred, (id) =>
-    Array.findFirst(accounts, (account) => account.id === id && isAvail(account)),
-  );
+  for (const account of accounts) {
+    if (!isAvailable(account, state, now)) continue;
 
-  return Option.orElse(sticky, () => Array.findFirst(accounts, isAvail));
+    if (account.id === wanted) return Option.some(account);
+    first ??= account;
+
+    if (wanted === undefined) break;
+  }
+
+  return Option.fromUndefinedOr(first);
 };
 
 /** Milliseconds until an enabled account leaves its cooldown; none if waiting will not help. */
@@ -55,11 +60,13 @@ export const retryAfter = (
   state: PoolState,
   now: number,
 ): Option.Option<number> => {
-  const waits = accounts.flatMap((account) => {
+  let until = Infinity;
+
+  for (const account of accounts) {
     const current = state[account.id];
 
-    return account.enabled && current?.status === "cooling" ? [current.until - now] : [];
-  });
+    if (account.enabled && current?.status === "cooling") until = Math.min(until, current.until);
+  }
 
-  return Array.isReadonlyArrayNonEmpty(waits) ? Option.some(Math.min(...waits)) : Option.none();
+  return until === Infinity ? Option.none() : Option.some(until - now);
 };

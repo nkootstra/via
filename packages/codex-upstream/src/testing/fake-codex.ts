@@ -9,7 +9,7 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { usagePayload } from "./streams.ts";
+import { type CodexEvent, modelsPayload, sse, usagePayload } from "./streams.ts";
 
 /** One request as via sent it: nothing redacted, nothing converted. */
 export type CodexRequest = {
@@ -36,21 +36,20 @@ type Plan = {
 
 export type Reply = (request: CodexRequest) => Plan;
 
-type Event = { type: string } & Schema.JsonObject;
-
-const frame = (event: Event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
-
-const stream = (events: ReadonlyArray<Event>): Plan => ({
+/** Each event is its own chunk, so a reply can be cut off between any two. */
+const stream = (events: ReadonlyArray<CodexEvent>): Plan => ({
   status: 200,
   headers: {},
   contentType: "text/event-stream",
-  chunks: events.map((event, index) => frame({ ...event, sequence_number: index })),
+  chunks: events.map((event, index) => sse([{ ...event, sequence_number: index }])),
   ending: "close",
 });
 
+const jsonText = (body: Schema.Json) => (Predicate.isString(body) ? body : JSON.stringify(body));
+
 const usage = { input_tokens: 10, output_tokens: 2, total_tokens: 12 };
 
-/** The response lifecycle around `items`, in the public Responses API shape. */
+/** The response envelope, in the public Responses API shape. */
 const envelope = (request: CodexRequest) => ({
   id: "resp_fake",
   object: "response",
@@ -58,23 +57,36 @@ const envelope = (request: CodexRequest) => ({
   model: Predicate.isString(request.body["model"]) ? request.body["model"] : "gpt-6-astra",
 });
 
+/** The events that open every response. */
+const started = (response: ReturnType<typeof envelope>): ReadonlyArray<CodexEvent> => [
+  { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
+  { type: "response.in_progress", response: { ...response, status: "in_progress", output: [] } },
+];
+
+/** A response that streams `events`, then completes with `output`. */
 const lifecycle = (
   request: CodexRequest,
-  items: ReadonlyArray<ReadonlyArray<Event>>,
+  events: ReadonlyArray<CodexEvent>,
   output: ReadonlyArray<Schema.Json>,
 ) => {
   const response = envelope(request);
 
   return stream([
-    { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
-    { type: "response.in_progress", response: { ...response, status: "in_progress", output: [] } },
-    ...items.flat(),
-    {
-      type: "response.completed",
-      response: { ...response, status: "completed", output, usage },
-    },
+    ...started(response),
+    ...events,
+    { type: "response.completed", response: { ...response, status: "completed", output, usage } },
   ]);
 };
+
+/** `inner`, cut off after `events` frames and ending as `ending` says. */
+const cut =
+  (ending: Plan["ending"]) =>
+  (inner: Reply, events: number): Reply =>
+  (request) => {
+    const plan = inner(request);
+
+    return { ...plan, chunks: plan.chunks.slice(0, events), ending };
+  };
 
 export const reply = {
   /** Codex answers with an assistant message. */
@@ -89,18 +101,16 @@ export const reply = {
       return lifecycle(
         request,
         [
-          [
-            {
-              type: "response.output_item.added",
-              output_index: 0,
-              item: { ...item, status: "in_progress", content: [] },
-            },
-            { type: "response.content_part.added", ...at, part: { ...part, text: "" } },
-            { type: "response.output_text.delta", ...at, delta: text },
-            { type: "response.output_text.done", ...at, text },
-            { type: "response.content_part.done", ...at, part },
-            { type: "response.output_item.done", output_index: 0, item: done },
-          ],
+          {
+            type: "response.output_item.added",
+            output_index: 0,
+            item: { ...item, status: "in_progress", content: [] },
+          },
+          { type: "response.content_part.added", ...at, part: { ...part, text: "" } },
+          { type: "response.output_text.delta", ...at, delta: text },
+          { type: "response.output_text.done", ...at, text },
+          { type: "response.content_part.done", ...at, part },
+          { type: "response.output_item.done", output_index: 0, item: done },
         ],
         [done],
       );
@@ -118,16 +128,14 @@ export const reply = {
       return lifecycle(
         request,
         [
-          [
-            {
-              type: "response.output_item.added",
-              output_index: 0,
-              item: { ...item, status: "in_progress", arguments: "" },
-            },
-            { type: "response.function_call_arguments.delta", ...at, delta: argumentsJson },
-            { type: "response.function_call_arguments.done", ...at, arguments: argumentsJson },
-            { type: "response.output_item.done", output_index: 0, item: done },
-          ],
+          {
+            type: "response.output_item.added",
+            output_index: 0,
+            item: { ...item, status: "in_progress", arguments: "" },
+          },
+          { type: "response.function_call_arguments.delta", ...at, delta: argumentsJson },
+          { type: "response.function_call_arguments.done", ...at, arguments: argumentsJson },
+          { type: "response.output_item.done", output_index: 0, item: done },
         ],
         [done],
       );
@@ -151,11 +159,7 @@ export const reply = {
       const response = envelope(request);
 
       return stream([
-        { type: "response.created", response: { ...response, status: "in_progress", output: [] } },
-        {
-          type: "response.in_progress",
-          response: { ...response, status: "in_progress", output: [] },
-        },
+        ...started(response),
         {
           type: "response.failed",
           response: { ...response, status: "failed", error: { code, message }, usage: null },
@@ -170,36 +174,18 @@ export const reply = {
       status,
       headers,
       contentType: "application/json",
-      chunks: [Predicate.isString(body) ? body : JSON.stringify(body)],
+      chunks: [jsonText(body)],
       ending: "close",
     }),
 
   /** `inner`, cut off cleanly after `events` frames, with no terminal event. */
-  truncated:
-    (inner: Reply, events: number): Reply =>
-    (request) => {
-      const plan = inner(request);
-
-      return { ...plan, chunks: plan.chunks.slice(0, events) };
-    },
+  truncated: cut("close"),
 
   /** `inner`, with the connection broken after `events` frames. */
-  hangUp:
-    (inner: Reply, events: number): Reply =>
-    (request) => {
-      const plan = inner(request);
-
-      return { ...plan, chunks: plan.chunks.slice(0, events), ending: "hangUp" };
-    },
+  hangUp: cut("hangUp"),
 
   /** `inner`, going quiet after `events` frames with the connection left open. */
-  stalled:
-    (inner: Reply, events: number): Reply =>
-    (request) => {
-      const plan = inner(request);
-
-      return { ...plan, chunks: plan.chunks.slice(0, events), ending: "stall" };
-    },
+  stalled: cut("stall"),
 
   /** `inner`, held back until `gate` completes. */
   held:
@@ -252,7 +238,7 @@ export const startFakeCodex = Effect.gen(function* () {
   const shared: Array<Reply> = [];
   const perAccount = new Map<string, Array<Reply>>();
   const usageByAccount = new Map<string, { status: number; body: string }>();
-  let catalog: string | undefined;
+  let catalog = JSON.stringify(modelsPayload);
   const catalogByAccount = new Map<string, string>();
 
   const waiters: Array<{
@@ -292,16 +278,15 @@ export const startFakeCodex = Effect.gen(function* () {
       yield* Deferred.await(deferred);
     });
 
-  const next = (request: CodexRequest): Reply => {
+  /** What `map` holds for the account `request` was sent as. */
+  const ofAccount = <A>(map: ReadonlyMap<string, A>, request: CodexRequest) => {
     const account = request.headers["chatgpt-account-id"];
 
-    return (
-      (account === undefined ? undefined : perAccount.get(account)?.shift()) ??
-      shared.shift() ??
-      handler?.(request) ??
-      unscripted
-    );
+    return account === undefined ? undefined : map.get(account);
   };
+
+  const next = (request: CodexRequest): Reply =>
+    ofAccount(perAccount, request)?.shift() ?? shared.shift() ?? handler?.(request) ?? unscripted;
 
   const routes = Layer.mergeAll(
     HttpRouter.add(
@@ -318,12 +303,10 @@ export const startFakeCodex = Effect.gen(function* () {
       "GET",
       "/wham/usage",
       Effect.gen(function* () {
-        const request = yield* record({});
-        const account = request.headers["chatgpt-account-id"];
-
-        const { status, body } = (account === undefined
-          ? undefined
-          : usageByAccount.get(account)) ?? { status: 200, body: JSON.stringify(usagePayload) };
+        const { status, body } = ofAccount(usageByAccount, yield* record({})) ?? {
+          status: 200,
+          body: JSON.stringify(usagePayload),
+        };
 
         return HttpServerResponse.text(body, { status, contentType: "application/json" });
       }),
@@ -333,12 +316,10 @@ export const startFakeCodex = Effect.gen(function* () {
       "/codex/models",
       Effect.gen(function* () {
         const request = yield* record({}, modelRequests);
-        const account = request.headers["chatgpt-account-id"];
-        const body = (account === undefined ? undefined : catalogByAccount.get(account)) ?? catalog;
 
-        return body === undefined
-          ? yield* respond(unscripted(request))
-          : HttpServerResponse.text(body, { contentType: "application/json" });
+        return HttpServerResponse.text(ofAccount(catalogByAccount, request) ?? catalog, {
+          contentType: "application/json",
+        });
       }),
     ),
   );
@@ -369,19 +350,14 @@ export const startFakeCodex = Effect.gen(function* () {
     respond: (answer: (request: CodexRequest) => Reply) => void (handler = answer),
     /** Sets one account's `/wham/usage` answer, a refusal when `status` is not 200. */
     usage: (account: string, body: Schema.Json, status = 200) =>
-      void usageByAccount.set(account, {
-        status,
-        body: Predicate.isString(body) ? body : JSON.stringify(body),
-      }),
+      void usageByAccount.set(account, { status, body: jsonText(body) }),
     /**
      * Sets the `/codex/models` answer, for one account when `account` is given;
-     * until then, the catalog is unscripted.
+     * until then, it lists the models via bundles.
      */
     models: (body: Schema.Json, account?: string) => {
-      const text = Predicate.isString(body) ? body : JSON.stringify(body);
-
-      if (account === undefined) catalog = text;
-      else catalogByAccount.set(account, text);
+      if (account === undefined) catalog = jsonText(body);
+      else catalogByAccount.set(account, jsonText(body));
     },
     /** Waits until at least `count` requests have arrived. */
     received: (count: number) => arrived(requests, count),

@@ -1,5 +1,6 @@
 // The black-box harness for the `via` binary, shared with apps/e2e as `@via/cli/testing`.
-import { Clock, Effect, FileSystem } from "effect";
+import { type FakeIssuerOptions, seedAccount, startFakeIssuer } from "@via/codex-auth/testing";
+import { Clock, Effect, FileSystem, Predicate } from "effect";
 import { fileURLToPath } from "node:url";
 
 const source = fileURLToPath(new URL("../src/index.ts", import.meta.url));
@@ -98,14 +99,12 @@ export const startVia = (
       });
 
     const url = yield* readUntil(() => /Listening on (\S+)/.exec(stdout)?.[1]).pipe(
-      Effect.flatMap((listening) =>
-        listening === undefined
-          ? Effect.promise(() => new Response(proc.stderr).text()).pipe(
-              Effect.flatMap((stderr) =>
-                Effect.die(new Error(`via serve exited before listening:\n${stderr}`)),
-              ),
-            )
-          : Effect.succeed(listening),
+      Effect.filterOrElse(Predicate.isNotUndefined, () =>
+        Effect.promise(() => new Response(proc.stderr).text()).pipe(
+          Effect.flatMap((stderr) =>
+            Effect.die(new Error(`via serve exited before listening:\n${stderr}`)),
+          ),
+        ),
       ),
       // Fail a via that never starts listening here, not at the test timeout.
       Effect.timeoutOrElse({
@@ -140,3 +139,62 @@ export const serveVia = (
   args: ReadonlyArray<string>,
   env: Record<string, string> = {},
 ) => Effect.map(startVia(home, args, env), ({ url }) => url);
+
+/**
+ * A fresh home whose `via` logs in through a fake issuer, answering as
+ * `issuer` says, and sends Codex traffic to `upstream`; `env` adds variables.
+ * `via(...args)` runs one command in it.
+ */
+export const viaHome = (options: {
+  upstream: string;
+  issuer?: FakeIssuerOptions;
+  env?: Record<string, string>;
+}) =>
+  Effect.gen(function* () {
+    const home = yield* tempHome;
+
+    const env = {
+      VIA_CODEX_ISSUER: yield* startFakeIssuer(options.issuer),
+      VIA_CODEX_BASE_URL: options.upstream,
+      ...options.env,
+    };
+
+    return { home, env, via: (...args: ReadonlyArray<string>) => runVia(home, args, env) };
+  });
+
+/** Creates an API key called `name` in `home` and succeeds with the key. */
+export const createKey = (home: string, name: string) =>
+  Effect.map(
+    runVia(home, ["keys", "create", "--name", name]),
+    ({ stdout }) => stdout.trim().split("\n").at(-1) ?? "",
+  );
+
+/** Writes `home`'s config.yaml. */
+export const writeConfig = (home: string, yaml: string) =>
+  Effect.gen(function* () {
+    yield* (yield* FileSystem.FileSystem).writeFileString(`${home}/config.yaml`, yaml);
+  });
+
+export type SeededAccount = {
+  name: string;
+  /** Access token expiry in ms; far in the future by default. */
+  expiresAt?: number;
+  enabled?: boolean;
+};
+
+/**
+ * Writes accounts straight into `$VIA_HOME/auth`, in order, as `accounts add`
+ * would have: account `a` gets id `a`, email `a@example.com`, ChatGPT account
+ * `acc-a` and access token `at-a`. The fake issuer only knows one identity, so
+ * this is how a test gets a pool of several.
+ */
+export const seedAccounts = (home: string, accounts: ReadonlyArray<SeededAccount>) =>
+  Effect.forEach(
+    accounts,
+    ({ name, ...overrides }, index) =>
+      seedAccount(`${home}/auth`, name, {
+        ...overrides,
+        createdAt: new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString(),
+      }),
+    { discard: true },
+  );

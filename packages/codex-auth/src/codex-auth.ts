@@ -1,5 +1,6 @@
 import { Context, Duration, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { JwtPayload } from "./claims.ts";
 
 const ISSUER = "https://auth.openai.com";
 
@@ -43,9 +44,7 @@ const RefreshErrorBody = Schema.Struct({
   error: Schema.Union([RejectedCode, Schema.Struct({ code: RejectedCode })]),
 });
 
-const AccessTokenExpiry = Schema.StringFromBase64Url.pipe(
-  Schema.decodeTo(Schema.fromJsonString(Schema.Struct({ exp: Schema.Finite }))),
-);
+const AccessTokenExpiry = JwtPayload(Schema.Struct({ exp: Schema.Finite }));
 
 export class AuthRequestError extends Schema.TaggedError<AuthRequestError>()("AuthRequestError", {
   reason: Schema.String,
@@ -94,8 +93,6 @@ const decodeJson =
 
 const toAuthRequestError = (error: { message: string }) =>
   new AuthRequestError({ reason: error.message });
-
-const failAuthRequest = (error: { message: string }) => Effect.fail(toAuthRequestError(error));
 
 const toTokens = Effect.fn("toTokens")(function* (response: typeof TokenResponse.Type) {
   const [, payload = ""] = response.access_token.split(".");
@@ -151,7 +148,10 @@ const make = (issuer: string) =>
               ),
           }),
         ),
-        Effect.catchTags({ HttpClientError: failAuthRequest, SchemaError: failAuthRequest }),
+        // Not `mapError`: the poll's own AuthRequestError passes through as is.
+        Effect.catchTag(["HttpClientError", "SchemaError"], (error) =>
+          Effect.fail(toAuthRequestError(error)),
+        ),
       );
 
     const awaitApproval = Effect.fn("CodexAuth.awaitApproval")(function* (code: DeviceCode) {
@@ -221,15 +221,16 @@ const make = (issuer: string) =>
         });
       }
 
-      const body = yield* decodeJson(RefreshResponse)(response).pipe(
+      return yield* decodeJson(RefreshResponse)(response).pipe(
+        Effect.flatMap((body) =>
+          toTokens({
+            access_token: body.access_token,
+            id_token: body.id_token ?? current.idToken,
+            refresh_token: body.refresh_token ?? current.refreshToken,
+          }),
+        ),
         Effect.mapError(toAuthRequestError),
       );
-
-      return yield* toTokens({
-        access_token: body.access_token,
-        id_token: body.id_token ?? current.idToken,
-        refresh_token: body.refresh_token ?? current.refreshToken,
-      }).pipe(Effect.mapError(toAuthRequestError));
     });
 
     return { requestDeviceCode, awaitDeviceTokens, refresh };

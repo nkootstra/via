@@ -2,30 +2,20 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { Effect, Schema } from "effect";
-import { openai, startCodex, withVia, type Via } from "./harness.ts";
+import { chat, frames, json, launchVia, openai, post, startCodex, type Via } from "./harness.ts";
 
 // Everything that should just work: both endpoints, streaming and not, tool
 // calls, usage accounting, model listing, and the upstream shape via forwards.
-
-/** POSTs one JSON body to via and returns the raw `Response`. */
-const post = (via: Via, path: string, body: Schema.Json) =>
-  Effect.promise(() =>
-    fetch(`${via.url}${path}`, {
-      method: "POST",
-      headers: { authorization: `Bearer ${via.key}`, "content-type": "application/json" },
-      body: JSON.stringify(body),
-    }),
-  );
 
 /** POSTs one JSON body to via and decodes its JSON answer with `schema`. */
 const postJson = <S extends Schema.ConstraintDecoder<unknown>>(
   via: Via,
   path: string,
-  body: Schema.Json,
+  body: Schema.JsonObject,
   schema: S,
 ) =>
   post(via, path, body).pipe(
-    Effect.flatMap((response) => Effect.promise(() => response.json())),
+    Effect.flatMap(json),
     Effect.flatMap(Schema.decodeUnknownEffect(schema)),
     // Test boundary: an answer that doesn't decode fails the test.
     Effect.orDie,
@@ -35,28 +25,11 @@ const postJson = <S extends Schema.ConstraintDecoder<unknown>>(
 const decodeJson = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
   Schema.decodeUnknownSync(Schema.fromJsonString(schema));
 
-const postText = (via: Via, path: string, body: Schema.Json) =>
+const postText = (via: Via, path: string, body: Schema.JsonObject) =>
   post(via, path, body).pipe(Effect.flatMap((response) => Effect.promise(() => response.text())));
 
-/** Chat Completions SSE: `data: <json>\n\n` blocks, last one literally `[DONE]`. */
-const parseChatSse = (text: string): ReadonlyArray<string> =>
-  text
-    .split("\n\n")
-    .filter((block) => block.length > 0)
-    .map((block) => block.replace(/^data: /, ""));
-
-/** Responses API SSE: `event: <name>\ndata: <json>\n\n` blocks, no trailing `[DONE]`. */
-type SseEvent = { readonly event: string; readonly data: string };
-
-const parseResponsesSse = (text: string): ReadonlyArray<SseEvent> =>
-  text
-    .split("\n\n")
-    .filter((block) => block.length > 0)
-    .map((block) => {
-      const [eventLine = "", dataLine = ""] = block.split("\n");
-
-      return { event: eventLine.replace(/^event: /, ""), data: dataLine.replace(/^data: /, "") };
-    });
+/** Chat Completions SSE: the `data` of each block, the last one literally `[DONE]`. */
+const chatData = (text: string) => frames(text).map((frame) => frame.data);
 
 const ChatChunk = Schema.Struct({
   choices: Schema.Array(
@@ -75,30 +48,23 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("hello there"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const completion = yield* Effect.promise(() =>
-            openai(via).chat.completions.create({
-              model: "gpt-6-astra",
-              messages: [{ role: "user", content: "say hi" }],
-            }),
-          );
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          expect(completion.object).toBe("chat.completion");
-          expect(completion.model).toBe("gpt-6-astra");
-          expect(completion.choices[0]?.message).toMatchObject({
-            role: "assistant",
-            content: "hello there",
-          });
-          expect(completion.choices[0]?.finish_reason).toBe("stop");
-          // The fake reports 10 input, 2 output, 12 total tokens.
-          expect(completion.usage).toEqual({
-            prompt_tokens: 10,
-            completion_tokens: 2,
-            total_tokens: 12,
-          });
-        }),
-      );
+      const completion = yield* chat(via, "say hi");
+
+      expect(completion.object).toBe("chat.completion");
+      expect(completion.model).toBe("gpt-6-astra");
+      expect(completion.choices[0]?.message).toMatchObject({
+        role: "assistant",
+        content: "hello there",
+      });
+      expect(completion.choices[0]?.finish_reason).toBe("stop");
+      // The fake reports 10 input, 2 output, 12 total tokens.
+      expect(completion.usage).toEqual({
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+      });
     }),
   );
 
@@ -106,29 +72,27 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("abcdef"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const response = yield* post(via, "/v1/chat/completions", {
-            model: "gpt-6-astra",
-            messages: [{ role: "user", content: "stream please" }],
-            stream: true,
-          });
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
-          const text = yield* Effect.promise(() => response.text());
-          const blocks = parseChatSse(text);
-          expect(blocks.at(-1)).toBe("[DONE]");
-          const chunks = blocks.slice(0, -1).map((block) => decodeJson(ChatChunk)(block));
-          expect(chunks[0]?.choices[0]).toMatchObject({
-            delta: { role: "assistant", content: "" },
-            finish_reason: null,
-          });
-          const content = chunks.map((chunk) => chunk.choices[0]?.delta.content ?? "").join("");
-          expect(content).toBe("abcdef");
-          const finishChunk = chunks.find((chunk) => chunk.choices[0]?.finish_reason !== null);
-          expect(finishChunk?.choices[0]?.finish_reason).toBe("stop");
-        }),
-      );
+      const response = yield* post(via, "/v1/chat/completions", {
+        model: "gpt-6-astra",
+        messages: [{ role: "user", content: "stream please" }],
+        stream: true,
+      });
+
+      expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
+      const text = yield* Effect.promise(() => response.text());
+      const blocks = chatData(text);
+      expect(blocks.at(-1)).toBe("[DONE]");
+      const chunks = blocks.slice(0, -1).map((block) => decodeJson(ChatChunk)(block));
+      expect(chunks[0]?.choices[0]).toMatchObject({
+        delta: { role: "assistant", content: "" },
+        finish_reason: null,
+      });
+      const content = chunks.map((chunk) => chunk.choices[0]?.delta.content ?? "").join("");
+      expect(content).toBe("abcdef");
+      const finishChunk = chunks.find((chunk) => chunk.choices[0]?.finish_reason !== null);
+      expect(finishChunk?.choices[0]?.finish_reason).toBe("stop");
     }),
   );
 
@@ -136,34 +100,32 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("sdk chunks"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const stream = yield* Effect.promise(() =>
-            openai(via).chat.completions.create({
-              model: "gpt-6-astra",
-              messages: [{ role: "user", content: "sdk stream" }],
-              stream: true,
-            }),
-          );
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          const result = yield* Effect.promise(async () => {
-            let content = "";
-            let finishReason: string | null = null;
-
-            for await (const chunk of stream) {
-              content += chunk.choices[0]?.delta.content ?? "";
-              const reason = chunk.choices[0]?.finish_reason;
-
-              if (reason) finishReason = reason;
-            }
-
-            return { content, finishReason };
-          });
-
-          expect(result.content).toBe("sdk chunks");
-          expect(result.finishReason).toBe("stop");
+      const stream = yield* Effect.promise(() =>
+        openai(via).chat.completions.create({
+          model: "gpt-6-astra",
+          messages: [{ role: "user", content: "sdk stream" }],
+          stream: true,
         }),
       );
+
+      const result = yield* Effect.promise(async () => {
+        let content = "";
+        let finishReason: string | null = null;
+
+        for await (const chunk of stream) {
+          content += chunk.choices[0]?.delta.content ?? "";
+          const reason = chunk.choices[0]?.finish_reason;
+
+          if (reason) finishReason = reason;
+        }
+
+        return { content, finishReason };
+      });
+
+      expect(result.content).toBe("sdk chunks");
+      expect(result.finishReason).toBe("stop");
     }),
   );
 
@@ -171,39 +133,37 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("ok"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const text = yield* postText(via, "/v1/chat/completions", {
-            model: "gpt-6-astra",
-            messages: [{ role: "user", content: "usage please" }],
-            stream: true,
-            stream_options: { include_usage: true },
-          });
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          const blocks = parseChatSse(text);
-          expect(blocks.at(-1)).toBe("[DONE]");
+      const text = yield* postText(via, "/v1/chat/completions", {
+        model: "gpt-6-astra",
+        messages: [{ role: "user", content: "usage please" }],
+        stream: true,
+        stream_options: { include_usage: true },
+      });
 
-          const usageChunk = decodeJson(
+      const blocks = chatData(text);
+      expect(blocks.at(-1)).toBe("[DONE]");
+
+      const usageChunk = decodeJson(
+        Schema.Struct({
+          choices: Schema.Array(Schema.Unknown),
+          usage: Schema.optional(
             Schema.Struct({
-              choices: Schema.Array(Schema.Unknown),
-              usage: Schema.optional(
-                Schema.Struct({
-                  prompt_tokens: Schema.Finite,
-                  completion_tokens: Schema.Finite,
-                  total_tokens: Schema.Finite,
-                }),
-              ),
+              prompt_tokens: Schema.Finite,
+              completion_tokens: Schema.Finite,
+              total_tokens: Schema.Finite,
             }),
-          )(blocks.at(-2) ?? "{}");
-
-          expect(usageChunk.choices).toEqual([]);
-          expect(usageChunk.usage).toEqual({
-            prompt_tokens: 10,
-            completion_tokens: 2,
-            total_tokens: 12,
-          });
+          ),
         }),
-      );
+      )(blocks.at(-2) ?? "{}");
+
+      expect(usageChunk.choices).toEqual([]);
+      expect(usageChunk.usage).toEqual({
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+      });
     }),
   );
 
@@ -211,57 +171,55 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.toolCall("get_weather", { city: "oslo" }));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const body = yield* postJson(
-            via,
-            "/v1/chat/completions",
-            {
-              model: "gpt-6-astra",
-              messages: [{ role: "user", content: "weather in oslo, please" }],
-              tools: [
-                {
-                  type: "function",
-                  function: {
-                    name: "get_weather",
-                    parameters: { type: "object", properties: { city: { type: "string" } } },
-                  },
-                },
-              ],
-            },
-            Schema.Struct({
-              choices: Schema.Array(
-                Schema.Struct({
-                  message: Schema.Struct({
-                    content: Schema.NullOr(Schema.String),
-                    tool_calls: Schema.optional(
-                      Schema.Array(
-                        Schema.Struct({
-                          id: Schema.String,
-                          type: Schema.String,
-                          function: Schema.Struct({
-                            name: Schema.String,
-                            arguments: Schema.String,
-                          }),
-                        }),
-                      ),
-                    ),
-                  }),
-                  finish_reason: Schema.String,
-                }),
-              ),
-            }),
-          );
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          expect(body.choices[0]?.message.content).toBeNull();
-          expect(body.choices[0]?.finish_reason).toBe("tool_calls");
-          expect(body.choices[0]?.message.tool_calls?.[0]).toEqual({
-            id: "call_fake",
-            type: "function",
-            function: { name: "get_weather", arguments: JSON.stringify({ city: "oslo" }) },
-          });
+      const body = yield* postJson(
+        via,
+        "/v1/chat/completions",
+        {
+          model: "gpt-6-astra",
+          messages: [{ role: "user", content: "weather in oslo, please" }],
+          tools: [
+            {
+              type: "function",
+              function: {
+                name: "get_weather",
+                parameters: { type: "object", properties: { city: { type: "string" } } },
+              },
+            },
+          ],
+        },
+        Schema.Struct({
+          choices: Schema.Array(
+            Schema.Struct({
+              message: Schema.Struct({
+                content: Schema.NullOr(Schema.String),
+                tool_calls: Schema.optional(
+                  Schema.Array(
+                    Schema.Struct({
+                      id: Schema.String,
+                      type: Schema.String,
+                      function: Schema.Struct({
+                        name: Schema.String,
+                        arguments: Schema.String,
+                      }),
+                    }),
+                  ),
+                ),
+              }),
+              finish_reason: Schema.String,
+            }),
+          ),
         }),
       );
+
+      expect(body.choices[0]?.message.content).toBeNull();
+      expect(body.choices[0]?.finish_reason).toBe("tool_calls");
+      expect(body.choices[0]?.message.tool_calls?.[0]).toEqual({
+        id: "call_fake",
+        type: "function",
+        function: { name: "get_weather", arguments: JSON.stringify({ city: "oslo" }) },
+      });
     }),
   );
 
@@ -272,85 +230,83 @@ layer(BunFileSystem.layer)("happy path", (it) => {
         reply.toolCall("get_weather", { city: "berlin" }),
         reply.text("sunny and 21c in berlin"),
       );
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const first = yield* postJson(
-            via,
-            "/v1/chat/completions",
-            {
-              model: "gpt-6-astra",
-              messages: [{ role: "user", content: "what's the weather in berlin?" }],
-            },
+      const via = yield* launchVia({ upstream: upstream.url });
+
+      const first = yield* postJson(
+        via,
+        "/v1/chat/completions",
+        {
+          model: "gpt-6-astra",
+          messages: [{ role: "user", content: "what's the weather in berlin?" }],
+        },
+        Schema.Struct({
+          choices: Schema.Array(
             Schema.Struct({
-              choices: Schema.Array(
-                Schema.Struct({
-                  message: Schema.Struct({
-                    tool_calls: Schema.optional(
-                      Schema.Array(
-                        Schema.Struct({
-                          id: Schema.String,
-                          function: Schema.Struct({ name: Schema.String }),
-                        }),
-                      ),
-                    ),
-                  }),
-                }),
-              ),
+              message: Schema.Struct({
+                tool_calls: Schema.optional(
+                  Schema.Array(
+                    Schema.Struct({
+                      id: Schema.String,
+                      function: Schema.Struct({ name: Schema.String }),
+                    }),
+                  ),
+                ),
+              }),
             }),
-          );
+          ),
+        }),
+      );
 
-          const call = first.choices[0]?.message.tool_calls?.[0];
-          expect(call).toMatchObject({ id: "call_fake", function: { name: "get_weather" } });
+      const call = first.choices[0]?.message.tool_calls?.[0];
+      expect(call).toMatchObject({ id: "call_fake", function: { name: "get_weather" } });
 
-          const second = yield* postJson(
-            via,
-            "/v1/chat/completions",
+      const second = yield* postJson(
+        via,
+        "/v1/chat/completions",
+        {
+          model: "gpt-6-astra",
+          messages: [
+            { role: "user", content: "what's the weather in berlin?" },
             {
-              model: "gpt-6-astra",
-              messages: [
-                { role: "user", content: "what's the weather in berlin?" },
+              role: "assistant",
+              content: null,
+              tool_calls: [
                 {
-                  role: "assistant",
-                  content: null,
-                  tool_calls: [
-                    {
-                      id: "call_fake",
-                      type: "function",
-                      function: {
-                        name: "get_weather",
-                        arguments: JSON.stringify({ city: "berlin" }),
-                      },
-                    },
-                  ],
+                  id: "call_fake",
+                  type: "function",
+                  function: {
+                    name: "get_weather",
+                    arguments: JSON.stringify({ city: "berlin" }),
+                  },
                 },
-                { role: "tool", tool_call_id: "call_fake", content: "raw sensor reading" },
               ],
             },
+            { role: "tool", tool_call_id: "call_fake", content: "raw sensor reading" },
+          ],
+        },
+        Schema.Struct({
+          choices: Schema.Array(
             Schema.Struct({
-              choices: Schema.Array(
-                Schema.Struct({
-                  message: Schema.Struct({ content: Schema.NullOr(Schema.String) }),
-                }),
-              ),
+              message: Schema.Struct({ content: Schema.NullOr(Schema.String) }),
             }),
-          );
-
-          expect(second.choices[0]?.message.content).toBe("sunny and 21c in berlin");
-          expect(upstream.requests[1]?.body["input"]).toEqual(
-            expect.arrayContaining([
-              expect.objectContaining({
-                type: "function_call",
-                call_id: "call_fake",
-                name: "get_weather",
-              }),
-              {
-                type: "function_call_output",
-                call_id: "call_fake",
-                output: "raw sensor reading",
-              },
-            ]),
-          );
+          ),
         }),
+      );
+
+      expect(second.choices[0]?.message.content).toBe("sunny and 21c in berlin");
+      expect(upstream.requests[1]?.body["input"]).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "function_call",
+            call_id: "call_fake",
+            name: "get_weather",
+          }),
+          {
+            type: "function_call_output",
+            call_id: "call_fake",
+            output: "raw sensor reading",
+          },
+        ]),
       );
     }),
   );
@@ -359,16 +315,14 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("responses pong"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const response = yield* Effect.promise(() =>
-            openai(via).responses.create({ model: "gpt-6-astra", input: "responses ping" }),
-          );
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          expect(response.output_text).toBe("responses pong");
-          expect(response.model).toBe("gpt-6-astra");
-        }),
+      const response = yield* Effect.promise(() =>
+        openai(via).responses.create({ model: "gpt-6-astra", input: "responses ping" }),
       );
+
+      expect(response.output_text).toBe("responses pong");
+      expect(response.model).toBe("gpt-6-astra");
     }),
   );
 
@@ -376,29 +330,27 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("streamed text"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const response = yield* post(via, "/v1/responses", {
-            model: "gpt-6-astra",
-            input: "responses stream",
-            stream: true,
-          });
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
-          const text = yield* Effect.promise(() => response.text());
-          expect(text).not.toContain("[DONE]");
-          const events = parseResponsesSse(text);
-          expect(events[0]?.event).toBe("response.created");
-          expect(events.at(-1)?.event).toBe("response.completed");
+      const response = yield* post(via, "/v1/responses", {
+        model: "gpt-6-astra",
+        input: "responses stream",
+        stream: true,
+      });
 
-          const delta = events
-            .filter((event) => event.event === "response.output_text.delta")
-            .map((event) => decodeJson(Schema.Struct({ delta: Schema.String }))(event.data).delta)
-            .join("");
+      expect(response.headers.get("content-type")).toMatch(/^text\/event-stream/);
+      const text = yield* Effect.promise(() => response.text());
+      expect(text).not.toContain("[DONE]");
+      const events = frames(text);
+      expect(events[0]?.event).toBe("response.created");
+      expect(events.at(-1)?.event).toBe("response.completed");
 
-          expect(delta).toBe("streamed text");
-        }),
-      );
+      const delta = events
+        .filter((event) => event.event === "response.output_text.delta")
+        .map((event) => decodeJson(Schema.Struct({ delta: Schema.String }))(event.data).delta)
+        .join("");
+
+      expect(delta).toBe("streamed text");
     }),
   );
 
@@ -406,42 +358,40 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.toolCall("get_time", { tz: "Asia/Tokyo" }));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const body = yield* postJson(
-            via,
-            "/v1/responses",
-            {
-              model: "gpt-6-astra",
-              input: "please tell me the time in tokyo",
-              tools: [
-                {
-                  type: "function",
-                  name: "get_time",
-                  parameters: { type: "object", properties: { tz: { type: "string" } } },
-                },
-              ],
-            },
-            Schema.Struct({
-              output: Schema.Array(
-                Schema.Struct({
-                  type: Schema.String,
-                  call_id: Schema.optional(Schema.String),
-                  name: Schema.optional(Schema.String),
-                  arguments: Schema.optional(Schema.String),
-                }),
-              ),
-            }),
-          );
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          const call = body.output.find((item) => item.type === "function_call");
-          expect(call).toMatchObject({
-            call_id: "call_fake",
-            name: "get_time",
-            arguments: JSON.stringify({ tz: "Asia/Tokyo" }),
-          });
+      const body = yield* postJson(
+        via,
+        "/v1/responses",
+        {
+          model: "gpt-6-astra",
+          input: "please tell me the time in tokyo",
+          tools: [
+            {
+              type: "function",
+              name: "get_time",
+              parameters: { type: "object", properties: { tz: { type: "string" } } },
+            },
+          ],
+        },
+        Schema.Struct({
+          output: Schema.Array(
+            Schema.Struct({
+              type: Schema.String,
+              call_id: Schema.optional(Schema.String),
+              name: Schema.optional(Schema.String),
+              arguments: Schema.optional(Schema.String),
+            }),
+          ),
         }),
       );
+
+      const call = body.output.find((item) => item.type === "function_call");
+      expect(call).toMatchObject({
+        call_id: "call_fake",
+        name: "get_time",
+        arguments: JSON.stringify({ tz: "Asia/Tokyo" }),
+      });
     }),
   );
 
@@ -451,26 +401,23 @@ layer(BunFileSystem.layer)("happy path", (it) => {
       Effect.gen(function* () {
         const upstream = yield* startCodex;
         upstream.script(reply.text("ok"));
-        yield* withVia({ upstream: upstream.url }, (via) =>
-          Effect.gen(function* () {
-            yield* Effect.promise(() =>
-              openai(via).chat.completions.create({
-                model: "gpt-6-astra-high",
-                messages: [
-                  { role: "system", content: "You are terse." },
-                  { role: "user", content: "effort check" },
-                ],
-              }),
-            );
-            expect(upstream.requests[0]).toMatchObject({
-              body: {
-                instructions: "You are terse.",
-                model: "gpt-6-astra",
-                reasoning: { effort: "high" },
-              },
-            });
+        const via = yield* launchVia({ upstream: upstream.url });
+        yield* Effect.promise(() =>
+          openai(via).chat.completions.create({
+            model: "gpt-6-astra-high",
+            messages: [
+              { role: "system", content: "You are terse." },
+              { role: "user", content: "effort check" },
+            ],
           }),
         );
+        expect(upstream.requests[0]).toMatchObject({
+          body: {
+            instructions: "You are terse.",
+            model: "gpt-6-astra",
+            reasoning: { effort: "high" },
+          },
+        });
       }),
   );
 
@@ -489,40 +436,30 @@ layer(BunFileSystem.layer)("happy path", (it) => {
         ],
       });
       upstream.script(reply.text("pong"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const response = yield* Effect.promise(() => openai(via).models.list());
-          expect(response.data.map((model) => model.id)).toEqual([
-            "gpt-7",
-            "gpt-7-low",
-            "gpt-7-high",
-          ]);
-          yield* Effect.promise(() =>
-            openai(via).chat.completions.create({
-              model: "gpt-7-high",
-              messages: [{ role: "user", content: "ping" }],
-            }),
-          );
-          expect(upstream.requests.at(-1)?.body).toMatchObject({
-            model: "gpt-7",
-            reasoning: { effort: "high" },
-          });
+      const via = yield* launchVia({ upstream: upstream.url });
+      const response = yield* Effect.promise(() => openai(via).models.list());
+      expect(response.data.map((model) => model.id)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+      yield* Effect.promise(() =>
+        openai(via).chat.completions.create({
+          model: "gpt-7-high",
+          messages: [{ role: "user", content: "ping" }],
         }),
       );
+      expect(upstream.requests.at(-1)?.body).toMatchObject({
+        model: "gpt-7",
+        reasoning: { effort: "high" },
+      });
     }),
   );
 
   it.effect("lists the bundled models when Codex does not list any", () =>
     Effect.gen(function* () {
       const upstream = yield* startCodex;
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const response = yield* Effect.promise(() => openai(via).models.list());
-          const ids = response.data.map((model) => model.id);
-          expect(ids).toContain("gpt-6-astra");
-          expect(ids).toContain("gpt-6-astra-high");
-        }),
-      );
+      const via = yield* launchVia({ upstream: upstream.url });
+      const response = yield* Effect.promise(() => openai(via).models.list());
+      const ids = response.data.map((model) => model.id);
+      expect(ids).toContain("gpt-6-astra");
+      expect(ids).toContain("gpt-6-astra-high");
     }),
   );
 
@@ -530,24 +467,16 @@ layer(BunFileSystem.layer)("happy path", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.script(reply.text("pong"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          yield* Effect.promise(() =>
-            openai(via).chat.completions.create({
-              model: "gpt-6-astra",
-              messages: [{ role: "user", content: "ping" }],
-            }),
-          );
-          expect(upstream.requests[0]).toMatchObject({
-            headers: {
-              // Derived from the conversation's opening, as the client sent no session.
-              session_id: expect.stringMatching(/^[0-9a-f]{64}$/),
-              accept: "text/event-stream",
-              originator: "codex-tui",
-            },
-          });
-        }),
-      );
+      const via = yield* launchVia({ upstream: upstream.url });
+      yield* chat(via, "ping");
+      expect(upstream.requests[0]).toMatchObject({
+        headers: {
+          // Derived from the conversation's opening, as the client sent no session.
+          session_id: expect.stringMatching(/^[0-9a-f]{64}$/),
+          accept: "text/event-stream",
+          originator: "codex-tui",
+        },
+      });
     }),
   );
 });

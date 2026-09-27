@@ -1,6 +1,6 @@
 import { Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
-import { chatUsage, incompleteFinish, Usage } from "./chat-response.ts";
+import { chatUsage, finishReason, toolCall, Usage } from "./chat-response.ts";
 
 const Created = Schema.Struct({
   type: Schema.Literal("response.created"),
@@ -62,41 +62,63 @@ const StreamEvent = Schema.Union([
   Other,
 ]);
 
-const isCreated = Schema.is(Created);
+/**
+ * A guard for one kind of event. Every event meets several guards, so it
+ * compares the `type` first: a parse that fails costs far more than a miss.
+ */
+const isEvent = <
+  S extends Schema.Top & { readonly fields: { readonly type: Schema.Literal<string> } },
+>(
+  schema: S,
+) => {
+  const is = Schema.is(schema);
+  const type = schema.fields.type.literal;
 
-const isTextDelta = Schema.is(TextDelta);
+  return <E extends { readonly type: string }>(event: E): event is E & S["Type"] =>
+    event.type === type && is(event);
+};
 
-const isFunctionCallAdded = Schema.is(FunctionCallAdded);
+const isCreated = isEvent(Created);
 
-const isArgumentsDelta = Schema.is(ArgumentsDelta);
+const isTextDelta = isEvent(TextDelta);
 
-const isCompleted = Schema.is(Completed);
+const isFunctionCallAdded = isEvent(FunctionCallAdded);
 
-const isFailed = Schema.is(Failed);
+const isArgumentsDelta = isEvent(ArgumentsDelta);
 
-const isIncomplete = Schema.is(Incomplete);
+const isCompleted = isEvent(Completed);
+
+const isFailed = isEvent(Failed);
+
+const isIncomplete = isEvent(Incomplete);
 
 const isTerminal = (event: typeof StreamEvent.Type) =>
   isCompleted(event) || isFailed(event) || isIncomplete(event);
 
 type State = {
-  readonly envelope: { id: string; object: string; created: number; model: string };
+  /** The chunk envelope as JSON, left open for the fields that follow it. */
+  readonly envelope: string;
   /** The chat tool call index of each function call, by Responses output index. */
   readonly toolIndex: ReadonlyMap<number, number>;
   /** Whether the response reached a terminal event. */
   readonly ended: boolean;
 };
 
+// Every chunk shares the envelope, so it is serialized once per response
+// rather than spread into and stringified with each chunk.
+const envelope = (id: string, created: number, model: string) =>
+  JSON.stringify({ id, object: "chat.completion.chunk", created, model }).slice(0, -1);
+
 const initial = (): State => ({
-  envelope: { id: "", object: "chat.completion.chunk", created: 0, model: "" },
+  envelope: envelope("", 0, ""),
   toolIndex: new Map(),
   ended: false,
 });
 
 const data = (payload: Schema.Json) => `data: ${JSON.stringify(payload)}\n\n`;
 
-const chunk = (state: State, delta: Schema.JsonObject, finishReason: string | null = null) =>
-  data({ ...state.envelope, choices: [{ index: 0, delta, finish_reason: finishReason }] });
+const chunk = (state: State, delta: Schema.JsonObject, reason: string | null = null) =>
+  `data: ${state.envelope},"choices":[{"index":0,"delta":${JSON.stringify(delta)},"finish_reason":${JSON.stringify(reason)}}]}\n\n`;
 
 // Chat Completions has no failure event; clients such as the openai SDK raise
 // an `error` payload sent in place of a chunk.
@@ -120,7 +142,7 @@ export const toChatStream = <E>(
   const step = (state: State, event: typeof StreamEvent.Type): readonly [State, Array<string>] => {
     if (isCreated(event)) {
       const { id, created_at, model } = event.response;
-      const next = { ...state, envelope: { ...state.envelope, id, created: created_at, model } };
+      const next = { ...state, envelope: envelope(id, created_at, model) };
 
       return [next, [chunk(next, { role: "assistant", content: "" })]];
     }
@@ -131,7 +153,7 @@ export const toChatStream = <E>(
       const index = state.toolIndex.size;
       const toolIndex = new Map(state.toolIndex).set(event.output_index, index);
       const { call_id, name } = event.item;
-      const call = { index, id: call_id, type: "function", function: { name, arguments: "" } };
+      const call = { index, ...toolCall(call_id, name, "") };
 
       return [{ ...state, toolIndex }, [chunk(state, { tool_calls: [call] })]];
     }
@@ -148,7 +170,7 @@ export const toChatStream = <E>(
     if (isCompleted(event)) {
       return [
         { ...state, ended: true },
-        finish(state, state.toolIndex.size > 0 ? "tool_calls" : "stop", event.response.usage),
+        finish(state, finishReason(undefined, state.toolIndex.size > 0), event.response.usage),
       ];
     }
 
@@ -157,7 +179,7 @@ export const toChatStream = <E>(
 
       return [
         { ...state, ended: true },
-        finish(state, incompleteFinish(incomplete_details.reason), usage),
+        finish(state, finishReason(incomplete_details, state.toolIndex.size > 0), usage),
       ];
     }
 
@@ -173,7 +195,7 @@ export const toChatStream = <E>(
   const finish = (state: State, reason: string, usage: typeof Usage.Type | undefined) => [
     chunk(state, {}, reason),
     ...(options.includeUsage && usage !== undefined
-      ? [data({ ...state.envelope, choices: [], usage: chatUsage(usage) })]
+      ? [`data: ${state.envelope},"choices":[],"usage":${JSON.stringify(chatUsage(usage))}}\n\n`]
       : []),
     "data: [DONE]\n\n",
   ];

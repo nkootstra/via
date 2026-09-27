@@ -90,16 +90,28 @@ export const ChatRequest = Schema.Struct({
 
 export type ChatRequest = typeof ChatRequest.Type;
 
+const isTextPart = Schema.is(TextPart);
+
+const isInstructionMessage = Schema.is(InstructionMessage);
+
+const isUserMessage = Schema.is(UserMessage);
+
+const isToolMessage = Schema.is(ToolMessage);
+
+const isToolChoiceMode = Schema.is(ToolChoiceMode);
+
+const isJsonSchemaFormat = Schema.is(JsonSchemaFormat);
+
 const userPart = (part: typeof UserPart.Type) =>
-  Schema.is(TextPart)(part)
+  isTextPart(part)
     ? { type: "input_text", text: part.text }
     : { type: "input_image", image_url: part.image_url.url };
 
 /** The Responses input items a chat message becomes; instructions become none. */
 const inputItems = (message: typeof Message.Type): ReadonlyArray<Schema.JsonObject> => {
-  if (Schema.is(InstructionMessage)(message)) return [];
+  if (isInstructionMessage(message)) return [];
 
-  if (Schema.is(UserMessage)(message)) {
+  if (isUserMessage(message)) {
     const parts = Predicate.isString(message.content)
       ? [{ type: "text" as const, text: message.content }]
       : message.content;
@@ -107,7 +119,7 @@ const inputItems = (message: typeof Message.Type): ReadonlyArray<Schema.JsonObje
     return [{ type: "message", role: "user", content: parts.map(userPart) }];
   }
 
-  if (Schema.is(ToolMessage)(message)) {
+  if (isToolMessage(message)) {
     return [
       { type: "function_call_output", call_id: message.tool_call_id, output: message.content },
     ];
@@ -136,10 +148,10 @@ const inputItems = (message: typeof Message.Type): ReadonlyArray<Schema.JsonObje
 const tool = ({ function: fn }: typeof FunctionTool.Type) => ({ type: "function", ...fn });
 
 const toolChoice = (choice: typeof ToolChoice.Type) =>
-  Schema.is(ToolChoiceMode)(choice) ? choice : { type: "function", name: choice.function.name };
+  isToolChoiceMode(choice) ? choice : { type: "function", name: choice.function.name };
 
 const textFormat = (format: typeof ResponseFormat.Type) =>
-  Schema.is(JsonSchemaFormat)(format)
+  isJsonSchemaFormat(format)
     ? { type: "json_schema", ...format.json_schema }
     : { type: format.type };
 
@@ -147,7 +159,7 @@ const textFormat = (format: typeof ResponseFormat.Type) =>
 export const toResponsesRequest = (chat: ChatRequest) => ({
   model: chat.model,
   instructions: chat.messages
-    .filter(Schema.is(InstructionMessage))
+    .filter(isInstructionMessage)
     .map((message) => message.content)
     .join("\n\n"),
   input: chat.messages.flatMap(inputItems),

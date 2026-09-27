@@ -33,7 +33,7 @@ const decodeSpec = Schema.decodeUnknownSync(
 /** The id of account `name` from the harness, as the admin API lists it. */
 const accountId = (via: Via, name: string) =>
   Effect.gen(function* () {
-    const all = Schema.decodeUnknownSync(
+    const all = yield* Schema.decodeUnknownEffect(
       Schema.Array(Schema.Struct({ id: Schema.String, email: Schema.String })),
     )(yield* (yield* via.get("/admin/accounts", adminKey)).json);
 

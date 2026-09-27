@@ -4,7 +4,6 @@ import { loadConfig } from "@via/config";
 import { Providers } from "@via/providers";
 import { Console, Effect, Layer } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
-import { codexUpstream } from "./upstream.ts";
 import { version } from "./version.ts";
 
 const accountArg = Argument.String("account").pipe(
@@ -70,6 +69,9 @@ const showProviderUsage = Effect.gen(function* () {
   }
 });
 
+/** Why an account's usage is missing, in place of its windows. */
+const why = (error: { readonly message: string }) => Effect.succeed([`  ${error.message}`]);
+
 const showUsage = Effect.fnUntraced(function* (account: Account) {
   yield* Console.log(describe(account));
   const tokens = yield* AccountTokens;
@@ -79,14 +81,16 @@ const showUsage = Effect.fnUntraced(function* (account: Account) {
     Effect.flatMap(codex.usage),
     Effect.map((windows) => windows.map(formatWindow)),
     Effect.catchTags({
-      RefreshRejectedError: (error) => Effect.succeed([`  ${error.message}`]),
-      UsageUnavailableError: (error) => Effect.succeed([`  ${error.message}`]),
-      AuthRequestError: (error) => Effect.succeed([`  ${error.message}`]),
+      RefreshRejectedError: why,
+      UsageUnavailableError: why,
+      AuthRequestError: why,
     }),
   );
 
   for (const line of lines) yield* Console.log(line);
 });
+
+const say = (error: { readonly message: string }) => Console.log(error.message);
 
 const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
   Command.make("status", {}, () =>
@@ -96,15 +100,17 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
 
       if (accounts.length === 0) yield* Console.log(noAccounts);
       yield* Effect.forEach(accounts, showUsage, { discard: true }).pipe(
-        Effect.provide(Layer.mergeAll(AccountTokens.layer, codexUpstream(config, upstreamBaseUrl))),
+        Effect.provide(
+          Layer.mergeAll(
+            AccountTokens.layer,
+            CodexUpstream.layer({ baseUrl: upstreamBaseUrl, cloak: config.codex.cloak, version }),
+          ),
+        ),
       );
       yield* showProviderUsage.pipe(
-        Effect.provide(Providers.layer(config.providers, version)),
+        Effect.provide(Providers.layer({ providers: config.providers, version })),
         // A provider that can't be set up, e.g. for a missing API key, says so here.
-        Effect.catchTags({
-          MissingApiKeyError: (error) => Console.log(error.message),
-          UnknownProviderError: (error) => Console.log(error.message),
-        }),
+        Effect.catchTags({ MissingApiKeyError: say, UnknownProviderError: say }),
       );
     }),
   ).pipe(

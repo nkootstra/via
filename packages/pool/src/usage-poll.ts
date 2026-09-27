@@ -8,11 +8,13 @@ export type UsageWindow = {
 };
 
 /** What a poll learned about an account's cooldown; `changed: false` leaves it untouched. */
-export type UsagePollResult =
+type UsagePollResult =
   | { readonly changed: false }
   | { readonly changed: true; readonly until: number; readonly reason: string };
 
 const REASON = "usage_limit_reached";
+
+const UNCHANGED: UsagePollResult = { changed: false };
 
 /** Every enabled account not locked out, including one already cooling: still worth polling. */
 export const pollable = <A extends PoolAccount>(
@@ -37,13 +39,14 @@ export const decideUsagePoll = (
 ): UsagePollResult => {
   // A poll never touches an account already locked out of the pool: that lockout
   // means Codex rejected its refresh token, which no amount of usage data fixes.
-  if (current?.status === "auth_error") return { changed: false };
-  const exhausted = windows.filter((window) => window.usedPercent >= 100 && window.resetsAt > now);
+  if (current?.status === "auth_error") return UNCHANGED;
+  // Only an exhausted window resetting after both now and the running cooldown matters.
+  const floor = current?.status === "cooling" ? Math.max(now, current.until) : now;
+  let until = floor;
 
-  if (exhausted.length === 0) return { changed: false };
-  const until = Math.max(...exhausted.map((window) => window.resetsAt));
+  for (const window of windows) {
+    if (window.usedPercent >= 100 && window.resetsAt > until) until = window.resetsAt;
+  }
 
-  if (current?.status === "cooling" && until <= current.until) return { changed: false };
-
-  return { changed: true, until, reason: REASON };
+  return until === floor ? UNCHANGED : { changed: true, until, reason: REASON };
 };

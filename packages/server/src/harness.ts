@@ -1,7 +1,7 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
-import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
+import { type FakeIssuerOptions, jwt, startFakeIssuer, tokensFor } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
 import { type CodexRequest, type Reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
@@ -32,20 +32,6 @@ import { ViaServer } from "./index.ts";
 export const refreshedAccessToken = jwt({
   exp: 2_000_000_000,
   refreshed: true,
-});
-
-/** Tokens for a ChatGPT account named `name`, valid far into the future. */
-const accountTokens = (name: string, expiresAt = 1e15) => ({
-  idToken: jwt({
-    email: `${name}@example.com`,
-    "https://api.openai.com/auth": {
-      chatgpt_account_id: `acc-${name}`,
-      chatgpt_plan_type: "pro",
-    },
-  }),
-  accessToken: `at-${name}`,
-  refreshToken: "rt-1",
-  expiresAt,
 });
 
 export type Via = {
@@ -95,7 +81,7 @@ type LogLine = {
 };
 
 /** A logger that keeps every line, and `logged(text)`, which waits for one containing `text`. */
-const collectLogs = () => {
+export const collectLogs = () => {
   const lines: Array<LogLine> = [];
   const waiters: Array<{ text: string; line: Deferred.Deferred<LogLine> }> = [];
 
@@ -174,17 +160,13 @@ export const withVia = <A, E>(
 
     const codex = yield* startFakeCodex;
     codex.respond(answer);
-    const issuer = yield* Layer.build(fakeIssuer({ refreshResponse, pendingPolls, interval }));
+    const issuer = yield* startFakeIssuer({ refreshResponse, pendingPolls, interval });
     const provider = yield* startFakeProvider;
     const providerConfig = { baseUrl: providerUrl ?? provider.url, apiKeyEnv: "PROVIDER_KEY" };
 
     const services = Layer.mergeAll(
       AccountTokens.layer.pipe(
-        Layer.provideMerge(
-          CodexAuth.layer(
-            yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(issuer)),
-          ),
-        ),
+        Layer.provideMerge(CodexAuth.layer(issuer)),
         Layer.provideMerge(stores),
       ),
       CodexUpstream.layer({
@@ -192,7 +174,10 @@ export const withVia = <A, E>(
         cloak: true,
         version: "0.0.0",
       }),
-      Providers.layer({ openrouter: providerConfig, "opencode-go": providerConfig }, "0.0.0").pipe(
+      Providers.layer({
+        providers: { openrouter: providerConfig, "opencode-go": providerConfig },
+        version: "0.0.0",
+      }).pipe(
         Layer.provide(
           ConfigProvider.layer(ConfigProvider.fromUnknown({ PROVIDER_KEY: "sk-provider" })),
         ),
@@ -203,10 +188,10 @@ export const withVia = <A, E>(
     const built = yield* Layer.build(services);
     yield* Effect.gen(function* () {
       const store = yield* AccountStore;
-      yield* store.save(accountTokens("a", aExpiresAt));
+      yield* store.save(tokensFor("a", aExpiresAt === undefined ? {} : { expiresAt: aExpiresAt }));
       // Accounts are used in the order they were added, so "a" must come first.
       yield* TestClock.adjust("1 second");
-      yield* store.save(accountTokens("b"));
+      yield* store.save(tokensFor("b"));
     }).pipe(Effect.provide(built));
     const logs = collectLogs();
 

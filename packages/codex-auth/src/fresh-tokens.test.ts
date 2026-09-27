@@ -1,8 +1,19 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect, FileSystem, Layer } from "effect";
-import { issuedTokens, refreshedTokens, withIssuer } from "./fake-issuer.ts";
-import { type Account, AccountStore, AccountTokens } from "./index.ts";
+import {
+  type FakeIssuerOptions,
+  issuedTokens,
+  refreshedTokens,
+  withIssuer,
+} from "./testing/index.ts";
+import {
+  type Account,
+  AccountStore,
+  AccountTokens,
+  AuthRequestError,
+  RefreshRejectedError,
+} from "./index.ts";
 
 const MINUTE = 60_000;
 
@@ -10,8 +21,9 @@ const MINUTE = 60_000;
 const withAccount = <A, E>(
   expiresAt: number,
   body: (account: Account) => Effect.Effect<A, E, AccountTokens | AccountStore>,
+  issuer: FakeIssuerOptions = {},
 ) =>
-  withIssuer({}, () =>
+  withIssuer(issuer, () =>
     Effect.gen(function* () {
       const dir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
 
@@ -47,6 +59,37 @@ layer(BunFileSystem.layer)("AccountTokens.fresh", (it) => {
         expect(fresh.accessToken).toBe(refreshedTokens.access_token);
         expect((yield* (yield* AccountStore).find(account.id)).refreshToken).toBe("rt-2");
       }),
+    ),
+  );
+
+  it.effect("refreshes a token with exactly 5 minutes left", () =>
+    withAccount(5 * MINUTE, (account) =>
+      Effect.gen(function* () {
+        const fresh = yield* (yield* AccountTokens).fresh(account);
+        expect(fresh.accessToken).toBe(refreshedTokens.access_token);
+      }),
+    ),
+  );
+
+  it.effect("a failed refresh keeps the stored tokens and lets the next caller try again", () =>
+    withAccount(
+      0,
+      (account) =>
+        Effect.gen(function* () {
+          const tokens = yield* AccountTokens;
+          const first = yield* Effect.flip(tokens.fresh(account));
+
+          expect(first).toEqual(
+            new AuthRequestError({ reason: "token refresh returned HTTP 503" }),
+          );
+          expect(yield* (yield* AccountStore).find(account.id)).toEqual(account);
+
+          // The fake issuer burns "rt-1" on the failed attempt, so the retry reaching it is rejected.
+          const second = yield* Effect.flip(tokens.fresh(account));
+
+          expect(second).toEqual(new RefreshRejectedError({ code: "refresh_token_reused" }));
+        }),
+      { refreshResponse: { status: 503, body: {} } },
     ),
   );
 

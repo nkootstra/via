@@ -8,7 +8,7 @@ import {
 } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "@via/keys";
-import { Providers } from "@via/providers";
+import { ProviderUsage, Providers } from "@via/providers";
 import { LoginNotFoundError, Logins } from "./logins.ts";
 import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
 import {
@@ -64,29 +64,13 @@ const AccountUsage = Schema.Union([
     label: Schema.String,
     windows: Schema.Array(
       Schema.Struct({
-        windowMinutes: Schema.Number,
-        usedPercent: Schema.Number,
+        windowMinutes: Schema.Finite,
+        usedPercent: Schema.Finite,
         resetsAt: Schema.String,
       }),
     ),
   }),
   Schema.Struct({ id: Schema.String, label: Schema.String, error: Schema.String }),
-]);
-
-/** A provider's usage windows, such as OpenCode Go's, or why it did not report them. */
-const ProviderUsage = Schema.Union([
-  Schema.Struct({
-    provider: Schema.String,
-    windows: Schema.Array(
-      Schema.Struct({
-        window: Schema.String,
-        status: Schema.String,
-        usedPercent: Schema.Number,
-        resetsAt: Schema.String,
-      }),
-    ),
-  }),
-  Schema.Struct({ provider: Schema.String, error: Schema.String }),
 ]);
 
 const Usage = Schema.Struct({
@@ -184,7 +168,7 @@ class AdminApi extends HttpApi.make("via-admin")
 /** `VIA_ADMIN_KEY` is set, but too short to withstand guessing. */
 class AdminKeyTooShortError extends Schema.TaggedError<AdminKeyTooShortError>()(
   "AdminKeyTooShortError",
-  { length: Schema.Number },
+  { length: Schema.Finite },
 ) {
   override get message() {
     return `VIA_ADMIN_KEY must be at least 32 characters; it has ${this.length}`;
@@ -239,19 +223,13 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
           return (yield* (yield* AccountStore).list).map(withoutTokens);
         }).pipe(Effect.orDie),
       )
-      .handle("login", () =>
-        Effect.gen(function* () {
-          return yield* logins.start();
-        }),
-      )
+      .handle("login", () => logins.start())
       .handle("loginStatus", ({ params }) =>
-        Effect.gen(function* () {
-          const login = yield* logins.status(params.id);
-
-          return login.status === "added"
+        Effect.map(logins.status(params.id), (login) =>
+          login.status === "added"
             ? { status: login.status, account: withoutTokens(login.account) }
-            : login;
-        }),
+            : login,
+        ),
       )
       .handle("update", ({ params, payload }) =>
         Effect.gen(function* () {
@@ -276,20 +254,16 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
 // The key file is via's own; one it can't read or write is a bug, not a request error.
 const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
   handlers
-    .handle("list", () =>
-      Effect.gen(function* () {
-        return yield* (yield* KeyStore).list;
-      }).pipe(Effect.orDie),
-    )
+    .handle("list", () => Effect.flatMap(KeyStore, (store) => store.list).pipe(Effect.orDie))
     .handle("create", ({ payload }) =>
-      Effect.gen(function* () {
-        return yield* (yield* KeyStore).create(payload.name);
-      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+      Effect.flatMap(KeyStore, (store) => store.create(payload.name)).pipe(
+        Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die),
+      ),
     )
     .handle("revoke", ({ params }) =>
-      Effect.gen(function* () {
-        yield* (yield* KeyStore).revoke(params.idOrName);
-      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+      Effect.flatMap(KeyStore, (store) => store.revoke(params.idOrName)).pipe(
+        Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die),
+      ),
     ),
 );
 

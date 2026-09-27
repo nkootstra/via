@@ -146,6 +146,23 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     ),
   );
 
+  it.effect("answers 503 when Codex refuses every account even after a refresh", () =>
+    withVia(
+      () => reply.error(401, {}),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", request);
+          expect(response.status).toBe(503);
+          expect(yield* response.json).toMatchObject({
+            error: { type: "server_error", code: "no_accounts" },
+          });
+          // "a" is refused again after its refresh; "b" shares its refresh token, which the
+          // issuer then refuses as reused, so "b" is locked out without a second try.
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-a", "acc-b"]);
+        }),
+    ),
+  );
+
   it.effect("locks out an account whose refresh token is rejected, and moves on", () =>
     withVia(
       (received) => (accountOf(received) === "acc-a" ? reply.error(401, {}) : ok()),
@@ -156,6 +173,19 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
           expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
         }),
       { refreshResponse: { status: 400, body: { error: "invalid_grant" } } },
+    ),
+  );
+
+  it.effect("cools down an account whose refresh after a 401 hits an auth-server hiccup", () =>
+    withVia(
+      (received) => (accountOf(received) === "acc-a" ? reply.error(401, {}) : ok()),
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
+        }),
+      { refreshResponse: { status: 500, body: {} } },
     ),
   );
 
@@ -183,6 +213,15 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
           expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-b"]);
         }),
       { refreshResponse: { status: 500, body: {} }, aExpiresAt: 0 },
+    ),
+  );
+
+  it.effect("sends a request that names no model to Codex", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        expect((yield* via.post("/v1/responses", { input: "hi" })).status).toBe(200);
+        expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a"]);
+      }),
     ),
   );
 

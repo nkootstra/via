@@ -1,15 +1,5 @@
 import type { ProviderConfig } from "@via/config";
-import {
-  Config,
-  Context,
-  Effect,
-  identity,
-  Layer,
-  Option,
-  Predicate,
-  Redacted,
-  Schema,
-} from "effect";
+import { Config, Context, Effect, identity, Layer, Option, Predicate, Schema } from "effect";
 import {
   HttpBody,
   HttpClient,
@@ -45,7 +35,7 @@ const PRESETS = new Map<string, { baseUrl: string; session: SessionTarget; usage
   ],
 ]);
 
-export class UnknownProviderError extends Schema.TaggedError<UnknownProviderError>()(
+class UnknownProviderError extends Schema.TaggedError<UnknownProviderError>()(
   "UnknownProviderError",
   { name: Schema.String },
 ) {
@@ -54,19 +44,19 @@ export class UnknownProviderError extends Schema.TaggedError<UnknownProviderErro
   }
 }
 
-export class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()(
-  "MissingApiKeyError",
-  { provider: Schema.String, variable: Schema.String },
-) {
+class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()("MissingApiKeyError", {
+  provider: Schema.String,
+  variable: Schema.String,
+}) {
   override get message() {
     return `Provider "${this.provider}" reads its API key from ${this.variable}, which is not set`;
   }
 }
 
 /** A provider answered its usage endpoint with something other than 200. */
-class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableError>()(
-  "UsageUnavailableError",
-  { provider: Schema.String, status: Schema.Number },
+class ProviderUsageUnavailableError extends Schema.TaggedError<ProviderUsageUnavailableError>()(
+  "ProviderUsageUnavailableError",
+  { provider: Schema.String, status: Schema.Finite },
 ) {
   override get message() {
     return `${this.provider} did not report usage (HTTP ${this.status})`;
@@ -88,23 +78,32 @@ const UsagePayload = Schema.Struct({
   ),
 });
 
-/** How much of one of a provider's limits is used, and when it starts over. */
-export type ProviderUsageWindow = {
-  readonly window: string;
-  readonly status: string;
-  readonly usedPercent: number;
-  /** ISO 8601, as the provider gives it. */
-  readonly resetsAt: string;
-};
+/**
+ * A provider's usage windows, such as OpenCode Go's, or why it could not report
+ * them. Each window says how much of one of its limits is used, and when it
+ * starts over (ISO 8601, as the provider gives it).
+ */
+export const ProviderUsage = Schema.Union([
+  Schema.Struct({
+    provider: Schema.String,
+    windows: Schema.Array(
+      Schema.Struct({
+        window: Schema.String,
+        status: Schema.String,
+        usedPercent: Schema.Finite,
+        resetsAt: Schema.String,
+      }),
+    ),
+  }),
+  Schema.Struct({ provider: Schema.String, error: Schema.String }),
+]);
 
-/** A provider's usage windows, or why it could not report them. */
-export type ProviderUsage =
-  | { readonly provider: string; readonly windows: ReadonlyArray<ProviderUsageWindow> }
-  | { readonly provider: string; readonly error: string };
+export type ProviderUsage = typeof ProviderUsage.Type;
 
 type Provider = {
-  baseUrl: string;
-  apiKey: Redacted.Redacted;
+  name: string;
+  /** Sends requests under the provider's base URL, with its API key. */
+  client: HttpClient.HttpClient;
   session: SessionTarget;
   usage: string | undefined;
 };
@@ -119,11 +118,20 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
       const baseUrl = config.baseUrl ?? preset?.baseUrl;
 
       if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
+
+      const apiKey = yield* Config.Redacted(config.apiKeyEnv).pipe(
+        Effect.mapError(
+          () => new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv }),
+        ),
+      );
+
       providers.set(name, {
-        baseUrl,
-        apiKey: yield* Config.Redacted(config.apiKeyEnv).pipe(
-          Effect.mapError(
-            () => new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv }),
+        name,
+        client: HttpClient.mapRequest(http, (request) =>
+          request.pipe(
+            HttpClientRequest.prependUrl(baseUrl),
+            HttpClientRequest.bearerToken(apiKey),
+            HttpClientRequest.setHeader("user-agent", `via/${version}`),
           ),
         ),
         session:
@@ -132,14 +140,8 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
       });
     }
 
-    const authorized = (provider: Provider, request: HttpClientRequest.HttpClientRequest) =>
-      request.pipe(
-        HttpClientRequest.bearerToken(Redacted.value(provider.apiKey)),
-        HttpClientRequest.setHeader("user-agent", `via/${version}`),
-      );
-
-    const list = (name: string, provider: Provider) =>
-      http.execute(authorized(provider, HttpClientRequest.get(`${provider.baseUrl}/models`))).pipe(
+    const list = ({ name, client }: Provider) =>
+      client.get("/models").pipe(
         Effect.flatMap(HttpClientResponse.filterStatusOk),
         Effect.flatMap(HttpClientResponse.schemaBodyJson(ModelList)),
         Effect.map(({ data }) =>
@@ -149,14 +151,15 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         Effect.orElseSucceed(() => []),
       );
 
-    const usageOf = (name: string, provider: Provider, path: string) =>
+    const usageOf = ({ name, client }: Provider, path: string) =>
       Effect.gen(function* () {
-        const response = yield* http.execute(
-          authorized(provider, HttpClientRequest.get(`${provider.baseUrl}${path}`)),
-        );
+        const response = yield* client.get(path);
 
         if (response.status !== 200) {
-          return yield* new UsageUnavailableError({ provider: name, status: response.status });
+          return yield* new ProviderUsageUnavailableError({
+            provider: name,
+            status: response.status,
+          });
         }
 
         const { usage } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
@@ -177,17 +180,18 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         ),
       );
 
+    const configured = [...providers.values()];
+
     return Providers.of({
-      usage: Effect.forEach(
-        [...providers].flatMap(([name, provider]) =>
-          provider.usage === undefined ? [] : [{ name, provider, path: provider.usage }],
+      usage: Effect.all(
+        configured.flatMap((provider) =>
+          provider.usage === undefined ? [] : [usageOf(provider, provider.usage)],
         ),
-        ({ name, provider, path }) => usageOf(name, provider, path),
         { concurrency: "unbounded" },
       ),
-      models: Effect.forEach([...providers], ([name, provider]) => list(name, provider), {
-        concurrency: "unbounded",
-      }).pipe(Effect.map((lists) => lists.flat())),
+      models: Effect.forEach(configured, list, { concurrency: "unbounded" }).pipe(
+        Effect.map((lists) => lists.flat()),
+      ),
       route: (model) => {
         const slash = model.indexOf("/");
         const provider = model.slice(0, slash);
@@ -196,17 +200,13 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
           ? Option.some({ provider, model: model.slice(slash + 1) })
           : Option.none();
       },
-      baseUrl: (provider) => providers.get(provider)?.baseUrl,
       send: Effect.fn("Providers.send")(function* (route, path, body, session) {
         // `route` comes from `route`, so its provider is configured.
         const provider = providers.get(route.provider);
 
         if (provider === undefined) return yield* Effect.die(`unrouted provider ${route.provider}`);
 
-        return yield* authorized(
-          provider,
-          HttpClientRequest.post(`${provider.baseUrl}${path}`),
-        ).pipe(
+        return yield* HttpClientRequest.post(path).pipe(
           Predicate.isObject(provider.session)
             ? HttpClientRequest.setHeader(provider.session.header, session)
             : identity,
@@ -221,7 +221,7 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
               { contentType: "application/json" },
             ),
           ),
-          http.execute,
+          provider.client.execute,
         );
       }),
     });
@@ -233,8 +233,6 @@ export class Providers extends Context.Service<
   {
     /** The provider a `<provider>/<model>` id names, if it is configured. */
     readonly route: (model: string) => Option.Option<Route>;
-    /** The base URL requests to `provider` go to. */
-    readonly baseUrl: (provider: string) => string | undefined;
     /**
      * Every provider's models as it describes them, with `<provider>/<model>`
      * ids; a provider that can't list them is left out.
@@ -258,6 +256,8 @@ export class Providers extends Context.Service<
    * Reads each provider's API key from the environment variable its config
    * names, and says it is `via/<version>`.
    */
-  static readonly layer = (configs: Record<string, ProviderConfig>, version: string) =>
-    Layer.effect(Providers, make(configs, version));
+  static readonly layer = (options: {
+    readonly providers: Record<string, ProviderConfig>;
+    readonly version: string;
+  }) => Layer.effect(Providers, make(options.providers, options.version));
 }

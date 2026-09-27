@@ -1,9 +1,19 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { jwt } from "@via/codex-auth/testing";
-import { codexErrorFixture, reply } from "@via/codex-upstream/testing";
+import { idToken, jwt, startFakeIssuer } from "@via/codex-auth/testing";
+import { reply } from "@via/codex-upstream/testing";
 import { Effect, FileSystem, Schema } from "effect";
-import { openai, runVia, startCodex, startIssuer, tempHome, type Via, withVia } from "./harness.ts";
+import {
+  chat,
+  errorFixture,
+  json,
+  launchVia,
+  responsesOf,
+  runVia,
+  startCodex,
+  tempHome,
+  type Via,
+} from "./harness.ts";
 
 /** A minimal chat-completions request body; the auth checks never reach it. */
 const pingRequest = {
@@ -11,11 +21,6 @@ const pingRequest = {
   messages: [{ role: "user" as const, content: "ping" }],
   stream: false as const,
 };
-
-const errorFixture = (name: string) =>
-  Effect.map(codexErrorFixture(name), ({ status, headers, body }) =>
-    reply.error(status, body, headers),
-  );
 
 /** The account file `accounts add` or a refresh saved. */
 const SavedAccount = Schema.fromJsonString(
@@ -26,10 +31,6 @@ const SavedAccount = Schema.fromJsonString(
   }),
 );
 
-/** Upstream traffic to the Responses endpoint, leaving out usage lookups. */
-const responsesCalls = (codex: { requests: ReadonlyArray<{ path: string }> }) =>
-  codex.requests.filter((request) => request.path === "/codex/responses");
-
 const postChatCompletions = (via: Via, headers: Record<string, string>) =>
   Effect.promise(() =>
     fetch(`${via.url}/v1/chat/completions`, {
@@ -39,46 +40,28 @@ const postChatCompletions = (via: Via, headers: Record<string, string>) =>
     }),
   );
 
-const json = (response: Response) => Effect.promise(() => response.json());
-
-// The same line `formatWindow` in `apps/cli/src/accounts.ts` renders, so the usage test
-// can check `via accounts status`'s own local-time formatting without editing that file.
-const pad = (n: number) => String(n).padStart(2, "0");
-
-const formatWindow = (windowMinutes: number, usedPercent: number, resetsAtMs: number) => {
-  const length = windowMinutes % 1440 === 0 ? `${windowMinutes / 1440}d` : `${windowMinutes / 60}h`;
-  const at = new Date(resetsAtMs);
-  const date = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
-  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
-
-  return `  ${length.padEnd(4)} ${String(usedPercent).padStart(3)}% used  resets ${date} ${time}`;
-};
-
 layer(BunFileSystem.layer)("via auth and tokens", (it) => {
   it.effect("rejects missing, non-Bearer, and wrong API keys without ever calling upstream", () =>
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.respond(() => reply.text("pong"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const noHeader = yield* postChatCompletions(via, {});
-          expect(noHeader.status).toBe(401);
-          expect(yield* json(noHeader)).toMatchObject({ error: { code: "invalid_api_key" } });
+      const via = yield* launchVia({ upstream: upstream.url });
+      const noHeader = yield* postChatCompletions(via, {});
+      expect(noHeader.status).toBe(401);
+      expect(yield* json(noHeader)).toMatchObject({ error: { code: "invalid_api_key" } });
 
-          const nonBearer = yield* postChatCompletions(via, { authorization: "Basic dGVzdA==" });
-          expect(nonBearer.status).toBe(401);
-          expect(yield* json(nonBearer)).toMatchObject({ error: { code: "invalid_api_key" } });
+      const nonBearer = yield* postChatCompletions(via, { authorization: "Basic dGVzdA==" });
+      expect(nonBearer.status).toBe(401);
+      expect(yield* json(nonBearer)).toMatchObject({ error: { code: "invalid_api_key" } });
 
-          const wrongKey = yield* postChatCompletions(via, {
-            authorization: "Bearer via_not-a-real-key",
-          });
+      const wrongKey = yield* postChatCompletions(via, {
+        authorization: "Bearer via_not-a-real-key",
+      });
 
-          expect(wrongKey.status).toBe(401);
-          expect(yield* json(wrongKey)).toMatchObject({ error: { code: "invalid_api_key" } });
+      expect(wrongKey.status).toBe(401);
+      expect(yield* json(wrongKey)).toMatchObject({ error: { code: "invalid_api_key" } });
 
-          expect(responsesCalls(upstream)).toHaveLength(0);
-        }),
-      );
+      expect(responsesOf(upstream)).toHaveLength(0);
     }),
   );
 
@@ -86,25 +69,20 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.respond(() => reply.text("pong"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const before = yield* Effect.promise(() =>
-            openai(via).chat.completions.create(pingRequest),
-          );
+      const via = yield* launchVia({ upstream: upstream.url });
+      const before = yield* chat(via, "ping");
 
-          expect(before.choices[0]?.message.content).toBe("pong");
+      expect(before.choices[0]?.message.content).toBe("pong");
 
-          const revoked = yield* runVia(via.home, ["keys", "revoke", "e2e"], via.env);
-          expect(revoked.exitCode).toBe(0);
+      const revoked = yield* runVia(via.home, ["keys", "revoke", "e2e"], via.env);
+      expect(revoked.exitCode).toBe(0);
 
-          const after = yield* postChatCompletions(via, { authorization: `Bearer ${via.key}` });
-          expect(after.status).toBe(401);
-          expect(yield* json(after)).toMatchObject({ error: { code: "invalid_api_key" } });
+      const after = yield* postChatCompletions(via, { authorization: `Bearer ${via.key}` });
+      expect(after.status).toBe(401);
+      expect(yield* json(after)).toMatchObject({ error: { code: "invalid_api_key" } });
 
-          // Only the one request that succeeded before revocation ever reached upstream.
-          expect(responsesCalls(upstream)).toHaveLength(1);
-        }),
-      );
+      // Only the one request that succeeded before revocation ever reached upstream.
+      expect(responsesOf(upstream)).toHaveLength(1);
     }),
   );
 
@@ -112,19 +90,14 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
     Effect.gen(function* () {
       const upstream = yield* startCodex;
       upstream.respond(() => reply.text("pong"));
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const created = yield* runVia(via.home, ["keys", "create", "--name", "second"], via.env);
-          expect(created.exitCode).toBe(0);
+      const via = yield* launchVia({ upstream: upstream.url });
+      const created = yield* runVia(via.home, ["keys", "create", "--name", "second"], via.env);
+      expect(created.exitCode).toBe(0);
 
-          const completion = yield* Effect.promise(() =>
-            openai(via).chat.completions.create(pingRequest),
-          );
+      const completion = yield* chat(via, "ping");
 
-          expect(completion.choices[0]?.message.content).toBe("pong");
-          expect(responsesCalls(upstream)).toHaveLength(1);
-        }),
-      );
+      expect(completion.choices[0]?.message.content).toBe("pong");
+      expect(responsesOf(upstream)).toHaveLength(1);
     }),
   );
 
@@ -139,51 +112,46 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
         const NEW_EXP = 2_100_000_000; // seconds; far beyond the test's lifetime
         const refreshedAccessToken = jwt({ exp: NEW_EXP });
 
-        const refreshedIdToken = jwt({
+        const refreshedIdToken = idToken({
           email: "a@example.com",
-          "https://api.openai.com/auth": { chatgpt_account_id: "acc-a", chatgpt_plan_type: "pro" },
+          accountId: "acc-a",
+          plan: "pro",
         });
 
-        yield* withVia(
-          {
-            upstream: upstream.url,
-            accounts: [{ name: "a", expiresAt: Date.now() + 2 * 60 * 1000 }],
-            issuer: {
-              refreshResponse: {
-                status: 200,
-                body: {
-                  access_token: refreshedAccessToken,
-                  id_token: refreshedIdToken,
-                  refresh_token: "rt-2",
-                },
+        const via = yield* launchVia({
+          upstream: upstream.url,
+          accounts: [{ name: "a", expiresAt: Date.now() + 2 * 60 * 1000 }],
+          issuer: {
+            refreshResponse: {
+              status: 200,
+              body: {
+                access_token: refreshedAccessToken,
+                id_token: refreshedIdToken,
+                refresh_token: "rt-2",
               },
             },
           },
-          (via) =>
-            Effect.gen(function* () {
-              const completion = yield* Effect.promise(() =>
-                openai(via).chat.completions.create(pingRequest),
-              );
+        });
 
-              expect(completion.choices[0]?.message.content).toBe("pong");
+        const completion = yield* chat(via, "ping");
 
-              // One upstream call, and it already carries the refreshed token: the
-              // refresh happened before dispatch, not as a retry after a 401.
-              expect(responsesCalls(upstream)).toHaveLength(1);
-              expect(upstream.requests[0]?.headers).toMatchObject({
-                authorization: `Bearer ${refreshedAccessToken}`,
-                "chatgpt-account-id": "acc-a",
-              });
+        expect(completion.choices[0]?.message.content).toBe("pong");
 
-              const saved = yield* fs
-                .readFileString(`${via.home}/auth/a.json`)
-                .pipe(Effect.flatMap(Schema.decodeUnknownEffect(SavedAccount)));
+        // One upstream call, and it already carries the refreshed token: the
+        // refresh happened before dispatch, not as a retry after a 401.
+        expect(responsesOf(upstream)).toHaveLength(1);
+        expect(upstream.requests[0]?.headers).toMatchObject({
+          authorization: `Bearer ${refreshedAccessToken}`,
+          "chatgpt-account-id": "acc-a",
+        });
 
-              expect(saved.accessToken).toBe(refreshedAccessToken);
-              expect(saved.refreshToken).toBe("rt-2");
-              expect(saved.expiresAt).toBe(NEW_EXP * 1000);
-            }),
-        );
+        const saved = yield* fs
+          .readFileString(`${via.home}/auth/a.json`)
+          .pipe(Effect.flatMap(Schema.decodeUnknownEffect(SavedAccount)));
+
+        expect(saved.accessToken).toBe(refreshedAccessToken);
+        expect(saved.refreshToken).toBe("rt-2");
+        expect(saved.expiresAt).toBe(NEW_EXP * 1000);
       }),
   );
 
@@ -194,25 +162,21 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       // account a device-code login creates, so the refresh it grants saves back onto it.
       upstream.script(yield* errorFixture("unauthorized_401"), reply.text("pong"));
 
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const completion = yield* Effect.promise(() =>
-            openai(via).chat.completions.create(pingRequest),
-          );
+      const via = yield* launchVia({ upstream: upstream.url });
 
-          expect(completion.choices[0]?.message.content).toBe("pong");
+      const completion = yield* chat(via, "ping");
 
-          expect(responsesCalls(upstream)).toHaveLength(2);
-          const first = upstream.requests[0]?.headers.authorization;
-          const second = upstream.requests[1]?.headers.authorization;
-          expect(first).toMatch(/^Bearer \S+/);
-          expect(second).toMatch(/^Bearer \S+/);
-          // The retry used a different (refreshed) access token, not the one that was
-          // just refused.
-          expect(second).not.toBe(first);
-          expect(upstream.requests[1]?.headers["chatgpt-account-id"]).toBe("acc-123");
-        }),
-      );
+      expect(completion.choices[0]?.message.content).toBe("pong");
+
+      expect(responsesOf(upstream)).toHaveLength(2);
+      const first = upstream.requests[0]?.headers.authorization;
+      const second = upstream.requests[1]?.headers.authorization;
+      expect(first).toMatch(/^Bearer \S+/);
+      expect(second).toMatch(/^Bearer \S+/);
+      // The retry used a different (refreshed) access token, not the one that was
+      // just refused.
+      expect(second).not.toBe(first);
+      expect(upstream.requests[1]?.headers["chatgpt-account-id"]).toBe("acc-123");
     }),
   );
 
@@ -221,43 +185,37 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
       const upstream = yield* startCodex;
       upstream.respond(() => reply.text("pong"));
 
-      yield* withVia(
-        {
-          upstream: upstream.url,
-          accounts: [{ name: "a", expiresAt: Date.now() + 2 * 60 * 1000 }, { name: "b" }],
-          issuer: {
-            refreshResponse: {
-              status: 400,
-              body: { error: "invalid_grant", error_description: "refresh token expired" },
-            },
+      const via = yield* launchVia({
+        upstream: upstream.url,
+        accounts: [{ name: "a", expiresAt: Date.now() + 2 * 60 * 1000 }, { name: "b" }],
+        issuer: {
+          refreshResponse: {
+            status: 400,
+            body: { error: "invalid_grant", error_description: "refresh token expired" },
           },
         },
-        (via) =>
-          Effect.gen(function* () {
-            const completion = yield* Effect.promise(() =>
-              openai(via).chat.completions.create(pingRequest),
-            );
+      });
 
-            expect(completion.choices[0]?.message.content).toBe("pong");
+      const completion = yield* chat(via, "ping");
 
-            // "a"'s rejected refresh never reaches upstream; only "b"'s request does.
-            expect(responsesCalls(upstream)).toHaveLength(1);
-            expect(upstream.requests[0]?.headers).toMatchObject({
-              authorization: "Bearer at-b",
-              "chatgpt-account-id": "acc-b",
-            });
+      expect(completion.choices[0]?.message.content).toBe("pong");
 
-            const status = yield* runVia(via.home, ["accounts", "status"], via.env);
-            expect(status.exitCode).toBe(0);
-            expect(status.stdout).toMatch(
-              /The refresh token was rejected \(.*\); log in to this account again/,
-            );
+      // "a"'s rejected refresh never reaches upstream; only "b"'s request does.
+      expect(responsesOf(upstream)).toHaveLength(1);
+      expect(upstream.requests[0]?.headers).toMatchObject({
+        authorization: "Bearer at-b",
+        "chatgpt-account-id": "acc-b",
+      });
 
-            const list = yield* runVia(via.home, ["accounts", "list"], via.env);
-            expect(list.stdout).toContain("a@example.com");
-            expect(list.stdout).toContain("b@example.com");
-          }),
+      const status = yield* runVia(via.home, ["accounts", "status"], via.env);
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(
+        /The refresh token was rejected \(.*\); log in to this account again/,
       );
+
+      const list = yield* runVia(via.home, ["accounts", "list"], via.env);
+      expect(list.stdout).toContain("a@example.com");
+      expect(list.stdout).toContain("b@example.com");
     }),
   );
 
@@ -282,26 +240,23 @@ layer(BunFileSystem.layer)("via auth and tokens", (it) => {
 
       upstream.usage("acc-123", usagePayload);
 
-      yield* withVia({ upstream: upstream.url }, (via) =>
-        Effect.gen(function* () {
-          const status = yield* runVia(via.home, ["accounts", "status"], via.env);
-          expect(status.exitCode).toBe(0);
-          expect(status.stdout).toContain("dev@example.com");
-          expect(status.stdout).toContain(formatWindow(300, 12, 2_100_000_000 * 1000));
-          expect(status.stdout).toContain(formatWindow(10_080, 34, 2_200_000_000 * 1000));
-          expect(upstream.requests.at(-1)).toMatchObject({
-            path: "/wham/usage",
-            headers: { "chatgpt-account-id": "acc-123" },
-          });
-        }),
-      );
+      const via = yield* launchVia({ upstream: upstream.url });
+      const status = yield* runVia(via.home, ["accounts", "status"], { ...via.env, TZ: "UTC" });
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toContain("dev@example.com");
+      expect(status.stdout).toContain("  5h    12% used  resets 2036-07-18 13:20");
+      expect(status.stdout).toContain("  7d    34% used  resets 2039-09-18 23:06");
+      expect(upstream.requests.at(-1)).toMatchObject({
+        path: "/wham/usage",
+        headers: { "chatgpt-account-id": "acc-123" },
+      });
     }),
   );
 
   it.effect("logs in via the device code flow and lists the new account", () =>
     Effect.gen(function* () {
       const home = yield* tempHome;
-      const issuer = yield* startIssuer();
+      const issuer = yield* startFakeIssuer();
       const env = { VIA_CODEX_ISSUER: issuer };
 
       const added = yield* runVia(home, ["accounts", "add"], env);

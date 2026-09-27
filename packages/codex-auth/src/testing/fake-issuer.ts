@@ -1,4 +1,4 @@
-// Test-only: a local stand-in for auth.openai.com, exported as `@via/codex-auth/testing`.
+// Test-only: a local stand-in for auth.openai.com.
 import { BunHttpServer } from "@effect/platform-bun";
 import { Effect, Layer, Schema } from "effect";
 import {
@@ -8,21 +8,15 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { CLIENT_ID, CodexAuth } from "./codex-auth.ts";
-
-export const jwt = (payload: Schema.JsonObject) =>
-  [{ alg: "RS256", typ: "JWT" }, payload]
-    .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
-    .concat("signature")
-    .join(".");
+import { idToken, jwt } from "./tokens.ts";
+import { CLIENT_ID, CodexAuth } from "../codex-auth.ts";
 
 export const ACCESS_TOKEN_EXP = 2_000_000_000;
 
+const identity = { email: "dev@example.com", accountId: "acc-123", plan: "pro" };
+
 export const issuedTokens = {
-  id_token: jwt({
-    email: "dev@example.com",
-    "https://api.openai.com/auth": { chatgpt_account_id: "acc-123", chatgpt_plan_type: "pro" },
-  }),
+  id_token: idToken(identity),
   access_token: jwt({ exp: ACCESS_TOKEN_EXP }),
   refresh_token: "rt-1",
 };
@@ -30,11 +24,7 @@ export const issuedTokens = {
 export const REFRESHED_EXP = 2_100_000_000;
 
 export const refreshedTokens = {
-  id_token: jwt({
-    email: "dev@example.com",
-    "https://api.openai.com/auth": { chatgpt_account_id: "acc-123", chatgpt_plan_type: "pro" },
-    refreshed: true,
-  }),
+  id_token: idToken(identity, { refreshed: true }),
   access_token: jwt({ exp: REFRESHED_EXP }),
   refresh_token: "rt-2",
 };
@@ -50,7 +40,7 @@ export type FakeIssuerOptions = {
 };
 
 /** Serves the device-code and token endpoints of auth.openai.com. */
-export const fakeIssuer = ({
+const fakeIssuer = ({
   pendingPolls = 0,
   interval = "0",
   refreshResponse = { status: 200, body: refreshedTokens },
@@ -150,6 +140,14 @@ export const fakeIssuer = ({
 
   return HttpRouter.serve(routes).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 })));
 };
+
+/** A fresh fake issuer, for as long as the scope, as its base URL. */
+export const startFakeIssuer = (options: FakeIssuerOptions = {}) =>
+  Layer.build(fakeIssuer(options)).pipe(
+    Effect.flatMap((issuer) =>
+      HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(issuer)),
+    ),
+  );
 
 /** Runs `body` against a fresh fake issuer, with CodexAuth pointed at it. */
 export const withIssuer = <A, E, R>(

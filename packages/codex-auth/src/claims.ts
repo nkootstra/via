@@ -8,9 +8,11 @@ const IdTokenClaims = Schema.Struct({
   }),
 });
 
-const IdTokenPayload = Schema.StringFromBase64Url.pipe(
-  Schema.decodeTo(Schema.fromJsonString(IdTokenClaims)),
-);
+/** A JWT's base64url payload segment, decoded to `claims`. */
+export const JwtPayload = <S extends Schema.Codec<unknown, unknown>>(claims: S) =>
+  Schema.StringFromBase64Url.pipe(Schema.decodeTo(Schema.fromJsonString(claims)));
+
+const IdTokenPayload = JwtPayload(IdTokenClaims);
 
 export class InvalidIdTokenError extends Schema.TaggedError<InvalidIdTokenError>()(
   "InvalidIdTokenError",
@@ -21,7 +23,7 @@ export class InvalidIdTokenError extends Schema.TaggedError<InvalidIdTokenError>
   }
 }
 
-export type IdentityClaims = { email: string; accountId: string; plan: string };
+type IdentityClaims = { email: string; accountId: string; plan: string };
 
 /** Reads identity claims from an OpenAI ID token. The signature is not verified: we received it directly from the issuer over TLS. */
 export const decodeIdToken = Effect.fn("decodeIdToken")(function* (idToken: string) {
