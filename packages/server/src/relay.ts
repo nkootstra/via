@@ -5,6 +5,7 @@ import {
   type HttpClientResponse,
   HttpServerResponse,
 } from "effect/unstable/http";
+import { keepAlive } from "./keep-alive.ts";
 import { openAiError } from "./openai-error.ts";
 import { RequestLog } from "./request-log.ts";
 import { spotUsage, usageOf } from "./token-usage.ts";
@@ -46,7 +47,7 @@ export const collected = (
 /**
  * A response relaying `upstream`'s body through `relay` as it comes, with the
  * token usage it reports and the time of its first chunk noted in the
- * request's log line.
+ * request's log line. An SSE body is kept alive through quiet spells.
  */
 export const relayed = <E>(
   upstream: HttpClientResponse.HttpClientResponse,
@@ -58,7 +59,9 @@ export const relayed = <E>(
   Effect.gen(function* () {
     const log = yield* RequestLog;
     const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
-    const body = log.timed(relay(spotUsage(upstream.stream, sse, log.usage)));
+    const relaying = relay(spotUsage(upstream.stream, sse, log.usage));
+    // Timed outermost: the request log counts the stream from when the server starts it.
+    const body = log.timed(sse ? keepAlive(relaying) : relaying);
 
     return HttpServerResponse.stream(body, options);
   });
