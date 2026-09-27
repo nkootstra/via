@@ -125,11 +125,11 @@ export const forward = Effect.fn("forward")(function* (
   );
 });
 
-const ModelField = Schema.Struct({ model: Schema.String });
+const namesModel = Schema.is(Schema.Struct({ model: Schema.String }));
 
 /** The model a request body asks for, if it names one. */
 export const modelOf = (body: Schema.JsonObject) =>
-  Option.map(Schema.decodeUnknownOption(ModelField)(body), ({ model }) => model);
+  namesModel(body) ? Option.some(body.model) : Option.none();
 
 /** The client's API key, if it presented a valid one. */
 const authenticate = Effect.gen(function* () {
