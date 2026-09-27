@@ -19,9 +19,12 @@ describe("resolvePaths", () => {
     expect(resolvePaths({}).home).toBe(join(homedir(), ".config", "via"));
   });
 
-  it("reads VIA_HOME from the process environment by default", () => {
+  it("reads VIA_HOME from the process environment by default", ({ onTestFinished }) => {
     vi.stubEnv("VIA_HOME", "/tmp/via-env");
+    // Restore the environment even when the assertion fails, so it can't leak into other tests.
+    onTestFinished(() => {
+      vi.unstubAllEnvs();
+    });
     expect(resolvePaths().home).toBe("/tmp/via-env");
-    vi.unstubAllEnvs();
   });
 });
