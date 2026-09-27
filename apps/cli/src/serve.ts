@@ -1,10 +1,11 @@
 import { BunHttpServer } from "@effect/platform-bun";
+import { AccountPool, UsagePoll } from "@via/account-pool";
 import { AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
-import { UsagePoll, ViaServer } from "@via/server";
+import { ViaServer } from "@via/server";
 import {
   Config,
   ConfigProvider,
@@ -94,6 +95,8 @@ export const serve = ({
               port: Option.getOrElse(port, () => config.port),
             }),
           ),
+          // One pool, shared by the API and the usage poll.
+          Layer.provide(AccountPool.layer),
           Layer.provide(PoolStates.layerFile(statePath)),
           Layer.provide(AccountTokens.layer),
           Layer.provide(

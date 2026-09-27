@@ -2,7 +2,7 @@ import { CodexUpstream } from "@via/codex-upstream";
 import { classify, Verdict } from "@via/pool";
 import { Clock, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
-import { AccountPool } from "./account-pool.ts";
+import { AccountPool } from "@via/account-pool";
 import { ModelCatalog } from "./catalog.ts";
 import { openAiError } from "./openai-error.ts";
 import { RequestLog } from "./request-log.ts";

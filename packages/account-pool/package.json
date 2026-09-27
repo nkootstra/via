@@ -1,5 +1,5 @@
 {
-  "name": "@via/server",
+  "name": "@via/account-pool",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,20 +11,15 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
-    "@via/account-pool": "workspace:*",
     "@via/codex-auth": "workspace:*",
     "@via/codex-upstream": "workspace:*",
-    "@via/keys": "workspace:*",
     "@via/pool": "workspace:*",
-    "@via/providers": "workspace:*",
-    "@via/translate": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {
     "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
     "@via/tsconfig": "workspace:*",
-    "openai": "^7.23.0",
     "vitest": "catalog:"
   }
 }
