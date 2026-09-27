@@ -19,6 +19,8 @@ const Environment = Config.all({
   codexBaseUrl: Config.option(Config.String("VIA_CODEX_BASE_URL")),
   // Points logins at a fake issuer in tests.
   codexIssuer: Config.option(Config.String("VIA_CODEX_ISSUER")),
+  // Its length is checked only when `via serve` starts, so other commands run whatever it is.
+  adminKey: Config.option(Config.Redacted("VIA_ADMIN_KEY")),
 });
 
 const Described = Schema.Struct({ message: Schema.String });
@@ -40,7 +42,12 @@ const main = Effect.gen(function* () {
     Command.withSubcommands([
       accounts(paths.config, codexBaseUrl),
       keys,
-      serve(paths.config, paths.state, codexBaseUrl),
+      serve({
+        configPath: paths.config,
+        statePath: paths.state,
+        upstreamBaseUrl: codexBaseUrl,
+        adminKey: Option.getOrUndefined(env.adminKey),
+      }),
     ]),
   );
 

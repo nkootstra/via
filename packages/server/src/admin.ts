@@ -3,12 +3,12 @@ import { type Account, AccountNotFoundError, AccountStore, AccountTokens } from 
 import { CodexUpstream } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import { Providers } from "@via/providers";
-import { Config, Effect, Layer, Option, Redacted, Schema } from "effect";
+import { Effect, Layer, Redacted, Schema } from "effect";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
 import { AdminApi, AdminAuthorization, Unauthorized } from "./admin-api.ts";
 import { Logins } from "./logins.ts";
 
-/** `VIA_ADMIN_KEY` is set, but too short to withstand guessing. */
+/** The admin key (`VIA_ADMIN_KEY`) is set, but too short to withstand guessing. */
 class AdminKeyTooShortError extends Schema.TaggedError<AdminKeyTooShortError>()(
   "AdminKeyTooShortError",
   { length: Schema.Finite },
@@ -162,27 +162,26 @@ const scalarConfig = {
 };
 
 /**
- * The admin API under `/admin`, behind `VIA_ADMIN_KEY`. Without that key the
- * routes are not registered at all, so `/admin` answers 404 like any unknown path.
- * Its OpenAPI spec and a Scalar reference page for it need no key.
+ * The admin API under `/admin`, behind `adminKey` (`VIA_ADMIN_KEY`). Without that
+ * key the routes are not registered at all, so `/admin` answers 404 like any unknown
+ * path. Its OpenAPI spec and a Scalar reference page for it need no key.
  */
-export const adminRoutes = Layer.unwrap(
-  Effect.gen(function* () {
-    const adminKey = yield* Config.option(Config.Redacted("VIA_ADMIN_KEY"));
+export const adminRoutes = (adminKey: Redacted.Redacted<string> | undefined) =>
+  Layer.unwrap(
+    Effect.gen(function* () {
+      if (adminKey === undefined) return Layer.empty;
+      const { length } = Redacted.value(adminKey);
 
-    if (Option.isNone(adminKey)) return Layer.empty;
-    const { length } = Redacted.value(adminKey.value);
+      if (length < 32) return yield* new AdminKeyTooShortError({ length });
 
-    if (length < 32) return yield* new AdminKeyTooShortError({ length });
-
-    return Layer.merge(
-      HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
-        Layer.provide([accounts, keys, usage]),
-        Layer.provide([authorization(adminKey.value), Logins.layer]),
-      ),
-      // Scalar's script is served inline rather than from a CDN: the page is where
-      // the admin key gets typed in, so it runs no third-party code.
-      HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }),
-    );
-  }),
-);
+      return Layer.merge(
+        HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
+          Layer.provide([accounts, keys, usage]),
+          Layer.provide([authorization(adminKey), Logins.layer]),
+        ),
+        // Scalar's script is served inline rather than from a CDN: the page is where
+        // the admin key gets typed in, so it runs no third-party code.
+        HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }),
+      );
+    }),
+  );
