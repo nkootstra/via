@@ -1,8 +1,14 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { describe, expect, it } from "@effect/vitest";
-import { codexRefreshErrorFixture } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
-import { issuedTokens, jwt, REFRESHED_EXP, refreshedTokens, withIssuer } from "./testing/index.ts";
+import {
+  codexRefreshErrorFixture,
+  issuedTokens,
+  jwt,
+  REFRESHED_EXP,
+  refreshedTokens,
+  withIssuer,
+} from "./testing/index.ts";
 import { AuthRequestError, CodexAuth, RefreshRejectedError, type Tokens } from "./index.ts";
 
 const current: Tokens = {

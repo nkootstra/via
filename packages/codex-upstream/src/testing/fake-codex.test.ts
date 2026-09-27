@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Option, type Schema, Stream } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
 import { startFakeCodex } from "./fake-codex.ts";
-import { codexErrorFixture, codexFixture, codexRefreshErrorFixture } from "./fixtures.ts";
+import { codexErrorFixture, codexFixture } from "./fixtures.ts";
 import { reply } from "./replies.ts";
 import { usagePayload } from "./streams.ts";
 
@@ -284,16 +284,6 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
         status: 429,
         headers: { "x-codex-primary-used-percent": "100.0" },
         body: { error: { type: "usage_limit_reached" } },
-      });
-    }),
-  );
-
-  it.effect("reads one of codex's refresh error fixtures by name", () =>
-    Effect.gen(function* () {
-      const fixture = yield* codexRefreshErrorFixture("invalid_grant");
-      expect(fixture).toEqual({
-        status: 400,
-        body: { error: "invalid_grant", error_description: "refresh token expired" },
       });
     }),
   );

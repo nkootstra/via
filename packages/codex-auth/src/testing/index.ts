@@ -9,4 +9,6 @@ export {
   withIssuer,
 } from "./fake-issuer.ts";
 
+export { codexRefreshErrorFixture } from "./fixtures.ts";
+
 export { idToken, jwt, seedAccount, tokensFor } from "./tokens.ts";
