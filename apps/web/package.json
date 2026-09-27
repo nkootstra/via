@@ -10,22 +10,29 @@
     "typecheck": "tsc -p ."
   },
   "dependencies": {
+    "@stylexjs/stylex": "catalog:",
     "@tanstack/react-query": "5.104.0",
     "@tanstack/react-router": "1.170.39",
     "@tanstack/react-start": "1.168.58",
+    "@via/server": "workspace:*",
     "@via/ui": "workspace:*",
+    "effect": "catalog:",
+    "motion": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
   "devDependencies": {
     "@testing-library/dom": "catalog:",
     "@testing-library/react": "catalog:",
+    "@testing-library/user-event": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
+    "@via/codex-auth": "workspace:*",
+    "@via/keys": "workspace:*",
     "@via/tsconfig": "workspace:*",
     "@vitejs/plugin-react": "6.1.1",
     "happy-dom": "catalog:",
-    "motion": "catalog:",
+    "msw": "2.15.0",
     "vite": "catalog:",
     "vitest": "catalog:"
   }
