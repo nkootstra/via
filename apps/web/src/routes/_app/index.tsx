@@ -127,7 +127,6 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: space.s3,
-    marginTop: "auto",
   },
   muted: {
     margin: 0,
@@ -223,9 +222,8 @@ function StateDetail({ account }: { readonly account: PoolAccount }) {
         <span {...stylex.props(styles.stateTitle)}>
           Back in <Countdown until={state.until} />
         </span>
-        <span {...stylex.props(styles.reason)}>
-          {state.reason} · until {formatTime(state.until)}
-        </span>
+        <span {...stylex.props(styles.reason)}>{state.reason}</span>
+        <span {...stylex.props(styles.reason)}>Ends {formatTime(state.until)}</span>
       </div>
     );
   }

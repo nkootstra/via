@@ -57,10 +57,15 @@ const styles = stylex.create({
     gap: space.s4,
     margin: 0,
   },
+  // The one field on the page, so it shows at rest: a sunken well the quiet
+  // input sits in.
   keyInput: {
     position: "relative",
     display: "flex",
     alignItems: "center",
+    borderRadius: radii.item,
+    backgroundColor: colors.muted,
+    boxShadow: `inset 0 0 0 1px ${colors.border}`,
   },
   reveal: {
     position: "absolute",
@@ -153,8 +158,8 @@ function SignIn() {
     <Centered footnote="The key only signs you in: via keeps the session in a secure cookie, and this page never stores the key.">
       <h1 {...stylex.props(styles.title)}>Sign in</h1>
       <p {...stylex.props(styles.lead)}>
-        Enter the admin key this server runs with, its{" "}
-        <code {...stylex.props(styles.code)}>VIA_ADMIN_KEY</code>.
+        Enter the admin key this server runs with: its{" "}
+        <code {...stylex.props(styles.code)}>VIA_ADMIN_KEY</code> setting.
       </p>
       <form
         {...stylex.props(styles.form)}
@@ -191,12 +196,7 @@ function SignIn() {
         <AnimatePresence initial={false}>
           {problem !== null && <Alert key={problem.kind} problem={problem} />}
         </AnimatePresence>
-        <Button
-          type="submit"
-          loading={mutation.isPending}
-          disabled={key === "" || locked}
-          xstyle={styles.submit}
-        >
+        <Button type="submit" loading={mutation.isPending} disabled={locked} xstyle={styles.submit}>
           Sign in
         </Button>
       </form>

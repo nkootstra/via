@@ -1,4 +1,5 @@
 import "virtual:via-theme.css";
+import "../app.css";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { themeScript, ToastProvider } from "@via/ui";

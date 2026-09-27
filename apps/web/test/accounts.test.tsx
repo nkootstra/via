@@ -93,8 +93,8 @@ describe("adding an account", () => {
     );
 
     const dialog = await screen.findByRole("dialog", { name: "Add a ChatGPT account" });
-    expect(await within(dialog).findAllByText("WXYZ-2345")).not.toHaveLength(0);
-    expect(within(dialog).getByRole("button", { name: "Copy Code" })).toBeDefined();
+    expect(await within(dialog).findByText("WXYZ-2345")).toBeDefined();
+    expect(within(dialog).getByRole("button", { name: "Copy Your code" })).toBeDefined();
 
     expect(
       within(dialog).getByRole("link", { name: "Open sign-in page" }).getAttribute("href"),

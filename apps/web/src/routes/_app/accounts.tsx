@@ -37,7 +37,7 @@ import {
   TableRow,
   useToast,
 } from "@via/ui";
-import { colors, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
+import { colors, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { Schema } from "effect";
 import { useEffect, useEffectEvent, useState } from "react";
 import {
@@ -49,7 +49,7 @@ import {
 } from "../../api/admin.ts";
 import type { Account, StartedLogin } from "../../api/types.ts";
 import { AccountsIcon, ExternalIcon, MoreIcon, PlusIcon } from "../../components/icons.tsx";
-import { Page, Panel } from "../../components/page.tsx";
+import { Page, Panel, VisuallyHidden } from "../../components/page.tsx";
 import { formatDate } from "../../lib/time.ts";
 
 const Search = Schema.Struct({ add: Schema.optional(Schema.Boolean) });
@@ -91,20 +91,13 @@ const styles = stylex.create({
   code: {
     display: "flex",
     flexDirection: "column",
-    alignItems: "center",
+    alignItems: "stretch",
     gap: space.s3,
-    paddingBlock: "20px",
+    paddingBlock: space.s4,
     paddingInline: space.s4,
     marginBottom: space.s4,
     borderRadius: radii.container,
     backgroundColor: colors.muted,
-  },
-  userCode: {
-    fontFamily: fonts.mono,
-    fontSize: "30px",
-    letterSpacing: "0.12em",
-    fontVariationSettings: weights.semibold,
-    color: colors.foreground,
   },
   steps: {
     display: "flex",
@@ -330,10 +323,7 @@ function AddAccountDialog({
         ) : (
           <>
             <div {...stylex.props(styles.code)}>
-              <span aria-label="Your code" {...stylex.props(styles.userCode)}>
-                {login.userCode}
-              </span>
-              <CopyField label="Code" value={login.userCode} />
+              <CopyField label="Your code" value={login.userCode} size="large" />
             </div>
             <ol {...stylex.props(styles.steps)}>
               <li>Open the sign-in page and log in to the ChatGPT account to add.</li>
@@ -461,7 +451,7 @@ function Accounts() {
                   <TableHead>Enabled</TableHead>
                   <TableHead>Added</TableHead>
                   <TableHead>
-                    <span {...stylex.props(styles.email)}>Actions</span>
+                    <VisuallyHidden>Actions</VisuallyHidden>
                   </TableHead>
                 </TableRow>
               </TableHeader>

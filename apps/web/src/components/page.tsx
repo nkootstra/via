@@ -76,6 +76,14 @@ const styles = stylex.create({
     backgroundColor: colors.surface3,
     boxShadow: shadows.surface3,
   },
+  visuallyHidden: {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
+  },
   flush: {
     paddingBlock: space.s1,
     paddingInline: space.s2,
@@ -143,4 +151,9 @@ export function Panel({
   readonly children?: ReactNode;
 }) {
   return <div {...stylex.props(styles.panel, flush && styles.flush, xstyle)}>{children}</div>;
+}
+
+/** Text for assistive tech only, such as a column header over row actions. */
+export function VisuallyHidden({ children }: { readonly children: ReactNode }) {
+  return <span {...stylex.props(styles.visuallyHidden)}>{children}</span>;
 }

@@ -7,7 +7,7 @@ import { Schema } from "effect";
 import { useDeferredValue, useState } from "react";
 import { modelsQuery } from "../../api/admin.ts";
 import type { Model } from "../../api/types.ts";
-import { ModelsIcon } from "../../components/icons.tsx";
+import { ModelsIcon, SearchIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 
 export const Route = createFileRoute("/_app/models")({
@@ -16,12 +16,19 @@ export const Route = createFileRoute("/_app/models")({
 });
 
 const styles = stylex.create({
+  // A sunken well, so the search shows at rest, with the magnifier inside.
   search: {
-    position: "relative",
     display: "flex",
     alignItems: "center",
+    gap: space.s0_5,
     maxWidth: "360px",
+    paddingLeft: space.s2_5,
+    borderRadius: radii.item,
+    backgroundColor: colors.muted,
+    boxShadow: `inset 0 0 0 1px ${colors.border}`,
+    color: colors.mutedForeground,
   },
+  searchIcon: { display: "flex", flexShrink: 0 },
   groups: {
     display: "flex",
     flexDirection: "column",
@@ -112,6 +119,9 @@ function Models() {
       ) : (
         <>
           <div {...stylex.props(styles.search)}>
+            <span aria-hidden="true" {...stylex.props(styles.searchIcon)}>
+              <SearchIcon size={15} />
+            </span>
             <Input
               type="search"
               aria-label="Search models"

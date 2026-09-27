@@ -30,7 +30,7 @@ import { useState } from "react";
 import { createKey, keysQuery, revokeKey } from "../../api/admin.ts";
 import type { Key } from "../../api/types.ts";
 import { KeyIcon, PlusIcon } from "../../components/icons.tsx";
-import { Page, Panel } from "../../components/page.tsx";
+import { Page, Panel, VisuallyHidden } from "../../components/page.tsx";
 import { formatDate } from "../../lib/time.ts";
 
 export const Route = createFileRoute("/_app/keys")({
@@ -269,7 +269,7 @@ function Keys() {
                   <TableHead>Id</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead>
-                    <span {...stylex.props(styles.id)}>Actions</span>
+                    <VisuallyHidden>Actions</VisuallyHidden>
                   </TableHead>
                 </TableRow>
               </TableHeader>
