@@ -33,16 +33,33 @@ import {
 } from "@via/ui";
 import { colors, text, weights } from "@via/ui/tokens.stylex";
 import { useState } from "react";
-import { accountsQuery, removeAccount, updateAccount, warm } from "../../api/admin.ts";
+import {
+  accountsQuery,
+  opencodeGoQuery,
+  removeAccount,
+  updateAccount,
+  warm,
+} from "../../api/admin.ts";
 import type { Account } from "../../api/types.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
-import { AccountsIcon, MoreIcon, PlusIcon, TrashIcon } from "../../components/icons.tsx";
-import { Page, Panel, VisuallyHidden } from "../../components/page.tsx";
+import {
+  AccountsIcon,
+  CodexIcon,
+  MoreIcon,
+  PlusIcon,
+  ProviderLogo,
+  TrashIcon,
+} from "../../components/icons.tsx";
+import { OpencodeGoAccounts } from "../../components/opencode-go-accounts.tsx";
+import { Page, Panel, Section, VisuallyHidden } from "../../components/page.tsx";
 import { formatDate } from "../../lib/time.ts";
 
 export const Route = createFileRoute("/_app/accounts")({
   head: () => ({ meta: [{ title: "Accounts · via" }] }),
-  loader: ({ context }) => warm(context.queryClient, accountsQuery),
+  loader: ({ context }) => {
+    warm(context.queryClient, accountsQuery);
+    warm(context.queryClient, opencodeGoQuery);
+  },
   component: Accounts,
 });
 
@@ -220,97 +237,103 @@ function Accounts() {
   return (
     <Page
       title="Accounts"
-      description="The ChatGPT accounts via pools. Disable one to keep it out of rotation without losing its login."
-      actions={list.length > 0 ? addButton : undefined}
+      description="The ChatGPT accounts and opencode Go keys via pools. Disable one to keep it out of rotation without losing it."
+      actions={addButton}
     >
-      {accounts.isPending ? (
-        <Panel>
-          <div {...stylex.props(styles.who)} aria-busy="true" aria-label="Loading accounts">
-            <Skeleton height="20px" />
-            <Skeleton height="20px" />
-            <Skeleton height="20px" />
-          </div>
-        </Panel>
-      ) : list.length === 0 ? (
-        <EmptyState
-          icon={<AccountsIcon size={18} />}
-          title="No accounts yet"
-          description="Add a ChatGPT account with a device login. via keeps its tokens fresh from then on."
-          action={addButton}
-        />
-      ) : (
-        <Panel flush>
-          <div {...stylex.props(styles.scroll)}>
-            <Table aria-label="Accounts">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Account</TableHead>
-                  <TableHead>Plan</TableHead>
-                  <TableHead>Enabled</TableHead>
-                  <TableHead>Added</TableHead>
-                  <TableHead>
-                    <VisuallyHidden>Actions</VisuallyHidden>
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {list.map((account, index) => (
-                  <TableRow key={account.id} index={index}>
-                    <TableCell>
-                      <div {...stylex.props(styles.who)}>
-                        <span {...stylex.props(styles.label)}>{account.label}</span>
-                        <span {...stylex.props(styles.email)}>{account.email}</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge>{account.plan}</Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Switch
-                        aria-label={`${account.label} enabled`}
-                        checked={account.enabled}
-                        disabled={toggle.isPending && toggle.variables.id === account.id}
-                        onCheckedChange={() => toggle.mutate(account)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <span {...stylex.props(styles.date)}>{formatDate(account.createdAt)}</span>
-                    </TableCell>
-                    <TableCell>
-                      <Menu>
-                        <MenuTrigger
-                          render={
-                            <Button
-                              variant="ghost"
-                              size="icon-compact"
-                              aria-label={`Actions for ${account.label}`}
-                            >
-                              <MoreIcon size={16} />
-                            </Button>
-                          }
-                        />
-                        <MenuContent>
-                          <MenuItem
-                            label="Rename…"
-                            onClick={() => setOpen({ dialog: "rename", account })}
-                          />
-                          <MenuSeparator />
-                          <MenuItem
-                            label="Remove…"
-                            icon={<TrashIcon size={15} />}
-                            destructive
-                            onClick={() => setOpen({ dialog: "remove", account })}
-                          />
-                        </MenuContent>
-                      </Menu>
-                    </TableCell>
+      <Section title="Codex" icon={<CodexIcon size={16} />}>
+        {accounts.isPending ? (
+          <Panel>
+            <div {...stylex.props(styles.who)} aria-busy="true" aria-label="Loading accounts">
+              <Skeleton height="20px" />
+              <Skeleton height="20px" />
+              <Skeleton height="20px" />
+            </div>
+          </Panel>
+        ) : list.length === 0 ? (
+          <EmptyState
+            icon={<AccountsIcon size={18} />}
+            title="No accounts yet"
+            description="Add a ChatGPT account with a device login. via keeps its tokens fresh from then on."
+            action={addButton}
+          />
+        ) : (
+          <Panel flush>
+            <div {...stylex.props(styles.scroll)}>
+              <Table aria-label="Accounts">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Account</TableHead>
+                    <TableHead>Plan</TableHead>
+                    <TableHead>Enabled</TableHead>
+                    <TableHead>Added</TableHead>
+                    <TableHead>
+                      <VisuallyHidden>Actions</VisuallyHidden>
+                    </TableHead>
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-        </Panel>
-      )}
+                </TableHeader>
+                <TableBody>
+                  {list.map((account, index) => (
+                    <TableRow key={account.id} index={index}>
+                      <TableCell>
+                        <div {...stylex.props(styles.who)}>
+                          <span {...stylex.props(styles.label)}>{account.label}</span>
+                          <span {...stylex.props(styles.email)}>{account.email}</span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <Badge>{account.plan}</Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Switch
+                          aria-label={`${account.label} enabled`}
+                          checked={account.enabled}
+                          disabled={toggle.isPending && toggle.variables.id === account.id}
+                          onCheckedChange={() => toggle.mutate(account)}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <span {...stylex.props(styles.date)}>{formatDate(account.createdAt)}</span>
+                      </TableCell>
+                      <TableCell>
+                        <Menu>
+                          <MenuTrigger
+                            render={
+                              <Button
+                                variant="ghost"
+                                size="icon-compact"
+                                aria-label={`Actions for ${account.label}`}
+                              >
+                                <MoreIcon size={16} />
+                              </Button>
+                            }
+                          />
+                          <MenuContent>
+                            <MenuItem
+                              label="Rename…"
+                              onClick={() => setOpen({ dialog: "rename", account })}
+                            />
+                            <MenuSeparator />
+                            <MenuItem
+                              label="Remove…"
+                              icon={<TrashIcon size={15} />}
+                              destructive
+                              onClick={() => setOpen({ dialog: "remove", account })}
+                            />
+                          </MenuContent>
+                        </Menu>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Panel>
+        )}
+      </Section>
+
+      <Section title="opencode Go" icon={<ProviderLogo name="opencode-go" size={16} />}>
+        <OpencodeGoAccounts addButton={addButton} />
+      </Section>
 
       {add.dialog}
       {open?.dialog === "rename" && <RenameDialog account={open.account} onClose={close} />}

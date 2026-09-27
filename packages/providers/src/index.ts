@@ -1,14 +1,8 @@
-export {
-  DuplicateOpencodeGoKeyError,
-  maskKey,
-  type OpencodeGoAccount,
-  OpencodeGoAccountNotFoundError,
-  OpencodeGoAccounts,
-} from "./opencode-go-accounts.ts";
+export { DuplicateOpencodeGoKeyError, OpencodeGoAccountNotFoundError } from "./errors.ts";
+
+export { maskKey, type OpencodeGoAccount, OpencodeGoAccounts } from "./opencode-go-accounts.ts";
 
 export { OpencodeGoPool } from "./opencode-go-pool.ts";
-
-export { OpencodeGoUsagePoll } from "./opencode-go-usage-poll.ts";
 
 export { type ProviderModel, type ProviderPath, Providers, type Route } from "./providers.ts";
 

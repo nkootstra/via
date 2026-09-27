@@ -28,23 +28,28 @@ const accounts = [
   },
 ] as const;
 
-const providers = [
+const opencodeGo = [
   {
-    name: "opencode-go",
+    id: "go-1",
+    label: "go main",
+    enabled: true,
     state: {
-      status: "exhausted",
+      status: "cooling",
       until: new Date(now + 2 * 3_600_000).toISOString(),
-      window: "weekly",
+      reason: "usage_exhausted",
     },
   },
-  { name: "openrouter", state: { status: "available" } },
   {
-    name: "local",
-    state: { status: "unavailable", reason: "local did not report usage (HTTP 401)" },
+    id: "go-2",
+    label: "go spare",
+    enabled: true,
+    state: { status: "auth_error", reason: "unauthorized" },
   },
 ] as const;
 
-const pool = { accounts: [...accounts], providers: [...providers] };
+const providers = [{ name: "openrouter", state: { status: "available" } }] as const;
+
+const pool = { accounts: [...accounts], opencodeGo: [...opencodeGo], providers: [...providers] };
 
 const fetchedAt = "2026-09-27T11:59:30.000Z";
 
@@ -61,9 +66,10 @@ const usage = {
     },
     { id: "acc-2", label: "home", fetchedAt, error: "ChatGPT didn't answer" },
   ],
-  providers: [
+  opencodeGo: [
     {
-      provider: "opencode-go",
+      id: "go-1",
+      label: "go main",
       fetchedAt,
       windows: [
         { window: "rolling", status: "ok", usedPercent: 40, resetsAt: "2026-09-27T16:00:00.000Z" },
@@ -76,7 +82,12 @@ const usage = {
         { window: "monthly", status: "ok", usedPercent: 12, resetsAt: "2026-10-01T00:00:00.000Z" },
       ],
     },
-    { provider: "local", fetchedAt, error: "local did not report usage (HTTP 401)" },
+    {
+      id: "go-2",
+      label: "go spare",
+      fetchedAt,
+      error: "opencode-go did not report usage (HTTP 401)",
+    },
   ],
   refreshing: false,
 };
@@ -107,7 +118,7 @@ describe("the overview", () => {
 
   it("shows only the weekly window of a plan without a 5-hour one", async () => {
     renderApp("/", {
-      pool: { accounts: [accounts[0]], providers: [] },
+      pool: { accounts: [accounts[0]], opencodeGo: [], providers: [] },
       usage: {
         accounts: [
           {
@@ -119,7 +130,7 @@ describe("the overview", () => {
             ],
           },
         ],
-        providers: [],
+        opencodeGo: [],
         refreshing: false,
       },
     });
@@ -145,11 +156,11 @@ describe("the overview", () => {
     expect(clock.textContent).toMatch(/^4:5\d$/);
   });
 
-  it("shows a provider as a card like an account's, with its budget windows", async () => {
+  it("shows each opencode Go account as a card of its own, with its budget windows", async () => {
     renderApp("/", { pool, usage });
 
-    const go = await card("opencode-go");
-    expect(within(go).getByText("Provider")).toBeDefined();
+    const go = await card("go main");
+    expect(within(go).getByText("opencode Go")).toBeDefined();
     expect(
       (await within(go).findByRole("meter", { name: "5 hours" })).getAttribute("aria-valuenow"),
     ).toBe("40");
@@ -164,13 +175,13 @@ describe("the overview", () => {
     expect(await within(openrouter).findByText(/doesn't report usage/)).toBeDefined();
   });
 
-  it("counts an exhausted provider down to its window's reset", async () => {
+  it("counts a used-up opencode Go account down to its window's reset", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
     renderApp("/", { pool, usage });
 
-    const go = await card("opencode-go");
-    expect(within(go).getByText("Exhausted")).toBeDefined();
-    expect(within(go).getByText(/Weekly limit used up/)).toBeDefined();
+    const go = await card("go main");
+    expect(within(go).getByText("Cooling down")).toBeDefined();
+    expect(within(go).getByText(/usage_exhausted/)).toBeDefined();
     expect(within(go).getByText("2 h 00 min")).toBeDefined();
 
     await act(() => vi.advanceTimersByTimeAsync(61_000));
@@ -178,15 +189,15 @@ describe("the overview", () => {
     expect(within(go).getByText("1 h 58 min")).toBeDefined();
   });
 
-  it("says why a provider is unavailable, once", async () => {
+  it("says when opencode Go refused an account's key", async () => {
     renderApp("/", { pool, usage });
 
-    const local = await card("local");
-    expect(within(local).getByText("Unavailable")).toBeDefined();
-    expect(await within(local).findAllByText(/HTTP 401/)).toHaveLength(1);
+    const spare = await card("go spare");
+    expect(within(spare).getByText("Locked out")).toBeDefined();
+    expect(within(spare).getByText("opencode Go refused its key")).toBeDefined();
   });
 
-  it("counts providers with the accounts in the summary", async () => {
+  it("counts opencode Go accounts and providers with the accounts in the summary", async () => {
     renderApp("/", { pool, usage });
 
     expect(await tile("Available")).toBe("2 of 6");
@@ -196,10 +207,10 @@ describe("the overview", () => {
   });
 
   it("shows the providers even before any account is added", async () => {
-    renderApp("/", { pool: { accounts: [], providers: [...providers] }, usage });
+    renderApp("/", { pool: { accounts: [], opencodeGo: [], providers: [...providers] }, usage });
 
     expect(await screen.findByRole("region", { name: "No accounts yet" })).toBeDefined();
-    expect(await card("opencode-go")).toBeDefined();
+    expect(await card("openrouter")).toBeDefined();
   });
 
   it("invites the viewer to add an account when the pool is empty, right there", async () => {
@@ -207,9 +218,42 @@ describe("the overview", () => {
 
     const empty = await screen.findByRole("region", { name: "No accounts yet" });
     await user.click(within(empty).getByRole("button", { name: "Add account" }));
+    const choose = await screen.findByRole("dialog", { name: "Add an account" });
+    await user.click(within(choose).getByRole("button", { name: /ChatGPT \(Codex\)/ }));
 
     expect(await screen.findByRole("dialog", { name: "Add a ChatGPT account" })).toBeDefined();
     expect(router.history.location.pathname).toBe("/ui/");
+  });
+
+  it("adds an opencode Go key from the overview, and shows it there", async () => {
+    const { state, user } = renderApp("/", { pool, usage });
+
+    await card("work");
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+    await user.click(await screen.findByRole("button", { name: /opencode Go/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Add an opencode Go key" });
+    await user.type(within(dialog).getByLabelText("API key"), "sk-go-new-9876");
+    await user.click(within(dialog).getByRole("button", { name: "Add key" }));
+
+    expect(await card("opencode Go …9876")).toBeDefined();
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog", { name: "Add an opencode Go key" })).toBeNull(),
+    );
+    expect(state.opencodeGo.map(({ key }) => key)).toEqual(["…9876"]);
+  });
+
+  it("says so when opencode Go refuses a pasted key, and keeps the dialog open", async () => {
+    const { state, user } = renderApp("/", { pool, usage, refusedKeys: ["sk-wrong"] });
+
+    await card("work");
+    await user.click(screen.getByRole("button", { name: "Add account" }));
+    await user.click(await screen.findByRole("button", { name: /opencode Go/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Add an opencode Go key" });
+    await user.type(within(dialog).getByLabelText("API key"), "sk-wrong");
+    await user.click(within(dialog).getByRole("button", { name: "Add key" }));
+
+    expect(await within(dialog).findByText(/opencode Go refused this key/)).toBeDefined();
+    expect(state.opencodeGo).toEqual([]);
   });
 
   it("shows an account added from the overview there, once its login is approved", async () => {
@@ -221,6 +265,7 @@ describe("the overview", () => {
 
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
+    await user.click(await screen.findByRole("button", { name: /ChatGPT \(Codex\)/ }));
 
     expect(await card("new")).toBeDefined();
     await waitFor(() =>
@@ -314,13 +359,13 @@ describe("the overview's usage", () => {
 
     const { state } = renderApp("/", {
       pool,
-      usage: { accounts: usage.accounts.slice(0, 1), providers: [], refreshing: true },
+      usage: { accounts: usage.accounts.slice(0, 1), opencodeGo: [], refreshing: true },
     });
 
     const work = await card("work");
     expect(await within(work).findByRole("meter", { name: "5 hours" })).toBeDefined();
     expect(within(await card("home")).getByLabelText("Loading usage")).toBeDefined();
-    expect(within(await card("opencode-go")).getByLabelText("Loading usage")).toBeDefined();
+    expect(within(await card("go main")).getByLabelText("Loading usage")).toBeDefined();
 
     const asked = state.requests.filter((request) => request === "GET /admin/usage").length;
     await act(() => vi.advanceTimersByTimeAsync(3_000));

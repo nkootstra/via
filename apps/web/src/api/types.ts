@@ -8,6 +8,8 @@ type SuccessOf<Endpoint> = HttpApiEndpoint.Success<Endpoint>["Type"];
 
 export type Account = SuccessOf<Groups["accounts"]["endpoints"]["list"]>[number];
 
+export type OpencodeGoAccount = SuccessOf<Groups["opencodeGo"]["endpoints"]["list"]>[number];
+
 export type Key = SuccessOf<Groups["keys"]["endpoints"]["list"]>[number];
 
 export type StartedLogin = SuccessOf<Groups["accounts"]["endpoints"]["login"]>;

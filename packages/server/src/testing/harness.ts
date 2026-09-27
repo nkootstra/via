@@ -143,7 +143,8 @@ const collectLogs = () => {
  * `codexUrl`, via sends Codex traffic there instead of to the fake Codex.
  * Models prefixed `openrouter/` and `opencode-go/` go to a fake provider, or
  * to `providerUrl` when it is given; opencode Go has an account for each of
- * `opencodeGoKeys`, labelled `go-1`, `go-2` and so on. With `adminKey`, via serves the admin API
+ * `opencodeGoKeys`, labelled `go-1`, `go-2` and so on, and `opencodeGoVariable`
+ * says which key its deprecated environment variable still holds. With `adminKey`, via serves the admin API
  * behind that key, and with `ui` as well, the admin UI. Device-code logins
  * go to the fake issuer, with its `pendingPolls` and `interval`.
  */
@@ -167,9 +168,11 @@ export const withVia = <A, E>(
     pendingPolls = 0,
     interval = "0",
     opencodeGoKeys = ["sk-provider"],
+    opencodeGoVariable,
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
     opencodeGoKeys?: ReadonlyArray<string>;
+    opencodeGoVariable?: { variable: string; apiKey: string };
     codexUrl?: string;
     providerUrl?: string;
     adminKey?: string;
@@ -234,6 +237,13 @@ export const withVia = <A, E>(
       ViaServer.layer({
         adminKey: adminKey === undefined ? undefined : Redacted.make(adminKey),
         ui,
+        opencodeGoEnvironment:
+          opencodeGoVariable === undefined
+            ? undefined
+            : {
+                variable: opencodeGoVariable.variable,
+                apiKey: Redacted.make(opencodeGoVariable.apiKey),
+              },
       }).pipe(
         Layer.provide(Layer.mergeAll(AccountPool.layer, OpencodeGoPool.layer)),
         Layer.provide(UsageSnapshots.layer),

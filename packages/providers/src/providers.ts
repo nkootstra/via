@@ -7,6 +7,7 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "effect/unstable/http";
+import { OpencodeGoKeyRejectedError, OpencodeGoUnavailableError } from "./errors.ts";
 import { OpencodeGoAccounts } from "./opencode-go-accounts.ts";
 import type { ProviderUsage } from "./schemas.ts";
 
@@ -219,6 +220,22 @@ const make = (
         apiKey === undefined ? [] : [name],
       ),
       usage: (apiKey) => usageOf(pooled, pooled.usagePath ?? "/usage", apiKey),
+      verify: Effect.fn("Providers.verify")(function* (apiKey) {
+        const { status } = yield* keyed(pooled.client, apiKey)
+          .get(pooled.usagePath ?? "/usage")
+          .pipe(
+            Effect.catchTag("HttpClientError", () =>
+              Effect.fail(new OpencodeGoUnavailableError({ reason: "it could not be reached" })),
+            ),
+          );
+
+        if (status === 401 || status === 403) {
+          return yield* new OpencodeGoKeyRejectedError({ status });
+        }
+
+        if (status !== 200)
+          return yield* new OpencodeGoUnavailableError({ reason: `HTTP ${status}` });
+      }),
       models: Effect.forEach(
         [...providers.values()],
         (provider) =>
@@ -292,6 +309,13 @@ export class Providers extends Context.Service<
     readonly models: Effect.Effect<ReadonlyArray<{ provider: string; model: ProviderModel }>>;
     /** What opencode Go says the account with `apiKey` has used, or why it can't. */
     readonly usage: (apiKey: Redacted.Redacted<string>) => Effect.Effect<ProviderUsage>;
+    /**
+     * Checks `apiKey` with opencode Go before it is stored, by asking for its
+     * usage: fails when opencode Go refuses it, or can't be asked.
+     */
+    readonly verify: (
+      apiKey: Redacted.Redacted<string>,
+    ) => Effect.Effect<void, OpencodeGoKeyRejectedError | OpencodeGoUnavailableError>;
     /**
      * Posts `body` to the route's provider, with its model in place of via's and
      * `session` where the provider looks for it. A pooled route is sent with

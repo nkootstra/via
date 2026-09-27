@@ -117,3 +117,42 @@ export const createKey = (name: string) =>
 
 export const revokeKey = (id: string) =>
   run((admin) => admin.keys.revoke({ params: { idOrName: id } }));
+
+export const opencodeGoQuery = queryOptions({
+  queryKey: ["opencode-go"],
+  queryFn: () => run((admin) => admin.opencodeGo.list()),
+});
+
+export type AddOpencodeGoOutcome =
+  | { readonly added: true; readonly label: string }
+  | { readonly added: false; readonly problem: string };
+
+const notAdded = (problem: string) =>
+  Effect.succeed<AddOpencodeGoOutcome>({ added: false, problem });
+
+/**
+ * Adds an opencode Go API key, which via checks with opencode Go first. A key
+ * opencode Go refuses, one via already has, or one it can't check are outcomes
+ * the form shows.
+ */
+export const addOpencodeGo = (apiKey: string) =>
+  run((admin) =>
+    admin.opencodeGo.add({ payload: { apiKey: Redacted.make(apiKey) } }).pipe(
+      Effect.map((account): AddOpencodeGoOutcome => ({ added: true, label: account.label })),
+      Effect.catchTags({
+        OpencodeGoKeyRejectedError: () =>
+          notAdded("opencode Go refused this key. Check that you copied all of it."),
+        DuplicateOpencodeGoKeyError: (error) =>
+          notAdded(`via already has this key, as ${error.label}.`),
+        OpencodeGoUnavailableError: (error) => notAdded(error.message),
+      }),
+    ),
+  );
+
+export const updateOpencodeGo = (
+  id: string,
+  payload: { readonly label?: string; readonly enabled?: boolean },
+) => run((admin) => admin.opencodeGo.update({ params: { id }, payload }));
+
+export const removeOpencodeGo = (id: string) =>
+  run((admin) => admin.opencodeGo.remove({ params: { id } }));

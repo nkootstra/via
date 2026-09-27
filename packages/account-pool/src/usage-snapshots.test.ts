@@ -68,7 +68,7 @@ describe("UsageSnapshots", () => {
   it.effect("holds nothing before the first refresh, without waiting for one", () =>
     withSnapshots(({ snapshots, codex }) =>
       Effect.gen(function* () {
-        expect(yield* snapshots.get).toEqual({ accounts: [], providers: undefined });
+        expect(yield* snapshots.get).toEqual({ accounts: [], opencodeGo: [] });
         expect(codex.requests).toHaveLength(0);
       }),
     ),
@@ -99,10 +99,9 @@ describe("UsageSnapshots", () => {
             error: "ChatGPT did not report usage (HTTP 403)",
           },
         ]);
-        expect(stored.providers).toEqual({
-          fetchedAt: now,
-          reports: [{ provider: "go-1", windows: [] }],
-        });
+        expect(
+          stored.opencodeGo.map(({ account, ...rest }) => ({ label: account.label, ...rest })),
+        ).toEqual([{ label: "go-1", fetchedAt: now, windows: [] }]);
       }),
     ),
   );
@@ -142,7 +141,7 @@ describe("UsageSnapshots", () => {
         Effect.gen(function* () {
           expect(yield* snapshots.latest).toEqual({
             accounts: [],
-            providers: undefined,
+            opencodeGo: [],
             refreshing: true,
           });
           const done = yield* snapshots.refresh;
@@ -173,7 +172,7 @@ describe("UsageSnapshots", () => {
           expect(codex.requests).toHaveLength(4);
           const now = yield* Clock.currentTimeMillis;
           yield* eventually(
-            Effect.map(snapshots.get, ({ providers }) => providers?.fetchedAt === now),
+            Effect.map(snapshots.get, ({ opencodeGo }) => opencodeGo[0]?.fetchedAt === now),
           );
         }),
       ),

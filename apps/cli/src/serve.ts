@@ -4,7 +4,7 @@ import { AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
-import { OpencodeGoPool, OpencodeGoUsagePoll, Providers } from "@via/providers";
+import { OpencodeGoPool, Providers } from "@via/providers";
 import { type EmbeddedUi, ViaServer } from "@via/server";
 import {
   Config,
@@ -78,6 +78,17 @@ const importDeprecatedKey = (
     }),
   );
 
+/** opencode Go's deprecated key variable and the key it holds, while it is set. */
+const opencodeGoEnvironment = (
+  config: { readonly providers: Parameters<typeof importOpencodeGoKey>[0] },
+  keys: Parameters<typeof importOpencodeGoKey>[1],
+) => {
+  const variable = config.providers["opencode-go"]?.apiKeyEnv;
+  const apiKey = keys["opencode-go"];
+
+  return variable === undefined || apiKey === undefined ? undefined : { variable, apiKey };
+};
+
 /**
  * `via serve`, reading `configPath` and keeping cooldowns in `statePath`.
  * `upstreamBaseUrl` replaces the Codex backend, which only tests do. With
@@ -114,9 +125,12 @@ export const serve = ({
         const keys = yield* apiKeys(config.providers);
 
         const server = Layer.mergeAll(
-          ViaServer.layer({ adminKey, ui }),
+          ViaServer.layer({
+            adminKey,
+            ui,
+            opencodeGoEnvironment: opencodeGoEnvironment(config, keys),
+          }),
           UsagePoll.layer,
-          OpencodeGoUsagePoll.layer,
           importDeprecatedKey(config.providers, keys),
         ).pipe(
           Layer.provideMerge(

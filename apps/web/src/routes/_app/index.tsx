@@ -320,7 +320,14 @@ function Blocked({ title, reason }: { readonly title: string; readonly reason: s
   );
 }
 
-function AccountDetail({ account }: { readonly account: PoolAccount }) {
+function AccountDetail({
+  account,
+  locked = "Sign this account in again",
+}: {
+  readonly account: PoolAccount;
+  /** What to do about the account once it is locked out. */
+  readonly locked?: string;
+}) {
   const { state } = account;
 
   if (!account.enabled || state.status === "available") return null;
@@ -328,7 +335,7 @@ function AccountDetail({ account }: { readonly account: PoolAccount }) {
   return state.status === "cooling" ? (
     <Resting until={state.until} reason={state.reason} ends="Ends" />
   ) : (
-    <Blocked title="Sign this account in again" reason={state.reason} />
+    <Blocked title={locked} reason={state.reason} />
   );
 }
 
@@ -411,25 +418,22 @@ function AccountUsage({ id, usage }: { readonly id: string; readonly usage: Usag
   );
 }
 
-function ProviderUsage({
-  provider,
+function OpencodeGoUsage({
+  id,
   usage,
 }: {
-  readonly provider: PoolProvider;
+  readonly id: string;
   readonly usage: Usage | undefined;
 }) {
-  // An unavailable provider's state already says why its usage is missing.
-  if (provider.state.status === "unavailable") return null;
+  const entry = usage?.opencodeGo.find((account) => account.id === id);
 
-  // Before via's first fetch, no provider has reported yet.
-  if (usage === undefined || (usage.refreshing && usage.providers.length === 0)) {
-    return <UsageLoading />;
-  }
-
-  const entry = usage.providers.find((report) => report.provider === provider.name);
-
+  // Bars wait only for an account via has no usage for yet, and is fetching.
   if (entry === undefined) {
-    return <p {...stylex.props(styles.muted)}>This provider doesn't report usage.</p>;
+    return usage === undefined || usage.refreshing ? (
+      <UsageLoading />
+    ) : (
+      <p {...stylex.props(styles.muted)}>No usage reported yet.</p>
+    );
   }
 
   if ("error" in entry)
@@ -513,7 +517,7 @@ function Loading() {
 function Updated({ usage, fetching }: { readonly usage: Usage; readonly fetching: boolean }) {
   const now = useNow();
 
-  const fetched = [...usage.accounts, ...usage.providers].map(({ fetchedAt }) =>
+  const fetched = [...usage.accounts, ...usage.opencodeGo].map(({ fetchedAt }) =>
     Date.parse(fetchedAt),
   );
 
@@ -531,8 +535,10 @@ function Overview() {
   const usage = useQuery(usageQuery);
   const accounts = useQuery(accountsQuery);
   const list = pool.data?.accounts ?? [];
+  const opencodeGo = pool.data?.opencodeGo ?? [];
   const providers = pool.data?.providers ?? [];
-  const enabled = list.filter((account) => account.enabled);
+  const everyAccount = [...list, ...opencodeGo];
+  const enabled = everyAccount.filter((account) => account.enabled);
 
   const accountsIn = (status: PoolAccount["state"]["status"]) =>
     enabled.filter((account) => account.state.status === status).length;
@@ -553,26 +559,28 @@ function Overview() {
     <Page
       title="Overview"
       description="How the pool stands right now: which accounts and providers via can use, which are resting, and how much of each limit is used."
-      actions={list.length > 0 ? addAccount : undefined}
+      actions={everyAccount.length > 0 ? addAccount : undefined}
     >
       {pool.isPending ? (
         <Loading />
       ) : (
         <>
-          {list.length === 0 && (
+          {everyAccount.length === 0 && (
             <EmptyState
               icon={<AccountsIcon size={18} />}
               title="No accounts yet"
-              description="Add a ChatGPT account and via starts pooling it behind one endpoint."
+              description="Add a ChatGPT account or an opencode Go key, and via starts pooling it behind one endpoint."
               action={addAccount}
             />
           )}
-          {list.length + providers.length > 0 && (
+          {everyAccount.length + providers.length > 0 && (
             <>
               <dl {...stylex.props(styles.stats)}>
                 <Stat label="Available" color="green">
                   {accountsIn("available") + providersIn("available")}{" "}
-                  <span {...stylex.props(styles.statOf)}>of {list.length + providers.length}</span>
+                  <span {...stylex.props(styles.statOf)}>
+                    of {everyAccount.length + providers.length}
+                  </span>
                 </Stat>
                 <Stat label="Resting" color="amber">
                   {accountsIn("cooling") + providersIn("exhausted")}
@@ -581,7 +589,7 @@ function Overview() {
                   {accountsIn("auth_error") + providersIn("unavailable")}
                 </Stat>
                 <Stat label="Disabled" color="gray">
-                  {list.length - enabled.length}
+                  {everyAccount.length - enabled.length}
                 </Stat>
               </dl>
 
@@ -612,17 +620,30 @@ function Overview() {
                       <AccountUsage id={account.id} usage={usage.data} />
                     </PoolCard>
                   ))}
+                  {opencodeGo.map((account, index) => (
+                    <PoolCard
+                      key={`opencode-go:${account.id}`}
+                      index={list.length + index}
+                      name={account.label}
+                      icon={<ProviderLogo name="opencode-go" size={16} />}
+                      subtitle={<span {...stylex.props(styles.tag)}>opencode Go</span>}
+                      badge={<AccountBadge account={account} />}
+                    >
+                      <AccountDetail account={account} locked="opencode Go refused its key" />
+                      <OpencodeGoUsage id={account.id} usage={usage.data} />
+                    </PoolCard>
+                  ))}
                   {providers.map((provider, index) => (
                     <PoolCard
                       key={`provider:${provider.name}`}
-                      index={list.length + index}
+                      index={everyAccount.length + index}
                       name={provider.name}
                       icon={<ProviderLogo name={provider.name} size={16} />}
                       subtitle={<span {...stylex.props(styles.tag)}>Provider</span>}
                       badge={<ProviderBadge provider={provider} />}
                     >
                       <ProviderDetail provider={provider} />
-                      <ProviderUsage provider={provider} usage={usage.data} />
+                      <p {...stylex.props(styles.muted)}>This provider doesn't report usage.</p>
                     </PoolCard>
                   ))}
                 </div>

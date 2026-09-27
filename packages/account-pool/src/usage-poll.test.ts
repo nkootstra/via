@@ -4,7 +4,7 @@ import { startFakeIssuer, tokensFor } from "@via/codex-auth/testing";
 import { CodexUpstream } from "@via/codex-upstream";
 import { startFakeCodex } from "@via/codex-upstream/testing";
 import { PoolStates } from "@via/pool";
-import { OpencodeGoAccounts, Providers } from "@via/providers";
+import { OpencodeGoAccounts, OpencodeGoPool, Providers } from "@via/providers";
 import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
@@ -82,7 +82,7 @@ const withPoll = <A, E>(
 
     const runtime = yield* Layer.build(
       UsagePoll.layer.pipe(
-        Layer.provide(AccountPool.layer),
+        Layer.provide(Layer.mergeAll(AccountPool.layer, OpencodeGoPool.layer)),
         Layer.provide(UsageSnapshots.layer),
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provideMerge(PoolStates.layer),

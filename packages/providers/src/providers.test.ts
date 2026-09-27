@@ -15,6 +15,7 @@ import {
   Stream,
 } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { OpencodeGoKeyRejectedError, OpencodeGoUnavailableError } from "./errors.ts";
 import { OpencodeGoAccounts, Providers } from "./index.ts";
 import { providerReply, startFakeProvider } from "./testing/index.ts";
 
@@ -493,6 +494,40 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         provider: "opencode-go",
         error: "opencode-go did not report usage (HTTP 401)",
       });
+    }),
+  );
+
+  it.effect("checks an OpenCode Go key against its usage endpoint", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.usageFor("sk-good", { usage: {} });
+      fake.usageFor("sk-bad", { error: "unauthorized" }, 401);
+      const config = { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } };
+
+      const [good, bad] = yield* withProviders(config, (providers) =>
+        Effect.all([
+          Effect.as(providers.verify(Redacted.make("sk-good")), "ok"),
+          Effect.flip(providers.verify(Redacted.make("sk-bad"))),
+        ]),
+      );
+
+      expect(good).toBe("ok");
+      expect(bad).toEqual(new OpencodeGoKeyRejectedError({ status: 401 }));
+    }),
+  );
+
+  it.effect("says it could not check an OpenCode Go key when OpenCode Go fails", () =>
+    Effect.gen(function* () {
+      const { client } = offline();
+
+      const error = yield* withProviders(
+        {},
+        (providers) => Effect.flip(providers.verify(goKey)),
+        {},
+        client,
+      );
+
+      expect(error).toEqual(new OpencodeGoUnavailableError({ reason: "HTTP 503" }));
     }),
   );
 });

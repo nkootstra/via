@@ -1,6 +1,13 @@
 import { type Account, AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
-import { Providers, providerState } from "@via/providers";
+import {
+  maskKey,
+  type OpencodeGoAccount,
+  OpencodeGoAccountNotFoundError,
+  OpencodeGoAccounts,
+  Providers,
+  providerState,
+} from "@via/providers";
 import { Clock, type Duration, Effect, Layer, Redacted, Schema } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
@@ -181,6 +188,89 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
   }),
 );
 
+/** The deprecated environment variable opencode Go's key is read from, and its key, while it is set. */
+export type OpencodeGoEnvironment = {
+  readonly variable: string;
+  readonly apiKey: Redacted.Redacted<string>;
+};
+
+/**
+ * `account` as the admin API shows it: its key masked, and the variable it came
+ * from while `environment` still has it.
+ */
+const opencodeGoAccount = (
+  account: OpencodeGoAccount,
+  environment: OpencodeGoEnvironment | undefined,
+) => {
+  const { id, label, apiKey, enabled, createdAt } = account;
+  const shown = { id, label, key: maskKey(apiKey), enabled, createdAt };
+
+  return environment !== undefined && Redacted.value(environment.apiKey) === Redacted.value(apiKey)
+    ? { ...shown, environmentVariable: environment.variable }
+    : shown;
+};
+
+/** The opencode Go account with id `id`; like the ChatGPT accounts, never by label. */
+const opencodeGoById = Effect.fn("admin.opencodeGoById")(function* (id: string) {
+  const account = (yield* (yield* OpencodeGoAccounts).list).find((a) => a.id === id);
+
+  return account ?? (yield* new OpencodeGoAccountNotFoundError({ query: id }));
+});
+
+// The account file is via's own; one it can't read or write is a bug, not a request error.
+const opencodeGo = (environment: OpencodeGoEnvironment | undefined) =>
+  HttpApiBuilder.group(AdminApi, "opencodeGo", (handlers) =>
+    handlers
+      .handle("list", () =>
+        Effect.gen(function* () {
+          const all = yield* (yield* OpencodeGoAccounts).list;
+
+          return all.map((account) => opencodeGoAccount(account, environment));
+        }).pipe(Effect.orDie),
+      )
+      .handle("add", ({ payload }) =>
+        Effect.gen(function* () {
+          // Checked first, so a mistyped key is never stored.
+          yield* (yield* Providers).verify(payload.apiKey);
+          const added = yield* (yield* OpencodeGoAccounts).add(payload.apiKey, payload.label);
+
+          return opencodeGoAccount(added, environment);
+        }).pipe(
+          Effect.catchTag(
+            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
+            Effect.die,
+          ),
+        ),
+      )
+      .handle("update", ({ params, payload }) =>
+        Effect.gen(function* () {
+          const store = yield* OpencodeGoAccounts;
+          const { id } = yield* opencodeGoById(params.id);
+
+          if (payload.label !== undefined) yield* store.setLabel(id, payload.label);
+
+          if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
+
+          return opencodeGoAccount(yield* store.find(id), environment);
+        }).pipe(
+          Effect.catchTag(
+            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
+            Effect.die,
+          ),
+        ),
+      )
+      .handle("remove", ({ params }) =>
+        Effect.gen(function* () {
+          yield* (yield* OpencodeGoAccounts).remove((yield* opencodeGoById(params.id)).id);
+        }).pipe(
+          Effect.catchTag(
+            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
+            Effect.die,
+          ),
+        ),
+      ),
+  );
+
 // The key file is via's own; one it can't read or write is a bug, not a request error.
 const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
   handlers
@@ -212,7 +302,6 @@ const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
   handlers.handle("get", () =>
     Effect.gen(function* () {
       const latest = yield* latestUsage;
-      const { providers } = latest;
 
       return {
         accounts: latest.accounts.map((entry) => {
@@ -232,13 +321,14 @@ const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
                 })),
               };
         }),
-        providers:
-          providers === undefined
-            ? []
-            : providers.reports.map((report) => ({
-                ...report,
-                fetchedAt: iso(providers.fetchedAt),
-              })),
+        opencodeGo: latest.opencodeGo.map((entry) => {
+          const { id, label } = entry.account;
+          const fetchedAt = iso(entry.fetchedAt);
+
+          return "error" in entry
+            ? { id, label, fetchedAt, error: entry.error }
+            : { id, label, fetchedAt, windows: entry.windows };
+        }),
         refreshing: latest.refreshing,
       };
     }),
@@ -267,31 +357,35 @@ const pool = HttpApiBuilder.group(AdminApi, "pool", (handlers) =>
 
     return handlers.handle("get", () =>
       Effect.gen(function* () {
-        const all = yield* (yield* AccountStore).list.pipe(
-          // The account files are via's own; one it can't read is a bug, not a request error.
-          Effect.orDie,
-        );
-
+        // The account files are via's own; one it can't read is a bug, not a request error.
+        const all = yield* Effect.orDie((yield* AccountStore).list);
+        const goAccounts = yield* Effect.orDie((yield* OpencodeGoAccounts).list);
         const state = yield* (yield* PoolStates).get;
-        // A page shows the pool refreshing every few seconds; the providers' budgets
-        // move slowly, so their states come from the same usage `/admin/usage` answers.
-        const reports = (yield* latestUsage).providers?.reports ?? [];
         const now = yield* Clock.currentTimeMillis;
 
+        const inPool = ({
+          id,
+          label,
+          enabled,
+        }: {
+          id: string;
+          label: string;
+          enabled: boolean;
+        }) => ({
+          id,
+          label,
+          enabled,
+          state: poolState(state, id, now),
+        });
+
         return {
-          accounts: all.map(({ id, label, enabled }) => ({
-            id,
-            label,
-            enabled,
-            state: poolState(state, id, now),
+          accounts: all.map(inPool),
+          opencodeGo: goAccounts.map(inPool),
+          // A provider with its own key reports no usage, so it is always there to try.
+          providers: providers.names.map((name) => ({
+            name,
+            state: providerState(undefined, now),
           })),
-          providers: [
-            ...providers.names.map((name) => ({ name, state: providerState(undefined, now) })),
-            ...reports.map((report) => ({
-              name: report.provider,
-              state: providerState(report, now),
-            })),
-          ],
         };
       }),
     );
@@ -319,7 +413,10 @@ const scalarConfig = {
  * key the routes are not registered at all, so `/admin` answers 404 like any unknown
  * path. Its OpenAPI spec and a Scalar reference page for it need no key.
  */
-export const adminRoutes = (adminKey: Redacted.Redacted<string> | undefined) =>
+export const adminRoutes = (
+  adminKey: Redacted.Redacted<string> | undefined,
+  opencodeGoEnvironment?: OpencodeGoEnvironment,
+) =>
   Layer.unwrap(
     Effect.gen(function* () {
       if (adminKey === undefined) return Layer.empty;
@@ -329,7 +426,15 @@ export const adminRoutes = (adminKey: Redacted.Redacted<string> | undefined) =>
 
       return Layer.merge(
         HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
-          Layer.provide([sessions, accounts, keys, usage, pool, models]),
+          Layer.provide([
+            sessions,
+            accounts,
+            opencodeGo(opencodeGoEnvironment),
+            keys,
+            usage,
+            pool,
+            models,
+          ]),
           Layer.provide([authorization, Logins.layer]),
           Layer.provide(AdminSessions.layer(adminKey)),
         ),

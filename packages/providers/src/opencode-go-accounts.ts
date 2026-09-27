@@ -1,5 +1,6 @@
 import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
 import { Context, DateTime, Effect, FileSystem, Layer, Redacted, Schema, Semaphore } from "effect";
+import { DuplicateOpencodeGoKeyError, OpencodeGoAccountNotFoundError } from "./errors.ts";
 
 /** An opencode Go API key via pools, as it stores it. */
 const OpencodeGoAccount = Schema.Struct({
@@ -20,24 +21,6 @@ const IMPORTED = "opencode Go (imported)";
 /** An API key as via shows it: its last four characters, never the whole key. */
 export const maskKey = (apiKey: Redacted.Redacted<string>) =>
   `…${Redacted.value(apiKey).slice(-4)}`;
-
-export class OpencodeGoAccountNotFoundError extends Schema.TaggedError<OpencodeGoAccountNotFoundError>()(
-  "OpencodeGoAccountNotFoundError",
-  { query: Schema.String },
-) {
-  override get message() {
-    return `No opencode Go account with id or label "${this.query}"`;
-  }
-}
-
-export class DuplicateOpencodeGoKeyError extends Schema.TaggedError<DuplicateOpencodeGoKeyError>()(
-  "DuplicateOpencodeGoKeyError",
-  { label: Schema.String },
-) {
-  override get message() {
-    return `That opencode Go key is already stored, as "${this.label}"`;
-  }
-}
 
 const make = (path: string) =>
   Effect.gen(function* () {

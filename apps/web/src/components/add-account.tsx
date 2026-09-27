@@ -15,14 +15,16 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  Field,
+  Input,
   Skeleton,
   useToast,
 } from "@via/ui";
-import { colors, radii, space, text } from "@via/ui/tokens.stylex";
+import { colors, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { type ReactNode, useEffect, useEffectEvent, useState } from "react";
-import { loginStatus, startLogin } from "../api/admin.ts";
+import { addOpencodeGo, loginStatus, startLogin } from "../api/admin.ts";
 import type { Account, StartedLogin } from "../api/types.ts";
-import { ExternalIcon } from "./icons.tsx";
+import { CodexIcon, ExternalIcon, ProviderLogo } from "./icons.tsx";
 
 const styles = stylex.create({
   code: {
@@ -75,6 +77,50 @@ const styles = stylex.create({
     lineHeight: 1.45,
     color: colors.foreground,
     backgroundColor: `color-mix(in oklab, ${colors.destructive} 10%, transparent)`,
+  },
+  choices: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s2,
+    marginBottom: space.s4,
+  },
+  // One kind of account to add: a whole-width button with a logo, a name and a line on how.
+  choice: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.s3,
+    width: "100%",
+    paddingBlock: space.s3,
+    paddingInline: space.s3,
+    borderWidth: 0,
+    borderRadius: radii.item,
+    textAlign: "left",
+    cursor: "pointer",
+    color: colors.foreground,
+    backgroundColor: { default: colors.muted, ":hover": colors.border },
+    outline: "none",
+    boxShadow: {
+      default: `inset 0 0 0 1px ${colors.border}`,
+      ":focus-visible": `0 0 0 2px ${colors.focusRing}`,
+    },
+  },
+  choiceText: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s0_5,
+  },
+  choiceName: {
+    fontSize: text.body,
+    fontVariationSettings: weights.semibold,
+  },
+  choiceHow: {
+    fontSize: text.caption,
+    color: colors.mutedForeground,
+  },
+  form: {
+    display: "flex",
+    flexDirection: "column",
+    margin: 0,
   },
   // A link dressed as the primary button: it opens OpenAI's page in a new tab.
   link: {
@@ -200,22 +246,133 @@ function AddAccountDialog({
   );
 }
 
+/** Which kind of account to add: a ChatGPT one, by device login, or an opencode Go key. */
+function ChooseDialog({
+  onCodex,
+  onOpencodeGo,
+  onClose,
+}: {
+  readonly onCodex: () => void;
+  readonly onOpencodeGo: () => void;
+  readonly onClose: () => void;
+}) {
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Add an account</DialogTitle>
+          <DialogDescription>via pools each kind of account on its own.</DialogDescription>
+        </DialogHeader>
+        <div {...stylex.props(styles.choices)}>
+          <button type="button" onClick={onCodex} {...stylex.props(styles.choice)}>
+            <CodexIcon size={18} />
+            <span {...stylex.props(styles.choiceText)}>
+              <span {...stylex.props(styles.choiceName)}>ChatGPT (Codex)</span>
+              <span {...stylex.props(styles.choiceHow)}>Sign in with a device code.</span>
+            </span>
+          </button>
+          <button type="button" onClick={onOpencodeGo} {...stylex.props(styles.choice)}>
+            <ProviderLogo name="opencode-go" size={18} />
+            <span {...stylex.props(styles.choiceText)}>
+              <span {...stylex.props(styles.choiceName)}>opencode Go</span>
+              <span {...stylex.props(styles.choiceHow)}>Paste an API key.</span>
+            </span>
+          </button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/** Pasting an opencode Go API key, which via checks with opencode Go before it keeps it. */
+function OpencodeGoDialog({ onClose }: { readonly onClose: () => void }) {
+  const queryClient = useQueryClient();
+  const toast = useToast();
+  const [apiKey, setApiKey] = useState("");
+
+  const add = useMutation({
+    mutationFn: () => addOpencodeGo(apiKey.trim()),
+    onSuccess: (outcome) => {
+      if (!outcome.added) return;
+      void queryClient.invalidateQueries({ queryKey: ["opencode-go"] });
+      void queryClient.invalidateQueries({ queryKey: ["pool"] });
+      void queryClient.invalidateQueries({ queryKey: ["usage"] });
+      toast.add({ title: "Key added", description: `${outcome.label} is in the pool.` });
+      onClose();
+    },
+  });
+
+  const problem = add.data?.added === false ? add.data.problem : (add.error?.message ?? undefined);
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent>
+        <form
+          {...stylex.props(styles.form)}
+          onSubmit={(event) => {
+            event.preventDefault();
+            add.mutate();
+          }}
+        >
+          <DialogHeader>
+            <DialogTitle>Add an opencode Go key</DialogTitle>
+            <DialogDescription>
+              Paste an API key from your opencode Go account. via checks it with opencode Go before
+              adding it, and only ever shows its last four characters.
+            </DialogDescription>
+          </DialogHeader>
+          <Field label="API key" error={problem}>
+            <Input
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onValueChange={(value) => {
+                setApiKey(value);
+                add.reset();
+              }}
+              required
+            />
+          </Field>
+          <DialogFooter>
+            <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
+            <Button type="submit" loading={add.isPending} disabled={apiKey.trim() === ""}>
+              Add key
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /**
- * Adding a ChatGPT account, in place on whichever page asks: `open` starts a
- * device-code login and shows its dialog, which `dialog` renders. Once the
- * account is added, the pool, its usage and the accounts are fetched again.
+ * Adding an account, in place on whichever page asks: `open` asks which kind,
+ * then starts a device-code login for a ChatGPT one, or takes an opencode Go
+ * key, in the dialog `dialog` renders. Once the account is added, the pool,
+ * its usage and the accounts are fetched again.
  */
 export function useAddAccount() {
-  const [shown, setShown] = useState(false);
+  const [shown, setShown] = useState<"choose" | "codex" | "opencode-go" | undefined>();
   const start = useMutation({ mutationFn: startLogin });
+  const close = () => setShown(undefined);
+
+  const dialogs = {
+    choose: (
+      <ChooseDialog
+        onCodex={() => {
+          start.mutate();
+          setShown("codex");
+        }}
+        onOpencodeGo={() => setShown("opencode-go")}
+        onClose={close}
+      />
+    ),
+    codex: <AddAccountDialog start={start} onClose={close} />,
+    "opencode-go": <OpencodeGoDialog onClose={close} />,
+  };
 
   return {
-    open: () => {
-      start.mutate();
-      setShown(true);
-    },
-    dialog: (shown && (
-      <AddAccountDialog start={start} onClose={() => setShown(false)} />
-    )) satisfies ReactNode,
+    open: () => setShown("choose"),
+    dialog: (shown === undefined ? null : dialogs[shown]) satisfies ReactNode,
   };
 }

@@ -4,8 +4,14 @@
 // for an API client.
 import { AccountNotFoundError, AuthRequestError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
-import { ProviderState, ProviderUsage } from "@via/providers/schemas";
-import { Schema, Tuple } from "effect";
+import {
+  DuplicateOpencodeGoKeyError,
+  OpencodeGoAccountNotFoundError,
+  OpencodeGoKeyRejectedError,
+  OpencodeGoUnavailableError,
+} from "@via/providers/errors";
+import { ProviderState } from "@via/providers/schemas";
+import { Schema } from "effect";
 import {
   HttpApi,
   HttpApiEndpoint,
@@ -24,6 +30,21 @@ export const AdminAccount = Schema.Struct({
   plan: Schema.String,
   enabled: Schema.Boolean,
   createdAt: Schema.String,
+});
+
+/** An opencode Go account as the admin API shows it: its key only by its last four characters. */
+const AdminOpencodeGoAccount = Schema.Struct({
+  id: Schema.String,
+  label: Schema.String,
+  /** The key's last four characters, as `…abcd`. */
+  key: Schema.String,
+  enabled: Schema.Boolean,
+  createdAt: Schema.String,
+  /**
+   * The deprecated environment variable its key was imported from, while that
+   * variable is still set.
+   */
+  environmentVariable: Schema.optionalKey(Schema.String),
 });
 
 /** A started device-code login: the code to enter, and where to enter it. */
@@ -75,12 +96,33 @@ const AccountUsage = Schema.Union([
 ]);
 
 /**
+ * An opencode Go account's usage windows, each by name (such as `rolling`, `weekly`
+ * and `monthly`), or why opencode Go did not report them, and when via asked.
+ */
+const OpencodeGoUsage = Schema.Union([
+  Schema.Struct({
+    id: Schema.String,
+    label: Schema.String,
+    ...fetched,
+    windows: Schema.Array(
+      Schema.Struct({
+        window: Schema.String,
+        status: Schema.String,
+        usedPercent: Schema.Finite,
+        resetsAt: Schema.String,
+      }),
+    ),
+  }),
+  Schema.Struct({ id: Schema.String, label: Schema.String, ...fetched, error: Schema.String }),
+]);
+
+/**
  * The latest usage via has, without waiting for any: an account it has none for
  * yet is left out. `refreshing` says it is asking for newer usage now.
  */
 export const Usage = Schema.Struct({
   accounts: Schema.Array(AccountUsage),
-  providers: Schema.Array(ProviderUsage.mapMembers(Tuple.map(Schema.fieldsAssign(fetched)))),
+  opencodeGo: Schema.Array(OpencodeGoUsage),
   refreshing: Schema.Boolean,
 });
 
@@ -104,15 +146,18 @@ const PoolAccount = Schema.Struct({
 });
 
 /**
- * A configured provider next to the accounts. Requests for its models go straight
- * to it, so its state only says whether its budget has room: exhausted when a
- * usage window is used up, unavailable when its usage can't be read.
+ * A configured provider with its own API key, next to the accounts. Requests for
+ * its models go straight to it.
  */
 const PoolProvider = Schema.Struct({ name: Schema.String, state: ProviderState });
 
-/** Everything that serves requests: the pool's accounts, and the configured providers. */
+/**
+ * Everything that serves requests: the ChatGPT accounts, the opencode Go
+ * accounts, and the configured providers.
+ */
 export const Pool = Schema.Struct({
   accounts: Schema.Array(PoolAccount),
+  opencodeGo: Schema.Array(PoolAccount),
   providers: Schema.Array(PoolProvider),
 });
 
@@ -221,6 +266,51 @@ class AccountsGroup extends HttpApiGroup.make("accounts")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
+/**
+ * opencode Go's API keys, as accounts. They are named by id only: a label would
+ * end up in URLs, and from there in proxy and access logs.
+ */
+class OpencodeGoGroup extends HttpApiGroup.make("opencodeGo")
+  .add(
+    HttpApiEndpoint.get("list", "/opencode-go/accounts", {
+      success: Schema.Array(AdminOpencodeGoAccount),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("add", "/opencode-go/accounts", {
+      // A plain fields object would make this a form body; a Struct makes it JSON.
+      payload: Schema.Struct({
+        apiKey: Schema.Redacted(Schema.String),
+        label: Schema.optional(Schema.String),
+      }),
+      success: AdminOpencodeGoAccount.pipe(HttpApiSchema.status(201)),
+      error: [
+        DuplicateOpencodeGoKeyError.pipe(HttpApiSchema.status(409)),
+        OpencodeGoKeyRejectedError.pipe(HttpApiSchema.status(422)),
+        OpencodeGoUnavailableError.pipe(HttpApiSchema.status(502)),
+      ],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.patch("update", "/opencode-go/accounts/:id", {
+      params: { id: Schema.String },
+      payload: Schema.Struct({
+        label: Schema.optional(Schema.String),
+        enabled: Schema.optional(Schema.Boolean),
+      }),
+      success: AdminOpencodeGoAccount,
+      error: OpencodeGoAccountNotFoundError.pipe(HttpApiSchema.status(404)),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.delete("remove", "/opencode-go/accounts/:id", {
+      params: { id: Schema.String },
+      error: OpencodeGoAccountNotFoundError.pipe(HttpApiSchema.status(404)),
+    }),
+  )
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
 class KeysGroup extends HttpApiGroup.make("keys")
   .add(HttpApiEndpoint.get("list", "/keys", { success: Schema.Array(AdminKey) }))
   .add(
@@ -258,6 +348,7 @@ class ModelsGroup extends HttpApiGroup.make("models")
 export class AdminApi extends HttpApi.make("via-admin")
   .add(SessionGroup)
   .add(AccountsGroup)
+  .add(OpencodeGoGroup)
   .add(KeysGroup)
   .add(UsageGroup)
   .add(PoolGroup)
@@ -265,5 +356,5 @@ export class AdminApi extends HttpApi.make("via-admin")
   .annotate(OpenApi.Title, "via admin API")
   .annotate(
     OpenApi.Description,
-    "Manages the ChatGPT accounts and client API keys of a via server, and reports their usage, their state in the pool and the models it serves.",
+    "Manages the ChatGPT accounts, opencode Go keys and client API keys of a via server, and reports their usage, their state in the pool and the models it serves.",
   ) {}

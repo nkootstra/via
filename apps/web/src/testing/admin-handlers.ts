@@ -8,11 +8,20 @@
 import { AdminApi, LoginNotFoundError, Unauthorized } from "@via/server/admin-api";
 import { AccountNotFoundError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
+import { OpencodeGoAccountNotFoundError, OpencodeGoKeyRejectedError } from "@via/providers/errors";
 import { Schema } from "effect";
-import type { Account, Key, LoginStatus, Model, Pool, Usage } from "../api/types.ts";
+import type {
+  Account,
+  Key,
+  LoginStatus,
+  Model,
+  OpencodeGoAccount,
+  Pool,
+  Usage,
+} from "../api/types.ts";
 import { http, HttpResponse, type JsonBodyType, type PathParams } from "msw";
 
-const { accounts, keys, usage, pool, models } = AdminApi.groups;
+const { accounts, opencodeGo, keys, usage, pool, models } = AdminApi.groups;
 
 type Encodable = Schema.Top & { readonly EncodingServices: never };
 
@@ -52,6 +61,9 @@ export interface AdminState {
   /** The admin key that signs in. */
   readonly adminKey: string;
   accounts: Array<Account>;
+  opencodeGo: Array<OpencodeGoAccount>;
+  /** The opencode Go keys opencode Go refuses when via checks them. */
+  refusedKeys: Array<string>;
   keys: Array<Key>;
   /** Each started login answers its statuses in turn, then keeps the last. */
   readonly logins: Map<string, Array<LoginStatus>>;
@@ -72,16 +84,27 @@ export const account = (fields: Partial<Account> & Pick<Account, "id" | "label">
   ...fields,
 });
 
+export const opencodeGoAccount = (
+  fields: Partial<OpencodeGoAccount> & Pick<OpencodeGoAccount, "id" | "label">,
+): OpencodeGoAccount => ({
+  key: "…abcd",
+  enabled: true,
+  createdAt: "2026-09-02T10:00:00.000Z",
+  ...fields,
+});
+
 export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
   return {
     signedIn: true,
     adminKey: "the-admin-key",
     accounts: [],
+    opencodeGo: [],
+    refusedKeys: [],
     keys: [],
     logins: new Map(),
     nextLogin: [{ status: "pending" }],
-    pool: { accounts: [], providers: [] },
-    usage: { accounts: [], providers: [], refreshing: false },
+    pool: { accounts: [], opencodeGo: [], providers: [] },
+    usage: { accounts: [], opencodeGo: [], refreshing: false },
     models: [],
     requests: [],
     ...seed,
@@ -210,6 +233,83 @@ export function adminHandlers(state: AdminState) {
       at("/accounts/:id"),
       guarded(({ params }) => {
         state.accounts = state.accounts.filter((a) => a.id !== params.id);
+
+        return noContent();
+      }),
+    ),
+
+    http.get(
+      at("/opencode-go/accounts"),
+      guarded(() => ok(opencodeGo.endpoints.list, state.opencodeGo)),
+    ),
+    http.post(
+      at("/opencode-go/accounts"),
+      guarded(async ({ request }) => {
+        const { apiKey } = Schema.decodeUnknownSync(Schema.Struct({ apiKey: Schema.String }))(
+          await request.json(),
+        );
+
+        if (state.refusedKeys.includes(apiKey)) {
+          return failure(
+            OpencodeGoKeyRejectedError,
+            new OpencodeGoKeyRejectedError({ status: 401 }),
+            422,
+          );
+        }
+
+        const added = opencodeGoAccount({
+          id: `go-${state.opencodeGo.length + 1}`,
+          label: `opencode Go …${apiKey.slice(-4)}`,
+          key: `…${apiKey.slice(-4)}`,
+        });
+
+        state.opencodeGo = [...state.opencodeGo, added];
+        state.pool = {
+          ...state.pool,
+          opencodeGo: [
+            ...state.pool.opencodeGo,
+            { id: added.id, label: added.label, enabled: true, state: { status: "available" } },
+          ],
+        };
+
+        return ok(opencodeGo.endpoints.add, added, 201);
+      }),
+    ),
+    http.patch<{ id: string }>(
+      at("/opencode-go/accounts/:id"),
+      guarded(async ({ params, request }) => {
+        const found = state.opencodeGo.find((a) => a.id === params.id);
+
+        if (found === undefined) {
+          return failure(
+            OpencodeGoAccountNotFoundError,
+            new OpencodeGoAccountNotFoundError({ query: params.id }),
+            404,
+          );
+        }
+
+        const patch = Schema.decodeUnknownSync(
+          Schema.Struct({
+            label: Schema.optional(Schema.String),
+            enabled: Schema.optional(Schema.Boolean),
+          }),
+        )(await request.json());
+
+        const updated = {
+          ...found,
+          label: patch.label ?? found.label,
+          enabled: patch.enabled ?? found.enabled,
+        };
+
+        state.opencodeGo = state.opencodeGo.map((a) => (a.id === params.id ? updated : a));
+
+        return ok(opencodeGo.endpoints.update, updated);
+      }),
+    ),
+    http.delete<{ id: string }>(
+      at("/opencode-go/accounts/:id"),
+      guarded(({ params }) => {
+        state.opencodeGo = state.opencodeGo.filter((a) => a.id !== params.id);
 
         return noContent();
       }),
