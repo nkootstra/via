@@ -62,6 +62,10 @@ const moment = TestClock.withLive(Effect.sleep("30 millis"));
 
 const labels = (state: State) => state.accounts.map(({ label }) => label);
 
+/** The Codex models `state` lists: those without a provider's prefix. */
+const codexModels = (state: State) =>
+  state.models.map(({ id }) => id).filter((id) => !id.includes("/"));
+
 /** The `/wham/usage` lookups the fake Codex received so far. */
 const usageLookups = (via: Via) =>
   via.upstreamRequests.filter(({ path }) => path === "/wham/usage").length;
@@ -145,6 +149,29 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         );
         // Sent as they happened, well before the next resync (15 s) would have.
         expect((yield* Clock.currentTimeMillis) - since).toBeLessThan(5_000);
+      }),
+    ),
+  );
+
+  it.effect("sends the models again when accounts are disabled and enabled", () =>
+    withAdmin(ok, (via) =>
+      Effect.gen(function* () {
+        const { states } = yield* listen(via);
+        const first = yield* settled(states);
+        expect(codexModels(first)).toContain("gpt-6-astra");
+
+        yield* via.patch(`/admin/accounts/${idOf(first, "a")}`, { enabled: false }, adminKey);
+        yield* via.patch(`/admin/accounts/${idOf(first, "b")}`, { enabled: false }, adminKey);
+
+        const disabled = yield* next(states, (state) =>
+          state.accounts.every(({ enabled }) => !enabled),
+        );
+
+        expect(codexModels(disabled)).toEqual([]);
+
+        yield* via.patch(`/admin/accounts/${idOf(first, "b")}`, { enabled: true }, adminKey);
+        const enabled = yield* next(states, (state) => state.accounts.some((a) => a.enabled));
+        expect(codexModels(enabled)).toContain("gpt-6-astra");
       }),
     ),
   );

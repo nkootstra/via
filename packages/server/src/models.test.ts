@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { startFakeCodex } from "@via/codex-upstream/testing";
+import { reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { startFakeProvider } from "@via/providers/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
@@ -18,6 +18,24 @@ const ids = (response: HttpClientResponse.HttpClientResponse) =>
   );
 
 const listed = (via: Via) => via.get("/v1/models").pipe(Effect.flatMap(ids));
+
+const adminKey = "admin-key-that-is-long-enough-000";
+
+/** The Codex models `/v1/models` lists: those without a provider's prefix. */
+const codexModels = (via: Via) =>
+  Effect.map(listed(via), (all) => all.filter((id) => !id.includes("/")));
+
+/** Enables or disables the ChatGPT account of `name@example.com` through the admin API. */
+const setEnabled = (via: Via, name: string, enabled: boolean) =>
+  Effect.gen(function* () {
+    const all = yield* Schema.decodeUnknownEffect(
+      Schema.Array(Schema.Struct({ id: Schema.String, email: Schema.String })),
+    )(yield* (yield* via.get("/admin/accounts", adminKey)).json);
+
+    const id = all.find(({ email }) => email === `${name}@example.com`)?.id ?? "";
+
+    yield* via.patch(`/admin/accounts/${id}`, { enabled }, adminKey);
+  });
 
 const catalog = {
   models: [
@@ -108,9 +126,10 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
           Effect.gen(function* () {
             const response = yield* via.get("/v1/models");
             expect(yield* ids(response)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            // "a" locked out changes the accounts that serve, so "b" may be asked again.
             expect(
-              codex.modelRequests.map((request) => request.headers["chatgpt-account-id"]),
-            ).toEqual(["acc-b"]);
+              new Set(codex.modelRequests.map((request) => request.headers["chatgpt-account-id"])),
+            ).toEqual(new Set(["acc-b"]));
           }),
         {
           codexUrl: codex.url,
@@ -189,6 +208,131 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
             expect(last).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
           }),
         { codexUrl: codex.url },
+      );
+    }),
+  );
+
+  it.effect("lists no Codex models once every account is disabled", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect(yield* codexModels(via)).toContain("gpt-6-astra");
+          yield* setEnabled(via, "a", false);
+          yield* setEnabled(via, "b", false);
+          expect(yield* codexModels(via)).toEqual([]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("stops listing the models only a disabled account offers", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models({ models: [{ slug: "daybreak" }] }, "acc-a");
+      codex.models({ models: [{ slug: "gpt-7" }] }, "acc-b");
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            expect(yield* codexModels(via)).toEqual(["daybreak", "gpt-7"]);
+            yield* setEnabled(via, "a", false);
+            expect(yield* codexModels(via)).toEqual(["gpt-7"]);
+          }),
+        { codexUrl: codex.url, adminKey },
+      );
+    }),
+  );
+
+  it.effect("lists an account's models again once it is enabled again", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models(catalog);
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            yield* setEnabled(via, "a", false);
+            yield* setEnabled(via, "b", false);
+            expect(yield* codexModels(via)).toEqual([]);
+            yield* setEnabled(via, "b", true);
+            expect(yield* codexModels(via)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+          }),
+        { codexUrl: codex.url, adminKey },
+      );
+    }),
+  );
+
+  it.effect("lists no Codex models when the only enabled account is locked out", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models(catalog);
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            // Asking for the models locks "a" out, as its refresh token is rejected.
+            expect(yield* codexModels(via)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            yield* setEnabled(via, "b", false);
+            expect(yield* codexModels(via)).toEqual([]);
+          }),
+        {
+          codexUrl: codex.url,
+          adminKey,
+          refreshResponse: { status: 400, body: { error: "invalid_grant" } },
+          aExpiresAt: 0,
+        },
+      );
+    }),
+  );
+
+  it.effect("keeps asking Codex for the models of accounts cooling down", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.models(catalog);
+      codex.respond(() => reply.error(429, "", { "retry-after": "3600" }));
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            // Both accounts answer 429, so both cool down for an hour.
+            const response = yield* via.post("/v1/responses", { model: "gpt-7", input: "hi" });
+            expect(response.status).toBe(429);
+            codex.models({ models: [{ slug: "gpt-8" }] });
+            yield* TestClock.adjust("5 minutes");
+            expect(
+              yield* codexModels(via).pipe(Effect.repeat({ until: (list) => list[0] === "gpt-8" })),
+            ).toEqual(["gpt-8"]);
+          }),
+        { codexUrl: codex.url },
+      );
+    }),
+  );
+
+  it.effect("stops listing OpenCode Go's models once its only account is disabled", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      provider.models(["kimi-k3"]);
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            expect(yield* listed(via)).toContain("opencode-go/kimi-k3");
+
+            const accounts = yield* Schema.decodeUnknownEffect(
+              Schema.Array(Schema.Struct({ id: Schema.String })),
+            )(yield* (yield* via.get("/admin/opencode-go/accounts", adminKey)).json);
+
+            yield* via.patch(
+              `/admin/opencode-go/accounts/${accounts[0]?.id ?? ""}`,
+              { enabled: false },
+              adminKey,
+            );
+            const after = yield* listed(via);
+            expect(after).toContain("openrouter/kimi-k3");
+            expect(after).not.toContain("opencode-go/kimi-k3");
+          }),
+        { providerUrl: provider.url, adminKey },
       );
     }),
   );

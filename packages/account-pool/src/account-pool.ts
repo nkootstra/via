@@ -1,7 +1,7 @@
 import { type Account, AccountStore, AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
-import { available, PoolStates, retryAfter, select } from "@via/pool";
-import { Array, Clock, Context, Effect, Layer, Option } from "effect";
+import { pollable, PoolStates, retryAfter, select } from "@via/pool";
+import { Clock, Context, Effect, Layer, Option } from "effect";
 
 /** How long an auth-server hiccup keeps an account out of rotation. */
 const AUTH_HICCUP_MS = 60_000;
@@ -93,15 +93,13 @@ const make = Effect.gen(function* () {
       return retryAfter(yield* accountsAllowed(allowed), yield* states.get, now);
     });
 
-  /** Every account the pool could use now, each with a fresh access token. */
-  const usable = Effect.gen(function* () {
-    const now = yield* Clock.currentTimeMillis;
-    const accounts = available(yield* store.list, yield* states.get, now);
-
-    return Array.getSomes(
-      yield* Effect.forEach(accounts, withFreshToken, { concurrency: "unbounded" }),
-    );
-  });
+  /**
+   * Every account that serves requests, now or once its cooldown ends: enabled
+   * and not locked out, in the order they were added.
+   */
+  const serving = Effect.map(Effect.all([store.list, states.get]), ([accounts, state]) =>
+    pollable(accounts, state),
+  );
 
   /**
    * `account` with a new access token after Codex refused the one it has, unless
@@ -111,7 +109,7 @@ const make = Effect.gen(function* () {
   const refreshRejected = (account: Account) =>
     tokens.refreshRejected(account.id, account.accessToken).pipe(setAsideOnFailedRefresh(account));
 
-  return { next, waitFor, usable, coolDown, lockOut, refreshRejected };
+  return { next, waitFor, serving, withFreshToken, coolDown, lockOut, refreshRejected };
 });
 
 /**

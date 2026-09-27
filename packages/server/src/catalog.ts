@@ -1,7 +1,8 @@
 import { type CatalogModel, CodexUpstream, modelIds, resolveAlias } from "@via/codex-upstream";
-import { type ProviderModel, Providers } from "@via/providers";
+import { OpencodeGoAccounts, type ProviderModel, Providers } from "@via/providers";
 import { Array, Clock, Context, Duration, Effect, Layer, Option, Ref, Semaphore } from "effect";
 import { AccountPool } from "@via/account-pool";
+import type { Account } from "@via/codex-auth";
 
 /** A model object with only what via knows about the model. */
 const entry = (id: string, ownedBy: string) => ({
@@ -25,54 +26,75 @@ const combine = (catalogs: ReadonlyArray<ReadonlyArray<CatalogModel>>) => {
 const isOld = (at: number, maxAge: Duration.Input) =>
   Effect.map(Clock.currentTimeMillis, (now) => now - at >= Duration.toMillis(maxAge));
 
+/** Ids, in order, as one string: two lists of the same accounts make the same key. */
+const keyOf = (ids: ReadonlyArray<string>) => ids.join("\n");
+
 /**
- * Keeps `load`'s last success. Only the first call waits for `load`; once what
- * it keeps is `maxAge` old, a call starts one reload in the background and
- * still answers with what it keeps, so the next call gets the new answer.
+ * Keeps `load(input)`'s last success, for the `key` of the input it loaded.
+ * A call with an input of another key, such as when the accounts that serve
+ * changed, waits for a load of its own, as does the first; once what it keeps
+ * is `maxAge` old, a call starts one reload in the background and still
+ * answers with what it keeps, so the next call gets the new answer.
  */
-const stale = <A, E, R>(load: Effect.Effect<A, E, R>, maxAge: Duration.Input) =>
+const stale = <I, A, E, R>(
+  load: (input: I) => Effect.Effect<A, E, R>,
+  key: (input: I) => string,
+  maxAge: Duration.Input,
+) =>
   Effect.gen(function* () {
     const scope = yield* Effect.scope;
     const context = yield* Effect.context<R>();
     const lock = yield* Semaphore.make(1);
-    const kept = yield* Ref.make(Option.none<{ readonly value: A; readonly at: number }>());
 
-    const reload = Effect.gen(function* () {
-      const value = yield* load;
-      yield* Ref.set(kept, Option.some({ value, at: yield* Clock.currentTimeMillis }));
+    const kept = yield* Ref.make(
+      Option.none<{ readonly key: string; readonly value: A; readonly at: number }>(),
+    );
 
-      return value;
-    }).pipe(Effect.provide(context));
+    const reload = (input: I) =>
+      Effect.gen(function* () {
+        const value = yield* load(input);
+        const at = yield* Clock.currentTimeMillis;
+        yield* Ref.set(kept, Option.some({ key: key(input), value, at }));
+
+        return value;
+      }).pipe(Effect.provide(context));
+
+    /** What is kept for `input`, if anything is. */
+    const keptFor = (input: I) =>
+      Effect.map(
+        Ref.get(kept),
+        Option.filter((current) => current.key === key(input)),
+      );
 
     // Run under the lock: what another call has just loaded, or else a new load.
-    const loadIfOld = Effect.gen(function* () {
-      const current = yield* Ref.get(kept);
+    const loadIfOld = (input: I) =>
+      Effect.gen(function* () {
+        const current = yield* keptFor(input);
 
-      if (Option.isSome(current) && !(yield* isOld(current.value.at, maxAge)))
-        return current.value.value;
+        if (Option.isSome(current) && !(yield* isOld(current.value.at, maxAge)))
+          return current.value.value;
 
-      return yield* reload;
-    });
-
-    const get = Effect.gen(function* () {
-      const current = yield* Ref.get(kept);
-
-      // Calls that find nothing kept wait for one shared load.
-      if (Option.isNone(current)) return yield* Semaphore.withPermits(lock, 1)(loadIfOld);
-
-      if (yield* isOld(current.value.at, maxAge)) {
-        // One reload at a time; a failed one keeps the old answer, and a later call tries again.
-        yield* Semaphore.withPermitsIfAvailable(
-          lock,
-          1,
-        )(loadIfOld).pipe(Effect.ignore, Effect.forkIn(scope));
-      }
-
-      return current.value.value;
-    });
+        return yield* reload(input);
+      });
 
     // The reader itself, not what it reads: each call runs it anew.
-    return yield* Effect.succeed(get);
+    return (input: I) =>
+      Effect.gen(function* () {
+        const current = yield* keptFor(input);
+
+        // Calls that find nothing kept for their input wait for one shared load.
+        if (Option.isNone(current)) return yield* Semaphore.withPermits(lock, 1)(loadIfOld(input));
+
+        if (yield* isOld(current.value.at, maxAge)) {
+          // One reload at a time; a failed one keeps the old answer, and a later call tries again.
+          yield* Semaphore.withPermitsIfAvailable(
+            lock,
+            1,
+          )(loadIfOld(input)).pipe(Effect.ignore, Effect.forkIn(scope));
+        }
+
+        return current.value.value;
+      });
   });
 
 /** The models one account's plan offers. */
@@ -112,47 +134,84 @@ export class ModelCatalog extends Context.Service<
   }
 >()("via/ModelCatalog") {
   /**
-   * Lists the models Codex offers any usable account, as the Codex picker
+   * Lists the models Codex offers the accounts that serve, as the Codex picker
    * does, since plans differ, then every provider's as the provider describes
-   * them. Both are fetched as via starts and refreshed in the background
-   * once five minutes old. When no account can ask Codex, it lists the models via bundles.
+   * them. An account serves while it is enabled and not locked out; one
+   * cooling down still counts, as it serves again once its cooldown ends, but
+   * a locked-out one only serves after it signs in again. OpenCode Go's models
+   * are asked with one of its enabled accounts.
+   *
+   * Both are fetched as via starts and refreshed in the background once five
+   * minutes old, and fetched again at once when the accounts that serve change,
+   * so a disabled account's models go as soon as it is disabled. With no account
+   * serving, no Codex models are listed; when accounts serve but none can ask
+   * Codex, it lists the models via bundles.
    */
   static readonly layer = Layer.effect(
     ModelCatalog,
     Effect.gen(function* () {
       const codex = yield* CodexUpstream;
       const pool = yield* AccountPool;
-      const providerModels = yield* stale((yield* Providers).models, "5 minutes");
+      const providers = yield* Providers;
+      const opencodeGo = yield* OpencodeGoAccounts;
 
-      const ask = pool.usable.pipe(
-        Effect.flatMap((accounts) =>
-          Effect.forEach(
-            accounts,
-            (account) =>
-              Effect.option(
-                Effect.map(codex.models(account), (catalog) => ({
-                  accountId: account.id,
-                  catalog,
-                })),
-              ),
-            { concurrency: "unbounded" },
-          ),
-        ),
-        Effect.map(Array.getSomes),
-        // Failing when no account answered keeps the bundled list from being kept.
-        Effect.filterOrFail(Array.isReadonlyArrayNonEmpty),
+      const providerModels = yield* stale(() => providers.models, keyOf, "5 minutes");
+
+      /** The enabled OpenCode Go accounts, by id: the keys its models can be asked with. */
+      const enabledOpencodeGo = opencodeGo.list.pipe(
+        Effect.map((all) => all.filter(({ enabled }) => enabled).map(({ id }) => id)),
+        // A store via can't read has no key to lend, as Providers finds too.
+        Effect.orElseSucceed((): ReadonlyArray<string> => []),
       );
 
-      const offered = yield* stale(ask, "5 minutes");
+      const ask = (accounts: ReadonlyArray<Account>) =>
+        Effect.forEach(
+          accounts,
+          (account) =>
+            pool.withFreshToken(account).pipe(
+              Effect.flatMap(Effect.fromOption),
+              Effect.flatMap((fresh) => codex.models(fresh)),
+              Effect.map((catalog) => ({ accountId: account.id, catalog })),
+              Effect.option,
+            ),
+          { concurrency: "unbounded" },
+        ).pipe(
+          Effect.map(Array.getSomes),
+          // Failing when no account answered keeps the bundled list from being kept.
+          Effect.filterOrFail(Array.isReadonlyArrayNonEmpty),
+        );
+
+      const offeredTo = yield* stale(
+        ask,
+        (accounts) => keyOf(accounts.map(({ id }) => id)),
+        "5 minutes",
+      );
+
+      /** What Codex offers each account that serves; none when no account serves. */
+      const offered = pool.serving.pipe(
+        Effect.flatMap((accounts) =>
+          Array.isReadonlyArrayNonEmpty(accounts)
+            ? Effect.asSome(offeredTo(accounts))
+            : Effect.succeedNone,
+        ),
+      );
 
       const codexModels = offered.pipe(
-        Effect.map((all) => modelIds(combine(all.map(({ catalog }) => catalog)))),
+        Effect.map(
+          Option.match({
+            // Nothing serves Codex, so nothing of Codex's is listed.
+            onNone: () => [],
+            onSome: (all) => modelIds(combine(all.map(({ catalog }) => catalog))),
+          }),
+        ),
         // Any failure to ask Codex leaves the bundled list, which is still a useful answer.
         Effect.orElseSucceed(() => modelIds()),
         Effect.map((ids) => ids.map((id) => entry(id, "openai"))),
       );
 
-      const catalog = Effect.all([codexModels, providerModels], { concurrency: "unbounded" }).pipe(
+      const catalog = Effect.all([codexModels, Effect.flatMap(enabledOpencodeGo, providerModels)], {
+        concurrency: "unbounded",
+      }).pipe(
         Effect.map(([fromCodex, fromProviders]) => [
           ...fromCodex,
           // The provider's own fields, such as context_length or pricing, win.
@@ -170,6 +229,7 @@ export class ModelCatalog extends Context.Service<
         list: catalog,
         mayServe: (model) =>
           offered.pipe(
+            Effect.map(Option.getOrElse((): ReadonlyArray<Offered> => [])),
             Effect.orElseSucceed((): ReadonlyArray<Offered> => []),
             Effect.map((all) => mayServe(all, model)),
           ),
