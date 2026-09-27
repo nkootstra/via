@@ -61,4 +61,13 @@ layer(BunFileSystem.layer)("json files", (it) => {
       expect(yield* fs.readDirectory(dir)).toEqual(["a.json"]);
     }),
   );
+
+  it.effect("creates missing parent directories readable only by the owner", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = `${yield* tempDir}/nested`;
+      yield* writeJsonFile(`${dir}/secret.json`, Greeting, { hello: "x" });
+      expect((yield* fs.stat(dir)).mode & 0o777).toBe(0o700);
+    }),
+  );
 });
