@@ -82,7 +82,8 @@ const authorization = Layer.effect(
 
 /**
  * Sets the session cookie to `token`. It is `Secure` when the browser signed in
- * over HTTPS, which its `Origin` says even behind a proxy that ends TLS.
+ * over HTTPS, which its `Origin` says even behind a proxy that ends TLS. Its path
+ * is `/`, so loading a page under `/ui` sends it too, for the page's state.
  */
 const setSessionCookie = (token: Redacted.Redacted<string> | "", maxAge: Duration.Input) =>
   Effect.gen(function* () {
@@ -92,7 +93,7 @@ const setSessionCookie = (token: Redacted.Redacted<string> | "", maxAge: Duratio
       httpOnly: true,
       secure: originOf(request)?.protocol === "https:",
       sameSite: "strict",
-      path: "/admin",
+      path: "/",
       maxAge,
     });
   });

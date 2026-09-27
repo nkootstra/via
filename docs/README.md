@@ -270,10 +270,11 @@ A browser signs in once with the admin key, and from then on sends a session
 cookie instead, so the key is never kept in the page:
 
 - `POST /admin/session` with `{"key": "<VIA_ADMIN_KEY>"}` answers 204 and sets
-  `via_session`, an `HttpOnly`, `SameSite=Strict` cookie for `/admin`. The
-  cookie is `Secure` when the browser signed in over HTTPS, which via tells
-  from the request's `Origin` header, so a proxy that ends TLS in front of via
-  needs no setting for it.
+  `via_session`, an `HttpOnly`, `SameSite=Strict` cookie for the whole
+  site (`Path=/`), so loading the web UI at `/ui` sends it too. The cookie
+  is `Secure` when the browser signed in over HTTPS, which via tells from the
+  request's `Origin` header, so a proxy that ends TLS in front of via needs
+  no setting for it.
 - A session ends 12 hours after sign-in, after an hour unused, on
   `DELETE /admin/session`, or when via restarts; sessions are kept in memory.
 - A request that changes something (anything but `GET`) with only the cookie

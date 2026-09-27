@@ -1027,7 +1027,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           expect(attributes.toSorted()).toEqual([
             "HttpOnly",
             "Max-Age=43200",
-            "Path=/admin",
+            "Path=/",
             "SameSite=Strict",
           ]);
         }),
