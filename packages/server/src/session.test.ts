@@ -1,7 +1,8 @@
 import { describe, expect, it } from "@effect/vitest";
+import { Schema } from "effect";
 import { resolveSession } from "./session.ts";
 
-const chat = (...messages: ReadonlyArray<{ role: string; content: unknown }>) => ({
+const chat = (...messages: ReadonlyArray<{ role: string; content: Schema.Json }>) => ({
   model: "m",
   messages,
 });
@@ -36,8 +37,8 @@ describe("resolveSession", () => {
       ["x-kilocode-taskid", "kilo"],
     ] as const;
 
-    const headers: Record<string, string> = { ...all };
-    const remaining: Record<string, unknown> = { ...body };
+    const headers: Partial<typeof all> = { ...all };
+    const remaining: Partial<typeof body> = { ...body };
 
     for (const [source, id] of order) {
       expect(resolveSession(headers, remaining), source).toBe(id);

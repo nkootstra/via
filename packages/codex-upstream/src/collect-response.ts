@@ -22,7 +22,7 @@ export class IncompleteStreamError extends Schema.TaggedError<IncompleteStreamEr
 
 const Completed = Schema.Struct({
   type: Schema.Literal("response.completed"),
-  response: Schema.Record(Schema.String, Schema.Unknown),
+  response: Schema.JsonObject,
 });
 
 const Failed = Schema.Struct({
@@ -34,12 +34,12 @@ const Failed = Schema.Struct({
 
 const Incomplete = Schema.Struct({
   type: Schema.Literal("response.incomplete"),
-  response: Schema.Record(Schema.String, Schema.Unknown),
+  response: Schema.JsonObject,
 });
 
 const ItemDone = Schema.Struct({
   type: Schema.Literal("response.output_item.done"),
-  item: Schema.Unknown,
+  item: Schema.Json,
 });
 
 const Progress = Schema.Struct({ type: Schema.String });
@@ -57,7 +57,7 @@ const isItemDone = Schema.is(ItemDone);
 const isTerminal = (event: typeof StreamEvent.Type) => TERMINAL_EVENTS.has(event.type);
 
 type Collected = {
-  readonly items: ReadonlyArray<unknown>;
+  readonly items: ReadonlyArray<Schema.Json>;
   readonly terminal: Option.Option<typeof StreamEvent.Type>;
 };
 
@@ -68,8 +68,9 @@ const collect = (state: Collected, event: typeof StreamEvent.Type): Collected =>
       ? { ...state, terminal: Option.some(event) }
       : state;
 
-const hasOutput = (response: Record<string, unknown>) =>
-  Array.isArray(response["output"]) && response["output"].length > 0;
+const hasOutput = Schema.is(
+  Schema.Struct({ output: Schema.Array(Schema.Json).check(Schema.isMinLength(1)) }),
+);
 
 /**
  * Reads a Responses SSE stream to its end and returns the final response

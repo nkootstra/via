@@ -8,7 +8,7 @@ import { openai, startCodex, withVia, type Via } from "./harness.ts";
 // calls, usage accounting, model listing, and the upstream shape via forwards.
 
 /** POSTs one JSON body to via and returns the raw `Response`. */
-const post = (via: Via, path: string, body: unknown) =>
+const post = (via: Via, path: string, body: Schema.Json) =>
   Effect.promise(() =>
     fetch(`${via.url}${path}`, {
       method: "POST",
@@ -21,7 +21,7 @@ const post = (via: Via, path: string, body: unknown) =>
 const postJson = <S extends Schema.ConstraintDecoder<unknown>>(
   via: Via,
   path: string,
-  body: unknown,
+  body: Schema.Json,
   schema: S,
 ) =>
   post(via, path, body).pipe(
@@ -35,7 +35,7 @@ const postJson = <S extends Schema.ConstraintDecoder<unknown>>(
 const decodeJson = <S extends Schema.ConstraintDecoder<unknown>>(schema: S) =>
   Schema.decodeUnknownSync(Schema.fromJsonString(schema));
 
-const postText = (via: Via, path: string, body: unknown) =>
+const postText = (via: Via, path: string, body: Schema.Json) =>
   post(via, path, body).pipe(Effect.flatMap((response) => Effect.promise(() => response.text())));
 
 /** Chat Completions SSE: `data: <json>\n\n` blocks, last one literally `[DONE]`. */

@@ -19,8 +19,8 @@ const account = (name: string) => ({
   createdAt: expect.any(String),
 });
 
-const loginId = (login: unknown) =>
-  Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }))(login).id;
+/** Decodes a started login, as `POST /admin/accounts/logins` answers it. */
+const decodeLogin = Schema.decodeUnknownSync(Schema.Struct({ id: Schema.String }));
 
 /** The id of account `name` from the harness, as the admin API lists it. */
 const accountId = (via: Via, name: string) =>
@@ -222,7 +222,12 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             userCode: "ABCD-1234",
             verificationUrl: expect.stringMatching(/\/codex\/device$/),
           });
-          const response = yield* via.get(`/admin/accounts/logins/${loginId(login)}`, adminKey);
+
+          const response = yield* via.get(
+            `/admin/accounts/logins/${decodeLogin(login).id}`,
+            adminKey,
+          );
+
           expect(yield* response.json).toEqual({ status: "pending" });
         }),
       { adminKey, pendingPolls: Infinity, interval: "5" },
@@ -242,7 +247,10 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             email: "dev@example.com",
           };
 
-          expect(yield* settled(via, loginId(login))).toEqual({ status: "added", account: added });
+          expect(yield* settled(via, decodeLogin(login).id)).toEqual({
+            status: "added",
+            account: added,
+          });
           expect(yield* (yield* via.get("/admin/accounts", adminKey)).json).toEqual([
             account("a"),
             account("b"),
@@ -259,7 +267,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       (via) =>
         Effect.gen(function* () {
           const login = yield* (yield* via.post("/admin/accounts/logins", {}, adminKey)).json;
-          expect(yield* settled(via, loginId(login))).toEqual({
+          expect(yield* settled(via, decodeLogin(login).id)).toEqual({
             status: "failed",
             error: expect.stringContaining("not approved"),
           });

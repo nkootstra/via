@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { completedStream, reply } from "@via/codex-upstream/testing";
+import { type CodexRequest, completedStream, reply } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
 import { withVia } from "./harness.ts";
@@ -14,7 +14,7 @@ const request = {
 
 /** Which account (as via authenticates to Codex) sent request number `n` (1-based). */
 const accountOf = (
-  via: { upstreamRequests: ReadonlyArray<{ headers: Record<string, unknown> }> },
+  via: { upstreamRequests: ReadonlyArray<Pick<CodexRequest, "headers">> },
   n: number,
 ) => via.upstreamRequests[n - 1]?.headers.authorization;
 

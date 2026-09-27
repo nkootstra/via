@@ -1,7 +1,7 @@
 // Test-only: a scriptable OpenAI-compatible provider, such as OpenRouter or
 // OpenCode Go, that records every request it receives.
 import { BunHttpServer } from "@effect/platform-bun";
-import { Deferred, Effect, Layer, Schema, Stream } from "effect";
+import { Deferred, Effect, Layer, Predicate, Schema, Stream } from "effect";
 import {
   HttpRouter,
   HttpServer,
@@ -13,7 +13,7 @@ import {
 export type ProviderRequest = {
   path: string;
   headers: Readonly<Record<string, string | undefined>>;
-  body: Record<string, unknown>;
+  body: Schema.JsonObject;
 };
 
 type Answer = {
@@ -32,7 +32,7 @@ export type ProviderReply = (request: ProviderRequest) => Answer;
 export const providerReply = {
   /** A JSON body, a chat completion or an error. */
   json:
-    (body: unknown, status = 200): ProviderReply =>
+    (body: Schema.Json, status = 200): ProviderReply =>
     () => ({ status, contentType: "application/json", body: JSON.stringify(body) }),
   /** A raw SSE body. */
   sse:
@@ -56,7 +56,7 @@ const unscripted: ProviderReply = providerReply.json(
   599,
 );
 
-const Body = Schema.Record(Schema.String, Schema.Unknown);
+const Body = Schema.JsonObject;
 
 /**
  * Starts the fake for the current scope. It answers `POST /chat/completions`
@@ -66,7 +66,7 @@ const Body = Schema.Record(Schema.String, Schema.Unknown);
 export const startFakeProvider = Effect.gen(function* () {
   const requests: Array<ProviderRequest> = [];
   let handler = unscripted;
-  let modelList: ReadonlyArray<Record<string, unknown>> | undefined;
+  let modelList: ReadonlyArray<Schema.JsonObject> | undefined;
   const modelRequests: Array<ProviderRequest> = [];
   let usageAnswer = { status: 500, body: "" };
   const usageRequests: Array<ProviderRequest> = [];
@@ -163,7 +163,7 @@ export const startFakeProvider = Effect.gen(function* () {
       return usageRequests;
     },
     /** Answers `GET /usage` with `body`, as OpenCode Go does; until then, it answers 500. */
-    usage: (body: object, status = 200) =>
+    usage: (body: Schema.Json, status = 200) =>
       void (usageAnswer = { status, body: JSON.stringify(body) }),
     /** Waits until at least `count` `GET /models` requests have arrived. */
     modelsReceived: (count: number) =>
@@ -179,9 +179,9 @@ export const startFakeProvider = Effect.gen(function* () {
      * Lists `models` at `GET /models`, each an id or a full model object; until
      * then, it answers 500.
      */
-    models: (models: ReadonlyArray<string | Record<string, unknown>>) =>
+    models: (models: ReadonlyArray<string | Schema.JsonObject>) =>
       void (modelList = models.map((model) =>
-        typeof model === "string" ? { id: model, object: "model" } : model,
+        Predicate.isString(model) ? { id: model, object: "model" } : model,
       )),
   };
 });

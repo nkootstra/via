@@ -1,4 +1,4 @@
-import { Context, Duration, Effect, Layer, Option, Schema } from "effect";
+import { Context, Duration, Effect, Layer, Option, Predicate, Schema } from "effect";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
 const ISSUER = "https://auth.openai.com";
@@ -210,7 +210,7 @@ const make = (issuer: string) =>
           const { error } = rejected.value;
 
           return yield* new RefreshRejectedError({
-            code: typeof error === "string" ? error : error.code,
+            code: Predicate.isString(error) ? error : error.code,
           });
         }
       }

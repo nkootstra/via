@@ -13,7 +13,7 @@ const system = (session: string) =>
     "Skills provide specialized instructions.",
   ].join("\n");
 
-const subAgent = (session: string, task: unknown) => ({
+const subAgent = (session: string, task: Schema.Json) => ({
   model: "m",
   messages: [
     { role: "system", content: system(session) },

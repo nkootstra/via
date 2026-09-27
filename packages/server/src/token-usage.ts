@@ -39,7 +39,7 @@ const withCached = (
  * Chat Completions one (`prompt_tokens`/`completion_tokens`/
  * `prompt_tokens_details.cached_tokens`). Anything else is absent, not zero.
  */
-export const usageOf = (usage: unknown): Option.Option<TokenUsage> => {
+export const usageOf = (usage: Schema.Json | undefined): Option.Option<TokenUsage> => {
   if (isResponsesUsage(usage)) {
     return Option.some(
       withCached(
@@ -64,8 +64,8 @@ export const usageOf = (usage: unknown): Option.Option<TokenUsage> => {
 // The shape of a Responses SSE event, or a Chat Completions body/final SSE
 // chunk, permissive enough to match either without caring about the rest.
 const EventPayload = Schema.Struct({
-  response: Schema.optionalKey(Schema.Struct({ usage: Schema.optionalKey(Schema.Unknown) })),
-  usage: Schema.optionalKey(Schema.Unknown),
+  response: Schema.optionalKey(Schema.Struct({ usage: Schema.optionalKey(Schema.Json) })),
+  usage: Schema.optionalKey(Schema.Json),
 });
 
 const usageFromPayload = (payload: typeof EventPayload.Type): Option.Option<TokenUsage> => {

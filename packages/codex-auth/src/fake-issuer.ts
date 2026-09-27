@@ -10,7 +10,7 @@ import {
 } from "effect/unstable/http";
 import { CLIENT_ID, CodexAuth } from "./codex-auth.ts";
 
-export const jwt = (payload: object) =>
+export const jwt = (payload: Schema.JsonObject) =>
   [{ alg: "RS256", typ: "JWT" }, payload]
     .map((part) => Buffer.from(JSON.stringify(part)).toString("base64url"))
     .concat("signature")

@@ -3,7 +3,7 @@ import { CodexUpstream, collectResponse } from "@via/codex-upstream";
 import { KeyStore } from "@via/keys";
 import { classify, PoolStates, retryAfter, Verdict } from "@via/pool";
 import { type ProviderPath, Providers, type Route } from "@via/providers";
-import { Clock, Effect, Option, type Schema } from "effect";
+import { Clock, Effect, Option, Schema } from "effect";
 import {
   type HttpClientResponse,
   HttpServerRequest,
@@ -50,7 +50,7 @@ const unreadable = openAiError(
 export const collected = (
   upstream: HttpClientResponse.HttpClientResponse,
   onResponse: (
-    response: Record<string, unknown>,
+    response: Schema.JsonObject,
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, Schema.SchemaError>,
 ) =>
   collectResponse(upstream.stream).pipe(
@@ -80,7 +80,7 @@ export const collected = (
 export const forward = Effect.fn("forward")(function* (
   route: Route,
   path: ProviderPath,
-  body: Record<string, unknown>,
+  body: Schema.JsonObject,
   session: string,
 ) {
   const log = yield* RequestLog;
@@ -104,6 +104,12 @@ export const forward = Effect.fn("forward")(function* (
     ),
   );
 });
+
+const ModelField = Schema.Struct({ model: Schema.String });
+
+/** The model a request body asks for, if it names one. */
+export const modelOf = (body: Schema.JsonObject) =>
+  Option.map(Schema.decodeUnknownOption(ModelField)(body), ({ model }) => model);
 
 /** The client's API key, if it presented a valid one. */
 const authenticate = Effect.gen(function* () {
@@ -141,7 +147,7 @@ const noAccountLeft = (waitMs: Option.Option<number>) =>
  * A successful answer goes to `onSuccess`; a client error is returned as-is.
  */
 export const dispatch = Effect.fn("dispatch")(function* <E, R>(
-  body: Record<string, unknown>,
+  body: Schema.JsonObject,
   session: string,
   onSuccess: (
     upstream: HttpClientResponse.HttpClientResponse,
@@ -153,10 +159,13 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const log = yield* RequestLog;
   const bindings = yield* SessionBindings;
 
-  if (typeof body.model === "string") yield* log.asked(body.model);
+  const model = modelOf(body);
 
-  const allowed =
-    typeof body.model === "string" ? yield* (yield* ModelCatalog).mayServe(body.model) : () => true;
+  if (Option.isSome(model)) yield* log.asked(model.value);
+
+  const allowed = Option.isSome(model)
+    ? yield* (yield* ModelCatalog).mayServe(model.value)
+    : () => true;
 
   // A dead refresh token takes the account out of rotation until it logs in again.
   const lockOut = (id: string) => (error: RefreshRejectedError) => states.lockOut(id, error.code);

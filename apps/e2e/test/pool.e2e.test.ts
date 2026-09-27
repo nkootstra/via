@@ -50,7 +50,7 @@ const chat = (via: Via, content: string) =>
   );
 
 /** A raw POST, for tests that need the response status and headers the SDK hides. */
-const post = (via: Via, path: string, body: unknown) =>
+const post = (via: Via, path: string, body: Schema.Json) =>
   Effect.promise(() =>
     fetch(`${via.url}${path}`, {
       method: "POST",

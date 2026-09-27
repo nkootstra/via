@@ -15,9 +15,9 @@ const paths = resolvePaths();
 const Described = Schema.Struct({ message: Schema.String });
 
 /** A defect's message when it has one, else the defect itself as text. */
-const defectMessage = (defect: unknown) =>
-  Option.match(Schema.decodeUnknownOption(Described)(defect), {
-    onNone: () => String(defect),
+const defectMessage = (cause: unknown) =>
+  Option.match(Schema.decodeUnknownOption(Described)(cause), {
+    onNone: () => String(cause),
     onSome: ({ message }) => message,
   });
 

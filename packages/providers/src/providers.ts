@@ -1,5 +1,15 @@
 import type { ProviderConfig } from "@via/config";
-import { Config, Context, Effect, identity, Layer, Option, Redacted, Schema } from "effect";
+import {
+  Config,
+  Context,
+  Effect,
+  identity,
+  Layer,
+  Option,
+  Predicate,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   HttpBody,
   HttpClient,
@@ -21,16 +31,19 @@ export type ProviderPath = "/chat/completions" | "/responses";
 type SessionTarget = { header: string } | "body" | undefined;
 
 /** Providers via knows, so config.yaml only needs their API key. */
-const PRESETS: Record<string, { baseUrl: string; session: SessionTarget; usage?: string }> = {
+const PRESETS = new Map<string, { baseUrl: string; session: SessionTarget; usage?: string }>([
   // https://openrouter.ai/docs/guides/best-practices/prompt-caching
-  openrouter: { baseUrl: "https://openrouter.ai/api/v1", session: "body" },
+  ["openrouter", { baseUrl: "https://openrouter.ai/api/v1", session: "body" }],
   // https://opencode.ai/docs/go/
-  "opencode-go": {
-    baseUrl: "https://opencode.ai/zen/go/v1",
-    session: { header: "x-opencode-session" },
-    usage: "/usage",
-  },
-};
+  [
+    "opencode-go",
+    {
+      baseUrl: "https://opencode.ai/zen/go/v1",
+      session: { header: "x-opencode-session" },
+      usage: "/usage",
+    },
+  ],
+]);
 
 export class UnknownProviderError extends Schema.TaggedError<UnknownProviderError>()(
   "UnknownProviderError",
@@ -61,9 +74,7 @@ class UsageUnavailableError extends Schema.TaggedError<UsageUnavailableError>()(
 }
 
 /** A model as a provider describes it: an id, plus whatever else it tells. */
-const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [
-  Schema.Record(Schema.String, Schema.Unknown),
-]);
+const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 
 export type ProviderModel = typeof Model.Type;
 
@@ -104,7 +115,8 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
     const providers = new Map<string, Provider>();
 
     for (const [name, config] of Object.entries(configs)) {
-      const baseUrl = config.baseUrl ?? PRESETS[name]?.baseUrl;
+      const preset = PRESETS.get(name);
+      const baseUrl = config.baseUrl ?? preset?.baseUrl;
 
       if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
       providers.set(name, {
@@ -115,10 +127,8 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
           ),
         ),
         session:
-          config.sessionHeader === undefined
-            ? PRESETS[name]?.session
-            : { header: config.sessionHeader },
-        usage: PRESETS[name]?.usage,
+          config.sessionHeader === undefined ? preset?.session : { header: config.sessionHeader },
+        usage: preset?.usage,
       });
     }
 
@@ -179,7 +189,6 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
         concurrency: "unbounded",
       }).pipe(Effect.map((lists) => lists.flat())),
       route: (model) => {
-        if (typeof model !== "string") return Option.none();
         const slash = model.indexOf("/");
         const provider = model.slice(0, slash);
 
@@ -198,7 +207,7 @@ const make = (configs: Record<string, ProviderConfig>, version: string) =>
           provider,
           HttpClientRequest.post(`${provider.baseUrl}${path}`),
         ).pipe(
-          typeof provider.session === "object"
+          Predicate.isObject(provider.session)
             ? HttpClientRequest.setHeader(provider.session.header, session)
             : identity,
           // A raw string goes to fetch as-is; bodyJsonUnsafe would copy it into bytes first.
@@ -223,7 +232,7 @@ export class Providers extends Context.Service<
   Providers,
   {
     /** The provider a `<provider>/<model>` id names, if it is configured. */
-    readonly route: (model: unknown) => Option.Option<Route>;
+    readonly route: (model: string) => Option.Option<Route>;
     /** The base URL requests to `provider` go to. */
     readonly baseUrl: (provider: string) => string | undefined;
     /**
@@ -240,7 +249,7 @@ export class Providers extends Context.Service<
     readonly send: (
       route: Route,
       path: ProviderPath,
-      body: Record<string, unknown>,
+      body: Schema.JsonObject,
       session: string,
     ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
   }

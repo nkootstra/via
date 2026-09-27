@@ -17,16 +17,13 @@ const ErrorFixtures = Schema.fromJsonString(
     Schema.Struct({
       status: Schema.Int,
       headers: Schema.Record(Schema.String, Schema.String),
-      body: Schema.Unknown,
+      body: Schema.Json,
     }),
   ),
 );
 
 const RefreshErrorFixtures = Schema.fromJsonString(
-  Schema.Record(
-    Schema.String,
-    Schema.Struct({ status: Schema.Int, body: Schema.Record(Schema.String, Schema.Unknown) }),
-  ),
+  Schema.Record(Schema.String, Schema.Struct({ status: Schema.Int, body: Schema.JsonObject })),
 );
 
 const entry = <A>(

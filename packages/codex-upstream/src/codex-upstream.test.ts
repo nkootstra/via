@@ -1,13 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
-import { CodexUpstream } from "./index.ts";
+import { CodexUpstream, type ResponsesBody } from "./index.ts";
 import { reply, startFakeCodex } from "./testing/index.ts";
 
 const account = { accessToken: "at-1", accountId: "acc-1" };
 
 /** Sends one request through CodexUpstream and returns what the fake Codex received. */
-const sendAndRecord = (body: Record<string, unknown>, cloak = true, session = "conv-1") =>
+const sendAndRecord = (body: ResponsesBody, cloak = true, session = "conv-1") =>
   Effect.gen(function* () {
     const codex = yield* startFakeCodex;
     codex.script(reply.text("hello"));

@@ -4,6 +4,7 @@ import { completedStream, reply, startFakeCodex } from "@via/codex-upstream/test
 import { startFakeProvider } from "@via/providers/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
+import { HttpClientResponse } from "effect/unstable/http";
 import { type Via, withVia } from "./harness.ts";
 
 const ok = () => reply.sse(completedStream("hello"));
@@ -12,14 +13,13 @@ const ModelList = Schema.Struct({
   data: Schema.Array(Schema.Struct({ id: Schema.String })),
 });
 
-const ids = (list: unknown) =>
-  Schema.decodeUnknownSync(ModelList)(list).data.map((model) => model.id);
-
-const listed = (via: Via) =>
-  via.get("/v1/models").pipe(
-    Effect.flatMap((response) => response.json),
-    Effect.map(ids),
+/** The model ids a `/v1/models` answer lists. */
+const ids = (response: HttpClientResponse.HttpClientResponse) =>
+  Effect.map(HttpClientResponse.schemaBodyJson(ModelList)(response), (list) =>
+    list.data.map((model) => model.id),
   );
+
+const listed = (via: Via) => via.get("/v1/models").pipe(Effect.flatMap(ids));
 
 const catalog = {
   models: [
@@ -41,7 +41,7 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
         (via) =>
           Effect.gen(function* () {
             const response = yield* via.get("/v1/models");
-            expect(ids(yield* response.json)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            expect(yield* ids(response)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
             expect(
               codex.modelRequests
                 .map((request) => request.headers["chatgpt-account-id"])
@@ -74,12 +74,7 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
         (via) =>
           Effect.gen(function* () {
             const response = yield* via.get("/v1/models");
-            expect(ids(yield* response.json)).toEqual([
-              "gpt-7",
-              "daybreak",
-              "gpt-7-low",
-              "gpt-7-high",
-            ]);
+            expect(yield* ids(response)).toEqual(["gpt-7", "daybreak", "gpt-7-low", "gpt-7-high"]);
           }),
         { codexUrl: codex.url },
       );
@@ -114,7 +109,7 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
         (via) =>
           Effect.gen(function* () {
             const response = yield* via.get("/v1/models");
-            expect(ids(yield* response.json)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            expect(yield* ids(response)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
             expect(
               codex.modelRequests.map((request) => request.headers["chatgpt-account-id"]),
             ).toEqual(["acc-b"]);
@@ -137,7 +132,7 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
         (via) =>
           Effect.gen(function* () {
             const response = yield* via.get("/v1/models");
-            expect(ids(yield* response.json)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            expect(yield* ids(response)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
             expect(
               codex.modelRequests.map((request) => request.headers["chatgpt-account-id"]),
             ).toEqual(["acc-b"]);

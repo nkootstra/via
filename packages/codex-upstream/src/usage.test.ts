@@ -1,5 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Layer, Result } from "effect";
+import { Effect, Layer, Result, type Schema } from "effect";
 import { FetchHttpClient } from "effect/unstable/http";
 import { CodexUpstream, UsageUnavailableError } from "./index.ts";
 import { startFakeCodex, usagePayload } from "./testing/index.ts";
@@ -7,7 +7,7 @@ import { startFakeCodex, usagePayload } from "./testing/index.ts";
 const account = { accessToken: "at-1", accountId: "acc-1" };
 
 /** Asks a fake Codex, answering with `body` and `status`, for the account's usage. */
-const usage = (body: object, status = 200) =>
+const usage = (body: Schema.Json, status = 200) =>
   Effect.gen(function* () {
     const codex = yield* startFakeCodex;
     codex.usage(account.accountId, body, status);

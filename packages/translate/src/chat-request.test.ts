@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Schema } from "effect";
 import { ChatRequest, toResponsesRequest } from "./chat-request.ts";
 
-const translate = (chat: unknown) =>
+const translate = (chat: Schema.Json) =>
   toResponsesRequest(Schema.decodeUnknownSync(ChatRequest)(chat));
 
 describe("toResponsesRequest", () => {
