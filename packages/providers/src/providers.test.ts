@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import type { ProviderConfig } from "@via/config";
-import { ConfigProvider, Effect, Layer, Option, Schema } from "effect";
+import { Cause, ConfigProvider, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
 import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
 import { Providers } from "./index.ts";
 import { providerReply, startFakeProvider } from "./testing/index.ts";
@@ -214,6 +214,60 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
+  it.effect("hands back a streamed answer as it arrives, before the provider ends it", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.respond(providerReply.sseThenHang("data: {}\n\n"));
+
+      const first = yield* withProviders(
+        { local: { baseUrl: fake.url, apiKeyEnv: "KEY" } },
+        (providers) =>
+          Effect.gen(function* () {
+            const response = yield* providers.send(
+              { provider: "local", model: "m" },
+              "/chat/completions",
+              { stream: true },
+              "conv-1",
+            );
+
+            expect(response.headers["content-type"]).toBe("text/event-stream");
+
+            return yield* response.stream.pipe(Stream.decodeText, Stream.runHead);
+          }),
+      );
+
+      expect(first).toEqual(Option.some("data: {}\n\n"));
+    }),
+  );
+
+  it.effect("fails the answer's stream when the provider breaks it off", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.respond(providerReply.sseThenDrop("data: {}\n\n", Effect.void));
+
+      const outcome = yield* withProviders(
+        { local: { baseUrl: fake.url, apiKeyEnv: "KEY" } },
+        (providers) =>
+          providers.send({ provider: "local", model: "m" }, "/responses", {}, "conv-1").pipe(
+            Effect.flatMap((response) => Stream.mkString(Stream.decodeText(response.stream))),
+            Effect.catchTag("HttpClientError", () => Effect.succeed("broke off")),
+          ),
+      );
+
+      expect(outcome).toBe("broke off");
+    }),
+  );
+
+  it.effect("treats a route to a provider that isn't configured as a defect", () =>
+    Effect.gen(function* () {
+      const exit = yield* withProviders({}, (providers) =>
+        Effect.exit(providers.send({ provider: "nope", model: "m" }, "/responses", {}, "conv-1")),
+      );
+
+      expect(Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true);
+    }),
+  );
+
   it.effect("lists every provider's models as it describes them, skipping one that is down", () =>
     Effect.gen(function* () {
       const up = yield* startFakeProvider;
@@ -286,6 +340,20 @@ layer(BunFileSystem.layer)("Providers", (it) => {
           headers: expect.objectContaining({ authorization: "Bearer sk-test" }),
         }),
       ]);
+    }),
+  );
+
+  it.effect("says a provider's usage is unavailable when its answer can't be read", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.usage({ usage: { weekly: { percent: "a lot" } } });
+
+      const usage = yield* withProviders(
+        { "opencode-go": { baseUrl: fake.url, apiKeyEnv: "KEY" } },
+        (providers) => providers.usage,
+      );
+
+      expect(usage).toEqual([{ provider: "opencode-go", error: expect.any(String) }]);
     }),
   );
 
