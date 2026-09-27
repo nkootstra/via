@@ -1,4 +1,4 @@
-import { Predicate, Schema, SchemaTransformation } from "effect";
+import { Predicate, Schema, SchemaGetter } from "effect";
 
 const TextPart = Schema.Struct({ type: Schema.Literal("text"), text: Schema.String });
 
@@ -14,14 +14,12 @@ const UserPart = Schema.Union([TextPart, ImagePart]);
 
 /** Content that may only hold text, as a string or text parts, read as one string. */
 const TextContent = Schema.Union([Schema.String, Schema.Array(TextPart)]).pipe(
-  Schema.decodeTo(
-    Schema.String,
-    SchemaTransformation.transform({
-      decode: (content) =>
-        Predicate.isString(content) ? content : content.map((part) => part.text).join(""),
-      encode: (content) => content,
-    }),
-  ),
+  Schema.decodeTo(Schema.String, {
+    decode: SchemaGetter.transform((content) =>
+      Predicate.isString(content) ? content : content.map((part) => part.text).join(""),
+    ),
+    encode: SchemaGetter.passthroughSubtype(),
+  }),
 );
 
 const ToolCall = Schema.Struct({
