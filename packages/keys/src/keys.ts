@@ -9,6 +9,8 @@ import {
   Option,
   Schema,
   Semaphore,
+  Stream,
+  SubscriptionRef,
 } from "effect";
 import { createHash, timingSafeEqual } from "node:crypto";
 import { DuplicateKeyNameError, KeyNotFoundError } from "./errors.ts";
@@ -62,9 +64,13 @@ const make = (path: string) =>
     // concurrent changes overwrite each other. The semaphore orders this process's changes;
     // the file lock orders them against another process's (`via keys` next to `via serve`).
     const permit = Semaphore.withPermit(yield* Semaphore.make(1));
+    // Counts this process's writes to the file, so `changes` can signal each one.
+    const revision = yield* SubscriptionRef.make(0);
 
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      permit(withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)));
+      permit(
+        withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
+      ).pipe(Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)));
 
     const read = readJsonFile(path, StoredKeys, () => []).pipe(
       Effect.provideService(FileSystem.FileSystem, fs),
@@ -152,7 +158,13 @@ const make = (path: string) =>
       return Option.some({ id: match.id, name: match.name });
     });
 
-    return { create, list, revoke, verify };
+    /**
+     * Signals now, then after every write this process makes to the keys: a key
+     * created or revoked, or a key's last use recorded, at most once a minute per key.
+     */
+    const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
+
+    return { create, list, revoke, verify, changes };
   });
 
 /** API keys for clients of `via serve`; only SHA-256 hashes are stored. */
