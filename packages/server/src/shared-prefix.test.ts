@@ -22,7 +22,7 @@ const subAgent = (session: string, task: Schema.Json) => ({
   tools: [{ type: "function", function: { name: "read" } }],
 });
 
-/** An opencode session id made from any text; the id sits on one line. */
+/** An OpenCode session id made from any text; the id sits on one line. */
 const id = (text: string) => `ses_${text.replaceAll(/[\r\n]/g, "")}`;
 
 /** A request, serialized, up to its first user message. */
@@ -30,7 +30,7 @@ const prefix = (session: string, task: string) =>
   JSON.stringify(withSharedPrefix(subAgent(session, task))).split('"role":"user"')[0];
 
 describe("withSharedPrefix", () => {
-  it("moves opencode's session line from the system prompt to the first user message", () => {
+  it("moves OpenCode's session line from the system prompt to the first user message", () => {
     expect(withSharedPrefix(subAgent("ses_a", "Tell a joke."))).toEqual({
       model: "m",
       messages: [

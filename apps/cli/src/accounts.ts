@@ -37,12 +37,12 @@ class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()(
   {},
 ) {
   override get message() {
-    return "No opencode Go API key was given";
+    return "No OpenCode Go API key was given";
   }
 }
 
 /**
- * An opencode Go API key: typed in, hidden, at a terminal, else read from
+ * An OpenCode Go API key: typed in, hidden, at a terminal, else read from
  * standard input, so a script can pipe it in. Never an argument, which would
  * end up in the shell's history and the process list.
  */
@@ -50,7 +50,7 @@ const readApiKey = Effect.gen(function* () {
   const stdio = yield* Stdio.Stdio;
 
   const key = (yield* stdio.stdinIsTerminal)
-    ? Redacted.value(yield* Prompt.run(Prompt.Password({ message: "opencode Go API key" })))
+    ? Redacted.value(yield* Prompt.run(Prompt.Password({ message: "OpenCode Go API key" })))
     : yield* stdio.stdin.pipe(Stream.decodeText, Stream.mkString);
 
   const trimmed = Str.trim(key);
@@ -70,11 +70,11 @@ const addCodex = Effect.gen(function* () {
   yield* Console.log(`Added ${saved.email} (${saved.plan}) as "${saved.label}".`);
 });
 
-/** Stores an opencode Go API key as an account. */
+/** Stores an OpenCode Go API key as an account. */
 const addOpencodeGo = Effect.gen(function* () {
   const apiKey = yield* readApiKey;
   const saved = yield* (yield* OpencodeGoAccounts).add(apiKey);
-  yield* Console.log(`Added opencode Go key ${maskKey(apiKey)} as "${saved.label}".`);
+  yield* Console.log(`Added OpenCode Go key ${maskKey(apiKey)} as "${saved.label}".`);
 });
 
 const add = Command.make(
@@ -82,7 +82,7 @@ const add = Command.make(
   {
     provider: Flag.Literals("provider", ["codex", "opencode-go"]).pipe(
       Flag.withDescription(
-        "codex logs in to a ChatGPT account; opencode-go asks for an opencode Go API key",
+        "codex logs in to a ChatGPT account; opencode-go asks for an OpenCode Go API key",
       ),
       Flag.withDefault("codex"),
     ),
@@ -95,7 +95,7 @@ const add = Command.make(
     }),
 ).pipe(
   Command.withDescription(
-    "Log in to a ChatGPT account with a device code, or add an opencode Go API key",
+    "Log in to a ChatGPT account with a device code, or add an OpenCode Go API key",
   ),
 );
 
@@ -104,7 +104,7 @@ const noAccounts = "No accounts. Add one with `via accounts add`.";
 const describe = (a: Account) =>
   `${a.id}  ${a.label}  ${a.email}  ${a.plan}  ${a.enabled ? "enabled" : "disabled"}`;
 
-/** An opencode Go account as a line shows it, its key masked. */
+/** An OpenCode Go account as a line shows it, its key masked. */
 const describeGo = (a: OpencodeGoAccount) =>
   `${a.id}  ${a.label}  opencode-go  ${maskKey(a.apiKey)}  ${a.enabled ? "enabled" : "disabled"}`;
 
@@ -121,7 +121,7 @@ const list = Command.make("list", {}, () =>
   }),
 ).pipe(
   Command.withDescription(
-    "List accounts, ChatGPT's then opencode Go's, in the order they are used",
+    "List accounts, ChatGPT's then OpenCode Go's, in the order they are used",
   ),
 );
 
@@ -159,7 +159,7 @@ const providerSections = Effect.map(Providers, ({ names }) =>
 );
 
 /**
- * Each opencode Go account, like a ChatGPT one: a line with its state, as the
+ * Each OpenCode Go account, like a ChatGPT one: a line with its state, as the
  * admin API's pool tells it, and the windows of its usage.
  */
 const opencodeGoSections = (accounts: ReadonlyArray<OpencodeGoAccount>) =>
@@ -167,7 +167,7 @@ const opencodeGoSections = (accounts: ReadonlyArray<OpencodeGoAccount>) =>
     const providers = yield* Providers;
     const now = yield* Clock.currentTimeMillis;
 
-    // One account at a time, so this never bursts requests at opencode Go.
+    // One account at a time, so this never bursts requests at OpenCode Go.
     return yield* Effect.forEach(accounts, (account) =>
       Effect.map(providers.usage(account.apiKey), (usage) => ({
         line: `${describeGo(account)}  ${describeState(providerState(usage, now))}`,
@@ -223,9 +223,9 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
         Effect.catchTags({ MissingApiKeyError: say, UnknownProviderError: say }),
       );
 
-      // Asked first, so the ChatGPT accounts' windows can line up with opencode Go's longer names.
+      // Asked first, so the ChatGPT accounts' windows can line up with OpenCode Go's longer names.
       const opencodeGoAccounts = yield* opencodeGoSections(opencodeGo).pipe(
-        // Only opencode Go's own config, which never fails: another provider's can't hide its accounts.
+        // Only OpenCode Go's own config, which never fails: another provider's can't hide its accounts.
         Effect.provide(
           Providers.layer({
             providers: Record.filter(config.providers, (_, name) => name === "opencode-go"),
@@ -263,7 +263,7 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
   );
 
 /**
- * Changes a ChatGPT account as `codex` does, else, when it finds none, an opencode
+ * Changes a ChatGPT account as `codex` does, else, when it finds none, an OpenCode
  * Go account as `opencodeGo` does; when that finds none either, fails as `codex` did.
  */
 const change = (
@@ -323,7 +323,7 @@ const labelCommand = Command.make(
  */
 export const accounts = (configPath: string, upstreamBaseUrl: string | undefined) =>
   Command.make("accounts").pipe(
-    Command.withDescription("Manage the ChatGPT and opencode Go accounts in the pool"),
+    Command.withDescription("Manage the ChatGPT and OpenCode Go accounts in the pool"),
     Command.withSubcommands([
       add,
       list,

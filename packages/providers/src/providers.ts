@@ -13,7 +13,7 @@ import type { ProviderUsage } from "./schemas.ts";
 
 /**
  * Where a request goes: a provider and the model id it knows. A `pooled`
- * provider, opencode Go, is sent each request with one of its accounts' keys.
+ * provider, OpenCode Go, is sent each request with one of its accounts' keys.
  */
 export type Route = { provider: string; model: string; pooled: boolean };
 
@@ -34,7 +34,7 @@ type Preset = {
   pooled?: true;
 };
 
-/** The pooled provider: opencode Go, whose API keys via stores as accounts. */
+/** The pooled provider: OpenCode Go, whose API keys via stores as accounts. */
 const POOLED = "opencode-go";
 
 /** Providers via knows, so config.yaml only needs their API key. */
@@ -293,7 +293,7 @@ const make = (
 
 /**
  * The OpenAI-compatible providers: those configured in config.yaml, each with its
- * API key, and opencode Go, whose keys are the accounts via stores.
+ * API key, and OpenCode Go, whose keys are the accounts via stores.
  */
 export class Providers extends Context.Service<
   Providers,
@@ -307,11 +307,11 @@ export class Providers extends Context.Service<
      * ids; a provider that can't list them, or has no key to ask with, is left out.
      */
     readonly models: Effect.Effect<ReadonlyArray<{ provider: string; model: ProviderModel }>>;
-    /** What opencode Go says the account with `apiKey` has used, or why it can't. */
+    /** What OpenCode Go says the account with `apiKey` has used, or why it can't. */
     readonly usage: (apiKey: Redacted.Redacted<string>) => Effect.Effect<ProviderUsage>;
     /**
-     * Checks `apiKey` with opencode Go before it is stored, by asking for its
-     * usage: fails when opencode Go refuses it, or can't be asked.
+     * Checks `apiKey` with OpenCode Go before it is stored, by asking for its
+     * usage: fails when OpenCode Go refuses it, or can't be asked.
      */
     readonly verify: (
       apiKey: Redacted.Redacted<string>,
@@ -333,7 +333,7 @@ export class Providers extends Context.Service<
   /**
    * Sends each configured provider's requests with its key in `apiKeys`, by
    * provider name, and says it is `via/<version>`. A provider without a key fails
-   * naming the environment variable its config reads the key from; opencode Go
+   * naming the environment variable its config reads the key from; OpenCode Go
    * needs none, as its keys are the stored accounts.
    */
   static readonly layer = (options: {

@@ -23,7 +23,7 @@ const ask = (via: Via, session = "ses_1", path = "/v1/chat/completions") =>
     { "x-opencode-session": session },
   );
 
-layer(BunFileSystem.layer)("opencode Go accounts", (it) => {
+layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
   it.effect("sends a request with the first account's key", () =>
     withVia(
       ok,
@@ -170,7 +170,7 @@ layer(BunFileSystem.layer)("opencode Go accounts", (it) => {
           expect(yield* response.json).toMatchObject({
             error: {
               code: "rate_limit_exceeded",
-              message: "Every opencode Go account is cooling down",
+              message: "Every OpenCode Go account is cooling down",
             },
           });
         }),
@@ -178,7 +178,7 @@ layer(BunFileSystem.layer)("opencode Go accounts", (it) => {
     ),
   );
 
-  it.effect("answers 503 when there is no opencode Go account", () =>
+  it.effect("answers 503 when there is no OpenCode Go account", () =>
     withVia(
       ok,
       (via) =>

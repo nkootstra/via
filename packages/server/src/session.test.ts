@@ -49,7 +49,7 @@ describe("resolveSession", () => {
     }
   });
 
-  it("gives opencode's sub-agents their parent's session, so they share one prompt cache", () => {
+  it("gives OpenCode's sub-agents their parent's session, so they share one prompt cache", () => {
     expect(resolveSession(subAgent("ses_child1"), {})).toBe("ses_parent");
     expect(resolveSession(subAgent("ses_child2"), {})).toBe("ses_parent");
     expect(resolveSession({ "x-session-id": "ses_parent" }, {})).toBe("ses_parent");

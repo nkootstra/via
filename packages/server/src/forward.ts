@@ -22,7 +22,7 @@ const unreachable = (route: Route) =>
   openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`);
 
 /**
- * Sends a request for opencode Go's model through its accounts: to the account
+ * Sends a request for OpenCode Go's model through its accounts: to the account
  * that answered the session last while it can serve, else fill-first, skipping
  * those cooling down or locked out. An account answered 429 cools down and one
  * whose key is refused is locked out, and the next one is tried.
@@ -45,14 +45,14 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
     const next = yield* pool.next(preferred);
 
     if (Option.isNone(next)) {
-      return yield* noAccountLeft(yield* pool.waitFor, "opencode Go account");
+      return yield* noAccountLeft(yield* pool.waitFor, "OpenCode Go account");
     }
 
     const account = next.value;
 
     const sent = yield* providers.send(route, path, body, session, account.apiKey).pipe(
       Effect.asSome,
-      // opencode Go is unreachable for every account alike, so there is no one to fail over to.
+      // OpenCode Go is unreachable for every account alike, so there is no one to fail over to.
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),
     );
 
@@ -78,7 +78,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
 
 /**
  * Sends a request for a provider's model to that provider and pipes its answer
- * back as it comes, errors included. opencode Go's go through its accounts.
+ * back as it comes, errors included. OpenCode Go's go through its accounts.
  */
 export const forward = Effect.fn("forward")(function* (
   route: Route,

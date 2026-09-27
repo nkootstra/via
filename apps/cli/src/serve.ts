@@ -57,7 +57,7 @@ const tracing = Layer.unwrap(
 );
 
 /**
- * Imports opencode Go's key from its deprecated environment variable, when it is
+ * Imports OpenCode Go's key from its deprecated environment variable, when it is
  * set, and warns that the variable is deprecated for as long as it is.
  */
 const importDeprecatedKey = (
@@ -71,14 +71,14 @@ const importDeprecatedKey = (
       if (Option.isNone(variable)) return;
 
       yield* Effect.logWarning(
-        `${variable.value} is deprecated: via keeps opencode Go keys as accounts now, and has ` +
+        `${variable.value} is deprecated: via keeps OpenCode Go keys as accounts now, and has ` +
           `imported this one. Remove ${variable.value}; add more keys with ` +
           "`via accounts add --provider opencode-go`.",
       );
     }),
   );
 
-/** opencode Go's deprecated key variable and the key it holds, while it is set. */
+/** OpenCode Go's deprecated key variable and the key it holds, while it is set. */
 const opencodeGoEnvironment = (
   config: { readonly providers: Parameters<typeof importOpencodeGoKey>[0] },
   keys: Parameters<typeof importOpencodeGoKey>[1],

@@ -136,20 +136,20 @@ const main = opencodeGoAccount({ id: "go-1", label: "go main", key: "…1234" })
 
 const imported = opencodeGoAccount({
   id: "go-2",
-  label: "opencode Go (imported)",
+  label: "OpenCode Go (imported)",
   key: "…9999",
   environmentVariable: "OPENCODE_API_KEY",
 });
 
-const goRow = (label: string) => rowOf(label, "opencode Go keys");
+const goRow = (label: string) => rowOf(label, "OpenCode Go keys");
 
-describe("the accounts page's opencode Go keys", () => {
+describe("the accounts page's OpenCode Go keys", () => {
   it("lists them apart from the ChatGPT accounts, each key masked", async () => {
     renderApp("/accounts", { accounts: [work], opencodeGo: [main] });
 
     const codex = await screen.findByRole("region", { name: "Codex" });
     expect(await within(codex).findByText("work")).toBeDefined();
-    const go = await screen.findByRole("region", { name: "opencode Go" });
+    const go = await screen.findByRole("region", { name: "OpenCode Go" });
     const row = await goRow("go main");
     expect(go.contains(row)).toBe(true);
     expect(within(row).getByText("…1234")).toBeDefined();
@@ -162,7 +162,7 @@ describe("the accounts page's opencode Go keys", () => {
     renderApp("/accounts", { opencodeGo: [main, imported] });
 
     expect(
-      within(await goRow("opencode Go (imported)")).getByText(/OPENCODE_API_KEY/),
+      within(await goRow("OpenCode Go (imported)")).getByText(/OPENCODE_API_KEY/),
     ).toBeDefined();
     expect(within(await goRow("go main")).queryByText(/deprecated/)).toBeNull();
   });
@@ -200,6 +200,6 @@ describe("the accounts page's opencode Go keys", () => {
     await user.click(remove);
 
     await waitFor(() => expect(state.opencodeGo).toEqual([]));
-    expect(await screen.findByRole("region", { name: "No opencode Go keys yet" })).toBeDefined();
+    expect(await screen.findByRole("region", { name: "No OpenCode Go keys yet" })).toBeDefined();
   });
 });

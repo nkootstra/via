@@ -7,13 +7,13 @@ const adminKey = "admin-key-that-is-long-enough-000";
 
 const Listed = Schema.Array(Schema.Struct({ id: Schema.String, label: Schema.String }));
 
-/** The opencode Go accounts as `GET /admin/opencode-go/accounts` lists them. */
+/** The OpenCode Go accounts as `GET /admin/opencode-go/accounts` lists them. */
 const listed = (via: Via) =>
   via
     .get("/admin/opencode-go/accounts", adminKey)
     .pipe(Effect.flatMap((response) => response.json));
 
-/** The id of the opencode Go account labelled `label`. */
+/** The id of the OpenCode Go account labelled `label`. */
 const idOf = (via: Via, label: string) =>
   Effect.gen(function* () {
     const all = yield* Schema.decodeUnknownEffect(Listed)(yield* listed(via));
@@ -24,8 +24,8 @@ const idOf = (via: Via, label: string) =>
 const add = (via: Via, body: Schema.Json) =>
   via.post("/admin/opencode-go/accounts", body, adminKey);
 
-layer(BunFileSystem.layer)("admin API, opencode Go accounts", (it) => {
-  it.effect("lists opencode Go accounts with only their key's last four characters", () =>
+layer(BunFileSystem.layer)("admin API, OpenCode Go accounts", (it) => {
+  it.effect("lists OpenCode Go accounts with only their key's last four characters", () =>
     withVia(
       ok,
       (via) =>
@@ -64,7 +64,7 @@ layer(BunFileSystem.layer)("admin API, opencode Go accounts", (it) => {
     ),
   );
 
-  it.effect("adds a key once opencode Go accepts it, and pools it at once", () =>
+  it.effect("adds a key once OpenCode Go accepts it, and pools it at once", () =>
     withVia(
       ok,
       (via) =>
@@ -100,7 +100,7 @@ layer(BunFileSystem.layer)("admin API, opencode Go accounts", (it) => {
     ),
   );
 
-  it.effect("refuses a key opencode Go refuses, saying so, and stores nothing", () =>
+  it.effect("refuses a key OpenCode Go refuses, saying so, and stores nothing", () =>
     withVia(
       ok,
       (via) =>
@@ -115,7 +115,7 @@ layer(BunFileSystem.layer)("admin API, opencode Go accounts", (it) => {
     ),
   );
 
-  it.effect("answers 502 when opencode Go can't check the key", () =>
+  it.effect("answers 502 when OpenCode Go can't check the key", () =>
     withVia(
       ok,
       (via) =>

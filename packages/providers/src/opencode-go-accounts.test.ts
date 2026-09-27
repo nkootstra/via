@@ -21,6 +21,15 @@ const withAccounts = <A, E>(
 
 const key = (value: string) => Redacted.make(value);
 
+/** An account as the store's file holds it, its key as its id too. */
+const stored = (label: string, apiKey: string) => ({
+  id: apiKey,
+  label,
+  apiKey,
+  enabled: true,
+  createdAt: "2026-01-01T00:00:00.000Z",
+});
+
 layer(BunFileSystem.layer)("OpencodeGoAccounts", (it) => {
   it.effect("adds an enabled account under the label it is given", () =>
     withAccounts(() =>
@@ -38,7 +47,7 @@ layer(BunFileSystem.layer)("OpencodeGoAccounts", (it) => {
     withAccounts(() =>
       Effect.gen(function* () {
         const added = yield* (yield* OpencodeGoAccounts).add(key("sk-go-abcd"));
-        expect(added.label).toBe("opencode Go …abcd");
+        expect(added.label).toBe("OpenCode Go …abcd");
       }),
     ),
   );
@@ -72,7 +81,7 @@ layer(BunFileSystem.layer)("OpencodeGoAccounts", (it) => {
         const store = yield* OpencodeGoAccounts;
         const imported = yield* store.importKey(key("sk-env"));
         expect(Option.map(imported, ({ label }) => label)).toEqual(
-          Option.some("opencode Go (imported)"),
+          Option.some("OpenCode Go (imported)"),
         );
         expect(yield* store.importKey(key("sk-env"))).toEqual(Option.none());
         expect(yield* store.list).toHaveLength(1);
@@ -87,6 +96,36 @@ layer(BunFileSystem.layer)("OpencodeGoAccounts", (it) => {
         yield* store.add(key("sk-env"), "mine");
         expect(yield* store.importKey(key("sk-env"))).toEqual(Option.none());
         expect((yield* store.list).map(({ label }) => label)).toEqual(["mine"]);
+      }),
+    ),
+  );
+
+  it.effect("renames labels via gave under OpenCode Go's old spelling, not the user's own", () =>
+    withAccounts((file) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+
+        yield* fs.writeFileString(
+          file,
+          JSON.stringify([
+            stored("opencode Go (imported)", "sk-env"),
+            stored("opencode Go …abcd", "sk-go-abcd"),
+            // Not this key's default: the user typed it.
+            stored("opencode Go …wxyz", "sk-go-1234"),
+            stored("my opencode Go", "sk-go-5678"),
+          ]),
+        );
+
+        const store = yield* OpencodeGoAccounts;
+        const labels = ["OpenCode Go (imported)", "OpenCode Go …abcd"];
+        const kept = ["opencode Go …wxyz", "my opencode Go"];
+        expect((yield* store.list).map(({ label }) => label)).toEqual([...labels, ...kept]);
+
+        // Written back with the next change.
+        yield* store.setEnabled("sk-go-5678", false);
+        const onDisk = yield* fs.readFileString(file);
+        expect(onDisk).toContain(labels[0]);
+        expect(onDisk).not.toContain("opencode Go (imported)");
       }),
     ),
   );

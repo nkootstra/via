@@ -9,6 +9,7 @@ import { modelsQuery, warm } from "../../api/admin.ts";
 import type { Model } from "../../api/types.ts";
 import { CodexIcon, ModelsIcon, ProviderLogo, SearchIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
+import { providerName } from "../../lib/provider-name.ts";
 
 export const Route = createFileRoute("/_app/models")({
   head: () => ({ meta: [{ title: "Models · via" }] }),
@@ -140,7 +141,7 @@ function Models() {
                 return (
                   <Section
                     key={owner}
-                    title={owner}
+                    title={providerName(owner)}
                     icon={
                       owner === "Codex" ? (
                         <CodexIcon size={18} />

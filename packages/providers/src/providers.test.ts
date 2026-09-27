@@ -21,7 +21,7 @@ import { providerReply, startFakeProvider } from "./testing/index.ts";
 
 /**
  * Runs `body` with `configs` providers, `apiKeys` as their keys (by default
- * `sk-test` for each), `client` as the network, and an opencode Go account for
+ * `sk-test` for each), `client` as the network, and an OpenCode Go account for
  * each of `accountKeys`, in order.
  */
 const withProviders = <A, E, R>(

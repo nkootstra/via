@@ -126,7 +126,7 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
-  it.effect("moves opencode's session line out of the system prompt a provider is sent", () =>
+  it.effect("moves OpenCode's session line out of the system prompt a provider is sent", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
         via.provider.respond(providerReply.json(completion));

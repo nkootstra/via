@@ -10,7 +10,7 @@ const MINUTE = 60_000;
 
 const iso = (at: number) => new Date(at).toISOString();
 
-/** When `classify` cools the account down for opencode Go's 429 with `usage` and `retryAfter`. */
+/** When `classify` cools the account down for OpenCode Go's 429 with `usage` and `retryAfter`. */
 const until = (...args: Parameters<typeof rateLimitRejection>) => {
   const verdict = classify(rateLimitRejection(...args), NOW);
 

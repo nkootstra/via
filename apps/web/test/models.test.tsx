@@ -24,7 +24,7 @@ describe("the models page", () => {
     expect(within(codex).getByText("gpt-5.5")).toBeDefined();
     expect(within(codex).getByText("gpt-5.5-mini")).toBeDefined();
 
-    const provider = screen.getByRole("region", { name: "opencode-go" });
+    const provider = screen.getByRole("region", { name: "OpenCode Go" });
     expect(within(provider).getByText("opencode-go/kimi-k2")).toBeDefined();
     expect(within(provider).getByText("262k context")).toBeDefined();
 
@@ -32,7 +32,7 @@ describe("the models page", () => {
       .getAllByRole("region")
       .map((region) => region.getAttribute("aria-label"));
 
-    expect(regions.indexOf("Codex")).toBeLessThan(regions.indexOf("opencode-go"));
+    expect(regions.indexOf("Codex")).toBeLessThan(regions.indexOf("OpenCode Go"));
   });
 
   it("filters by search", async () => {
@@ -42,7 +42,7 @@ describe("the models page", () => {
 
     expect(await screen.findByText("gpt-5.5-mini")).toBeDefined();
     expect(screen.queryByText("kimi-k2")).toBeNull();
-    expect(screen.queryByRole("region", { name: "opencode-go" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "OpenCode Go" })).toBeNull();
 
     await user.clear(screen.getByRole("searchbox", { name: "Search models" }));
     await user.type(screen.getByRole("searchbox", { name: "Search models" }), "nothing");

@@ -131,8 +131,8 @@ const notAdded = (problem: string) =>
   Effect.succeed<AddOpencodeGoOutcome>({ added: false, problem });
 
 /**
- * Adds an opencode Go API key, which via checks with opencode Go first. A key
- * opencode Go refuses, one via already has, or one it can't check are outcomes
+ * Adds an OpenCode Go API key, which via checks with OpenCode Go first. A key
+ * OpenCode Go refuses, one via already has, or one it can't check are outcomes
  * the form shows.
  */
 export const addOpencodeGo = (apiKey: string) =>
@@ -141,7 +141,7 @@ export const addOpencodeGo = (apiKey: string) =>
       Effect.map((account): AddOpencodeGoOutcome => ({ added: true, label: account.label })),
       Effect.catchTags({
         OpencodeGoKeyRejectedError: () =>
-          notAdded("opencode Go refused this key. Check that you copied all of it."),
+          notAdded("OpenCode Go refused this key. Check that you copied all of it."),
         DuplicateOpencodeGoKeyError: (error) =>
           notAdded(`via already has this key, as ${error.label}.`),
         OpencodeGoUnavailableError: (error) => notAdded(error.message),

@@ -6,7 +6,7 @@ import { providerState } from "./state.ts";
 const decodeSeconds = Schema.decodeUnknownOption(Schema.FiniteFromString);
 
 /**
- * What opencode Go's 429 means for the account that got it, in the pool's
+ * What OpenCode Go's 429 means for the account that got it, in the pool's
  * terms: exhausted until its used-up usage window resets, per `usage` asked
  * right after, or for as long as `retryAfter` (the answer's `Retry-After`, in
  * seconds) asks; `classify` takes the later of them.

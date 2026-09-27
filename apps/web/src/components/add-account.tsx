@@ -246,7 +246,7 @@ function AddAccountDialog({
   );
 }
 
-/** Which kind of account to add: a ChatGPT one, by device login, or an opencode Go key. */
+/** Which kind of account to add: a ChatGPT one, by device login, or an OpenCode Go key. */
 function ChooseDialog({
   onCodex,
   onOpencodeGo,
@@ -274,7 +274,7 @@ function ChooseDialog({
           <button type="button" onClick={onOpencodeGo} {...stylex.props(styles.choice)}>
             <ProviderLogo name="opencode-go" size={18} />
             <span {...stylex.props(styles.choiceText)}>
-              <span {...stylex.props(styles.choiceName)}>opencode Go</span>
+              <span {...stylex.props(styles.choiceName)}>OpenCode Go</span>
               <span {...stylex.props(styles.choiceHow)}>Paste an API key.</span>
             </span>
           </button>
@@ -284,7 +284,7 @@ function ChooseDialog({
   );
 }
 
-/** Pasting an opencode Go API key, which via checks with opencode Go before it keeps it. */
+/** Pasting an OpenCode Go API key, which via checks with OpenCode Go before it keeps it. */
 function OpencodeGoDialog({ onClose }: { readonly onClose: () => void }) {
   const queryClient = useQueryClient();
   const toast = useToast();
@@ -315,9 +315,9 @@ function OpencodeGoDialog({ onClose }: { readonly onClose: () => void }) {
           }}
         >
           <DialogHeader>
-            <DialogTitle>Add an opencode Go key</DialogTitle>
+            <DialogTitle>Add an OpenCode Go key</DialogTitle>
             <DialogDescription>
-              Paste an API key from your opencode Go account. via checks it with opencode Go before
+              Paste an API key from your OpenCode Go account. via checks it with OpenCode Go before
               adding it, and only ever shows its last four characters.
             </DialogDescription>
           </DialogHeader>
@@ -347,7 +347,7 @@ function OpencodeGoDialog({ onClose }: { readonly onClose: () => void }) {
 
 /**
  * Adding an account, in place on whichever page asks: `open` asks which kind,
- * then starts a device-code login for a ChatGPT one, or takes an opencode Go
+ * then starts a device-code login for a ChatGPT one, or takes an OpenCode Go
  * key, in the dialog `dialog` renders. Once the account is added, the pool,
  * its usage and the accounts are fetched again.
  */

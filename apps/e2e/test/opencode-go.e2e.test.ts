@@ -5,10 +5,10 @@ import { providerReply, startFakeProvider } from "@via/providers/testing";
 import { Effect } from "effect";
 import { runVia, startCodex } from "./harness.ts";
 
-// Two opencode Go keys added through the CLI, behind a real `via serve`, with a
-// fake opencode Go that scripts each key's answers.
+// Two OpenCode Go keys added through the CLI, behind a real `via serve`, with a
+// fake OpenCode Go that scripts each key's answers.
 
-layer(BunFileSystem.layer)("opencode Go accounts", (it) => {
+layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
   it.effect("fails over from a used-up key to the next, and stays there", () =>
     Effect.gen(function* () {
       const codex = yield* startCodex;

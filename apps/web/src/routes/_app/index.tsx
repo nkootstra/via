@@ -17,6 +17,7 @@ import {
   useNow,
   windowName,
 } from "../../lib/time.ts";
+import { providerName } from "../../lib/provider-name.ts";
 import type { PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
 
 export const Route = createFileRoute("/_app/")({
@@ -569,7 +570,7 @@ function Overview() {
             <EmptyState
               icon={<AccountsIcon size={18} />}
               title="No accounts yet"
-              description="Add a ChatGPT account or an opencode Go key, and via starts pooling it behind one endpoint."
+              description="Add a ChatGPT account or an OpenCode Go key, and via starts pooling it behind one endpoint."
               action={addAccount}
             />
           )}
@@ -626,10 +627,10 @@ function Overview() {
                       index={list.length + index}
                       name={account.label}
                       icon={<ProviderLogo name="opencode-go" size={16} />}
-                      subtitle={<span {...stylex.props(styles.tag)}>opencode Go</span>}
+                      subtitle={<span {...stylex.props(styles.tag)}>OpenCode Go</span>}
                       badge={<AccountBadge account={account} />}
                     >
-                      <AccountDetail account={account} locked="opencode Go refused its key" />
+                      <AccountDetail account={account} locked="OpenCode Go refused its key" />
                       <OpencodeGoUsage id={account.id} usage={usage.data} />
                     </PoolCard>
                   ))}
@@ -637,7 +638,7 @@ function Overview() {
                     <PoolCard
                       key={`provider:${provider.name}`}
                       index={everyAccount.length + index}
-                      name={provider.name}
+                      name={providerName(provider.name)}
                       icon={<ProviderLogo name={provider.name} size={16} />}
                       subtitle={<span {...stylex.props(styles.tag)}>Provider</span>}
                       badge={<ProviderBadge provider={provider} />}

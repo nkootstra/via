@@ -75,7 +75,7 @@ const styles = stylex.create({
   },
 });
 
-/** Fetches the opencode Go accounts and the pool again, after a change to one. */
+/** Fetches the OpenCode Go accounts and the pool again, after a change to one. */
 function useChanged() {
   const queryClient = useQueryClient();
 
@@ -196,7 +196,7 @@ type Open = {
 } | null;
 
 /**
- * The opencode Go keys via pools, as a table: each one's label, its key's last
+ * The OpenCode Go keys via pools, as a table: each one's label, its key's last
  * four characters, whether it is enabled and when it was added, with renaming
  * and removing it. `addButton` offers to add the first one.
  */
@@ -229,7 +229,7 @@ export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNod
         <div
           {...stylex.props(styles.loading)}
           aria-busy="true"
-          aria-label="Loading opencode Go keys"
+          aria-label="Loading OpenCode Go keys"
         >
           <Skeleton height="20px" />
           <Skeleton height="20px" />
@@ -244,8 +244,8 @@ export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNod
     return (
       <EmptyState
         icon={<ProviderLogo name="opencode-go" size={18} />}
-        title="No opencode Go keys yet"
-        description="Paste an opencode Go API key, and via pools it next to your others."
+        title="No OpenCode Go keys yet"
+        description="Paste an OpenCode Go API key, and via pools it next to your others."
         action={addButton}
       />
     );
@@ -254,7 +254,7 @@ export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNod
   return (
     <Panel flush>
       <div {...stylex.props(styles.scroll)}>
-        <Table aria-label="opencode Go keys" columns={accountColumns}>
+        <Table aria-label="OpenCode Go keys" columns={accountColumns}>
           <TableHeader>
             <TableRow>
               <TableHead>Account</TableHead>
