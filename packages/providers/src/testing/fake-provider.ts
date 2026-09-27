@@ -2,7 +2,6 @@
 // OpenCode Go, that records every request it receives.
 import { BunHttpServer } from "@effect/platform-bun";
 import { Deferred, Effect, Layer, Schema, Stream } from "effect";
-import { TestClock } from "effect/testing";
 import {
   HttpRouter,
   HttpServer,
@@ -21,8 +20,11 @@ type Answer = {
   status: number;
   contentType: string;
   body: string;
-  /** What the stream does after `body`: stays open, or breaks off. It ends by default. */
-  ending?: "hang" | "drop";
+  /**
+   * What the stream does after `body`: stays open, or breaks off once `drop` completes.
+   * It ends by default.
+   */
+  ending?: "hang" | { readonly drop: Effect.Effect<void> };
 };
 
 export type ProviderReply = (request: ProviderRequest) => Answer;
@@ -40,10 +42,13 @@ export const providerReply = {
   sseThenHang:
     (body: string): ProviderReply =>
     () => ({ status: 200, contentType: "text/event-stream", body, ending: "hang" }),
-  /** A raw SSE body after which the connection breaks off. */
+  /**
+   * A raw SSE body, after which the connection breaks off once `drop` completes. Let
+   * that wait for the client to see `body`: a time delay races with via relaying it.
+   */
   sseThenDrop:
-    (body: string): ProviderReply =>
-    () => ({ status: 200, contentType: "text/event-stream", body, ending: "drop" }),
+    (body: string, drop: Effect.Effect<void>): ProviderReply =>
+    () => ({ status: 200, contentType: "text/event-stream", body, ending: { drop } }),
 };
 
 const unscripted: ProviderReply = providerReply.json(
@@ -79,17 +84,11 @@ export const startFakeProvider = Effect.gen(function* () {
         requests.push(recorded);
         const { status, contentType, body: text, ending } = handler(recorded);
         if (ending === undefined) return HttpServerResponse.text(text, { status, contentType });
-        // Bun ends a response cleanly, not with a reset, when its stream fails before the
-        // first chunk is flushed, so the drop waits until `body` has gone out.
         const rest =
           ending === "hang"
             ? Stream.never
             : Stream.fromEffect(
-                Effect.andThen(
-                  // Real time: tests run on a TestClock that nothing advances here.
-                  TestClock.withLive(Effect.sleep("50 millis")),
-                  Effect.die("fake provider: connection dropped"),
-                ),
+                Effect.andThen(ending.drop, Effect.die("fake provider: connection dropped")),
               );
         return HttpServerResponse.stream(
           Stream.concat(Stream.make(new TextEncoder().encode(text)), rest),
