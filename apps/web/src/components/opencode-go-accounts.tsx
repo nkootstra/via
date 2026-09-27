@@ -34,7 +34,7 @@ import { type ReactNode, useState } from "react";
 import { opencodeGoQuery, removeOpencodeGo, updateOpencodeGo } from "../api/admin.ts";
 import type { OpencodeGoAccount } from "../api/types.ts";
 import { formatDate } from "../lib/time.ts";
-import { MoreIcon, ProviderLogo } from "./icons.tsx";
+import { MoreIcon, ProviderLogo, TrashIcon } from "./icons.tsx";
 import { Panel, VisuallyHidden } from "./page.tsx";
 
 const styles = stylex.create({
@@ -175,7 +175,12 @@ function RemoveDialog({
         </DialogHeader>
         <DialogFooter>
           <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-          <Button loading={mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button
+            variant="destructive"
+            loading={mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            <TrashIcon size={15} />
             Remove key
           </Button>
         </DialogFooter>
@@ -309,6 +314,8 @@ export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNod
                       <MenuSeparator />
                       <MenuItem
                         label="Remove…"
+                        icon={<TrashIcon size={15} />}
+                        destructive
                         onClick={() => setOpen({ dialog: "remove", account })}
                       />
                     </MenuContent>

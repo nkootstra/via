@@ -189,9 +189,15 @@ describe("the accounts page's opencode Go keys", () => {
     await user.click(
       within(await goRow("go work")).getByRole("button", { name: "Actions for go work" }),
     );
-    await user.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+    const item = await screen.findByRole("menuitem", { name: "Remove…" });
+    expect(item.hasAttribute("data-destructive")).toBe(true);
+    expect(item.querySelector("svg")).not.toBeNull();
+    await user.click(item);
     const confirm = await screen.findByRole("alertdialog", { name: "Remove go work?" });
-    await user.click(within(confirm).getByRole("button", { name: "Remove key" }));
+    const remove = within(confirm).getByRole("button", { name: "Remove key" });
+    expect(remove.getAttribute("data-variant")).toBe("destructive");
+    expect(remove.querySelector("svg")).not.toBeNull();
+    await user.click(remove);
 
     await waitFor(() => expect(state.opencodeGo).toEqual([]));
     expect(await screen.findByRole("region", { name: "No opencode Go keys yet" })).toBeDefined();
