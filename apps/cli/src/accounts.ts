@@ -8,6 +8,7 @@ import type { ProviderState } from "@via/providers/schemas";
 import { Clock, Console, Effect, Layer } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 import { apiKeys } from "./api-keys.ts";
+import { localTime } from "./time.ts";
 import { version } from "./version.ts";
 
 const accountArg = Argument.String("account").pipe(
@@ -39,12 +40,6 @@ const list = Command.make("list", {}, () =>
     for (const a of accounts) yield* Console.log(describe(a));
   }),
 ).pipe(Command.withDescription("List accounts in the order they are used"));
-
-const pad = (n: number) => String(n).padStart(2, "0");
-
-/** A time as `2023-11-14 23:13`, in local time. */
-const localTime = (at: Date) =>
-  `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())} ${pad(at.getHours())}:${pad(at.getMinutes())}`;
 
 /** A usage window as a line shows it. */
 type Row = { readonly name: string; readonly usedPercent: number; readonly resetsAt: Date };

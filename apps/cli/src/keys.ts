@@ -1,6 +1,7 @@
 import { KeyStore } from "@via/keys";
-import { Console, Effect } from "effect";
+import { Clock, Console, Effect } from "effect";
 import { Argument, Command, Flag } from "effect/unstable/cli";
+import { localTime, timeAgo } from "./time.ts";
 
 const create = Command.make(
   "create",
@@ -20,7 +21,18 @@ const list = Command.make("list", {}, () =>
     if (stored.length === 0)
       return yield* Console.log("No keys. Create one with `via keys create --name <name>`.");
 
-    for (const key of stored) yield* Console.log(`${key.id}  ${key.name}  ${key.createdAt}`);
+    const now = yield* Clock.currentTimeMillis;
+    // Names vary in length; padding them lines up the columns after them.
+    const width = Math.max(...stored.map((k) => k.name.length));
+
+    for (const { id, name, createdAt, lastUsedAt } of stored) {
+      const used =
+        lastUsedAt === null ? "never used" : `last used ${timeAgo(new Date(lastUsedAt), now)}`;
+
+      yield* Console.log(
+        `${id}  ${name.padEnd(width)}  created ${localTime(new Date(createdAt))}  ${used}`,
+      );
+    }
   }),
 ).pipe(Command.withDescription("List API keys"));
 

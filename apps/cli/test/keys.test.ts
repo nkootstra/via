@@ -1,7 +1,19 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, FileSystem, Schema } from "effect";
 import { createKey, runVia, tempHome } from "./helpers.ts";
+
+const KeyFile = Schema.fromJsonString(Schema.Array(Schema.JsonObject));
+
+/** Sets when key `name` in `home` was last used, as a running `via serve` records it. */
+const markUsed = (home: string, name: string, at: Date) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const file = `${home}/keys.json`;
+    const keys = yield* Schema.decodeEffect(KeyFile)(yield* fs.readFileString(file));
+    const used = keys.map((k) => (k["name"] === name ? { ...k, lastUsedAt: at.toISOString() } : k));
+    yield* fs.writeFileString(file, yield* Schema.encodeEffect(KeyFile)(used));
+  });
 
 layer(BunFileSystem.layer)("via keys", (it) => {
   it.effect("create prints a new via_ key once", () =>
@@ -29,6 +41,22 @@ layer(BunFileSystem.layer)("via keys", (it) => {
       expect(list.exitCode).toBe(0);
       expect(list.stdout).toContain("laptop");
       expect(list.stdout).not.toContain(key);
+    }),
+  );
+
+  it.effect("list shows when each key was last used, in aligned columns", () =>
+    Effect.gen(function* () {
+      const home = yield* tempHome;
+      yield* createKey(home, "laptop");
+      yield* createKey(home, "ci-runner");
+      yield* markUsed(home, "laptop", new Date(Date.now() - 3 * 60_000 - 5_000));
+
+      const lines = (yield* runVia(home, ["keys", "list"])).stdout.trimEnd().split("\n");
+      expect(lines).toEqual([
+        expect.stringMatching(/ laptop +created \d{4}-\d\d-\d\d \d\d:\d\d {2}last used 3 min ago$/),
+        expect.stringMatching(/ ci-runner +created \d{4}-\d\d-\d\d \d\d:\d\d {2}never used$/),
+      ]);
+      expect(new Set(lines.map((line) => line.indexOf("created"))).size).toBe(1);
     }),
   );
 
