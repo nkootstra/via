@@ -37,7 +37,12 @@ export const writeJsonFile = Effect.fn("writeJsonFile")(function* <
   const encoded = yield* Schema.encodeEffect(schema)(value).pipe(Effect.orDie);
   yield* fs.makeDirectory(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${yield* Random.nextInt}.tmp`;
-  yield* fs.writeFileString(tmp, `${JSON.stringify(encoded, null, 2)}\n`, { mode: 0o600 });
-  yield* fs.chmod(tmp, 0o600);
-  yield* fs.rename(tmp, path);
+  yield* Effect.gen(function* () {
+    yield* fs.writeFileString(tmp, `${JSON.stringify(encoded, null, 2)}\n`, { mode: 0o600 });
+    yield* fs.chmod(tmp, 0o600);
+    yield* fs.rename(tmp, path);
+  }).pipe(
+    // The temp file may hold secrets (tokens, key hashes), so a failed write must not leave it behind.
+    Effect.onError(() => fs.remove(tmp, { force: true }).pipe(Effect.ignore)),
+  );
 });
