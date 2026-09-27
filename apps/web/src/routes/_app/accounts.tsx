@@ -36,7 +36,7 @@ import { useState } from "react";
 import { accountsQuery, removeAccount, updateAccount, warm } from "../../api/admin.ts";
 import type { Account } from "../../api/types.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
-import { AccountsIcon, MoreIcon, PlusIcon } from "../../components/icons.tsx";
+import { AccountsIcon, MoreIcon, PlusIcon, TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, VisuallyHidden } from "../../components/page.tsx";
 import { formatDate } from "../../lib/time.ts";
 
@@ -167,7 +167,12 @@ function RemoveDialog({
         </DialogHeader>
         <DialogFooter>
           <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-          <Button loading={mutation.isPending} onClick={() => mutation.mutate()}>
+          <Button
+            variant="destructive"
+            loading={mutation.isPending}
+            onClick={() => mutation.mutate()}
+          >
+            <TrashIcon size={15} />
             Remove account
           </Button>
         </DialogFooter>
@@ -292,6 +297,8 @@ function Accounts() {
                           <MenuSeparator />
                           <MenuItem
                             label="Remove…"
+                            icon={<TrashIcon size={15} />}
+                            destructive
                             onClick={() => setOpen({ dialog: "remove", account })}
                           />
                         </MenuContent>

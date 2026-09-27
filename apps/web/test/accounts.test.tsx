@@ -62,9 +62,14 @@ describe("the accounts page", () => {
     const { state, user } = renderApp("/accounts", { accounts: [work, home] });
 
     await user.click(within(await rowOf("home")).getByRole("button", { name: "Actions for home" }));
-    await user.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+    const item = await screen.findByRole("menuitem", { name: "Remove…" });
+    expect(item.hasAttribute("data-destructive")).toBe(true);
+    expect(item.querySelector("svg")).not.toBeNull();
+    await user.click(item);
     const confirm = await screen.findByRole("alertdialog", { name: "Remove home?" });
-    await user.click(within(confirm).getByRole("button", { name: "Remove account" }));
+    const remove = within(confirm).getByRole("button", { name: "Remove account" });
+    expect(remove.getAttribute("data-variant")).toBe("destructive");
+    await user.click(remove);
 
     await waitFor(() => expect(screen.queryByText("home")).toBeNull());
     expect(state.accounts.map((a) => a.id)).toEqual(["acc-1"]);
