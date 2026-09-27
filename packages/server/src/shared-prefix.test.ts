@@ -84,4 +84,9 @@ describe("withSharedPrefix", () => {
     const body = { model: "m", messages: [{ role: "system", content: system("ses_a") }] };
     expect(withSharedPrefix(body)).toBe(body);
   });
+
+  it("leaves the line where it is when the user message has neither text nor parts", () => {
+    const body = subAgent("ses_a", null);
+    expect(withSharedPrefix(body)).toBe(body);
+  });
 });
