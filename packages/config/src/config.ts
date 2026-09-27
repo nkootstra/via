@@ -12,7 +12,7 @@ export const ProviderConfig = Schema.Struct({
 
 export type ProviderConfig = typeof ProviderConfig.Type;
 
-export const Config = Schema.Struct({
+const Config = Schema.Struct({
   host: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("127.0.0.1"))),
   port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed(8317)),
@@ -24,8 +24,6 @@ export const Config = Schema.Struct({
     Schema.withDecodingDefaultKey(Effect.succeed({})),
   ),
 });
-
-export type Config = typeof Config.Type;
 
 export class InvalidConfigError extends Schema.TaggedError<InvalidConfigError>()(
   "InvalidConfigError",

@@ -1,4 +1,4 @@
-export { Config, InvalidConfigError, loadConfig, ProviderConfig } from "./config.ts";
+export { InvalidConfigError, loadConfig, ProviderConfig } from "./config.ts";
 
 export { CorruptFileError, readJsonFile, writeJsonFile } from "./json-file.ts";
 

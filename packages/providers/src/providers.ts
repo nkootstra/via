@@ -256,6 +256,8 @@ export class Providers extends Context.Service<
    * Reads each provider's API key from the environment variable its config
    * names, and says it is `via/<version>`.
    */
-  static readonly layer = (configs: Record<string, ProviderConfig>, version: string) =>
-    Layer.effect(Providers, make(configs, version));
+  static readonly layer = (options: {
+    readonly providers: Record<string, ProviderConfig>;
+    readonly version: string;
+  }) => Layer.effect(Providers, make(options.providers, options.version));
 }

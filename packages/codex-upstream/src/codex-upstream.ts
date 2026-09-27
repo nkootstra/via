@@ -17,7 +17,8 @@ const IDENTITIES = {
 type UpstreamAccount = { readonly accessToken: string; readonly accountId: string };
 
 type CodexUpstreamOptions = {
-  readonly baseUrl?: string;
+  /** Replaces the Codex backend's URL when given, which only tests do. */
+  readonly baseUrl?: string | undefined;
   /** Present requests as the official Codex TUI. */
   readonly cloak: boolean;
   /** via's own version, which it says it is when it doesn't cloak. */

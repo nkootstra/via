@@ -174,7 +174,10 @@ export const withVia = <A, E>(
         cloak: true,
         version: "0.0.0",
       }),
-      Providers.layer({ openrouter: providerConfig, "opencode-go": providerConfig }, "0.0.0").pipe(
+      Providers.layer({
+        providers: { openrouter: providerConfig, "opencode-go": providerConfig },
+        version: "0.0.0",
+      }).pipe(
         Layer.provide(
           ConfigProvider.layer(ConfigProvider.fromUnknown({ PROVIDER_KEY: "sk-provider" })),
         ),

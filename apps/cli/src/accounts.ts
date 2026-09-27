@@ -4,7 +4,6 @@ import { loadConfig } from "@via/config";
 import { Providers } from "@via/providers";
 import { Console, Effect, Layer } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
-import { codexUpstream } from "./upstream.ts";
 import { version } from "./version.ts";
 
 const accountArg = Argument.String("account").pipe(
@@ -101,10 +100,15 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
 
       if (accounts.length === 0) yield* Console.log(noAccounts);
       yield* Effect.forEach(accounts, showUsage, { discard: true }).pipe(
-        Effect.provide(Layer.mergeAll(AccountTokens.layer, codexUpstream(config, upstreamBaseUrl))),
+        Effect.provide(
+          Layer.mergeAll(
+            AccountTokens.layer,
+            CodexUpstream.layer({ baseUrl: upstreamBaseUrl, cloak: config.codex.cloak, version }),
+          ),
+        ),
       );
       yield* showProviderUsage.pipe(
-        Effect.provide(Providers.layer(config.providers, version)),
+        Effect.provide(Providers.layer({ providers: config.providers, version })),
         // A provider that can't be set up, e.g. for a missing API key, says so here.
         Effect.catchTags({ MissingApiKeyError: say, UnknownProviderError: say }),
       );

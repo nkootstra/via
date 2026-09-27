@@ -17,7 +17,7 @@ const withProviders = <A, E, R>(
     return yield* body(yield* Providers);
   }).pipe(
     Effect.provide(
-      Providers.layer(configs, "1.2.3").pipe(
+      Providers.layer({ providers: configs, version: "1.2.3" }).pipe(
         Layer.provide(client),
         Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(env))),
       ),

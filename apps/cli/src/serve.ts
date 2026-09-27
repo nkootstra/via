@@ -1,5 +1,6 @@
 import { BunHttpServer } from "@effect/platform-bun";
 import { AccountTokens } from "@via/codex-auth";
+import { CodexUpstream } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
 import { PoolStates } from "@via/pool";
 import { Providers } from "@via/providers";
@@ -8,7 +9,6 @@ import { Config, ConfigProvider, Console, Effect, Layer, Logger, Option, Referen
 import { Command, Flag } from "effect/unstable/cli";
 import { HttpClient, HttpServer } from "effect/unstable/http";
 import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
-import { codexUpstream } from "./upstream.ts";
 import { version } from "./version.ts";
 
 /**
@@ -74,8 +74,14 @@ export const serve = (configPath: string, statePath: string, upstreamBaseUrl: st
           ),
           Layer.provide(PoolStates.layerFile(statePath)),
           Layer.provide(AccountTokens.layer),
-          Layer.provide(codexUpstream(config, upstreamBaseUrl)),
-          Layer.provide(Providers.layer(config.providers, version)),
+          Layer.provide(
+            CodexUpstream.layer({
+              baseUrl: upstreamBaseUrl,
+              cloak: config.codex.cloak,
+              version,
+            }),
+          ),
+          Layer.provide(Providers.layer({ providers: config.providers, version })),
           Layer.provideMerge(tracing),
           // One line per entry, as `key=value` pairs that grep and log tools read.
           Layer.provide(Logger.layer([Logger.consoleLogFmt])),
