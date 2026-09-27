@@ -239,19 +239,13 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
           return (yield* (yield* AccountStore).list).map(withoutTokens);
         }).pipe(Effect.orDie),
       )
-      .handle("login", () =>
-        Effect.gen(function* () {
-          return yield* logins.start();
-        }),
-      )
+      .handle("login", () => logins.start())
       .handle("loginStatus", ({ params }) =>
-        Effect.gen(function* () {
-          const login = yield* logins.status(params.id);
-
-          return login.status === "added"
+        Effect.map(logins.status(params.id), (login) =>
+          login.status === "added"
             ? { status: login.status, account: withoutTokens(login.account) }
-            : login;
-        }),
+            : login,
+        ),
       )
       .handle("update", ({ params, payload }) =>
         Effect.gen(function* () {
@@ -276,20 +270,16 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
 // The key file is via's own; one it can't read or write is a bug, not a request error.
 const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
   handlers
-    .handle("list", () =>
-      Effect.gen(function* () {
-        return yield* (yield* KeyStore).list;
-      }).pipe(Effect.orDie),
-    )
+    .handle("list", () => Effect.flatMap(KeyStore, (store) => store.list).pipe(Effect.orDie))
     .handle("create", ({ payload }) =>
-      Effect.gen(function* () {
-        return yield* (yield* KeyStore).create(payload.name);
-      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+      Effect.flatMap(KeyStore, (store) => store.create(payload.name)).pipe(
+        Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die),
+      ),
     )
     .handle("revoke", ({ params }) =>
-      Effect.gen(function* () {
-        yield* (yield* KeyStore).revoke(params.idOrName);
-      }).pipe(Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die)),
+      Effect.flatMap(KeyStore, (store) => store.revoke(params.idOrName)).pipe(
+        Effect.catchTag(["CorruptFileError", "PlatformError"], Effect.die),
+      ),
     ),
 );
 
