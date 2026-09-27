@@ -61,7 +61,25 @@ const providerWindows = new Map([
 /** A provider's usage window's name: OpenCode Go's `rolling` → "5 hours"; others as given. */
 export const providerWindowName = (window: string) => providerWindows.get(window) ?? window;
 
+/** How long before `now` a time was: "Just now", "3 min ago", "5 h ago", "2 d ago". */
+export function timeAgo(iso: string, now: number) {
+  const minutes = Math.floor((now - new Date(iso).getTime()) / 60_000);
+
+  if (minutes < 1) return "Just now";
+
+  if (minutes < 60) return `${minutes} min ago`;
+
+  if (minutes < 1_440) return `${Math.floor(minutes / 60)} h ago`;
+
+  return `${Math.floor(minutes / 1_440)} d ago`;
+}
+
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
+
+const timestampFormat = new Intl.DateTimeFormat(undefined, {
+  dateStyle: "medium",
+  timeStyle: "medium",
+});
 
 const timeFormat = new Intl.DateTimeFormat(undefined, {
   weekday: "short",
@@ -71,6 +89,9 @@ const timeFormat = new Intl.DateTimeFormat(undefined, {
 
 /** A date, as the viewer's locale writes it. */
 export const formatDate = (iso: string) => dateFormat.format(new Date(iso));
+
+/** A date and time to the second, as the viewer's locale writes it. */
+export const formatTimestamp = (iso: string) => timestampFormat.format(new Date(iso));
 
 /** A clock time with its weekday, for a reset or a cooldown's end. */
 export const formatTime = (iso: string) => timeFormat.format(new Date(iso));

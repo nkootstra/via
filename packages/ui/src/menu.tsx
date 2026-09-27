@@ -6,7 +6,7 @@
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import * as stylex from "@stylexjs/stylex";
 import { motion } from "motion/react";
-import { createContext, use, useId, type ReactNode } from "react";
+import { createContext, use, useMemo, type ReactNode } from "react";
 import { FluidHighlight, useFluidHover } from "./fluid-hover.tsx";
 import { forMotion } from "./motion-props.ts";
 import { spring } from "./springs.ts";
@@ -57,7 +57,13 @@ const styles = stylex.create({
     transitionProperty: "color",
     transitionDuration: durations.fast,
   },
+  icon: {
+    display: "flex",
+    flexShrink: 0,
+    marginInlineEnd: space.s2,
+  },
   highlighted: { color: colors.foreground },
+  destructive: { color: colors.destructive },
   disabled: {
     opacity: 0.5,
     pointerEvents: "none",
@@ -81,9 +87,14 @@ const enterOffset = {
   "inline-end": 0,
 } as const;
 
+/** An item's key in the highlight: its identity, and whether it destroys something. */
+interface ItemKey {
+  readonly destructive: boolean;
+}
+
 interface MenuListState {
-  readonly register: (key: string) => (element: HTMLElement | null) => void;
-  readonly light: (key: string | null) => void;
+  readonly register: (key: ItemKey) => (element: HTMLElement | null) => void;
+  readonly light: (key: ItemKey | null) => void;
 }
 
 const MenuListContext = createContext<MenuListState>({
@@ -100,9 +111,10 @@ export interface MenuContentProps {
 }
 
 export function MenuContent({ children }: MenuContentProps) {
-  const { containerRef, register, light, active, handlers } = useFluidHover<HTMLDivElement, string>(
-    "y",
-  );
+  const { containerRef, register, light, active, handlers } = useFluidHover<
+    HTMLDivElement,
+    ItemKey
+  >("y");
 
   return (
     <BaseMenu.Portal>
@@ -135,7 +147,11 @@ export function MenuContent({ children }: MenuContentProps) {
               onPointerLeave={handlers.onPointerLeave}
               {...stylex.props(styles.list)}
             >
-              <FluidHighlight rect={active?.rect ?? null} xstyle={styles.highlight} />
+              <FluidHighlight
+                rect={active?.rect ?? null}
+                destructive={active?.key.destructive ?? false}
+                xstyle={styles.highlight}
+              />
               {children}
             </div>
           </MenuListContext>
@@ -149,17 +165,29 @@ export interface MenuItemProps {
   readonly label: string;
   readonly onClick?: () => void;
   readonly disabled?: boolean;
+  /** Destroys something, such as removing an account: red, and so is its highlight. */
+  readonly destructive?: boolean;
+  /** A glyph before the label, in the label's colour. */
+  readonly icon?: ReactNode;
 }
 
-export function MenuItem({ label, onClick, disabled = false }: MenuItemProps) {
+export function MenuItem({
+  label,
+  onClick,
+  disabled = false,
+  destructive = false,
+  icon,
+}: MenuItemProps) {
   const { register, light } = use(MenuListContext);
-  const key = useId();
+  // The highlight finds the item by this object's identity, so it lives as long as the item.
+  const key = useMemo(() => ({ destructive }), [destructive]);
 
   return (
     <BaseMenu.Item
       ref={register(key)}
       label={label}
       disabled={disabled}
+      data-destructive={destructive ? "" : undefined}
       onClick={() => onClick?.()}
       // Base UI focuses the row it highlights, by pointer or keyboard.
       onFocus={() => light(key)}
@@ -167,10 +195,16 @@ export function MenuItem({ label, onClick, disabled = false }: MenuItemProps) {
         stylex.props(
           styles.item,
           state.highlighted && styles.highlighted,
+          destructive && styles.destructive,
           state.disabled && styles.disabled,
         ).className ?? ""
       }
     >
+      {icon !== undefined && (
+        <span aria-hidden="true" {...stylex.props(styles.icon)}>
+          {icon}
+        </span>
+      )}
       {label}
     </BaseMenu.Item>
   );

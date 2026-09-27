@@ -24,6 +24,31 @@ function Accounts() {
 }
 
 describe("Table", () => {
+  it("marks a secondary column's header and cells, which narrow screens drop", () => {
+    render(
+      <Table aria-label="Keys">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead secondary>Id</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow index={0}>
+            <TableCell>laptop</TableCell>
+            <TableCell secondary>k1</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Id" }).hasAttribute("data-secondary")).toBe(
+      true,
+    );
+    expect(screen.getByRole("cell", { name: "k1" }).hasAttribute("data-secondary")).toBe(true);
+    expect(screen.getByRole("cell", { name: "laptop" }).hasAttribute("data-secondary")).toBe(false);
+  });
+
   it("is a native table with column headers and one row per item", () => {
     render(<Accounts />);
 

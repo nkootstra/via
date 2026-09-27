@@ -231,7 +231,10 @@ export function adminHandlers(state: AdminState) {
         }
 
         const id = `key-${state.keys.length + 1}`;
-        state.keys = [...state.keys, { id, name, createdAt: "2026-09-27T12:00:00.000Z" }];
+        state.keys = [
+          ...state.keys,
+          { id, name, createdAt: "2026-09-27T12:00:00.000Z", lastUsedAt: null },
+        ];
 
         return ok(keys.endpoints.create, { id, name, key: `via-sk-${id}-0123456789abcdef` }, 201);
       }),

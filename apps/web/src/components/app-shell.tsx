@@ -136,7 +136,7 @@ function SignOut() {
 
   return (
     <Button
-      variant="ghost"
+      variant="ghost-destructive"
       size="compact"
       loading={mutation.isPending}
       aria-label="Sign out"

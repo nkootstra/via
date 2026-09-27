@@ -527,7 +527,30 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           const response = yield* via.get("/admin/keys", adminKey);
           expect(response.status).toBe(200);
           expect(yield* response.json).toEqual([
-            { id: expect.any(String), name: "test", createdAt: expect.any(String) },
+            {
+              id: expect.any(String),
+              name: "test",
+              createdAt: expect.any(String),
+              lastUsedAt: null,
+            },
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("lists when a client key was last used on /v1", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* TestClock.adjust("1 hour");
+          yield* via.get("/v1/models");
+          const usedAt = new Date(yield* Clock.currentTimeMillis).toISOString();
+          yield* TestClock.adjust("5 minutes");
+
+          expect(yield* (yield* via.get("/admin/keys", adminKey)).json).toEqual([
+            expect.objectContaining({ name: "test", lastUsedAt: usedAt }),
           ]);
         }),
       { adminKey },

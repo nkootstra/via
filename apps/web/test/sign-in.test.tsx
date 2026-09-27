@@ -98,7 +98,9 @@ describe("the session", () => {
   it("signs out and forgets the session", async () => {
     const { state, user, router } = renderApp("/");
 
-    await user.click(await screen.findByRole("button", { name: "Sign out" }));
+    const signOut = await screen.findByRole("button", { name: "Sign out" });
+    expect(signOut.getAttribute("data-variant")).toBe("ghost-destructive");
+    await user.click(signOut);
 
     await waitFor(() => expect(router.history.location.pathname).toBe("/ui/sign-in"));
     expect(state.signedIn).toBe(false);

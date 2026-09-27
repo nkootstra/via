@@ -9,7 +9,7 @@ import * as stylex from "@stylexjs/stylex";
 import { AnimatePresence, motion } from "motion/react";
 import { useCallback, useRef, useState, type PointerEvent, type RefObject } from "react";
 import { spring } from "./springs.ts";
-import { colors } from "./tokens.stylex.ts";
+import { colors, durations } from "./tokens.stylex.ts";
 
 export interface ItemRect {
   readonly top: number;
@@ -146,19 +146,25 @@ const styles = stylex.create({
     left: 0,
     pointerEvents: "none",
     backgroundColor: colors.hover,
+    transitionProperty: "background-color",
+    transitionDuration: durations.fast,
   },
+  destructive: { backgroundColor: colors.destructiveSurface },
 });
 
 /**
  * The overlay: pinned to the container's corner and moved by transform, so
  * travel runs on the compositor. It fades in where it first lands and out
- * when nothing is lit.
+ * when nothing is lit. Over a destructive item it takes the red tint, and
+ * fades back to neutral as it glides off it.
  */
 export function FluidHighlight({
   rect,
+  destructive = false,
   xstyle,
 }: {
   readonly rect: ItemRect | null;
+  readonly destructive?: boolean;
   readonly xstyle?: stylex.StyleXStyles;
 }) {
   return (
@@ -166,7 +172,11 @@ export function FluidHighlight({
       {rect !== null && (
         <motion.div
           aria-hidden="true"
-          className={stylex.props(styles.highlight, xstyle).className}
+          data-highlight=""
+          data-destructive={destructive ? "" : undefined}
+          className={
+            stylex.props(styles.highlight, destructive && styles.destructive, xstyle).className
+          }
           initial={{
             opacity: 0,
             x: rect.left,

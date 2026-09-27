@@ -202,6 +202,18 @@ function Gallery() {
             Disabled
           </Button>
         </div>
+        <div {...stylex.props(styles.row)}>
+          <Button variant="destructive">Revoke key</Button>
+          <Button variant="destructive" size="compact">
+            Revoke
+          </Button>
+          <Button variant="destructive" loading>
+            Removing
+          </Button>
+          <Button variant="ghost-destructive" size="compact">
+            Sign out
+          </Button>
+        </div>
       </Section>
 
       <Section title="Badge">
@@ -290,7 +302,7 @@ function Gallery() {
               <MenuItem label="Disable" />
               <MenuItem label="Log in again" disabled />
               <MenuSeparator />
-              <MenuItem label="Remove" />
+              <MenuItem label="Remove" icon={<XIcon size={15} />} destructive />
             </MenuContent>
           </Menu>
 
@@ -320,7 +332,7 @@ function Gallery() {
               </DialogHeader>
               <DialogFooter>
                 <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-                <DialogClose render={<Button>Revoke key</Button>} />
+                <DialogClose render={<Button variant="destructive">Revoke key</Button>} />
               </DialogFooter>
             </AlertDialogContent>
           </AlertDialog>
