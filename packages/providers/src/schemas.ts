@@ -23,3 +23,19 @@ export const ProviderUsage = Schema.Union([
 ]);
 
 export type ProviderUsage = typeof ProviderUsage.Type;
+
+/**
+ * Whether a provider has budget left: available, exhausted until a used-up
+ * window resets (and which window), or unavailable when its usage can't be read.
+ */
+export const ProviderState = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("available") }),
+  Schema.Struct({
+    status: Schema.Literal("exhausted"),
+    until: Schema.String,
+    window: Schema.String,
+  }),
+  Schema.Struct({ status: Schema.Literal("unavailable"), reason: Schema.String }),
+]);
+
+export type ProviderState = typeof ProviderState.Type;
