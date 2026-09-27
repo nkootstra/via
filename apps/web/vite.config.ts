@@ -21,4 +21,8 @@ export default defineConfig({
     strictPort: true,
     proxy: { "/admin": { target: process.env["VIA_DEV_ADMIN_URL"] ?? "http://127.0.0.1:8317" } },
   },
+  // Start prerenders the shell through a preview server it then fetches from.
+  // On "localhost" that server and the fetch can each pick a different address,
+  // as in a Docker build, and the fetch is refused; one address suits both.
+  preview: { host: "127.0.0.1" },
 });
