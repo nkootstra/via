@@ -5,7 +5,9 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./tokens.stylex": "./src/tokens.stylex.ts"
+    "./tokens.stylex": "./src/tokens.stylex.ts",
+    "./stylex-plugin": "./stylex-plugin.ts",
+    "./theme-plugin": "./theme-plugin.ts"
   },
   "scripts": {
     "preview": "vite --config preview/vite.config.ts",

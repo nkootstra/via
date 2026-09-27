@@ -1,7 +1,13 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "categories": { "correctness": "error", "suspicious": "warn" },
-  "ignorePatterns": ["dist", "node_modules", ".claude/**", "tools/oxlint/anti-slop/**"],
+  "ignorePatterns": [
+    "dist",
+    "node_modules",
+    ".claude/**",
+    "tools/oxlint/anti-slop/**",
+    "apps/web/src/routeTree.gen.ts"
+  ],
   "jsPlugins": [
     { "name": "anti-slop", "specifier": "./tools/oxlint/anti-slop/index.ts" },
     { "name": "anti-slop-effect", "specifier": "./tools/oxlint/anti-slop/effect/index.ts" }
@@ -33,9 +39,9 @@
   },
   "overrides": [
     {
-      // The React UI: its correctness rules (hooks included) and accessibility
+      // The React UI and the admin app: their correctness rules (hooks included) and accessibility
       // checks on top of everything above, anti-slop included.
-      "files": ["packages/ui/**"],
+      "files": ["packages/ui/**", "apps/web/**"],
       "plugins": ["react", "jsx-a11y"],
       "rules": {
         // Only the classic JSX runtime needs React in scope; the tsconfig uses

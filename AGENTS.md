@@ -66,6 +66,12 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 ## Layout
 
 - `apps/cli`: the `via` binary (`effect/unstable/cli`); the composition root.
+- `apps/web`: the admin web UI, a static React SPA (TanStack Start in SPA
+  mode, TanStack Query, `@via/ui`) that via serves at `/ui`. It is browser
+  React: Effect is used only at its API boundary (`src/api`, a typed client of
+  `@via/server/admin-api`), and `Promise` only where TanStack Query or the
+  router expects one. Every other rule still applies. Its tests use plain
+  `vitest` with happy-dom, Testing Library and MSW standing in for `/admin`.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
   `codex-upstream`, `account-pool`, `providers`, `translate`, `server`).
   Create a package only when the first test needs it.

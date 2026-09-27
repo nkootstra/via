@@ -5,6 +5,10 @@
       "dependsOn": ["^build"],
       "outputs": ["dist/**"]
     },
+    "@via/web#build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
     "@via/npm#build": {
       "dependsOn": ["^build"],
       "inputs": [

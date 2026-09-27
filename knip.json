@@ -5,6 +5,9 @@
     "npm": {
       "entry": ["via/bin/via.js"]
     },
+    "apps/web": {
+      "entry": ["src/router.tsx", "src/routes/**/*.tsx"]
+    },
     "packages/ui": {
       "entry": ["test/build-fixture/main.tsx"],
       "includeEntryExports": false
