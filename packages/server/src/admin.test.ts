@@ -1,6 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { type CodexRequest, reply } from "@via/codex-upstream/testing";
+import { Clock, Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { type Via, ok, withVia } from "./testing/harness.ts";
 import { LoginNotFoundError } from "./admin-api.ts";
@@ -50,6 +51,18 @@ const settled = (via: Via, id: string) =>
     }),
   );
 
+/** Codex rate-limits account "a" for two minutes, and answers account "b" with a 401. */
+const coolingAndUnauthorized = (request: CodexRequest) =>
+  request.headers["chatgpt-account-id"] === "acc-a"
+    ? reply.error(429, "", { "retry-after": "120" })
+    : reply.error(401, "");
+
+/** Codex rate-limits account "a" for two minutes, and answers account "b". */
+const coolingA = (request: CodexRequest) =>
+  request.headers["chatgpt-account-id"] === "acc-a"
+    ? reply.error(429, "", { "retry-after": "120" })
+    : ok();
+
 layer(BunFileSystem.layer)("admin API", (it) => {
   it.effect("does not exist without VIA_ADMIN_KEY", () =>
     withVia(ok, (via) =>
@@ -68,7 +81,13 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           expect(response.status).toBe(200);
           const spec = decodeSpec(yield* response.json);
           expect(Object.keys(spec.paths)).toEqual(
-            expect.arrayContaining(["/admin/accounts", "/admin/keys", "/admin/usage"]),
+            expect.arrayContaining([
+              "/admin/accounts",
+              "/admin/keys",
+              "/admin/usage",
+              "/admin/pool",
+              "/admin/models",
+            ]),
           );
           expect(Object.values(spec.components.securitySchemes)).toEqual([
             { type: "http", scheme: "bearer" },
@@ -513,6 +532,120 @@ layer(BunFileSystem.layer)("admin API", (it) => {
               },
             ],
           });
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("shows each account's pool state: cooling until when and why, or locked out", () =>
+    withVia(
+      coolingAndUnauthorized,
+      (via) =>
+        Effect.gen(function* () {
+          const now = yield* Clock.currentTimeMillis;
+          yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+          const response = yield* via.get("/admin/pool", adminKey);
+          expect(response.status).toBe(200);
+          expect(yield* response.json).toEqual([
+            {
+              id: expect.any(String),
+              label: "a@example.com",
+              enabled: true,
+              state: {
+                status: "cooling",
+                until: new Date(now + 120_000).toISOString(),
+                reason: expect.any(String),
+              },
+            },
+            {
+              id: expect.any(String),
+              label: "b@example.com",
+              enabled: true,
+              state: { status: "auth_error", reason: "unauthorized" },
+            },
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("shows an account whose cooldown has run out as available", () =>
+    withVia(
+      coolingA,
+      (via) =>
+        Effect.gen(function* () {
+          yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+          yield* TestClock.adjust("2 minutes");
+          expect(yield* (yield* via.get("/admin/pool", adminKey)).json).toEqual([
+            {
+              id: expect.any(String),
+              label: "a@example.com",
+              enabled: true,
+              state: { status: "available" },
+            },
+            {
+              id: expect.any(String),
+              label: "b@example.com",
+              enabled: true,
+              state: { status: "available" },
+            },
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("shows a disabled account in the pool as disabled", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* via.patch(
+            `/admin/accounts/${yield* accountId(via, "a")}`,
+            { enabled: false },
+            adminKey,
+          );
+          const pool = yield* (yield* via.get("/admin/pool", adminKey)).json;
+          expect(pool).toEqual([
+            expect.objectContaining({ label: "a@example.com", enabled: false }),
+            expect.objectContaining({ label: "b@example.com", enabled: true }),
+          ]);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("lists the models /v1/models lists", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.get("/admin/models", adminKey);
+          expect(response.status).toBe(200);
+
+          const listed = yield* Schema.decodeUnknownEffect(
+            Schema.Struct({ data: Schema.Array(Schema.Json) }),
+          )(yield* (yield* via.get("/v1/models")).json);
+
+          const models = yield* response.json;
+          expect(models).toEqual(listed.data);
+          expect(models).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ id: "gpt-6-astra", owned_by: "openai" }),
+            ]),
+          );
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("keeps the pool and the models behind the admin key", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.get("/admin/pool", null)).status).toBe(401);
+          expect((yield* via.get("/admin/models")).status).toBe(401);
         }),
       { adminKey },
     ),

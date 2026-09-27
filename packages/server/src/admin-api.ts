@@ -71,6 +71,28 @@ const Usage = Schema.Struct({
   providers: Schema.Array(ProviderUsage),
 });
 
+/** Whether the pool hands an account out: available, cooling down until when and why, or locked out. */
+const PoolAccountState = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("available") }),
+  Schema.Struct({
+    status: Schema.Literal("cooling"),
+    until: Schema.String,
+    reason: Schema.String,
+  }),
+  Schema.Struct({ status: Schema.Literal("auth_error"), reason: Schema.String }),
+]);
+
+/** An account as the pool sees it. */
+const PoolAccount = Schema.Struct({
+  id: Schema.String,
+  label: Schema.String,
+  enabled: Schema.Boolean,
+  state: PoolAccountState,
+});
+
+/** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
+const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
+
 /** No login with this id was started since the server did; the admin API answers it as a 404. */
 export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()(
   "LoginNotFoundError",
@@ -154,12 +176,24 @@ class UsageGroup extends HttpApiGroup.make("usage")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
+class PoolGroup extends HttpApiGroup.make("pool")
+  .add(HttpApiEndpoint.get("get", "/pool", { success: Schema.Array(PoolAccount) }))
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
+class ModelsGroup extends HttpApiGroup.make("models")
+  .add(HttpApiEndpoint.get("list", "/models", { success: Schema.Array(Model) }))
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
 export class AdminApi extends HttpApi.make("via-admin")
   .add(AccountsGroup)
   .add(KeysGroup)
   .add(UsageGroup)
+  .add(PoolGroup)
+  .add(ModelsGroup)
   .annotate(OpenApi.Title, "via admin API")
   .annotate(
     OpenApi.Description,
-    "Manages the ChatGPT accounts and client API keys of a via server, and reports their usage.",
+    "Manages the ChatGPT accounts and client API keys of a via server, and reports their usage, their state in the pool and the models it serves.",
   ) {}

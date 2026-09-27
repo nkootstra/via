@@ -192,6 +192,8 @@ page at `/admin/docs`, where you can also try the routes out. API keys from
 | `POST /admin/accounts/logins`     | Start a device-code login.                                |
 | `GET /admin/accounts/logins/<id>` | Check on a login: `pending`, `added` or `failed`.         |
 | `GET /admin/usage`                | How much of each account's and provider's limits is used. |
+| `GET /admin/pool`                 | Each account's state in the pool (see below).             |
+| `GET /admin/models`               | The models `/v1/models` lists.                            |
 | `GET /admin/keys`                 | List API keys, never the keys themselves.                 |
 | `POST /admin/keys`                | Create a key from `{"name": "..."}`. It is returned once. |
 | `DELETE /admin/keys/<id-or-name>` | Revoke a key.                                             |
@@ -215,6 +217,12 @@ curl -H "Authorization: Bearer $VIA_ADMIN_KEY" http://127.0.0.1:8317/admin/accou
 
 A login fails if it isn't approved within 15 minutes. Logins in progress are
 kept in memory, so restarting via cancels them.
+
+`GET /admin/pool` lists every account with its `id`, `label`, `enabled` and a
+`state`: `{"status":"available"}`, `{"status":"cooling","until":"<ISO time>","reason":"..."}`
+while Codex has it rate-limited, or `{"status":"auth_error","reason":"..."}` once
+Codex rejects its tokens even after a refresh, until you log in to it again. A
+disabled account keeps its state but isn't used.
 
 ## Commands
 

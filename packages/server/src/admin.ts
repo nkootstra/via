@@ -2,10 +2,12 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import { type Account, AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
 import { Providers } from "@via/providers";
-import { Effect, Layer, Redacted, Schema } from "effect";
+import { Clock, Effect, Layer, Redacted, Schema } from "effect";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
 import { accountUsage } from "@via/account-pool";
+import { type PoolState, PoolStates } from "@via/pool";
 import { AdminApi, AdminAuthorization, Unauthorized } from "./admin-api.ts";
+import { ModelCatalog } from "./catalog.ts";
 import { Logins } from "./logins.ts";
 
 /** The admin key (`VIA_ADMIN_KEY`) is set, but too short to withstand guessing. */
@@ -158,6 +160,47 @@ const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
   ),
 );
 
+/** Account `id`'s state in `state` at `now`: a cooldown that has run out counts as available. */
+const poolState = (state: PoolState, id: string, now: number) => {
+  const current = state[id];
+
+  if (current === undefined || (current.status === "cooling" && current.until <= now))
+    return { status: "available" as const };
+
+  return current.status === "cooling"
+    ? {
+        status: current.status,
+        until: new Date(current.until).toISOString(),
+        reason: current.reason,
+      }
+    : current;
+};
+
+const pool = HttpApiBuilder.group(AdminApi, "pool", (handlers) =>
+  handlers.handle("get", () =>
+    Effect.gen(function* () {
+      const all = yield* (yield* AccountStore).list.pipe(
+        // The account files are via's own; one it can't read is a bug, not a request error.
+        Effect.orDie,
+      );
+
+      const state = yield* (yield* PoolStates).get;
+      const now = yield* Clock.currentTimeMillis;
+
+      return all.map(({ id, label, enabled }) => ({
+        id,
+        label,
+        enabled,
+        state: poolState(state, id, now),
+      }));
+    }),
+  ),
+);
+
+const models = HttpApiBuilder.group(AdminApi, "models", (handlers) =>
+  handlers.handle("list", () => Effect.flatMap(ModelCatalog, (catalog) => catalog.list)),
+);
+
 /**
  * The reference page shows the spec and nothing else: system fonts rather than
  * Scalar's web fonts, and no API client or developer toolbar. Effect's
@@ -185,7 +228,7 @@ export const adminRoutes = (adminKey: Redacted.Redacted<string> | undefined) =>
 
       return Layer.merge(
         HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
-          Layer.provide([accounts, keys, usage]),
+          Layer.provide([accounts, keys, usage, pool, models]),
           Layer.provide([authorization(adminKey), Logins.layer]),
         ),
         // Scalar's script is served inline rather than from a CDN: the page is where
