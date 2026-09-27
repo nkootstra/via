@@ -1,9 +1,11 @@
 import { type Account, AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
 import { CodexUpstream, type UsageWindow } from "@via/codex-upstream";
 import { loadConfig } from "@via/config";
+import { Providers } from "@via/providers";
 import { Console, Effect, Layer } from "effect";
 import { Argument, Command } from "effect/unstable/cli";
 import { codexUpstream } from "./upstream.ts";
+import { version } from "./version.ts";
 
 const accountArg = Argument.String("account").pipe(
   Argument.withDescription("Account id, label or email"),
@@ -36,13 +38,32 @@ const list = Command.make("list", {}, () =>
 const pad = (n: number) => String(n).padStart(2, "0");
 
 /** A window as `5h    12% used  resets 2023-11-14 23:13`, in local time. */
-const formatWindow = ({ windowMinutes, usedPercent, resetsAt }: UsageWindow) => {
-  const length = windowMinutes % 1440 === 0 ? `${windowMinutes / 1440}d` : `${windowMinutes / 60}h`;
-  const at = new Date(resetsAt);
-  const date = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
-  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}`;
-  return `  ${length.padEnd(4)} ${String(usedPercent).padStart(3)}% used  resets ${date} ${time}`;
+const usageLine = (name: string, usedPercent: number, resetsAt: Date) => {
+  const date = `${resetsAt.getFullYear()}-${pad(resetsAt.getMonth() + 1)}-${pad(resetsAt.getDate())}`;
+  const time = `${pad(resetsAt.getHours())}:${pad(resetsAt.getMinutes())}`;
+  return `  ${name.padEnd(4)} ${String(usedPercent).padStart(3)}% used  resets ${date} ${time}`;
 };
+
+const formatWindow = ({ windowMinutes, usedPercent, resetsAt }: UsageWindow) =>
+  usageLine(
+    windowMinutes % 1440 === 0 ? `${windowMinutes / 1440}d` : `${windowMinutes / 60}h`,
+    usedPercent,
+    new Date(resetsAt),
+  );
+
+/** Each configured provider that reports usage, such as OpenCode Go, with its windows. */
+const showProviderUsage = Effect.gen(function* () {
+  for (const usage of yield* (yield* Providers).usage) {
+    yield* Console.log(usage.provider);
+    if ("error" in usage) {
+      yield* Console.log(`  ${usage.error}`);
+      continue;
+    }
+    for (const { window, usedPercent, resetsAt } of usage.windows) {
+      yield* Console.log(usageLine(window, usedPercent, new Date(resetsAt)));
+    }
+  }
+});
 
 const showUsage = Effect.fnUntraced(function* (account: Account) {
   yield* Console.log(describe(account));
@@ -65,12 +86,22 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
     Effect.gen(function* () {
       const config = yield* loadConfig(configPath);
       const accounts = yield* (yield* AccountStore).list;
-      if (accounts.length === 0) return yield* Console.log(noAccounts);
+      if (accounts.length === 0) yield* Console.log(noAccounts);
       yield* Effect.forEach(accounts, showUsage, { discard: true }).pipe(
         Effect.provide(Layer.mergeAll(AccountTokens.layer, codexUpstream(config, upstreamBaseUrl))),
       );
+      yield* showProviderUsage.pipe(
+        Effect.provide(Providers.layer(config.providers, version)),
+        // A provider that can't be set up, e.g. for a missing API key, says so here.
+        Effect.catchTags({
+          MissingApiKeyError: (error) => Console.log(error.message),
+          UnknownProviderError: (error) => Console.log(error.message),
+        }),
+      );
     }),
-  ).pipe(Command.withDescription("Show how much of its rate limits each account has used"));
+  ).pipe(
+    Command.withDescription("Show how much of its rate limits each account and provider has used"),
+  );
 
 const remove = Command.make("remove", { account: accountArg }, ({ account }) =>
   Effect.gen(function* () {

@@ -2,6 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type FakeIssuerOptions, fakeIssuer, jwt } from "@via/codex-auth/testing";
 import { startFakeCodex } from "@via/codex-upstream/testing";
+import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import { Effect, FileSystem, Layer } from "effect";
 import { HttpServer } from "effect/unstable/http";
 import { runVia, tempHome } from "./helpers.ts";
@@ -18,6 +19,7 @@ const withVia = <A, E, R>(
   ) => Effect.Effect<A, E, R>,
   usageStatus?: number,
   issuerOptions?: FakeIssuerOptions,
+  extraEnv: Record<string, string> = {},
 ) =>
   Effect.gen(function* () {
     const home = yield* tempHome;
@@ -31,8 +33,18 @@ const withVia = <A, E, R>(
       ),
       VIA_CODEX_BASE_URL: codex.url,
       TZ: "UTC",
+      ...extraEnv,
     };
     return yield* body((...args) => runVia(home, args, env), home);
+  });
+
+/** Configures OpenCode Go in `home`'s config.yaml, served by `provider`, keyed by GO_KEY. */
+const configureOpenCodeGo = (home: string, provider: FakeProvider) =>
+  Effect.gen(function* () {
+    yield* (yield* FileSystem.FileSystem).writeFileString(
+      `${home}/config.yaml`,
+      `providers:\n  opencode-go:\n    baseUrl: ${provider.url}\n    apiKeyEnv: GO_KEY\n`,
+    );
   });
 
 /** Writes an account straight into `home`'s auth dir, with an already-expired access token. */
@@ -166,5 +178,49 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
         undefined,
         { refreshResponse: { status: 500, body: {} } },
       ),
+  );
+
+  it.effect("status also shows the usage of providers that report it", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      provider.usage({
+        usage: {
+          rolling: { status: "ok", percent: 0, resetsAt: "2026-09-26T23:40:07.697Z" },
+          weekly: { status: "ok", percent: 26, resetsAt: "2026-09-28T00:00:00.000Z" },
+        },
+      });
+      yield* withVia(
+        (via, home) =>
+          Effect.gen(function* () {
+            yield* configureOpenCodeGo(home, provider);
+            yield* via("accounts", "add");
+            const status = yield* via("accounts", "status");
+            expect(status.exitCode).toBe(0);
+            expect(status.stdout).toMatch(/5h\s+12% used/);
+            expect(status.stdout).toMatch(/^opencode-go$/m);
+            expect(status.stdout).toMatch(/rolling\s+0% used\s+resets 2026-09-26 23:40/);
+            expect(status.stdout).toMatch(/weekly\s+26% used\s+resets 2026-09-28 00:00/);
+          }),
+        undefined,
+        undefined,
+        { GO_KEY: "sk-go" },
+      );
+    }),
+  );
+
+  it.effect("status says when a provider's API key is not set", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      yield* withVia((via, home) =>
+        Effect.gen(function* () {
+          yield* configureOpenCodeGo(home, provider);
+          yield* via("accounts", "add");
+          const status = yield* via("accounts", "status");
+          expect(status.exitCode).toBe(0);
+          expect(status.stdout).toMatch(/5h\s+12% used/);
+          expect(status.stdout).toContain("reads its API key from GO_KEY, which is not set");
+        }),
+      );
+    }),
   );
 });
