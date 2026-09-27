@@ -96,15 +96,21 @@ const isTerminal = (event: typeof StreamEvent.Type) =>
   isCompleted(event) || isFailed(event) || isIncomplete(event);
 
 type State = {
-  readonly envelope: { id: string; object: string; created: number; model: string };
+  /** The chunk envelope as JSON, left open for the fields that follow it. */
+  readonly envelope: string;
   /** The chat tool call index of each function call, by Responses output index. */
   readonly toolIndex: ReadonlyMap<number, number>;
   /** Whether the response reached a terminal event. */
   readonly ended: boolean;
 };
 
+// Every chunk shares the envelope, so it is serialized once per response
+// rather than spread into and stringified with each chunk.
+const envelope = (id: string, created: number, model: string) =>
+  JSON.stringify({ id, object: "chat.completion.chunk", created, model }).slice(0, -1);
+
 const initial = (): State => ({
-  envelope: { id: "", object: "chat.completion.chunk", created: 0, model: "" },
+  envelope: envelope("", 0, ""),
   toolIndex: new Map(),
   ended: false,
 });
@@ -112,7 +118,7 @@ const initial = (): State => ({
 const data = (payload: Schema.Json) => `data: ${JSON.stringify(payload)}\n\n`;
 
 const chunk = (state: State, delta: Schema.JsonObject, reason: string | null = null) =>
-  data({ ...state.envelope, choices: [{ index: 0, delta, finish_reason: reason }] });
+  `data: ${state.envelope},"choices":[{"index":0,"delta":${JSON.stringify(delta)},"finish_reason":${JSON.stringify(reason)}}]}\n\n`;
 
 // Chat Completions has no failure event; clients such as the openai SDK raise
 // an `error` payload sent in place of a chunk.
@@ -136,7 +142,7 @@ export const toChatStream = <E>(
   const step = (state: State, event: typeof StreamEvent.Type): readonly [State, Array<string>] => {
     if (isCreated(event)) {
       const { id, created_at, model } = event.response;
-      const next = { ...state, envelope: { ...state.envelope, id, created: created_at, model } };
+      const next = { ...state, envelope: envelope(id, created_at, model) };
 
       return [next, [chunk(next, { role: "assistant", content: "" })]];
     }
@@ -189,7 +195,7 @@ export const toChatStream = <E>(
   const finish = (state: State, reason: string, usage: typeof Usage.Type | undefined) => [
     chunk(state, {}, reason),
     ...(options.includeUsage && usage !== undefined
-      ? [data({ ...state.envelope, choices: [], usage: chatUsage(usage) })]
+      ? [`data: ${state.envelope},"choices":[],"usage":${JSON.stringify(chatUsage(usage))}}\n\n`]
       : []),
     "data: [DONE]\n\n",
   ];
