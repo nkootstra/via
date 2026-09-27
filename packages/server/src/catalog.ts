@@ -1,7 +1,7 @@
 import { type CatalogModel, CodexUpstream, modelIds, resolveAlias } from "@via/codex-upstream";
 import { type ProviderModel, Providers } from "@via/providers";
 import { Array, Clock, Context, Duration, Effect, Layer, Option, Ref, Semaphore } from "effect";
-import { usableAccounts } from "./accounts.ts";
+import { AccountPool } from "./account-pool.ts";
 
 /** A model object with only what via knows about the model. */
 const entry = (id: string, ownedBy: string) => ({
@@ -121,9 +121,10 @@ export class ModelCatalog extends Context.Service<
     ModelCatalog,
     Effect.gen(function* () {
       const codex = yield* CodexUpstream;
+      const pool = yield* AccountPool;
       const providerModels = yield* stale((yield* Providers).models, "5 minutes");
 
-      const ask = usableAccounts.pipe(
+      const ask = pool.usable.pipe(
         Effect.flatMap((accounts) =>
           Effect.forEach(
             accounts,

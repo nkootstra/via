@@ -1,15 +1,8 @@
-import { AccountTokens } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
-import { classify, PoolStates, retryAfter, Verdict } from "@via/pool";
+import { classify, Verdict } from "@via/pool";
 import { Clock, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
-import {
-  accountsAllowed,
-  coolDown,
-  lockOut,
-  nextAccount,
-  setAsideOnFailedRefresh,
-} from "./accounts.ts";
+import { AccountPool } from "./account-pool.ts";
 import { ModelCatalog } from "./catalog.ts";
 import { openAiError } from "./openai-error.ts";
 import { RequestLog } from "./request-log.ts";
@@ -45,9 +38,8 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     upstream: HttpClientResponse.HttpClientResponse,
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
 ) {
-  const tokens = yield* AccountTokens;
+  const pool = yield* AccountPool;
   const codex = yield* CodexUpstream;
-  const states = yield* PoolStates;
   const log = yield* RequestLog;
   const bindings = yield* SessionBindings;
 
@@ -66,13 +58,11 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
   const preferred = yield* bindings.get(session);
 
   while (true) {
-    const next = yield* nextAccount(allowed, preferred);
+    const next = yield* pool.next(allowed, preferred);
     const now = yield* Clock.currentTimeMillis;
 
     if (Option.isNone(next)) {
-      return yield* noAccountLeft(
-        retryAfter(yield* accountsAllowed(allowed), yield* states.get, now),
-      );
+      return yield* noAccountLeft(yield* pool.waitFor(allowed));
     }
 
     const account = next.value;
@@ -99,19 +89,17 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     const verdict = classify(rejected.rejection, now);
 
     if (Verdict.$is("Cooldown")(verdict)) {
-      yield* coolDown(account, verdict.until, verdict.reason);
+      yield* pool.coolDown(account, verdict.until, verdict.reason);
       continue;
     }
 
     if (Verdict.$is("Unauthorized")(verdict)) {
       if (refreshed.has(account.id)) {
         // Codex rejects its token even after a refresh.
-        yield* lockOut(account, "unauthorized");
+        yield* pool.lockOut(account, "unauthorized");
       } else {
         refreshed.add(account.id);
-        yield* tokens
-          .refreshRejected(account.id, account.accessToken)
-          .pipe(setAsideOnFailedRefresh(account));
+        yield* pool.refreshRejected(account);
       }
 
       continue;

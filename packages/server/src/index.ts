@@ -1,5 +1,6 @@
 import { Effect, Layer, type Redacted } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { AccountPool } from "./account-pool.ts";
 import { adminRoutes } from "./admin.ts";
 import { chatCompletions } from "./chat-completions.ts";
 import { ModelCatalog } from "./catalog.ts";
@@ -28,5 +29,8 @@ export const ViaServer = {
       // One line per request from `logRequest`, instead of Effect's; `via serve`
       // announces the address itself.
       { disableLogger: true, disableListenLog: true, middleware: logRequest },
-    ).pipe(Layer.provide(ModelCatalog.layer), Layer.provide(SessionBindings.layer)),
+    ).pipe(
+      Layer.provide(ModelCatalog.layer.pipe(Layer.provideMerge(AccountPool.layer))),
+      Layer.provide(SessionBindings.layer),
+    ),
 };
