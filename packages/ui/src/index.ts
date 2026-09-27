@@ -51,3 +51,5 @@ export {
 } from "./menu.tsx";
 
 export { ToastProvider, useToast } from "./toast.tsx";
+
+export { CopyField, type CopyFieldProps } from "./copy-field.tsx";
