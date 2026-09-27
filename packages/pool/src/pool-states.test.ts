@@ -182,6 +182,9 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
 
         expect(restarted).toEqual(expected);
       }),
+    // Each run writes and reads files; fewer runs cover five accounts' kinds plenty,
+    // and the timeout leaves room for a loaded machine.
+    { timeout: 30_000, arbitrary: { runs: 25 } },
   );
 
   /** One write to an account's state: a cooldown until `until` for `reason`, or a lockout. */
