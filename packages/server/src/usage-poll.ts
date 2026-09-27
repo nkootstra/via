@@ -21,9 +21,10 @@ const pollOne = (account: Account) =>
     const now = yield* Clock.currentTimeMillis;
     const decision = decideUsagePoll(windows, (yield* states.get)[account.id], now);
 
-    if (!decision.changed) return yield* Effect.logDebug(`${account.label}'s usage is unchanged`);
+    // The state may have changed since it was read; `coolDown` decides again on the latest.
+    const cooled = decision.changed && (yield* coolDown(account, decision.until, decision.reason));
 
-    yield* coolDown(account, decision.until, decision.reason);
+    if (!cooled) yield* Effect.logDebug(`${account.label}'s usage is unchanged`);
   }).pipe(
     Effect.catch((error) =>
       Effect.logDebug(`Could not poll ${account.label}'s usage: ${error.message}`),

@@ -187,11 +187,7 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
       Effect.gen(function* () {
         const currentUntil = start + POLL_MS + 100_000;
         const resetsAt = start + POLL_MS + 300_000;
-        yield* states.mark(account.id, {
-          status: "cooling",
-          until: currentUntil,
-          reason: "usage_limit_reached",
-        });
+        yield* states.coolDown(account.id, currentUntil, "usage_limit_reached");
         codex.usage("acc-a", {
           rate_limit: { primary_window: window(100, resetsAt), secondary_window: null },
         });
@@ -209,11 +205,7 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
       Effect.gen(function* () {
         const currentUntil = start + POLL_MS + 500_000;
         const resetsAt = start + POLL_MS + 100_000;
-        yield* states.mark(account.id, {
-          status: "cooling",
-          until: currentUntil,
-          reason: "usage_limit_reached",
-        });
+        yield* states.coolDown(account.id, currentUntil, "usage_limit_reached");
         codex.usage("acc-a", {
           rate_limit: { primary_window: window(100, resetsAt), secondary_window: null },
         });

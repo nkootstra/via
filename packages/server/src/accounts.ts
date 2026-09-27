@@ -4,14 +4,20 @@ import { Array, Clock, Effect, Option } from "effect";
 
 /**
  * Takes `account` out of rotation until `until` (epoch milliseconds), with a
- * warning that says why.
+ * warning that says why, unless it already is for at least that long or is
+ * locked out. Says whether it did.
  */
 export const coolDown = (account: Account, until: number, reason: string) =>
   Effect.gen(function* () {
-    yield* (yield* PoolStates).mark(account.id, { status: "cooling", until, reason });
-    yield* Effect.logWarning(
-      `${account.label} is cooling down until ${new Date(until).toISOString()} (${reason})`,
-    );
+    const cooled = yield* (yield* PoolStates).coolDown(account.id, until, reason);
+
+    if (cooled) {
+      yield* Effect.logWarning(
+        `${account.label} is cooling down until ${new Date(until).toISOString()} (${reason})`,
+      );
+    }
+
+    return cooled;
   });
 
 /** Takes `account` out of rotation until it logs in again, with a warning that says why. */
