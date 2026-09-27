@@ -17,3 +17,14 @@ export {
 } from "./dialog.tsx";
 
 export { AlertDialog, AlertDialogContent, AlertDialogTrigger } from "./alert-dialog.tsx";
+
+export {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  type TableProps,
+  type TableRowProps,
+} from "./table.tsx";
