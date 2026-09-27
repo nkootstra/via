@@ -43,8 +43,18 @@ const revoke = Command.make("revoke", { idOrName: Argument.String("id-or-name") 
   }),
 ).pipe(Command.withDescription("Revoke an API key by id or name"));
 
+const rename = Command.make(
+  "rename",
+  { idOrName: Argument.String("id-or-name"), name: Argument.String("new-name") },
+  ({ idOrName, name }) =>
+    Effect.gen(function* () {
+      yield* (yield* KeyStore).rename(idOrName, name);
+      yield* Console.log(`Renamed "${idOrName}" to "${name}".`);
+    }),
+).pipe(Command.withDescription("Rename an API key by id or name; the key itself is unchanged"));
+
 /** `via keys`. */
 export const keys = Command.make("keys").pipe(
   Command.withDescription("Manage API keys"),
-  Command.withSubcommands([create, list, revoke]),
+  Command.withSubcommands([create, list, rename, revoke]),
 );
