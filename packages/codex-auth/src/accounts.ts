@@ -64,9 +64,10 @@ const make = (authDir: string) => {
       );
 
     const find = Effect.fn("AccountStore.find")(function* (query: string) {
-      const match = (yield* list).find(
-        (a) => a.id === query || a.label === query || a.email === query,
-      );
+      const all = yield* list;
+      // An id is checked first, so a label that looks like another account's id can't hide it.
+      const match =
+        all.find((a) => a.id === query) ?? all.find((a) => a.label === query || a.email === query);
       return match ?? (yield* new AccountNotFoundError({ query }));
     });
 
