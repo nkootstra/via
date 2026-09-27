@@ -58,7 +58,7 @@ export const relayed = <E>(
   Effect.gen(function* () {
     const log = yield* RequestLog;
     const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
-    const body = yield* log.timed(relay(spotUsage(upstream.stream, sse, log.usage)));
+    const body = log.timed(relay(spotUsage(upstream.stream, sse, log.usage)));
 
     return HttpServerResponse.stream(body, options);
   });
