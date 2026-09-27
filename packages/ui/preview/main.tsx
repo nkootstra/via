@@ -302,7 +302,7 @@ function Gallery() {
               <MenuItem label="Disable" />
               <MenuItem label="Log in again" disabled />
               <MenuSeparator />
-              <MenuItem label="Remove" destructive />
+              <MenuItem label="Remove" icon={<XIcon size={15} />} destructive />
             </MenuContent>
           </Menu>
 

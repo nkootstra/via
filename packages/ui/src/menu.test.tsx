@@ -93,6 +93,24 @@ describe("Menu", () => {
     await waitFor(() => expect(tinted()).toBe(false));
   });
 
+  it("draws an item's icon before its label, hidden from its name", async () => {
+    const user = userEvent.setup();
+    render(
+      <Menu>
+        <MenuTrigger render={<Button variant="ghost">Actions</Button>} />
+        <MenuContent>
+          <MenuItem label="Remove" icon={<svg data-testid="trash" />} destructive />
+        </MenuContent>
+      </Menu>,
+    );
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+
+    const item = await screen.findByRole("menuitem", { name: "Remove" });
+    expect(item.textContent).toBe("Remove");
+    expect(item.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
+    expect(item.firstElementChild?.contains(screen.getByTestId("trash"))).toBe(true);
+  });
+
   it("closes on Escape", async () => {
     const user = userEvent.setup();
     render(<AccountActions onRename={vi.fn()} onRemove={vi.fn()} />);

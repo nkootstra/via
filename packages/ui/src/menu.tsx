@@ -57,6 +57,11 @@ const styles = stylex.create({
     transitionProperty: "color",
     transitionDuration: durations.fast,
   },
+  icon: {
+    display: "flex",
+    flexShrink: 0,
+    marginInlineEnd: space.s2,
+  },
   highlighted: { color: colors.foreground },
   destructive: { color: colors.destructive },
   disabled: {
@@ -162,9 +167,17 @@ export interface MenuItemProps {
   readonly disabled?: boolean;
   /** Destroys something, such as removing an account: red, and so is its highlight. */
   readonly destructive?: boolean;
+  /** A glyph before the label, in the label's colour. */
+  readonly icon?: ReactNode;
 }
 
-export function MenuItem({ label, onClick, disabled = false, destructive = false }: MenuItemProps) {
+export function MenuItem({
+  label,
+  onClick,
+  disabled = false,
+  destructive = false,
+  icon,
+}: MenuItemProps) {
   const { register, light } = use(MenuListContext);
   // The highlight finds the item by this object's identity, so it lives as long as the item.
   const key = useMemo(() => ({ destructive }), [destructive]);
@@ -187,6 +200,11 @@ export function MenuItem({ label, onClick, disabled = false, destructive = false
         ).className ?? ""
       }
     >
+      {icon !== undefined && (
+        <span aria-hidden="true" {...stylex.props(styles.icon)}>
+          {icon}
+        </span>
+      )}
       {label}
     </BaseMenu.Item>
   );
