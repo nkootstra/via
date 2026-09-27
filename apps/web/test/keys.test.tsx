@@ -115,6 +115,8 @@ describe("the keys page", () => {
     await user.type(input, "desktop");
     await user.click(within(dialog).getByRole("button", { name: "Save" }));
 
+    // By name: the "Key renamed" toast is a dialog too.
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Rename laptop" })).toBeNull());
     expect(await rowOf("desktop")).toBeDefined();
     expect(state.keys).toEqual([{ ...laptop, name: "desktop" }]);
   });
@@ -135,6 +137,7 @@ describe("the keys page", () => {
 
     expect(await within(dialog).findByText('A key named "ci" already exists.')).toBeDefined();
     expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(screen.getByRole("dialog", { name: "Rename laptop" })).toBe(dialog);
     expect(state.keys).toEqual([laptop, ci]);
   });
 
