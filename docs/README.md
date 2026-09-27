@@ -150,6 +150,11 @@ Every `/v1` route needs `Authorization: Bearer <key>` with a key from `via keys 
 
 A model named `<provider>/<model>` goes to that [provider](#providers) instead.
 
+The Codex backend refuses sampling and limit options, so via accepts and ignores
+them: `temperature`, `top_p`, `max_tokens`, `max_completion_tokens` and
+`max_output_tokens`, as well as `user`, `metadata` and `previous_response_id`.
+A refusal comes back as the chat message's `refusal`, as OpenAI sends it.
+
 `/v1/models` lists what the Codex model picker shows your accounts, combined,
 since plans offer different models. So new models appear without a via update.
 via fetches the list as it starts and answers from it at once; once it is five
