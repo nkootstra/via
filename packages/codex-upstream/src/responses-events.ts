@@ -8,6 +8,9 @@ export const ResponsesUsage = Schema.Struct({
   input_tokens_details: Schema.optionalKey(
     Schema.NullOr(Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) })),
   ),
+  output_tokens_details: Schema.optionalKey(
+    Schema.NullOr(Schema.Struct({ reasoning_tokens: Schema.optionalKey(Schema.Finite) })),
+  ),
 });
 
 /**

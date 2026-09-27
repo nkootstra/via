@@ -137,6 +137,31 @@ describe("toChatStream", () => {
     }),
   );
 
+  it.effect("reports cached and reasoning tokens in the usage chunk", () =>
+    Effect.gen(function* () {
+      const usage = {
+        ...completed.response.usage,
+        input_tokens_details: { cached_tokens: 8 },
+        output_tokens_details: { reasoning_tokens: 2 },
+      };
+
+      const events = yield* chatEvents(
+        [created, { type: "response.completed", response: { usage } }],
+        { includeUsage: true },
+      );
+
+      expect(events.at(-2)).toMatchObject({
+        usage: {
+          prompt_tokens: 12,
+          completion_tokens: 5,
+          total_tokens: 17,
+          prompt_tokens_details: { cached_tokens: 8 },
+          completion_tokens_details: { reasoning_tokens: 2 },
+        },
+      });
+    }),
+  );
+
   it.effect("finishes a response whose usage details are null, as Codex sends them", () =>
     Effect.gen(function* () {
       const usage = {
