@@ -61,8 +61,9 @@ export const runVia = (
 
 /**
  * Starts `via serve` in a subprocess that lives as long as the test's scope, and
- * succeeds with the URL it announces once it listens, and `output`, which
- * waits for a line of its stdout containing `text`.
+ * succeeds with the URL it announces once it listens; `output`, which waits for
+ * a line of its stdout containing `text`; and `stop`, which stops it and
+ * succeeds with everything it wrote to stderr.
  */
 export const startVia = (
   home: string,
@@ -111,7 +112,12 @@ export const startVia = (
           .slice(0, -1)
           .find((line) => line.includes(text)),
       ).pipe(Effect.map((line) => line ?? ""));
-    return { url, output };
+    const stop = Effect.promise(async () => {
+      proc.kill();
+      await proc.exited;
+      return new Response(proc.stderr).text();
+    });
+    return { url, output, stop };
   });
 
 /** `startVia`, for a test that needs only the URL. */

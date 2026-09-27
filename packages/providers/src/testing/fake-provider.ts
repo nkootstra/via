@@ -87,9 +87,8 @@ export const startFakeProvider = Effect.gen(function* () {
         const rest =
           ending === "hang"
             ? Stream.never
-            : Stream.fromEffect(
-                Effect.andThen(ending.drop, Effect.die("fake provider: connection dropped")),
-              );
+            : // Failing with `undefined` drops the connection without Bun printing the error.
+              Stream.fromEffect(Effect.andThen(ending.drop, Effect.fail(undefined)));
         return HttpServerResponse.stream(
           Stream.concat(Stream.make(new TextEncoder().encode(text)), rest),
           { status, contentType },

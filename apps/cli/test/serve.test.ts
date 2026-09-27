@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { fakeIssuer } from "@via/codex-auth/testing";
 import { type FakeCodex, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { providerReply, startFakeProvider } from "@via/providers/testing";
-import { Deferred, Effect, FileSystem, Layer, Schema } from "effect";
+import { Deferred, Effect, Exit, FileSystem, Layer, Schema, Stream } from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -328,6 +328,40 @@ layer(BunFileSystem.layer)("via serve", (it) => {
           expect(provider.requests[0]?.headers["authorization"]).toBe("Bearer sk-local");
         }),
       ),
+  );
+
+  it.effect("cuts off a stream the upstream broke off without printing a stack trace", () =>
+    withHome(({ home, key, env }) =>
+      Effect.gen(function* () {
+        const provider = yield* startFakeProvider;
+        const received = yield* Deferred.make<void>();
+        provider.respond(
+          providerReply.sseThenDrop('data: {"id":"chatcmpl-local"}\n\n', Deferred.await(received)),
+        );
+        yield* (yield* FileSystem.FileSystem).writeFileString(
+          `${home}/config.yaml`,
+          `providers:\n  local:\n    baseUrl: ${provider.url}\n    apiKeyEnv: LOCAL_KEY\n`,
+        );
+        const via = yield* startVia(home, ["--port", String(yield* freePort)], {
+          ...env,
+          LOCAL_KEY: "sk-local",
+        });
+        const http = yield* HttpClient.HttpClient.pipe(Effect.provide(FetchHttpClient.layer));
+        const response = yield* HttpClientRequest.post(`${via.url}/v1/chat/completions`).pipe(
+          HttpClientRequest.bearerToken(key),
+          HttpClientRequest.bodyJsonUnsafe({ model: "local/qwen3", messages: [], stream: true }),
+          http.execute,
+        );
+        const read = yield* response.stream.pipe(
+          Stream.tap(() => Deferred.succeed(received, undefined)),
+          Stream.runDrain,
+          Effect.exit,
+        );
+        // A clean end would pass the truncated answer off as complete.
+        expect(Exit.isFailure(read)).toBe(true);
+        expect(yield* via.stop).not.toContain("Decode error");
+      }),
+    ),
   );
 
   it.effect("refuses to start when a provider's API key variable is not set", () =>
