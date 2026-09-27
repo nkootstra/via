@@ -27,11 +27,13 @@ import {
 } from "@via/ui";
 import { colors, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { useState } from "react";
-import { createKey, keysQuery, revokeKey } from "../../api/admin.ts";
+import { createKey, keysQuery, renameKey, revokeKey } from "../../api/admin.ts";
 import { useLiveOptions } from "../../api/live.ts";
 import type { Key } from "../../api/types.ts";
 import { KeyIcon, PlusIcon, TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, VisuallyHidden } from "../../components/page.tsx";
+import { RenameDialog } from "../../components/rename-dialog.tsx";
+import { RowActions } from "../../components/row-actions.tsx";
 import { formatDate, formatTimestamp, timeAgo, useNow } from "../../lib/time.ts";
 
 export const Route = createFileRoute("/_app/keys")({
@@ -69,14 +71,10 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     fontVariantNumeric: "tabular-nums",
   },
-  // The button's cell hugs it at the table's right edge.
+  // The menu's button sits at the table's right edge.
   actions: {
     display: "flex",
     justifyContent: "flex-end",
-  },
-  // Narrow screens keep the trash icon and drop the word; the button's name stays.
-  revokeLabel: {
-    display: { default: "none", "@media (min-width: 640px)": "inline" },
   },
   form: {
     display: "flex",
@@ -255,7 +253,10 @@ function LastUsed({ at }: { readonly at: string | null }) {
   );
 }
 
-type Open = { readonly dialog: "create" } | { readonly dialog: "revoke"; readonly key: Key } | null;
+type Open =
+  | { readonly dialog: "create" }
+  | { readonly dialog: "rename" | "revoke"; readonly key: Key }
+  | null;
 
 const title = "Keys";
 
@@ -278,7 +279,9 @@ function Keys() {
   // While via pushes the state, the keys needn't be asked for.
   const live = useLiveOptions();
   const keys = useSuspenseQuery({ ...keysQuery, ...live });
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState<Open>(null);
+  const close = () => setOpen(null);
   const list = keys.data;
 
   const createButton = (
@@ -338,15 +341,12 @@ function Keys() {
                     </TableCell>
                     <TableCell>
                       <div {...stylex.props(styles.actions)}>
-                        <Button
-                          variant="destructive"
-                          size="compact"
-                          aria-label={`Revoke ${key.name}`}
-                          onClick={() => setOpen({ dialog: "revoke", key })}
-                        >
-                          <TrashIcon size={14} />
-                          <span {...stylex.props(styles.revokeLabel)}>Revoke</span>
-                        </Button>
+                        <RowActions
+                          name={key.name}
+                          remove="Revoke"
+                          onRename={() => setOpen({ dialog: "rename", key })}
+                          onRemove={() => setOpen({ dialog: "revoke", key })}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
@@ -357,10 +357,19 @@ function Keys() {
         </Panel>
       )}
 
-      {open?.dialog === "create" && <CreateKeyDialog onClose={() => setOpen(null)} />}
-      {open?.dialog === "revoke" && (
-        <RevokeDialog apiKey={open.key} onClose={() => setOpen(null)} />
+      {open?.dialog === "create" && <CreateKeyDialog onClose={close} />}
+      {open?.dialog === "rename" && (
+        <RenameDialog
+          thing="Key"
+          name={open.key.name}
+          field="Name"
+          description="Clients keep using the same key; only its name changes."
+          rename={(name) => renameKey(open.key.id, name)}
+          onRenamed={() => void queryClient.invalidateQueries({ queryKey: ["keys"] })}
+          onClose={close}
+        />
       )}
+      {open?.dialog === "revoke" && <RevokeDialog apiKey={open.key} onClose={close} />}
     </Page>
   );
 }

@@ -367,6 +367,33 @@ export function adminHandlers(state: AdminState) {
         return ok(keys.endpoints.create, { id, name, key: `via-sk-${id}-0123456789abcdef` }, 201);
       }),
     ),
+    http.patch<{ idOrName: string }>(
+      at("/keys/:idOrName"),
+      guarded(async ({ params, request }) => {
+        const found = state.keys.find((k) => k.id === params.idOrName);
+
+        if (found === undefined) {
+          return failure(
+            KeyNotFoundError,
+            new KeyNotFoundError({ idOrName: params.idOrName }),
+            404,
+          );
+        }
+
+        const { name } = Schema.decodeUnknownSync(Schema.Struct({ name: Schema.String }))(
+          await request.json(),
+        );
+
+        if (state.keys.some((k) => k !== found && k.name === name)) {
+          return failure(DuplicateKeyNameError, new DuplicateKeyNameError({ name }), 409);
+        }
+
+        const renamed = { ...found, name };
+        state.keys = state.keys.map((k) => (k === found ? renamed : k));
+
+        return ok(keys.endpoints.rename, renamed);
+      }),
+    ),
     http.delete<{ idOrName: string }>(
       at("/keys/:idOrName"),
       guarded(({ params }) => {

@@ -5,21 +5,12 @@ import {
   AlertDialog,
   AlertDialogContent,
   Button,
-  Dialog,
   DialogClose,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   EmptyState,
-  Field,
-  Input,
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuSeparator,
-  MenuTrigger,
   Switch,
   Table,
   TableBody,
@@ -35,8 +26,10 @@ import { opencodeGoQuery, removeOpencodeGo, updateOpencodeGo } from "../api/admi
 import { useLiveOptions } from "../api/live.ts";
 import type { OpencodeGoAccount } from "../api/types.ts";
 import { formatDate } from "../lib/time.ts";
-import { MoreIcon, ProviderLogo, EditIcon, TrashIcon } from "./icons.tsx";
+import { ProviderLogo, TrashIcon } from "./icons.tsx";
 import { Panel, VisuallyHidden } from "./page.tsx";
+import { RenameDialog } from "./rename-dialog.tsx";
+import { RowActions } from "./row-actions.tsx";
 
 const styles = stylex.create({
   scroll: { overflowX: "auto" },
@@ -63,11 +56,6 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     fontVariantNumeric: "tabular-nums",
   },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    margin: 0,
-  },
 });
 
 /** Fetches the OpenCode Go accounts and the pool again, after a change to one. */
@@ -78,63 +66,6 @@ function useChanged() {
     void queryClient.invalidateQueries({ queryKey: ["opencode-go"] });
     void queryClient.invalidateQueries({ queryKey: ["pool"] });
   };
-}
-
-function RenameDialog({
-  account,
-  onClose,
-}: {
-  readonly account: OpencodeGoAccount;
-  readonly onClose: () => void;
-}) {
-  const changed = useChanged();
-  const toast = useToast();
-  const [label, setLabel] = useState(account.label);
-
-  const mutation = useMutation({
-    mutationFn: () => updateOpencodeGo(account.id, { label: label.trim() }),
-    onSuccess: (updated) => {
-      changed();
-      toast.add({ title: "Key renamed", description: `It's now called ${updated.label}.` });
-      onClose();
-    },
-    onError: (error) =>
-      toast.add({ type: "error", title: "Couldn't rename", description: error.message }),
-  });
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <form
-          {...stylex.props(styles.form)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            mutation.mutate();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Rename {account.label}</DialogTitle>
-            <DialogDescription>
-              The label shows in usage, in the pool and in logs.
-            </DialogDescription>
-          </DialogHeader>
-          <Field label="Label">
-            <Input value={label} onValueChange={setLabel} required />
-          </Field>
-          <DialogFooter>
-            <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-            <Button
-              type="submit"
-              loading={mutation.isPending}
-              disabled={label.trim() === "" || label.trim() === account.label}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
 }
 
 function RemoveDialog({
@@ -275,40 +206,31 @@ export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNod
                   <span {...stylex.props(styles.date)}>{formatDate(account.createdAt)}</span>
                 </TableCell>
                 <TableCell>
-                  <Menu>
-                    <MenuTrigger
-                      render={
-                        <Button
-                          variant="ghost"
-                          size="icon-compact"
-                          aria-label={`Actions for ${account.label}`}
-                        >
-                          <MoreIcon size={16} />
-                        </Button>
-                      }
-                    />
-                    <MenuContent>
-                      <MenuItem
-                        label="Rename…"
-                        icon={<EditIcon size={15} />}
-                        onClick={() => setOpen({ dialog: "rename", account })}
-                      />
-                      <MenuSeparator />
-                      <MenuItem
-                        label="Remove…"
-                        icon={<TrashIcon size={15} />}
-                        destructive
-                        onClick={() => setOpen({ dialog: "remove", account })}
-                      />
-                    </MenuContent>
-                  </Menu>
+                  <RowActions
+                    name={account.label}
+                    remove="Remove"
+                    onRename={() => setOpen({ dialog: "rename", account })}
+                    onRemove={() => setOpen({ dialog: "remove", account })}
+                  />
                 </TableCell>
               </TableRow>
             ))}
           </TableBody>
         </Table>
       </div>
-      {open?.dialog === "rename" && <RenameDialog account={open.account} onClose={close} />}
+      {open?.dialog === "rename" && (
+        <RenameDialog
+          thing="Key"
+          name={open.account.label}
+          field="Label"
+          description="The label shows in usage, in the pool and in logs."
+          rename={async (label) => {
+            await updateOpencodeGo(open.account.id, { label });
+          }}
+          onRenamed={changed}
+          onClose={close}
+        />
+      )}
       {open?.dialog === "remove" && <RemoveDialog account={open.account} onClose={close} />}
     </Panel>
   );

@@ -7,21 +7,12 @@ import {
   AlertDialogContent,
   Badge,
   Button,
-  Dialog,
   DialogClose,
-  DialogContent,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
   EmptyState,
-  Field,
-  Input,
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuSeparator,
-  MenuTrigger,
   Skeleton,
   Switch,
   Table,
@@ -41,13 +32,13 @@ import { useAddAccount } from "../../components/add-account.tsx";
 import {
   AccountsIcon,
   CodexIcon,
-  MoreIcon,
   PlusIcon,
   ProviderLogo,
-  EditIcon,
   TrashIcon,
 } from "../../components/icons.tsx";
 import { OpencodeGoAccounts } from "../../components/opencode-go-accounts.tsx";
+import { RenameDialog } from "../../components/rename-dialog.tsx";
+import { RowActions } from "../../components/row-actions.tsx";
 import { Page, Panel, Section, VisuallyHidden } from "../../components/page.tsx";
 import { formatDate } from "../../lib/time.ts";
 
@@ -81,74 +72,7 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     fontVariantNumeric: "tabular-nums",
   },
-  actions: {
-    width: "1%",
-    textAlign: "right",
-  },
-  form: {
-    display: "flex",
-    flexDirection: "column",
-    margin: 0,
-  },
 });
-
-function RenameDialog({
-  account,
-  onClose,
-}: {
-  readonly account: Account;
-  readonly onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-  const [label, setLabel] = useState(account.label);
-
-  const mutation = useMutation({
-    mutationFn: () => updateAccount(account.id, { label: label.trim() }),
-    onSuccess: (updated) => {
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      void queryClient.invalidateQueries({ queryKey: ["pool"] });
-      toast.add({ title: "Account renamed", description: `It's now called ${updated.label}.` });
-      onClose();
-    },
-    onError: (error) =>
-      toast.add({ type: "error", title: "Couldn't rename", description: error.message }),
-  });
-
-  return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent>
-        <form
-          {...stylex.props(styles.form)}
-          onSubmit={(event) => {
-            event.preventDefault();
-            mutation.mutate();
-          }}
-        >
-          <DialogHeader>
-            <DialogTitle>Rename {account.label}</DialogTitle>
-            <DialogDescription>
-              The label shows in usage, in the pool and in logs.
-            </DialogDescription>
-          </DialogHeader>
-          <Field label="Label">
-            <Input value={label} onValueChange={setLabel} required />
-          </Field>
-          <DialogFooter>
-            <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-            <Button
-              type="submit"
-              loading={mutation.isPending}
-              disabled={label.trim() === "" || label.trim() === account.label}
-            >
-              Save
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function RemoveDialog({
   account,
@@ -226,11 +150,16 @@ function Accounts() {
   const [open, setOpen] = useState<Open>(null);
   const add = useAddAccount();
 
+  /** Fetches the accounts and the pool again, after a change to one. */
+  const changed = () => {
+    void queryClient.invalidateQueries({ queryKey: ["accounts"] });
+    void queryClient.invalidateQueries({ queryKey: ["pool"] });
+  };
+
   const toggle = useMutation({
     mutationFn: (account: Account) => updateAccount(account.id, { enabled: !account.enabled }),
     onSuccess: (updated) => {
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      void queryClient.invalidateQueries({ queryKey: ["pool"] });
+      changed();
       toast.add({
         title: updated.enabled ? "Account enabled" : "Account disabled",
         description: updated.enabled
@@ -302,33 +231,12 @@ function Accounts() {
                         <span {...stylex.props(styles.date)}>{formatDate(account.createdAt)}</span>
                       </TableCell>
                       <TableCell>
-                        <Menu>
-                          <MenuTrigger
-                            render={
-                              <Button
-                                variant="ghost"
-                                size="icon-compact"
-                                aria-label={`Actions for ${account.label}`}
-                              >
-                                <MoreIcon size={16} />
-                              </Button>
-                            }
-                          />
-                          <MenuContent>
-                            <MenuItem
-                              label="Rename…"
-                              icon={<EditIcon size={15} />}
-                              onClick={() => setOpen({ dialog: "rename", account })}
-                            />
-                            <MenuSeparator />
-                            <MenuItem
-                              label="Remove…"
-                              icon={<TrashIcon size={15} />}
-                              destructive
-                              onClick={() => setOpen({ dialog: "remove", account })}
-                            />
-                          </MenuContent>
-                        </Menu>
+                        <RowActions
+                          name={account.label}
+                          remove="Remove"
+                          onRename={() => setOpen({ dialog: "rename", account })}
+                          onRemove={() => setOpen({ dialog: "remove", account })}
+                        />
                       </TableCell>
                     </TableRow>
                   ))}
@@ -344,7 +252,19 @@ function Accounts() {
       </Section>
 
       {add.dialog}
-      {open?.dialog === "rename" && <RenameDialog account={open.account} onClose={close} />}
+      {open?.dialog === "rename" && (
+        <RenameDialog
+          thing="Account"
+          name={open.account.label}
+          field="Label"
+          description="The label shows in usage, in the pool and in logs."
+          rename={async (label) => {
+            await updateAccount(open.account.id, { label });
+          }}
+          onRenamed={changed}
+          onClose={close}
+        />
+      )}
       {open?.dialog === "remove" && <RemoveDialog account={open.account} onClose={close} />}
     </Page>
   );

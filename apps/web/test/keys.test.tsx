@@ -66,7 +66,7 @@ describe("the keys page", () => {
         .getAllByRole("columnheader")
         .map((header) => header.textContent),
     ).toEqual(["Name", "Id", "Created", "Last used", "Actions"]);
-    // Narrow screens drop the id and creation date, keeping the name, last use and Revoke.
+    // Narrow screens drop the id and creation date, keeping the name, last use and actions.
     expect(
       within(screen.getByRole("table", { name: "Keys" }))
         .getAllByRole("columnheader")
@@ -85,21 +85,66 @@ describe("the keys page", () => {
     expect(used.textContent).toBe("4 min ago");
   });
 
-  it("puts each key's Revoke button, in red with a trash icon, in its row's last cell", async () => {
-    renderApp("/keys", { keys: [laptop] });
+  it("gives every action in a key's menu, in its row's last cell, an icon", async () => {
+    const { user } = renderApp("/keys", { keys: [laptop] });
 
     const row = within(await rowOf("laptop"));
-    const revoke = row.getByRole("button", { name: "Revoke laptop" });
-    expect(row.getAllByRole("cell").at(-1)?.contains(revoke)).toBe(true);
-    expect(revoke.textContent).toBe("Revoke");
-    expect(revoke.getAttribute("data-variant")).toBe("destructive");
-    expect(revoke.querySelector("svg")).not.toBeNull();
+    const actions = row.getByRole("button", { name: "Actions for laptop" });
+    expect(row.getAllByRole("cell").at(-1)?.contains(actions)).toBe(true);
+    await user.click(actions);
+
+    for (const name of ["Rename…", "Revoke…"]) {
+      expect((await screen.findByRole("menuitem", { name })).querySelector("svg")).not.toBeNull();
+    }
+
+    expect(screen.getByRole("menuitem", { name: "Revoke…" }).hasAttribute("data-destructive")).toBe(
+      true,
+    );
+  });
+
+  it("renames a key", async () => {
+    const { state, user } = renderApp("/keys", { keys: [laptop] });
+
+    await user.click(
+      within(await rowOf("laptop")).getByRole("button", { name: "Actions for laptop" }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rename laptop" });
+    const input = within(dialog).getByLabelText("Name");
+    await user.clear(input);
+    await user.type(input, "desktop");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await rowOf("desktop")).toBeDefined();
+    expect(state.keys).toEqual([{ ...laptop, name: "desktop" }]);
+  });
+
+  it("says when another key already has the new name", async () => {
+    const ci = { ...laptop, id: "key-2", name: "ci" };
+    const { state, user } = renderApp("/keys", { keys: [laptop, ci] });
+
+    await user.click(
+      within(await rowOf("laptop")).getByRole("button", { name: "Actions for laptop" }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rename laptop" });
+    const input = within(dialog).getByLabelText("Name");
+    await user.clear(input);
+    await user.type(input, "ci");
+    await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+    expect(await within(dialog).findByText('A key named "ci" already exists.')).toBeDefined();
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+    expect(state.keys).toEqual([laptop, ci]);
   });
 
   it("revokes a key once the viewer confirms", async () => {
     const { state, user } = renderApp("/keys", { keys: [laptop] });
 
-    await user.click(await screen.findByRole("button", { name: "Revoke laptop" }));
+    await user.click(
+      within(await rowOf("laptop")).getByRole("button", { name: "Actions for laptop" }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Revoke…" }));
     const confirm = await screen.findByRole("alertdialog", { name: "Revoke laptop?" });
     const revoke = within(confirm).getByRole("button", { name: "Revoke key" });
     expect(revoke.getAttribute("data-variant")).toBe("destructive");
