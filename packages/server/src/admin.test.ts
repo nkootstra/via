@@ -93,6 +93,42 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("keeps the reference page to system fonts instead of Scalar's web fonts", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const page = yield* (yield* via.get("/admin/docs", null)).text;
+          expect(page).toContain(`"withDefaultFonts":false`);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("hides the reference page's Open API Client button", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const page = yield* (yield* via.get("/admin/docs", null)).text;
+          expect(page).toContain(`"hideClientButton":true`);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("hides the reference page's developer tools", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const page = yield* (yield* via.get("/admin/docs", null)).text;
+          expect(page).toContain(`"showDeveloperTools":"never"`);
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("has no spec or reference page without VIA_ADMIN_KEY", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

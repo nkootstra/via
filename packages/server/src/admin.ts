@@ -327,6 +327,18 @@ const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
 );
 
 /**
+ * The reference page shows the spec and nothing else: system fonts rather than
+ * Scalar's web fonts, and no API client or developer toolbar. Effect's
+ * `ScalarConfig` type lacks the last two options, but it hands every key to
+ * Scalar, whose bundled version supports them.
+ */
+const scalarConfig = {
+  withDefaultFonts: false,
+  hideClientButton: true,
+  showDeveloperTools: "never",
+};
+
+/**
  * The admin API under `/admin`, behind `VIA_ADMIN_KEY`. Without that key the
  * routes are not registered at all, so `/admin` answers 404 like any unknown path.
  * Its OpenAPI spec and a Scalar reference page for it need no key.
@@ -347,7 +359,7 @@ export const adminRoutes = Layer.unwrap(
       ),
       // Scalar's script is served inline rather than from a CDN: the page is where
       // the admin key gets typed in, so it runs no third-party code.
-      HttpApiScalar.layer(AdminApi, { path: "/admin/docs" }),
+      HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }),
     );
   }),
 );
