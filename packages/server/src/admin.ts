@@ -146,13 +146,7 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
     return handlers
       .handle("list", () => adminAccounts)
       .handle("login", () => logins.start())
-      .handle("loginStatus", ({ params }) =>
-        Effect.map(logins.status(params.id), (login) =>
-          login.status === "added" || login.status === "updated"
-            ? { status: login.status, account: withoutTokens(login.account) }
-            : login,
-        ),
-      )
+      .handle("loginStatus", ({ params }) => logins.status(params.id))
       .handle("update", ({ params, payload }) =>
         Effect.gen(function* () {
           const store = yield* AccountStore;

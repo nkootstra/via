@@ -199,6 +199,13 @@ export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()
   { id: Schema.String },
 ) {}
 
+/** Too many logins are waiting for approval; the admin API refuses another until one ends. */
+export class TooManyLoginsError extends Schema.TaggedError<TooManyLoginsError>()(
+  "TooManyLoginsError",
+  { message: Schema.String },
+  { httpApiStatus: 429 },
+) {}
+
 export class Unauthorized extends Schema.TaggedError<Unauthorized>()(
   "Unauthorized",
   { message: Schema.String },
@@ -265,7 +272,7 @@ class AccountsGroup extends HttpApiGroup.make("accounts")
   .add(
     HttpApiEndpoint.post("login", "/accounts/logins", {
       success: StartedLogin.pipe(HttpApiSchema.status(201)),
-      error: AuthRequestError.pipe(HttpApiSchema.status(502)),
+      error: [AuthRequestError.pipe(HttpApiSchema.status(502)), TooManyLoginsError],
     }),
   )
   .add(
