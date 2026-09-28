@@ -1,7 +1,15 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Rejection } from "@via/pool";
-import { Effect, Layer } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { BunHttpServer } from "@effect/platform-bun";
+import { Deferred, type Duration, Effect, Fiber, Layer } from "effect";
+import { TestClock } from "effect/testing";
+import {
+  FetchHttpClient,
+  HttpClient,
+  HttpClientResponse,
+  HttpRouter,
+  HttpServer,
+} from "effect/unstable/http";
 import { CodexUpstream, type ResponsesBody } from "./index.ts";
 import { reply, type Reply, startFakeCodex } from "./testing/index.ts";
 
@@ -172,4 +180,61 @@ describe("CodexUpstream", () => {
       ]);
     }),
   );
+});
+
+/** A server that takes every request and never answers; `arrived` waits for the first. */
+const startSilentServer = Effect.gen(function* () {
+  const arrived = yield* Deferred.make<void>();
+
+  const server = yield* Layer.build(
+    HttpRouter.serve(
+      HttpRouter.add(
+        "*",
+        "*",
+        Deferred.succeed(arrived, undefined).pipe(Effect.andThen(Effect.never)),
+      ),
+    ).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0, idleTimeout: 0 }))),
+  );
+
+  const url = yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server));
+
+  return { url, arrived: Deferred.await(arrived) };
+});
+
+describe("CodexUpstream against a Codex that never answers", () => {
+  type Call = (codex: CodexUpstream["Service"]) => Effect.Effect<unknown, { message: string }>;
+
+  const cases: ReadonlyArray<readonly [string, Duration.Input, Call]> = [
+    ["send", "2 minutes", (codex) => codex.send(account, { model: "gpt-6-astra" }, "conv-1")],
+    ["usage", "30 seconds", (codex) => codex.usage(account)],
+    ["models", "30 seconds", (codex) => codex.models(account)],
+  ];
+
+  for (const [name, limit, call] of cases) {
+    it.effect(`gives up on ${name} after ${limit}, as unreachable`, () =>
+      Effect.gen(function* () {
+        const silent = yield* startSilentServer;
+
+        const failing = yield* Effect.flatMap(CodexUpstream, (codex) =>
+          Effect.flip(call(codex)),
+        ).pipe(
+          Effect.provide(
+            CodexUpstream.layer({ baseUrl: silent.url, cloak: true, version: "1.2.3" }).pipe(
+              Layer.provide(FetchHttpClient.layer),
+            ),
+          ),
+          Effect.forkChild,
+        );
+
+        yield* silent.arrived;
+        yield* TestClock.adjust(limit);
+        const error = yield* Fiber.join(failing);
+        expect(error).toMatchObject({
+          _tag: "HttpClientError",
+          reason: { _tag: "TransportError" },
+        });
+        expect(error.message).toContain("no answer within");
+      }),
+    );
+  }
 });
