@@ -1,5 +1,7 @@
+import { fireEvent, render, screen } from "@testing-library/react";
+import { Profiler } from "react";
 import { describe, expect, it } from "vitest";
-import { pickNearest } from "./fluid-hover.tsx";
+import { pickNearest, useFluidHover } from "./fluid-hover.tsx";
 
 // Three 32px rows with 4px gaps: 0–32, 36–68, 72–104.
 const rows = [0, 36, 72].map((top) => ({ top, left: 0, width: 200, height: 32 }));
@@ -26,5 +28,40 @@ describe("pickNearest", () => {
   it("skips unregistered slots and has nothing to pick from none", () => {
     expect(pickNearest("y", { x: 0, y: 40 }, [undefined, undefined])).toBeNull();
     expect(pickNearest("y", { x: 0, y: 40 }, [rows[0], undefined, rows[2]])).toBe(0);
+  });
+});
+
+/** Two items, the lit one named on the list. */
+function List() {
+  const { containerRef, register, active, handlers } = useFluidHover<HTMLDivElement, number>("y");
+
+  return (
+    <div ref={containerRef} data-testid="list" data-active={active?.key} {...handlers}>
+      <div ref={register(0)} />
+      <div ref={register(1)} />
+    </div>
+  );
+}
+
+describe("useFluidHover", () => {
+  it("renders again only when the lit item or its rect changes", () => {
+    let renders = 0;
+
+    render(
+      <Profiler id="list" onRender={() => (renders += 1)}>
+        <List />
+      </Profiler>,
+    );
+    const list = screen.getByTestId("list");
+    fireEvent.pointerMove(list, { clientX: 0, clientY: 0 });
+    expect(list.getAttribute("data-active")).toBe("0");
+    const lit = renders;
+
+    fireEvent.pointerMove(list, { clientX: 4, clientY: 2 });
+    fireEvent.pointerMove(list, { clientX: 8, clientY: 3 });
+
+    expect(renders).toBe(lit);
+    fireEvent.pointerLeave(list);
+    expect(list.hasAttribute("data-active")).toBe(false);
   });
 });

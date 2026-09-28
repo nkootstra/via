@@ -64,4 +64,65 @@ describe("Button", () => {
     await user.click(revoke);
     expect(onClick).toHaveBeenCalledOnce();
   });
+
+  it("keeps focus while it turns to loading, so a submitting form doesn't drop it", () => {
+    const { rerender } = render(<Button>Save</Button>);
+    const button = screen.getByRole("button", { name: "Save" });
+    button.focus();
+
+    rerender(<Button loading>Save</Button>);
+
+    expect(document.activeElement).toBe(button);
+    expect(button.hasAttribute("disabled")).toBe(false);
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("renders as a link that looks like a button, still a link to assistive tech", async () => {
+    const user = userEvent.setup();
+    render(
+      <Button
+        variant="primary"
+        render={(props) => (
+          <a {...props} href="https://example.com/login" target="_blank" rel="noreferrer">
+            {props.children}
+          </a>
+        )}
+      >
+        Open sign-in page
+      </Button>,
+    );
+
+    const link = screen.getByRole("link", { name: "Open sign-in page" });
+    expect(link.tagName).toBe("A");
+    expect(link.getAttribute("href")).toBe("https://example.com/login");
+    expect(link.getAttribute("data-variant")).toBe("primary");
+    expect(link.hasAttribute("type")).toBe(false);
+    expect(screen.queryByRole("button")).toBeNull();
+    await user.tab();
+    expect(document.activeElement).toBe(link);
+  });
+
+  it("follows as a link on Enter, but not on Space, as links do", async () => {
+    const user = userEvent.setup();
+    const onClick = vi.fn((event: { preventDefault: () => void }) => event.preventDefault());
+    render(
+      <Button
+        onClick={onClick}
+        render={(props) => (
+          <a {...props} href="https://example.com/login">
+            {props.children}
+          </a>
+        )}
+      >
+        Open sign-in page
+      </Button>,
+    );
+    screen.getByRole("link", { name: "Open sign-in page" }).focus();
+
+    await user.keyboard(" ");
+    expect(onClick).not.toHaveBeenCalled();
+    await user.keyboard("{Enter}");
+
+    expect(onClick).toHaveBeenCalledOnce();
+  });
 });

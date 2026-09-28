@@ -1,17 +1,32 @@
 /**
  * CopyField, ported from Fluid Functionalism's input-copy (MIT, see NOTICE):
- * a read-only value that copies itself when clicked. The glyph crossfades
- * copy → check (or ✕) in a cell that never resizes, the action's width is
- * held by an invisible "Copied", and a status region announces the outcome.
+ * a read-only value that copies itself when clicked. The glyph and its word
+ * crossfade copy → check (or ✕) in cells sized by their widest, and a status
+ * region announces the outcome. The value wraps rather than being cut short,
+ * and when the clipboard fails, as it does over plain http, a read-only field
+ * hands it over to select and copy by hand, so a secret shown once isn't lost.
  */
 import * as stylex from "@stylexjs/stylex";
-import { motion } from "motion/react";
-import { useEffect, useId, useState, type ReactNode } from "react";
+import { motion, useReducedMotion } from "motion/react";
+import { useCallback, useId, useRef, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon, XIcon } from "./icons.tsx";
 import { spring } from "./springs.ts";
-import { colors, durations, fonts, radii, space, text, weights } from "./tokens.stylex.ts";
+import {
+  colors,
+  durations,
+  fonts,
+  radii,
+  space,
+  text,
+  fontWeights,
+  weights,
+} from "./tokens.stylex.ts";
+import { Input } from "./field.tsx";
+import { visuallyHidden } from "./visually-hidden.tsx";
 
-type Status = "idle" | "copied" | "failed";
+const statuses = ["idle", "copied", "failed"] as const;
+
+type Status = (typeof statuses)[number];
 
 const styles = stylex.create({
   root: {
@@ -22,34 +37,36 @@ const styles = stylex.create({
   label: {
     fontSize: text.body,
     fontVariationSettings: weights.normal,
+    fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
   },
+  largeLabel: { textAlign: "center" },
   button: {
     display: "flex",
     alignItems: "center",
     width: "100%",
-    height: space.control,
+    minHeight: space.control,
     padding: 0,
     borderWidth: 0,
     borderRadius: radii.item,
     backgroundColor: "transparent",
     fontFamily: "inherit",
+    fontSize: text.body,
     cursor: "pointer",
-    outline: "none",
-    boxShadow: {
-      default: null,
-      ":focus-visible": `0 0 0 1px ${colors.focusRing}`,
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${colors.focusRing}`,
     },
+    outlineOffset: "2px",
   },
   value: {
     flex: 1,
     minWidth: 0,
-    overflow: "hidden",
-    textAlign: "left",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    textAlign: "start",
+    overflowWrap: "anywhere",
+    wordBreak: "break-all",
     fontFamily: fonts.mono,
-    fontSize: text.body,
+    fontSize: text.code,
     color: colors.foreground,
   },
   mark: {
@@ -69,6 +86,7 @@ const styles = stylex.create({
     paddingInline: space.s1_5,
     fontSize: text.body,
     fontVariationSettings: weights.normal,
+    fontWeight: fontWeights.normal,
     color: {
       default: colors.mutedForeground,
       [stylex.when.ancestor(":hover")]: colors.foreground,
@@ -83,10 +101,11 @@ const styles = stylex.create({
     paddingBlock: space.s2,
   },
   largeValue: {
-    fontSize: "28px",
+    fontSize: text.stat,
     letterSpacing: "0.1em",
     textAlign: "center",
     fontVariationSettings: weights.semibold,
+    fontWeight: fontWeights.semibold,
   },
   cell: {
     display: "inline-grid",
@@ -96,35 +115,27 @@ const styles = stylex.create({
     gridArea: "1 / 1",
     display: "flex",
   },
-  ghost: {
-    gridArea: "1 / 1",
-    visibility: "hidden",
-  },
-  visuallyHidden: {
-    position: "absolute",
-    width: "1px",
-    height: "1px",
-    overflow: "hidden",
-    clipPath: "inset(50%)",
-    whiteSpace: "nowrap",
-  },
+  manual: { marginTop: space.s1 },
 });
 
-// Icon swap: the arriving glyph rides the fast tier's full duration and the
-// leaving one its exit, so an appear always outlasts a disappear.
+// The swap: the arriving glyph or word springs in and the leaving one eases
+// out on the fast tier's quicker exit, so an appear always outlasts a
+// disappear. With less motion asked for, they only fade.
 const SHOWN = { opacity: 1, scale: 1, filter: "blur(0px)" };
 
 const HIDDEN = { opacity: 0, scale: 0.6, filter: "blur(4px)" };
 
-const enter = { type: "tween", duration: spring.fast.duration, ease: "easeOut" } as const;
+const enter = { type: "spring", duration: 0.2, bounce: 0 } as const;
 
-const leave = { type: "tween", ...spring.fast.exit, ease: "easeIn" } as const;
+const leave = { type: "tween", ...spring.fast.exit, ease: "easeOut" } as const;
 
-function Glyph({ shown, children }: { readonly shown: boolean; readonly children: ReactNode }) {
+function Swap({ shown, children }: { readonly shown: boolean; readonly children: ReactNode }) {
+  const still = useReducedMotion() ?? false;
+
   return (
     <motion.span
       initial={false}
-      animate={shown ? SHOWN : HIDDEN}
+      animate={still ? { opacity: shown ? 1 : 0 } : shown ? SHOWN : HIDDEN}
       transition={shown ? enter : leave}
       {...stylex.props(styles.stacked)}
     >
@@ -133,9 +144,13 @@ function Glyph({ shown, children }: { readonly shown: boolean; readonly children
   );
 }
 
-const words = { idle: "Copy", copied: "Copied", failed: "Failed" } as const;
+const words = { idle: "Copy", copied: "Copied", failed: "Couldn't copy" } as const;
 
-const announcements = { idle: "", copied: "Copied", failed: "Copy failed" } as const;
+const announcements = {
+  idle: "",
+  copied: "Copied",
+  failed: "Couldn't copy. Select it and copy it by hand.",
+} as const;
 
 export interface CopyFieldProps {
   readonly value: string;
@@ -150,17 +165,30 @@ export interface CopyFieldProps {
 export function CopyField({ value, label, onCopy, size = "default" }: CopyFieldProps) {
   const large = size === "large";
   const [status, setStatus] = useState<Status>("idle");
-  const [attempt, setAttempt] = useState(0);
+  // Once the clipboard has failed, the value stays on hand until a copy works.
+  const [byHand, setByHand] = useState(false);
   const id = useId();
+  const root = useRef<HTMLDivElement | null>(null);
+  const reset = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  // Unmounting cancels a pending reset, and a copy that settles after it starts none.
+  const attach = useCallback((element: HTMLDivElement) => {
+    root.current = element;
+
+    return () => {
+      root.current = null;
+      clearTimeout(reset.current);
+    };
+  }, []);
 
   // The outcome shows for two seconds; a new attempt restarts the clock.
-  useEffect(() => {
-    if (attempt === 0) return;
+  const settle = (outcome: Status) => {
+    if (root.current === null) return;
 
-    const timer = setTimeout(() => setStatus("idle"), 2000);
-
-    return () => clearTimeout(timer);
-  }, [attempt]);
+    clearTimeout(reset.current);
+    setStatus(outcome);
+    reset.current = setTimeout(() => setStatus("idle"), 2000);
+  };
 
   const copy = () => {
     // Outside a secure context there is no clipboard, and the call rejects.
@@ -168,17 +196,22 @@ export function CopyField({ value, label, onCopy, size = "default" }: CopyFieldP
       .then(() => navigator.clipboard.writeText(value))
       .then(
         () => {
-          setStatus("copied");
+          settle("copied");
+          setByHand(false);
           onCopy?.();
         },
-        () => setStatus("failed"),
-      )
-      .then(() => setAttempt((count) => count + 1));
+        () => {
+          settle("failed");
+          setByHand(true);
+        },
+      );
   };
 
   return (
-    <div {...stylex.props(styles.root)}>
-      {label !== undefined && <span {...stylex.props(styles.label)}>{label}</span>}
+    <div ref={attach} {...stylex.props(styles.root)}>
+      {label !== undefined && (
+        <span {...stylex.props(styles.label, large && styles.largeLabel)}>{label}</span>
+      )}
       <button
         type="button"
         onClick={copy}
@@ -186,30 +219,49 @@ export function CopyField({ value, label, onCopy, size = "default" }: CopyFieldP
         aria-describedby={`${id}-value`}
         {...stylex.props(stylex.defaultMarker(), styles.button, large && styles.largeButton)}
       >
-        <span id={`${id}-value`} {...stylex.props(styles.value, large && styles.largeValue)}>
+        <span
+          id={`${id}-value`}
+          title={large ? undefined : value}
+          {...stylex.props(styles.value, large && styles.largeValue)}
+        >
           <mark {...stylex.props(styles.mark)}>{value}</mark>
         </span>
         <span {...stylex.props(styles.action, status === "failed" && styles.failed)}>
           <span aria-hidden="true" {...stylex.props(styles.cell)}>
-            <Glyph shown={status === "idle"}>
+            <Swap shown={status === "idle"}>
               <CopyIcon size={14} />
-            </Glyph>
-            <Glyph shown={status === "copied"}>
+            </Swap>
+            <Swap shown={status === "copied"}>
               <CheckIcon size={14} />
-            </Glyph>
-            <Glyph shown={status === "failed"}>
+            </Swap>
+            <Swap shown={status === "failed"}>
               <XIcon size={14} />
-            </Glyph>
+            </Swap>
           </span>
           <span aria-hidden="true" {...stylex.props(styles.cell)}>
-            <span {...stylex.props(styles.ghost)}>Copied</span>
-            <span {...stylex.props(styles.stacked)}>{words[status]}</span>
+            {statuses.map((each) => (
+              <Swap key={each} shown={status === each}>
+                {words[each]}
+              </Swap>
+            ))}
           </span>
         </span>
       </button>
+      {byHand && (
+        <div {...stylex.props(styles.manual)}>
+          <Input
+            readOnly
+            value={value}
+            aria-label={
+              label === undefined ? "Value, to copy by hand" : `${label}, to copy by hand`
+            }
+            onFocus={(event) => event.currentTarget.select()}
+          />
+        </div>
+      )}
       {/* An <output> is a polite status region; the explicit aria-live is
           for screen readers that don't treat it as one yet. */}
-      <output aria-live="polite" {...stylex.props(styles.visuallyHidden)}>
+      <output aria-live="polite" {...stylex.props(visuallyHidden)}>
         {announcements[status]}
       </output>
     </div>

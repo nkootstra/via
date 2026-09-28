@@ -8,7 +8,14 @@
  */
 import { Button as BaseButton } from "@base-ui/react/button";
 import * as stylex from "@stylexjs/stylex";
-import type { ComponentProps, ReactNode } from "react";
+import {
+  Children,
+  isValidElement,
+  type ComponentProps,
+  type HTMLProps,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { colors, durations, radii, space, text } from "./tokens.stylex.ts";
 
 /**
@@ -28,11 +35,20 @@ export type ButtonSize = "default" | "compact" | "icon" | "icon-compact";
 
 export interface ButtonProps extends Omit<
   ComponentProps<typeof BaseButton>,
-  "className" | "style" | "render"
+  "className" | "style" | "render" | "nativeButton"
 > {
+  /**
+   * A link to be instead, so it looks and presses like a button but stays a
+   * link: named one, followed on Enter and not Space.
+   * `render={(props) => <a {...props} href={url}>{props.children}</a>}`.
+   */
+  readonly render?: (props: HTMLProps<HTMLAnchorElement>) => ReactElement;
   readonly variant?: ButtonVariant;
   readonly size?: ButtonSize;
-  /** Disables the button and swaps the label for a spinner, keeping its width and name. */
+  /**
+   * Disables the button and swaps the label for a spinner, keeping its width,
+   * name and focus.
+   */
   readonly loading?: boolean;
   /** Layout from the caller: margins, position. */
   readonly xstyle?: stylex.StyleXStyles;
@@ -64,19 +80,24 @@ const styles = stylex.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    // It never shrinks for its neighbours, but never outgrows its container:
+    // a label too long for it ends in an ellipsis.
+    maxWidth: "100%",
     borderWidth: 0,
     borderRadius: radii.item,
     backgroundColor: "transparent",
     fontFamily: "inherit",
     whiteSpace: "nowrap",
     cursor: "pointer",
-    outline: "none",
+    // An outline, not a shadow, so forced colours keep it; the offset sets it
+    // off from any fill, the red included.
+    outline: {
+      default: "none",
+      ":focus-visible": `2px solid ${colors.focusRing}`,
+    },
+    outlineOffset: "2px",
     transitionProperty: "color",
     transitionDuration: durations.fast,
-    boxShadow: {
-      default: null,
-      ":focus-visible": `0 0 0 1px ${colors.focusRing}`,
-    },
   },
   disabled: {
     opacity: 0.5,
@@ -85,6 +106,12 @@ const styles = stylex.create({
   default: {
     height: space.control,
     paddingInline: space.s4,
+    // A leading icon sits closer to the edge than a letter would, so the two
+    // look evenly inset.
+    paddingInlineStart: {
+      default: space.s4,
+      ":has(> span > svg:first-child)": "14px",
+    },
     gap: space.s1_5,
     fontSize: text.body,
   },
@@ -99,10 +126,20 @@ const styles = stylex.create({
     height: space.control,
     padding: 0,
   },
+  // 28px is too small a target for a finger: on a coarse pointer an invisible
+  // layer 6px past each edge makes it 40px, without changing the look.
   "icon-compact": {
     width: space.controlCompact,
     height: space.controlCompact,
     padding: 0,
+    "::before": {
+      content: "''",
+      position: "absolute",
+      inset: {
+        default: 0,
+        "@media (pointer: coarse)": "-6px",
+      },
+    },
   },
   primary: { color: colors.background },
   secondary: { color: colors.foreground },
@@ -113,15 +150,7 @@ const styles = stylex.create({
       ":hover": colors.foreground,
     },
   },
-  // A ring set off from the red by a gap of page colour, where the blue
-  // hairline alone would be lost against it.
-  destructive: {
-    color: colors.destructiveForeground,
-    boxShadow: {
-      default: null,
-      ":focus-visible": `0 0 0 2px ${colors.background}, 0 0 0 3px ${colors.focusRing}`,
-    },
-  },
+  destructive: { color: colors.destructiveForeground },
   "ghost-destructive": {
     color: {
       default: colors.mutedForeground,
@@ -222,7 +251,13 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     justifyContent: "center",
+    minWidth: 0,
     gap: "inherit",
+  },
+  text: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   hidden: { opacity: 0 },
   spinnerBox: {
@@ -249,6 +284,12 @@ const styles = stylex.create({
     animationDuration: "2s, 4s",
     animationTimingFunction: "linear, ease-in-out",
     animationIterationCount: "infinite",
+    // Without motion the dash runs slowly and stops breathing.
+    "@media (prefers-reduced-motion: reduce)": {
+      animationName: spinnerMove,
+      animationDuration: "8s",
+      animationTimingFunction: "linear",
+    },
   },
 });
 
@@ -284,21 +325,47 @@ function Spinner({ compact }: { readonly compact: boolean }) {
   );
 }
 
+/**
+ * A link's render, from Base UI's props for it: it drops the `button` role Base
+ * UI gives whatever it renders, and the Space activation that comes with it.
+ */
+const asLink =
+  (render: (props: HTMLProps<HTMLAnchorElement>) => ReactElement) =>
+  ({ role: _role, onKeyDown, onKeyUp, ...props }: HTMLProps<HTMLAnchorElement>) =>
+    render({
+      ...props,
+      onKeyDown: (event) => {
+        if (event.key !== " ") onKeyDown?.(event);
+      },
+      onKeyUp: (event) => {
+        if (event.key !== " ") onKeyUp?.(event);
+      },
+    });
+
 export function Button({
   variant = "primary",
   size = "default",
   loading = false,
   disabled = false,
   xstyle,
+  render,
   children,
   ...props
 }: ButtonProps) {
   const inert = disabled || loading;
 
+  // Text in a flex row can't end in an ellipsis; in a span of its own it can.
+  const label = Children.map(children, (child) =>
+    isValidElement(child) ? child : <span {...stylex.props(styles.text)}>{child}</span>,
+  );
+
   return (
     <BaseButton
       {...props}
+      {...(render !== undefined && { render: asLink(render), nativeButton: false })}
       disabled={inert}
+      // A loading button stays focusable, so a form that submits from it keeps focus there.
+      focusableWhenDisabled={loading}
       data-variant={variant}
       aria-busy={loading || undefined}
       {...stylex.props(
@@ -314,11 +381,11 @@ export function Button({
       <span {...stylex.props(styles.content)}>
         {loading ? (
           <>
-            <span {...stylex.props(styles.content, styles.hidden)}>{children}</span>
+            <span {...stylex.props(styles.content, styles.hidden)}>{label}</span>
             <Spinner compact={size === "compact" || size === "icon-compact"} />
           </>
         ) : (
-          children
+          label
         )}
       </span>
     </BaseButton>

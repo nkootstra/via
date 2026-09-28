@@ -11,7 +11,16 @@ import { motion } from "motion/react";
 import { createContext, use, useId, type ComponentProps, type ReactNode } from "react";
 import { FluidHighlight, useFluidHover } from "./fluid-hover.tsx";
 import { spring } from "./springs.ts";
-import { colors, durations, radii, shadows, space, text, weights } from "./tokens.stylex.ts";
+import {
+  colors,
+  durations,
+  radii,
+  shadows,
+  space,
+  text,
+  fontWeights,
+  weights,
+} from "./tokens.stylex.ts";
 
 const styles = stylex.create({
   list: {
@@ -39,7 +48,7 @@ const styles = stylex.create({
     cursor: "pointer",
     outline: {
       default: "none",
-      ":focus-visible": `1px solid ${colors.focusRing}`,
+      ":focus-visible": `2px solid ${colors.focusRing}`,
     },
     outlineOffset: "2px",
   },
@@ -60,11 +69,13 @@ const styles = stylex.create({
     gridArea: "1 / 1",
     visibility: "hidden",
     fontVariationSettings: weights.semibold,
+    fontWeight: fontWeights.semibold,
   },
   text: {
     gridArea: "1 / 1",
     color: colors.mutedForeground,
     fontVariationSettings: weights.normal,
+    fontWeight: fontWeights.normal,
     transitionProperty: "color, font-variation-settings",
     transitionDuration: durations.fast,
   },
@@ -72,6 +83,7 @@ const styles = stylex.create({
   selected: {
     color: colors.foreground,
     fontVariationSettings: weights.semibold,
+    fontWeight: fontWeights.semibold,
   },
   panel: { outline: "none" },
 });

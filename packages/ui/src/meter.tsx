@@ -8,8 +8,9 @@ import { Meter as BaseMeter } from "@base-ui/react/meter";
 import * as stylex from "@stylexjs/stylex";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
-import { spring } from "./springs.ts";
-import { colors, radii, space, text, weights } from "./tokens.stylex.ts";
+import { colors, durations, radii, space, text, fontWeights, weights } from "./tokens.stylex.ts";
+
+const forced = "@media (forced-colors: active)";
 
 const styles = stylex.create({
   root: {
@@ -26,12 +27,14 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
     fontSize: text.caption,
     fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
     color: colors.foreground,
   },
   value: {
     fontSize: text.caption,
     fontVariantNumeric: "tabular-nums",
     fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
     color: colors.mutedForeground,
   },
   track: {
@@ -42,25 +45,37 @@ const styles = stylex.create({
     borderRadius: radii.full,
     backgroundColor: colors.muted,
     boxShadow: `inset 0 0 0 1px ${colors.border}`,
+    // Forced colours drop the shadow; a border keeps the track's edge.
+    borderWidth: { default: 0, [forced]: 1 },
+    borderStyle: "solid",
+    borderColor: "CanvasText",
+    forcedColorAdjust: { default: null, [forced]: "none" },
   },
+  // The fill is the track's full width and slides in from the left, clipped
+  // by the track, so its rounded cap never squashes as a scale would.
   fill: {
     position: "absolute",
     inset: 0,
     borderRadius: radii.full,
-    transformOrigin: "left",
+    transitionProperty: "background-color",
+    transitionDuration: durations.moderate,
   },
   detail: {
     gridColumn: "1 / -1",
-    fontSize: text.compact,
+    overflowWrap: "anywhere",
+    fontSize: text.caption,
     color: colors.mutedForeground,
   },
 });
 
+// The fill is a mark, not text, so full takes the solid red, not the text red.
 const levels = stylex.create({
-  low: { backgroundColor: "#22c55e" },
-  high: { backgroundColor: "#f59e0b" },
-  full: { backgroundColor: "#ef4444" },
+  low: { backgroundColor: { default: colors.success, [forced]: "Highlight" } },
+  high: { backgroundColor: { default: colors.warning, [forced]: "Highlight" } },
+  full: { backgroundColor: { default: colors.destructiveSolid, [forced]: "Highlight" } },
 });
+
+const fillSpring = { type: "spring", duration: 0.3, bounce: 0 } as const;
 
 const percentText = (percent: number) => `${Math.round(percent)}%`;
 
@@ -68,31 +83,32 @@ const level = (percent: number) => (percent >= 90 ? "full" : percent >= 70 ? "hi
 
 export interface MeterProps {
   readonly label: string;
-  /** Percent used, 0–100. */
+  /** Percent used: the bar fills to 100, the text shows it past that too. */
   readonly value: number;
   /** A line under the bar, such as when the limit resets. */
   readonly detail?: ReactNode;
 }
 
 export function Meter({ label, value, detail }: MeterProps) {
+  // Only the bar stops at the limit; the text says the real figure, past it too.
   const percent = Math.min(100, Math.max(0, value));
 
   return (
     <BaseMeter.Root
       value={percent}
-      getAriaValueText={(_formatted, used) => percentText(used)}
+      getAriaValueText={() => percentText(value)}
       {...stylex.props(styles.root)}
     >
-      <BaseMeter.Label {...stylex.props(styles.label)}>{label}</BaseMeter.Label>
-      <BaseMeter.Value {...stylex.props(styles.value)}>
-        {(_formatted, used) => percentText(used)}
-      </BaseMeter.Value>
+      <BaseMeter.Label title={label} {...stylex.props(styles.label)}>
+        {label}
+      </BaseMeter.Label>
+      <BaseMeter.Value {...stylex.props(styles.value)}>{() => percentText(value)}</BaseMeter.Value>
       <BaseMeter.Track {...stylex.props(styles.track)}>
         <motion.span
           aria-hidden="true"
-          initial={{ scaleX: 0 }}
-          animate={{ scaleX: percent / 100 }}
-          transition={spring.slow}
+          initial={{ transform: "translateX(-100%)" }}
+          animate={{ transform: `translateX(${percent - 100}%)` }}
+          transition={fillSpring}
           {...stylex.props(styles.fill, levels[level(percent)])}
         />
       </BaseMeter.Track>

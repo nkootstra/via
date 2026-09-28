@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it } from "vitest";
+import { useRef, useState } from "react";
+import { describe, expect, it, vi } from "vitest";
 import {
   Button,
   Dialog,
@@ -25,6 +26,25 @@ function RenameDialog() {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/** A dialog whose trigger is gone, sending focus to a fallback when it closes. */
+function Fallback() {
+  const [open, setOpen] = useState(true);
+  const fallback = useRef<HTMLButtonElement>(null);
+
+  return (
+    <>
+      <button ref={fallback} type="button">
+        Accounts
+      </button>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent finalFocus={fallback}>
+          <DialogTitle>Rename account</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -78,5 +98,37 @@ describe("Dialog", () => {
     await user.click(screen.getByRole("button", { name: "Close" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("closes when its controller says so, then reports the exit finished", async () => {
+    const onOpenChangeComplete = vi.fn();
+
+    const dialog = (open: boolean) => (
+      <Dialog open={open} onOpenChangeComplete={onOpenChangeComplete}>
+        <DialogContent>
+          <DialogTitle>Rename account</DialogTitle>
+        </DialogContent>
+      </Dialog>
+    );
+
+    const { rerender } = render(dialog(true));
+    await screen.findByRole("dialog", { name: "Rename account" });
+
+    rerender(dialog(false));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(onOpenChangeComplete).toHaveBeenLastCalledWith(false);
+  });
+
+  it("sends focus where its caller says once it closes", async () => {
+    const user = userEvent.setup();
+
+    render(<Fallback />);
+    await screen.findByRole("dialog");
+
+    await user.click(screen.getByRole("button", { name: "Close" }));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Accounts" }));
   });
 });

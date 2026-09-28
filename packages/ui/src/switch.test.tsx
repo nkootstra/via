@@ -45,4 +45,24 @@ describe("Switch", () => {
 
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("keeps its thumb out of the tab order, as it is hidden", () => {
+    render(<Enabled onChange={vi.fn()} />);
+
+    const control = screen.getByRole("switch", { name: "Enabled" });
+    const hidden = [...control.querySelectorAll("[aria-hidden='true']")];
+    expect(hidden.length).toBeGreaterThan(0);
+
+    for (const element of hidden) {
+      expect(element.getAttribute("tabindex") ?? "-1").toBe("-1");
+    }
+  });
+
+  it("says it is busy while its change saves, still enabled", () => {
+    render(<Switch aria-label="Enabled" checked onCheckedChange={vi.fn()} aria-busy />);
+
+    const control = screen.getByRole("switch", { name: "Enabled" });
+    expect(control.getAttribute("aria-busy")).toBe("true");
+    expect(control.hasAttribute("aria-disabled")).toBe(false);
+  });
 });
