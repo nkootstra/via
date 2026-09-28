@@ -82,7 +82,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
         return yield* openAiError(502, "upstream_unavailable", "Codex could not be reached");
       }
 
-      yield* log.served(account.label);
+      yield* log.served(account.label, account.id);
       yield* bindings.bind(session, account.id);
 
       return yield* onSuccess(sent.success.value);
@@ -108,7 +108,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       continue;
     }
 
-    yield* log.served(account.label);
+    yield* log.served(account.label, account.id);
 
     return HttpServerResponse.text(rejected.body, {
       status: rejected.status,

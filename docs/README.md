@@ -550,8 +550,8 @@ start of the first user message; the model still sees it.
 `key=value` pairs:
 
 ```
-timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" request_id=592f9436-3ad2-4e0f-a239-d4803bdb9925 http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 model=opencode-go/deepseek-v4.1-flash served_by=go-work input_tokens=812 output_tokens=194 headers_ms=2712 first_chunk_ms=3433 stream_end=completed
-timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" request_id=2a374005-22ec-40ed-a5e5-1dfa5aa6a807 http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 model=gpt-6-astra error=rate_limit_exceeded retry_after=120
+timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP response" request_id=592f9436-3ad2-4e0f-a239-d4803bdb9925 http.span=3607ms http.method=POST http.url=/v1/chat/completions http.status=200 key=laptop model=opencode-go/deepseek-v4.1-flash served_by=go-work input_tokens=812 output_tokens=194 headers_ms=2712 first_chunk_ms=3433 stream_end=completed
+timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" request_id=2a374005-22ec-40ed-a5e5-1dfa5aa6a807 http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 key=laptop model=gpt-6-astra error=rate_limit_exceeded retry_after=120
 ```
 
 - `request_id` correlates the line to the request: the client's `x-request-id`
@@ -560,8 +560,9 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   warning logged while handling the request (a cooldown, say), even across a
   retry onto another account.
 - `http.span` is the whole time via took, a stream included.
-- `model` is the model asked for, and `served_by` the provider, or the Codex or
-  OpenCode Go account, that answered.
+- `key` is the name of the API key the client used, `model` the model asked
+  for, and `served_by` the provider, or the Codex or OpenCode Go account, that
+  answered.
 - `input_tokens` and `output_tokens` are the token counts the upstream
   reported for an answered request, and `cached_tokens` joins them when the
   upstream reports a cache hit. `reasoning_tokens` is the part of the output

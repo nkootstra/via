@@ -69,7 +69,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
       continue;
     }
 
-    yield* log.served(account.label);
+    yield* log.served(account.label, account.id);
     yield* bindings.bind(binding, account.id);
 
     return yield* relay(upstream);

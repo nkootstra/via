@@ -2,6 +2,7 @@ import { KeyStore } from "@via/keys";
 import { Effect, Option } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
 import { openAiError } from "./openai-error.ts";
+import { RequestLog } from "./request-log.ts";
 
 /** The client's API key, if it presented a valid one. */
 const authenticate = Effect.gen(function* () {
@@ -17,9 +18,13 @@ const authenticate = Effect.gen(function* () {
 /** Runs `handler` only for a client with a valid API key; anyone else gets a 401. */
 export const authenticated = <A, E, R>(handler: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
-    if (Option.isNone(yield* authenticate)) {
+    const key = yield* authenticate;
+
+    if (Option.isNone(key)) {
       return yield* openAiError(401, "invalid_api_key", "Missing or unknown API key");
     }
+
+    yield* (yield* RequestLog).key(key.value);
 
     return yield* handler;
   });

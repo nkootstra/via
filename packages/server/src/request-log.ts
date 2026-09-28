@@ -21,10 +21,15 @@ import type { TokenUsage } from "./token-usage.ts";
 export class RequestLog extends Context.Service<
   RequestLog,
   {
+    /** Records the API key the client presented. */
+    readonly key: (key: ClientKey) => Effect.Effect<void>;
     /** Records the model the request asks for. */
     readonly asked: (model: string) => Effect.Effect<void>;
-    /** Records that `by`, a provider or a Codex account, serves the request. */
-    readonly served: (by: string) => Effect.Effect<void>;
+    /**
+     * Records that `by`, a provider or an account's label, serves the request,
+     * with the account's id when an account of a pool serves it.
+     */
+    readonly served: (by: string, accountId?: string) => Effect.Effect<void>;
     /** Records the error code of an answer via gives itself, such as `rate_limit_exceeded`. */
     readonly refused: (code: string) => Effect.Effect<void>;
     /** Records the token usage the upstream reported for the answer. */
@@ -88,10 +93,18 @@ const usageAnnotations = (usage: Option.Option<TokenUsage>) =>
     }),
   });
 
+/** The API key a client presented: its id, and its name as it is now. */
+export interface ClientKey {
+  readonly id: string;
+  readonly name: string;
+}
+
 /** What a request's log line says, noted while the request is handled. */
 interface Noted {
+  readonly key: Option.Option<ClientKey>;
   readonly model: Option.Option<string>;
   readonly servedBy: Option.Option<string>;
+  readonly accountId: Option.Option<string>;
   readonly error: Option.Option<string>;
   readonly usage: Option.Option<TokenUsage>;
   readonly retryAfter: Option.Option<string>;
@@ -126,8 +139,10 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     const start = yield* Clock.currentTimeMillis;
 
     const noting = yield* Ref.make<Noted>({
+      key: Option.none(),
       model: Option.none(),
       servedBy: Option.none(),
+      accountId: Option.none(),
       error: Option.none(),
       usage: Option.none(),
       retryAfter: Option.none(),
@@ -149,6 +164,10 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
           "http.method": request.method,
           "http.url": request.url,
           "http.status": line.status,
+          ...noted(
+            "key",
+            Option.map(line.key, (key) => key.name),
+          ),
           ...noted("model", line.model),
           ...noted("served_by", line.servedBy),
           ...noted("error", line.error),
@@ -181,8 +200,10 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     );
 
     const service = RequestLog.of({
+      key: (key) => note({ key: Option.some(key) }),
       asked: (model) => note({ model: Option.some(model) }),
-      served: (by) => note({ servedBy: Option.some(by) }),
+      served: (by, accountId) =>
+        note({ servedBy: Option.some(by), accountId: Option.fromUndefinedOr(accountId) }),
       refused: (code) => note({ error: Option.some(code) }),
       usage: (usage) => note({ usage: Option.some(usage) }),
       unlogged: note({ logged: false }),
