@@ -13,14 +13,14 @@ on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
 
-permissions:
-  contents: read
-  pull-requests: read
+permissions: {}
 
 jobs:
   pr-title:
     name: PR title follows type(scope) subject
     runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
     if: github.event.pull_request.user.type != 'Bot'
     steps:
       - name: Check PR title
