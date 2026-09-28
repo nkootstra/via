@@ -1,9 +1,19 @@
 import { AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
 import { OpencodeGoAccountNotFoundError, OpencodeGoAccounts, Providers } from "@via/providers";
-import { type Duration, Effect, Layer, Redacted, Schema, Stream } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
+import { createHash } from "node:crypto";
+import {
+  type Duration,
+  Effect,
+  Function,
+  Layer,
+  Predicate,
+  Redacted,
+  Schema,
+  Stream,
+} from "effect";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpApiBuilder, HttpApiScalar, OpenApi } from "effect/unstable/httpapi";
 import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
 import { hasLiveSession, signOutAll, staleSessionCookies } from "./session-cookie.ts";
@@ -22,6 +32,7 @@ import { ModelCatalog } from "./catalog.ts";
 import { keepAlive } from "./keep-alive.ts";
 import { Logins } from "./logins.ts";
 import { RequestLog } from "./request-log.ts";
+import { securityHeaders } from "./security-headers.ts";
 import { type EmbeddedUi, uiRoutes } from "./ui.ts";
 
 export type { OpencodeGoEnvironment } from "./admin-state.ts";
@@ -286,8 +297,9 @@ const events = (options: StateOptions) =>
   );
 
 /**
- * The reference page shows the spec and nothing else: system fonts rather than
- * Scalar's web fonts, and no API client or developer toolbar. Effect's
+ * The reference page shows the spec with little else: system fonts rather than
+ * Scalar's web fonts, and no Open API Client button or developer toolbar. Each
+ * route's Test Request button still opens the client, to try it out. Effect's
  * `ScalarConfig` type lacks the last two options, but it hands every key to
  * Scalar, whose bundled version supports them.
  */
@@ -296,6 +308,40 @@ const scalarConfig = {
   hideClientButton: true,
   showDeveloperTools: "never",
 };
+
+/** The CSP source (`'sha256-…'`) of each inline script in `html`. */
+const inlineScriptHashes = (html: string) =>
+  Array.from(
+    html.matchAll(/<script>([\s\S]*?)<\/script>/g),
+    ([, script = ""]) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+  );
+
+/**
+ * The reference page with its headers. Its CSP lets it run only its own two
+ * inline scripts, Scalar's and the one that starts it, whose hashes are taken
+ * from the page itself; style itself inline, as Scalar does; and send its test
+ * requests only to via. The page is built once, so this runs once too.
+ */
+const securedPage = Function.memoize((page: HttpServerResponse.HttpServerResponse) => {
+  const { body } = page;
+
+  const html =
+    Predicate.hasProperty(body, "body") && Predicate.isUint8Array(body.body)
+      ? new TextDecoder().decode(body.body)
+      : "";
+
+  return HttpServerResponse.setHeaders(
+    page,
+    securityHeaders([
+      `script-src ${inlineScriptHashes(html).join(" ")}`,
+      "style-src 'unsafe-inline'",
+      "img-src data:",
+      "connect-src 'self'",
+    ]),
+  );
+});
+
+const referenceHeaders = HttpRouter.middleware((page) => Effect.map(page, securedPage));
 
 /**
  * The admin API under `/admin`, behind `adminKey` (`VIA_ADMIN_KEY`), and with `ui`,
@@ -322,7 +368,7 @@ export const adminRoutes = ({
       if (length < 32) return yield* new AdminKeyTooShortError({ length });
 
       return Layer.mergeAll(
-        HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
+        HttpApiBuilder.layer(AdminApi).pipe(
           Layer.provide([
             sessions,
             accounts,
@@ -335,9 +381,18 @@ export const adminRoutes = ({
           ]),
           Layer.provide([authorization, Logins.layer]),
         ),
+        HttpRouter.add(
+          "GET",
+          "/admin/openapi.json",
+          HttpServerResponse.jsonUnsafe(OpenApi.fromApi(AdminApi), {
+            headers: securityHeaders([]),
+          }),
+        ),
         // Scalar's script is served inline rather than from a CDN: the page is where
         // the admin key gets typed in, so it runs no third-party code.
-        HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }),
+        HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }).pipe(
+          Layer.provide(referenceHeaders.layer),
+        ),
         ui === undefined
           ? Layer.empty
           : uiRoutes(ui, { environment: opencodeGoEnvironment, version }),

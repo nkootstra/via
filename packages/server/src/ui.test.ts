@@ -54,6 +54,7 @@ const csp =
 
 const secured = {
   "content-security-policy": csp,
+  "x-frame-options": "DENY",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
 };

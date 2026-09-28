@@ -4,6 +4,7 @@ import { AdminState } from "./admin-api.ts";
 import { AdminSessions } from "./admin-sessions.ts";
 import { adminState, type StateOptions } from "./admin-state.ts";
 import { RequestLog } from "./request-log.ts";
+import { securityHeaders } from "./security-headers.ts";
 import { hasLiveSession } from "./session-cookie.ts";
 
 /** The admin UI's build, as `@via/web/embedded` gives it: files on disk, or in the binary. */
@@ -25,21 +26,14 @@ export type EmbeddedUi = {
  * scripts and the shell's inline ones, style itself only from its stylesheet
  * (or by script, through the CSSOM), and talk only to via.
  */
-const securityHeaders = (scriptHashes: ReadonlyArray<string>) => ({
-  "content-security-policy": [
-    "default-src 'none'",
+const uiHeaders = (scriptHashes: ReadonlyArray<string>) =>
+  securityHeaders([
     ["script-src 'self'", ...scriptHashes.map((hash) => `'${hash}'`)].join(" "),
     "style-src 'self'",
     "img-src 'self' data:",
     "font-src 'self'",
     "connect-src 'self'",
-    "base-uri 'none'",
-    "form-action 'none'",
-    "frame-ancestors 'none'",
-  ].join("; "),
-  "x-content-type-options": "nosniff",
-  "referrer-policy": "no-referrer",
-});
+  ]);
 
 /** Files under here have a content hash in their name, so they never change. */
 const HASHED = "/ui/assets/";
@@ -83,7 +77,7 @@ export const uiRoutes = (ui: EmbeddedUi, options: StateOptions) =>
       const fs = yield* FileSystem.FileSystem;
       // The admin API's sessions, which the admin routes provide to this layer only.
       const sessions = yield* AdminSessions;
-      const headers = securityHeaders(ui.scriptHashes);
+      const headers = uiHeaders(ui.scriptHashes);
       const html = yield* fs.readFileString(ui.shell);
       // Which shell a page gets depends on its cookie, so a cache must tell them apart.
       const page = { ...headers, "content-type": "text/html; charset=utf-8", vary: "Cookie" };

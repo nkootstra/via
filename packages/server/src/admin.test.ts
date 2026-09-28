@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply } from "@via/codex-upstream/testing";
@@ -184,6 +185,26 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("serves its OpenAPI spec as JSON that nothing may sniff, run or frame", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.get("/admin/openapi.json", null);
+
+          expect(response.headers).toMatchObject({
+            "content-type": "application/json",
+            "content-security-policy":
+              "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+          });
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("publishes its OpenAPI spec with a lowercase bearer scheme without the admin key", () =>
     withVia(
       ok,
@@ -312,6 +333,33 @@ layer(BunFileSystem.layer)("admin API", (it) => {
         Effect.gen(function* () {
           const page = yield* (yield* via.get("/admin/docs", null)).text;
           expect(page).toContain(`"showDeveloperTools":"never"`);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("lets the reference page run only its own scripts, and never in a frame", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.get("/admin/docs", null);
+          const page = yield* response.text;
+
+          const scripts = [...page.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(
+            ([, script = ""]) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+          );
+
+          expect(scripts).toHaveLength(2);
+          expect(response.headers).toMatchObject({
+            "content-security-policy":
+              `default-src 'none'; script-src ${scripts.join(" ")}; ` +
+              "style-src 'unsafe-inline'; img-src data:; connect-src 'self'; " +
+              "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+          });
         }),
       { adminKey },
     ),
