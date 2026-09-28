@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { AccountStore } from "@via/codex-auth";
 import { type FakeIssuerOptions, withIssuer } from "@via/codex-auth/testing";
 import { PoolStates } from "@via/pool";
-import { Effect, FileSystem, Layer, Schema } from "effect";
+import { Effect, FileSystem, Layer, Schedule, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { LoginNotFoundError } from "./admin-api.ts";
 import { Logins } from "./logins.ts";
@@ -26,13 +26,17 @@ const withLogins = <A, E>(options: FakeIssuerOptions, body: Effect.Effect<A, E, 
     }),
   ).pipe(Effect.provide(BunFileSystem.layer));
 
-/** Polls a login, a second of test time apart, until it is no longer pending. */
+/**
+ * Polls a login, a few real milliseconds apart, until it is no longer pending.
+ * The fake issuer approves at once, so the login needs no test time to end;
+ * moving the clock while one of its requests is in flight would run out that
+ * request's 30-second timeout before the issuer could answer.
+ */
 const settled = (id: string) =>
-  Effect.gen(function* () {
-    yield* TestClock.adjust("1 second");
-
-    return yield* (yield* Logins).status(id);
-  }).pipe(Effect.repeat({ until: (login) => !isPending(login) }));
+  TestClock.withLive(Effect.sleep("5 millis")).pipe(
+    Effect.andThen(Effect.flatMap(Logins, (logins) => logins.status(id))),
+    Effect.repeat({ until: (login) => !isPending(login), schedule: Schedule.recurs(400) }),
+  );
 
 describe("Logins", () => {
   it.effect("keeps a finished login without the account's tokens", () =>

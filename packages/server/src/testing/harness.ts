@@ -8,7 +8,7 @@ import {
   startFakeIssuer,
   tokensFor,
 } from "@via/codex-auth/testing";
-import { CodexUpstream } from "@via/codex-upstream";
+import { CodexUpstream, MaxResponseBytes } from "@via/codex-upstream";
 import {
   type CodexRequest,
   completedStream,
@@ -150,7 +150,8 @@ const collectLogs = () => {
  * `opencodeGoKeys`, labelled `go-1`, `go-2` and so on, and `opencodeGoVariable`
  * says which key its deprecated environment variable still holds. With `adminKey`, via serves the admin API
  * behind that key, and with `ui` as well, the admin UI. Device-code logins
- * go to the fake issuer, with its `pendingPolls` and `interval`.
+ * go to the fake issuer, with its `pendingPolls` and `interval`. With
+ * `maxResponseBytes`, via reads that much of a Codex stream at most, not 128 MiB.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -173,6 +174,7 @@ export const withVia = <A, E>(
     interval = "0",
     opencodeGoKeys = ["sk-provider"],
     opencodeGoVariable,
+    maxResponseBytes,
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
     opencodeGoKeys?: ReadonlyArray<string>;
@@ -181,6 +183,7 @@ export const withVia = <A, E>(
     providerUrl?: string;
     adminKey?: string;
     ui?: EmbeddedUi;
+    maxResponseBytes?: number;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -255,6 +258,11 @@ export const withVia = <A, E>(
         Layer.provide(Logger.layer([logs.logger])),
         Layer.provide(PoolStates.layer),
         Layer.provide(BunFileSystem.layer),
+        Layer.provide(
+          maxResponseBytes === undefined
+            ? Layer.empty
+            : Layer.succeed(MaxResponseBytes, maxResponseBytes),
+        ),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(Layer.succeedContext(built)),
       ),

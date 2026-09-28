@@ -1,4 +1,4 @@
-import { Duration, Effect, Schema, Stream } from "effect";
+import { Context, Duration, Effect, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import {
   isTerminalEvent,
@@ -27,20 +27,23 @@ export class IncompleteStreamError extends Schema.TaggedError<IncompleteStreamEr
 }
 
 /**
- * The most of a stream `collectResponse` reads. A real response's events, every
- * delta included, come to a few MiB at most; a stream past this never ends.
+ * The most of a stream `collectResponse` reads: 128 MiB. A real response's
+ * events, every delta included, come to a few MiB at most; a stream past this
+ * never ends. Tests set a smaller one, so as not to stream 128 MiB through via.
  */
-const MAX_BYTES = 128 * 1024 * 1024;
+export const MaxResponseBytes = Context.Reference<number>("via/MaxResponseBytes", {
+  defaultValue: () => 128 * 1024 * 1024,
+});
 
 /** How long `collectResponse` waits for a response to complete; a long reasoning run takes minutes. */
 const MAX_DURATION = Duration.minutes(30);
 
 export class ResponseTooLargeError extends Schema.TaggedError<ResponseTooLargeError>()(
   "ResponseTooLargeError",
-  {},
+  { maxBytes: Schema.Number },
 ) {
   override get message() {
-    return `The Codex stream ran past ${MAX_BYTES / 1024 / 1024} MiB without completing`;
+    return `The Codex stream ran past ${this.maxBytes / 1024 / 1024} MiB without completing`;
   }
 }
 
@@ -53,8 +56,8 @@ export class ResponseTimeoutError extends Schema.TaggedError<ResponseTimeoutErro
   }
 }
 
-/** `body`, failing once it has sent more than `MAX_BYTES`. */
-const bounded = <E>(body: Stream.Stream<Uint8Array, E>) =>
+/** `body`, failing once it has sent more than `maxBytes`. */
+const bounded = <E>(body: Stream.Stream<Uint8Array, E>, maxBytes: number) =>
   body.pipe(
     Stream.mapAccum(
       () => 0,
@@ -64,7 +67,9 @@ const bounded = <E>(body: Stream.Stream<Uint8Array, E>) =>
       ],
     ),
     Stream.mapEffect(([read, chunk]) =>
-      read > MAX_BYTES ? Effect.fail(new ResponseTooLargeError()) : Effect.succeed(chunk),
+      read > maxBytes
+        ? Effect.fail(new ResponseTooLargeError({ maxBytes }))
+        : Effect.succeed(chunk),
     ),
   );
 
@@ -101,13 +106,15 @@ const hasOutput = Schema.is(
  * Reads a Responses SSE stream to its end and returns the final response
  * object. The Codex backend may leave the final `output` empty, as codex
  * itself expects, so it is rebuilt from the items finished along the way.
- * A stream that runs past `MAX_BYTES` or `MAX_DURATION` without ending fails.
+ * A stream that runs past `MaxResponseBytes` or `MAX_DURATION` without ending fails.
  */
 export const collectResponse = Effect.fn("collectResponse")(function* <E>(
   body: Stream.Stream<Uint8Array, E>,
 ) {
+  const maxBytes = yield* MaxResponseBytes;
+
   // Only finished items and the terminal event matter; progress events are dropped as they arrive.
-  const events = yield* bounded(body).pipe(
+  const events = yield* bounded(body, maxBytes).pipe(
     Stream.decodeText,
     Stream.pipeThroughChannel(Sse.decodeDataSchema(StreamEvent)),
     Stream.map((event) => event.data),

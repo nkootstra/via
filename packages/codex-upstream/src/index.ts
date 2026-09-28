@@ -5,6 +5,7 @@ export { type ResponsesBody } from "./prepare-body.ts";
 export {
   collectResponse,
   IncompleteStreamError,
+  MaxResponseBytes,
   ResponseTimeoutError,
   ResponseTooLargeError,
   UpstreamFailedError,

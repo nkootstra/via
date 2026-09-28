@@ -10,12 +10,16 @@ const realPause = Effect.sleep("5 millis").pipe(
   Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
 );
 
-/** Moves test time on a minute at a time until `fiber` is done, and answers its result. */
+/**
+ * Moves test time on a minute at a time until `fiber` is done, and answers its
+ * result. Each step waits on the real clock first, for Codex's headers to reach
+ * via before the two minutes via gives them run out.
+ */
 const advanceUntilDone = <A, E>(fiber: Fiber.Fiber<A, E>) =>
   Effect.gen(function* () {
     while (fiber.pollUnsafe() === undefined) {
-      yield* TestClock.adjust("1 minute");
       yield* realPause;
+      yield* TestClock.adjust("1 minute");
     }
 
     return yield* Fiber.join(fiber);
@@ -156,13 +160,14 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
       ),
     );
 
-    it.effect(`${path} answers a Codex stream that runs past 128 MiB with 502`, () =>
+    // Past a cap of 4 MiB rather than the real 128 MiB, which is slow to stream through via.
+    it.effect(`${path} answers a Codex stream that runs past its size cap with 502`, () =>
       withVia(
         () => () => ({
           status: 200,
           headers: {},
           contentType: "text/event-stream",
-          chunks: Array.from({ length: 129 }, () => megabyte),
+          chunks: Array.from({ length: 5 }, () => megabyte),
           ending: "close",
         }),
         (via) =>
@@ -170,9 +175,14 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
             const answer = yield* via.post(path, bodies[path]);
             expect(answer.status).toBe(502);
             expect(yield* answer.json).toMatchObject({
-              error: { type: "server_error", code: "upstream_too_large" },
+              error: {
+                type: "server_error",
+                code: "upstream_too_large",
+                message: expect.stringContaining("past 4 MiB"),
+              },
             });
           }),
+        { maxResponseBytes: 4 * 1024 * 1024 },
       ),
     );
 
