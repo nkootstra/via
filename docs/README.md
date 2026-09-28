@@ -4,15 +4,22 @@
 
 # via
 
-Pool several ChatGPT/Codex subscriptions behind one OpenAI-compatible endpoint
-on your machine.
+One OpenAI-compatible endpoint on your machine for your ChatGPT/Codex
+subscriptions, OpenCode Go keys and other providers such as OpenRouter.
 
-via logs in to each of your ChatGPT accounts, hands out its own API keys, and
-serves `/v1/responses`, `/v1/chat/completions` and `/v1/models` on
-`127.0.0.1:8317`. Each request goes to the first account that still has
-capacity; when one hits its rate limit, via moves on to the next. It pools
-several OpenCode Go API keys the same way, and can pass requests on to other
-OpenAI-compatible providers such as OpenRouter.
+via hands out its own API keys and serves `/v1/responses`,
+`/v1/chat/completions` and `/v1/models` on `127.0.0.1:8317`. Behind that it
+talks to:
+
+| Upstream                                         | How you add it                                          | Models                     | When one runs out                                    |
+| ------------------------------------------------ | ------------------------------------------------------- | -------------------------- | ---------------------------------------------------- |
+| ChatGPT subscriptions, through the Codex backend | Device-code login: `via accounts add` or the web UI     | Any model without a prefix | Pooled: via moves on to the next account             |
+| OpenCode Go API keys                             | `via accounts add --provider opencode-go` or the web UI | `opencode-go/<model>`      | Pooled: via moves on to the next key                 |
+| Other OpenAI-compatible providers                | An entry in [`config.yaml`](#providers)                 | `<provider>/<model>`       | One key each; its errors are passed back as they are |
+
+Each request goes to the first account that still has capacity; when one hits
+its rate limit, via moves on to the next (see
+[How the pool picks an account](#how-the-pool-picks-an-account)).
 
 > **Status:** early (`0.x`). Commands and file formats may still change before 1.0.
 
@@ -132,8 +139,8 @@ with Compose or a platform with volumes. What via needs from it:
   `config.yaml` names. So is `VIA_ADMIN_KEY`, if you want the
   [admin API](#admin-api) and [web UI](#web-ui) instead of `docker exec`.
 
-The image is private while the repository is. Log the host in to ghcr.io
-with a GitHub token that has only the `read:packages` scope:
+The image isn't public yet, so log the host in to ghcr.io with a GitHub token
+that has only the `read:packages` scope:
 
 ```sh
 echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
@@ -147,18 +154,21 @@ into the volume, owned by uid 65532, with the files kept at `0600`.
 
 Every `/v1` route needs `Authorization: Bearer <key>` with a key from `via keys create`.
 
-| Route                       | What it does                                                  |
-| --------------------------- | ------------------------------------------------------------- |
-| `POST /v1/responses`        | Passed through to the Codex backend.                          |
-| `POST /v1/chat/completions` | Translated to and from the Responses API, streaming included. |
-| `GET /v1/models`            | Lists the models Codex offers your accounts, then providers'. |
-| `GET /healthz`              | Answers `200 ok`, for health checks. Needs no key.            |
+| Route                       | What it does                                                                                             |
+| --------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `POST /v1/responses`        | Passed through to Codex, or to the provider the model names.                                             |
+| `POST /v1/chat/completions` | For Codex, translated to and from the Responses API, streaming included; for a provider, passed through. |
+| `GET /v1/models`            | Lists the models Codex offers your accounts, then providers'.                                            |
+| `GET /healthz`              | Answers `200 ok`, for health checks. Needs no key.                                                       |
 
-A model named `<provider>/<model>` goes to that [provider](#providers) instead.
+A model named `<provider>/<model>`, such as `opencode-go/kimi-k3` or
+`openrouter/qwen/qwen3-coder`, goes to that [provider](#providers); any other
+model goes to Codex.
 
 The Codex backend refuses sampling and limit options, so via accepts and ignores
 them: `temperature`, `top_p`, `max_tokens`, `max_completion_tokens` and
-`max_output_tokens`, as well as `user`, `metadata` and `previous_response_id`.
+`max_output_tokens`, as well as `user`, `metadata`, `previous_response_id` and
+`context_management`.
 A refusal comes back as the chat message's `refusal`, as OpenAI sends it.
 
 A streamed answer that goes quiet, as while the model reasons, gets a
@@ -211,28 +221,28 @@ a reference page at `/admin/docs`, where you can also try the routes out. API
 keys from `via keys create` don't work on `/admin`, and the admin key doesn't
 work on `/v1`.
 
-| Route                                     | What it does                                                     |
-| ----------------------------------------- | ---------------------------------------------------------------- |
-| `POST /admin/session`                     | Sign in with `{"key": "<VIA_ADMIN_KEY>"}`; sets a cookie.        |
-| `GET /admin/session`                      | 200 while signed in, else 401.                                   |
-| `DELETE /admin/session`                   | Sign out.                                                        |
-| `GET /admin/accounts`                     | List accounts in the order they are used, without tokens.        |
-| `PATCH /admin/accounts/<id>`              | Change `label` and/or `enabled`; returns the account.            |
-| `DELETE /admin/accounts/<id>`             | Forget an account and delete its tokens.                         |
-| `POST /admin/accounts/logins`             | Start a device-code login.                                       |
-| `GET /admin/accounts/logins/<id>`         | Check on a login: `pending`, `added`, `updated` or `failed`.     |
-| `GET /admin/opencode-go/accounts`         | List OpenCode Go keys, each only by its last four characters.    |
-| `POST /admin/opencode-go/accounts`        | Add a key from `{"apiKey": "..."}`, once OpenCode Go accepts it. |
-| `PATCH /admin/opencode-go/accounts/<id>`  | Change `label` and/or `enabled`; returns the key's account.      |
-| `DELETE /admin/opencode-go/accounts/<id>` | Forget an OpenCode Go key.                                       |
-| `GET /admin/usage`                        | How much of each account's limits is used.                       |
-| `GET /admin/pool`                         | Each account's and provider's state (see below).                 |
-| `GET /admin/models`                       | The models `/v1/models` lists.                                   |
-| `GET /admin/events`                       | The admin state as server-sent events, as it changes.            |
-| `GET /admin/keys`                         | List API keys and when each was last used, not the keys.         |
-| `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.        |
-| `PATCH /admin/keys/<id-or-name>`          | Rename a key from `{"name": "..."}`; the key stays the same.     |
-| `DELETE /admin/keys/<id-or-name>`         | Revoke a key.                                                    |
+| Route                                     | What it does                                                                                      |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `POST /admin/session`                     | Sign in with `{"key": "<VIA_ADMIN_KEY>"}`; sets a cookie.                                         |
+| `GET /admin/session`                      | 200 while signed in, else 401.                                                                    |
+| `DELETE /admin/session`                   | Sign out.                                                                                         |
+| `GET /admin/accounts`                     | List accounts in the order they are used, without tokens.                                         |
+| `PATCH /admin/accounts/<id>`              | Change `label` and/or `enabled`; returns the account.                                             |
+| `DELETE /admin/accounts/<id>`             | Forget an account and delete its tokens.                                                          |
+| `POST /admin/accounts/logins`             | Start a device-code login.                                                                        |
+| `GET /admin/accounts/logins/<id>`         | Check on a login: `pending`, `added`, `updated` or `failed`.                                      |
+| `GET /admin/opencode-go/accounts`         | List OpenCode Go keys, each only by its last four characters.                                     |
+| `POST /admin/opencode-go/accounts`        | Add a key from `{"apiKey": "...", "label": "..."}` (label optional), once OpenCode Go accepts it. |
+| `PATCH /admin/opencode-go/accounts/<id>`  | Change `label` and/or `enabled`; returns the key's account.                                       |
+| `DELETE /admin/opencode-go/accounts/<id>` | Forget an OpenCode Go key.                                                                        |
+| `GET /admin/usage`                        | How much of each account's limits is used.                                                        |
+| `GET /admin/pool`                         | Each account's and provider's state (see below).                                                  |
+| `GET /admin/models`                       | The models `/v1/models` lists.                                                                    |
+| `GET /admin/events`                       | The admin state as server-sent events, as it changes.                                             |
+| `GET /admin/keys`                         | List API keys and when each was last used, not the keys.                                          |
+| `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.                                         |
+| `PATCH /admin/keys/<id-or-name>`          | Rename a key from `{"name": "..."}`; the key stays the same.                                      |
+| `DELETE /admin/keys/<id-or-name>`         | Revoke a key.                                                                                     |
 
 Accounts are named by their `id` from `GET /admin/accounts`. Unlike the
 commands, the admin API doesn't take a label or email, which would otherwise
@@ -405,7 +415,9 @@ adding it twice. Adding an OpenCode Go key via already has is refused.
 `via accounts add --provider opencode-go` asks for the key without echoing it,
 or reads it from standard input when that isn't a terminal, so a script can
 pipe it in: `via accounts add --provider opencode-go < key.txt`. It never takes
-the key as an argument, which would end up in your shell history. `list` and
+the key as an argument, which would end up in your shell history. Unlike the
+admin API and the web UI, it doesn't ask OpenCode Go whether the key works
+first; a key it refuses is taken out of use at its first request. `list` and
 `status` show only a key's last four characters.
 
 ## How the pool picks an account
@@ -429,6 +441,10 @@ the key as an argument, which would end up in your shell history. `list` and
   from the web UI's **Add account** and it's back in rotation at once. With
   `via accounts add` instead, restart `via serve`: the CLI can't reach the
   running server's lockouts. A login lifts only a lockout, never a cooldown.
+- A Codex backend via can't reach at all answers `502` without trying the next
+  account. A token refresh that fails because the sign-in server can't be
+  reached rests that account for 1 minute, and via tries the next one; only a
+  refused refresh locks an account out.
 - When no account is left, the client gets `429` with a `Retry-After` header
   (or `503` if waiting won't help). For a model only some accounts offer, only
   those accounts count.
@@ -517,7 +533,8 @@ share their parent's), `x-opencode-session`,
 body's `session_id` or `prompt_cache_key`, `x-task-id` or `x-kilocode-taskid`;
 otherwise one derived from the conversation's first system and user message.
 OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
-`session_id`, and Codex in its `session_id` header.
+`session_id` and, unless the client set one, `prompt_cache_key`, and Codex in
+its `session_id` header.
 
 OpenCode also writes its session id into the `<env>` block of its system
 prompt, which would keep its sub-agents from sharing a prompt cache with each
