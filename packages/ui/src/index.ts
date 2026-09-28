@@ -56,6 +56,13 @@ export {
   type MenuRadioItemProps,
 } from "./menu.tsx";
 
+export {
+  SegmentedControl,
+  SegmentedItem,
+  type SegmentedControlProps,
+  type SegmentedItemProps,
+} from "./segmented-control.tsx";
+
 export { RowActions, type RowActionsProps } from "./row-actions.tsx";
 
 export { VisuallyHidden } from "./visually-hidden.tsx";
