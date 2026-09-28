@@ -1,7 +1,8 @@
 # via — contributor rules
 
-`via` pools multiple ChatGPT/Codex subscriptions behind one OpenAI-compatible
-local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
+`via` pools ChatGPT/Codex subscriptions and OpenCode Go keys, and passes
+requests on to other OpenAI-compatible providers such as OpenRouter, behind one
+OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 
 ## Workflow
 
@@ -20,6 +21,11 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   servers, and base URLs are injected through layers.
 - Pure, invariant-heavy logic (the pool's selection and cooldown rules) ships
   with property tests (`it.prop`/`it.effect.prop`), not just examples.
+- **Docs change with the code.** A change to anything a user or contributor
+  sees (commands, flags, config keys, environment variables, files, routes,
+  providers, limits, the web UI, the build or the workflow) updates
+  `docs/README.md`, `CONTRIBUTING.md`, `SECURITY.md` or this file in the same
+  PR. Check the docs against the code, not against memory.
 
 ## Versions
 
