@@ -1,17 +1,8 @@
 import { createHash } from "node:crypto";
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  Button,
-  Menu,
-  MenuContent,
-  MenuTrigger,
-  ThemeColor,
-  ThemeMenuItems,
-  themeScript,
-  themeScriptHash,
-} from "./index.ts";
+import { ThemeColor, ThemeControl, themeScript, themeScriptHash } from "./index.ts";
 import { themeColors } from "./palette.ts";
 import { setTheme } from "./theme.ts";
 
@@ -61,56 +52,35 @@ describe("themeScript", () => {
   });
 });
 
-/** The theme's items in a menu, as an app's account menu offers them. */
-function ThemeMenu() {
-  return (
-    <Menu>
-      <MenuTrigger render={<Button variant="ghost">Account</Button>} />
-      <MenuContent>
-        <ThemeMenuItems />
-      </MenuContent>
-    </Menu>
-  );
-}
+/** The theme's control, as an app's settings offer it. */
+const ThemeSetting = () => <ThemeControl aria-label="Theme" />;
 
-const open = async (user: UserEvent) => {
-  await user.click(screen.getByRole("button", { name: "Account" }));
+const choose = (user: UserEvent, theme: string) =>
+  user.click(screen.getByRole("radio", { name: theme }));
 
-  return screen.findByRole("group", { name: "Theme" });
-};
+const checked = (theme: string) =>
+  screen.getByRole("radio", { name: theme }).getAttribute("aria-checked");
 
-const choose = async (user: UserEvent, theme: string) => {
-  const group = await open(user);
-  await user.click(within(group).getByRole("menuitemradio", { name: theme }));
-  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
-};
-
-const checked = (group: HTMLElement, theme: string) =>
-  within(group).getByRole("menuitemradio", { name: theme }).getAttribute("aria-checked");
-
-describe("ThemeMenuItems", () => {
-  it("offers System, Light and Dark, checking the choice already on <html>", async () => {
+describe("ThemeControl", () => {
+  it("offers System, Light and Dark, checking the choice already on <html>", () => {
     root.dataset["theme"] = "light";
-    const user = userEvent.setup();
-    render(<ThemeMenu />);
+    render(<ThemeSetting />);
 
-    const group = await open(user);
-
-    expect(within(group).getAllByRole("menuitemradio")).toHaveLength(3);
-    expect(checked(group, "Light")).toBe("true");
-    expect(checked(group, "System")).toBe("false");
+    const group = screen.getByRole("radiogroup", { name: "Theme" });
+    expect(group.querySelectorAll("[role='radio']")).toHaveLength(3);
+    expect(checked("Light")).toBe("true");
+    expect(checked("System")).toBe("false");
   });
 
   it("applies and remembers a choice, and System clears it", async () => {
     const user = userEvent.setup();
-    render(<ThemeMenu />);
+    render(<ThemeSetting />);
 
     await choose(user, "Dark");
     expect(root.dataset["theme"]).toBe("dark");
     expect(root.style.colorScheme).toBe("dark");
     expect(localStorage.getItem("via.theme")).toBe("dark");
-    expect(checked(await open(user), "Dark")).toBe("true");
-    await user.keyboard("{Escape}");
+    expect(checked("Dark")).toBe("true");
 
     await choose(user, "System");
     expect(root.dataset["theme"]).toBeUndefined();
@@ -130,7 +100,7 @@ describe("ThemeMenuItems", () => {
 
     render(
       <>
-        <ThemeMenu />
+        <ThemeSetting />
         <Sibling />
       </>,
     );
@@ -141,10 +111,8 @@ describe("ThemeMenuItems", () => {
     expect(renders).toBe(1);
   });
 
-  it("follows a choice made in another tab while it shows", async () => {
-    const user = userEvent.setup();
-    render(<ThemeMenu />);
-    const group = await open(user);
+  it("follows a choice made in another tab while it shows", () => {
+    render(<ThemeSetting />);
 
     act(() => {
       localStorage.setItem("via.theme", "dark");
@@ -152,7 +120,7 @@ describe("ThemeMenuItems", () => {
     });
 
     expect(root.dataset["theme"]).toBe("dark");
-    expect(checked(group, "Dark")).toBe("true");
+    expect(checked("Dark")).toBe("true");
   });
 });
 
@@ -187,7 +155,7 @@ describe("ThemeColor", () => {
     render(
       <>
         <ThemeColor />
-        <ThemeMenu />
+        <ThemeSetting />
       </>,
     );
 

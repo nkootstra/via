@@ -15,6 +15,7 @@ import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 import { Route as AppKeysRouteImport } from './routes/_app/keys'
 import { Route as AppModelsRouteImport } from './routes/_app/models'
+import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -45,6 +46,11 @@ const AppModelsRoute = AppModelsRouteImport.update({
   path: '/models',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -52,12 +58,14 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AppAccountsRoute
   '/keys': typeof AppKeysRoute
   '/models': typeof AppModelsRoute
+  '/settings': typeof AppSettingsRoute
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/accounts': typeof AppAccountsRoute
   '/keys': typeof AppKeysRoute
   '/models': typeof AppModelsRoute
+  '/settings': typeof AppSettingsRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -67,13 +75,14 @@ export interface FileRoutesById {
   '/_app/accounts': typeof AppAccountsRoute
   '/_app/keys': typeof AppKeysRoute
   '/_app/models': typeof AppModelsRoute
+  '/_app/settings': typeof AppSettingsRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sign-in' | '/accounts' | '/keys' | '/models'
+  fullPaths: '/' | '/sign-in' | '/accounts' | '/keys' | '/models' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: '/sign-in' | '/accounts' | '/keys' | '/models' | '/'
+  to: '/sign-in' | '/accounts' | '/keys' | '/models' | '/settings' | '/'
   id:
     | '__root__'
     | '/_app'
@@ -81,6 +90,7 @@ export interface FileRouteTypes {
     | '/_app/accounts'
     | '/_app/keys'
     | '/_app/models'
+    | '/_app/settings'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
@@ -133,6 +143,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppModelsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -140,6 +157,7 @@ interface AppRouteChildren {
   AppAccountsRoute: typeof AppAccountsRoute
   AppKeysRoute: typeof AppKeysRoute
   AppModelsRoute: typeof AppModelsRoute
+  AppSettingsRoute: typeof AppSettingsRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -147,6 +165,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountsRoute: AppAccountsRoute,
   AppKeysRoute: AppKeysRoute,
   AppModelsRoute: AppModelsRoute,
+  AppSettingsRoute: AppSettingsRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

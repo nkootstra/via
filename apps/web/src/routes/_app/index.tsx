@@ -18,6 +18,7 @@ import {
   useNow,
   windowName,
 } from "../../lib/time.ts";
+import { useTimeFormat } from "../../lib/time-format.ts";
 import { providerName } from "../../lib/provider-name.ts";
 import type { PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
 
@@ -320,6 +321,8 @@ function Resting({
   readonly reason: string;
   readonly ends: string;
 }) {
+  const format = useTimeFormat();
+
   return (
     <Callout tone="warning">
       <div {...stylex.props(styles.state)}>
@@ -328,7 +331,7 @@ function Resting({
         </span>
         <span {...stylex.props(styles.reason)}>{reason}</span>
         <span {...stylex.props(styles.reason)}>
-          {ends} {formatTime(until)}
+          {ends} {formatTime(until, format)}
         </span>
       </div>
     </Callout>
@@ -412,6 +415,8 @@ function Windows({
     readonly resetsAt: string;
   }>;
 }) {
+  const format = useTimeFormat();
+
   return (
     <div {...stylex.props(styles.meters)}>
       {windows.map((window) => (
@@ -419,7 +424,7 @@ function Windows({
           key={window.label}
           label={window.label}
           value={window.usedPercent}
-          detail={`Resets ${formatTime(window.resetsAt)}`}
+          detail={`Resets ${formatTime(window.resetsAt, format)}`}
         />
       ))}
     </div>

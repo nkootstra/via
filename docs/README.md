@@ -358,6 +358,13 @@ last four characters. The Models page shows each model once: a Codex model
 with the reasoning efforts its suffixed ids pick, and a provider's models under
 its heading without their `<provider>/` prefix. Search matches every id.
 
+**Settings**, in the menu under **Admin** at the foot of the sidebar, holds the
+page's preferences: the theme (System, Light or Dark) and the time format
+(Automatic, 12-hour or 24-hour). Automatic writes times as the browser's
+language does. Each choice applies at once, to every open tab, and is kept in
+that browser's local storage, not in via, so another browser starts from the
+defaults.
+
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
 old, and says how long ago that was.

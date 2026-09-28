@@ -223,6 +223,14 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
         yield* Effect.promise(() => search.waitFor());
         const size = yield* Effect.promise(() => page.evaluate(searchFontSize));
         expect(size).toBeGreaterThanOrEqual(16);
+
+        // Every setting's choices fit across the screen, whole.
+        yield* Effect.promise(() => page.goto(`${via.url}/ui/settings`));
+        yield* Effect.promise(() =>
+          page.getByRole("radiogroup", { name: "Time format" }).waitFor(),
+        );
+        expect(yield* Effect.promise(() => page.evaluate(scrollsSideways))).toBe(false);
+        expect(yield* Effect.promise(() => page.evaluate(radiosOnScreen))).toBe(true);
       }),
     );
   }
@@ -244,5 +252,11 @@ const statSpread = `(() => {
 
 const searchFontSize =
   'parseFloat(getComputedStyle(document.querySelector("input[type=search]")).fontSize)';
+
+/** Whether every radio on the page sits within the screen's width. */
+const radiosOnScreen = `[...document.querySelectorAll("[role=radio]")].every((radio) => {
+  const box = radio.getBoundingClientRect();
+  return box.left >= 0 && box.right <= window.innerWidth;
+})`;
 
 const scrollsSideways = "document.documentElement.scrollWidth > window.innerWidth";

@@ -1,4 +1,5 @@
 import { useCallback, useSyncExternalStore } from "react";
+import type { TimeFormat } from "./time-format.ts";
 
 /** One clock per interval, shared by every component that asks for it. */
 interface Ticker {
@@ -136,22 +137,40 @@ export function timeAgo(iso: string, now: number) {
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
 
-const timestampFormat = new Intl.DateTimeFormat(undefined, {
-  dateStyle: "medium",
-  timeStyle: "medium",
-});
+/** The hour cycle a time format asks of Intl; Automatic leaves it to the locale. */
+const hourCycles = { auto: undefined, "12h": "h12", "24h": "h23" } as const;
 
-const timeFormat = new Intl.DateTimeFormat(undefined, {
-  weekday: "short",
-  hour: "numeric",
-  minute: "2-digit",
-});
+/** One formatter per options and time format, made the first time it's asked for. */
+const formatter = (options: Intl.DateTimeFormatOptions) => {
+  const made = new Map<TimeFormat, Intl.DateTimeFormat>();
+
+  return (format: TimeFormat) => {
+    const found = made.get(format);
+
+    if (found !== undefined) return found;
+
+    const created = new Intl.DateTimeFormat(undefined, {
+      ...options,
+      hourCycle: hourCycles[format],
+    });
+
+    made.set(format, created);
+
+    return created;
+  };
+};
+
+const timestampFormat = formatter({ dateStyle: "medium", timeStyle: "medium" });
+
+const timeFormat = formatter({ weekday: "short", hour: "numeric", minute: "2-digit" });
 
 /** A date, as the viewer's locale writes it. */
 export const formatDate = (iso: string) => dateFormat.format(new Date(iso));
 
-/** A date and time to the second, as the viewer's locale writes it. */
-export const formatTimestamp = (iso: string) => timestampFormat.format(new Date(iso));
+/** A date and time to the second, as the viewer's locale writes it, the hour as `format` asks. */
+export const formatTimestamp = (iso: string, format: TimeFormat) =>
+  timestampFormat(format).format(new Date(iso));
 
-/** A clock time with its weekday, for a reset or a cooldown's end. */
-export const formatTime = (iso: string) => timeFormat.format(new Date(iso));
+/** A clock time with its weekday, for a reset or a cooldown's end, the hour as `format` asks. */
+export const formatTime = (iso: string, format: TimeFormat) =>
+  timeFormat(format).format(new Date(iso));

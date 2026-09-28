@@ -8,7 +8,14 @@
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import * as stylex from "@stylexjs/stylex";
 import { motion, useReducedMotion } from "motion/react";
-import { createContext, use, useMemo, type ReactNode } from "react";
+import {
+  createContext,
+  use,
+  useMemo,
+  type HTMLAttributes,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { FluidHighlight, useFluidHover } from "./fluid-hover.tsx";
 import { forMotion } from "./motion-props.ts";
 import { spring } from "./springs.ts";
@@ -74,6 +81,8 @@ const styles = stylex.create({
     fontVariationSettings: weights.normal,
     fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
+    // A link item reads as any other.
+    textDecoration: "none",
     cursor: "pointer",
     outline: "none",
     transitionProperty: "color",
@@ -296,6 +305,43 @@ export function MenuItem({
       )}
       {label}
     </BaseMenu.Item>
+  );
+}
+
+export interface MenuLinkItemProps {
+  readonly label: string;
+  /** A glyph before the label, in the label's colour. */
+  readonly icon?: ReactNode;
+  /**
+   * Renders the link, given the item's props and content to spread onto it:
+   * `(props) => <Link to="/settings" {...props} />`. The link brings its own `href`.
+   */
+  readonly render: (props: HTMLAttributes<HTMLElement>) => ReactElement;
+}
+
+/** An item that goes to another page: a link, so it opens in a new tab too. */
+export function MenuLinkItem({ label, icon, render }: MenuLinkItemProps) {
+  const { register, light } = use(MenuListContext);
+  const key = useMemo(() => ({ destructive: false }), []);
+
+  return (
+    <BaseMenu.LinkItem
+      ref={register(key)}
+      label={label}
+      closeOnClick
+      render={(props) => render(props)}
+      onFocus={() => light(key)}
+      className={(state) =>
+        stylex.props(styles.item, state.highlighted && styles.highlighted).className ?? ""
+      }
+    >
+      {icon !== undefined && (
+        <span aria-hidden="true" {...stylex.props(styles.icon)}>
+          {icon}
+        </span>
+      )}
+      {label}
+    </BaseMenu.LinkItem>
   );
 }
 

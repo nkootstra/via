@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
   MenuItem,
+  MenuLinkItem,
   MenuSeparator,
   NavItem,
   NavList,
@@ -23,14 +24,21 @@ import {
   SidebarProvider,
   SidebarTrigger,
   SidebarUserMenu,
-  ThemeMenuItems,
 } from "@via/ui";
 import { colors, durations, radii, space, text } from "@via/ui/tokens.stylex";
 import { useEffect, useState, type ReactNode } from "react";
 import { signOut } from "../api/admin.ts";
-import { AccountsIcon, KeyIcon, Mark, ModelsIcon, OverviewIcon, SignOutIcon } from "./icons.tsx";
+import {
+  AccountsIcon,
+  KeyIcon,
+  Mark,
+  ModelsIcon,
+  OverviewIcon,
+  SettingsIcon,
+  SignOutIcon,
+} from "./icons.tsx";
 
-type Page = "/" | "/accounts" | "/keys" | "/models";
+type Page = "/" | "/accounts" | "/keys" | "/models" | "/settings";
 
 const pages: ReadonlyArray<{
   readonly to: Page;
@@ -43,8 +51,9 @@ const pages: ReadonlyArray<{
   { to: "/models", label: "Models", icon: <ModelsIcon /> },
 ];
 
-/** The dashboard page at `path`, if it is one. */
-export const pageAt = (path: string) => pages.find((page) => page.to === path)?.to;
+/** The dashboard page at `path`, if it is one: a page in the navigation, or the settings. */
+export const pageAt = (path: string): Page | undefined =>
+  path === "/settings" ? path : pages.find((page) => page.to === path)?.to;
 
 const styles = stylex.create({
   // Off the top of the page until a keyboard reaches it: the first stop on Tab.
@@ -141,8 +150,8 @@ function Pages() {
 }
 
 /**
- * The admin's menu in the sidebar's footer: the theme, and signing out once
- * the viewer confirms, since signing back in needs the admin key.
+ * The admin's menu in the sidebar's footer: the settings, and signing out
+ * once the viewer confirms, since signing back in needs the admin key.
  */
 function AccountMenu() {
   const navigate = useNavigate();
@@ -160,7 +169,11 @@ function AccountMenu() {
   return (
     <>
       <SidebarUserMenu name="Admin">
-        <ThemeMenuItems />
+        <MenuLinkItem
+          label="Settings"
+          icon={<SettingsIcon size={16} />}
+          render={(props) => <Link to="/settings" {...props} />}
+        />
         <MenuSeparator />
         <MenuItem
           label="Sign out…"
