@@ -45,7 +45,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  ThemeSwitch,
+  ThemeMenuItems,
   ToastProvider,
   useToast,
   type BadgeColor,
@@ -453,10 +453,15 @@ function Preview() {
               the page theme on the right, which reloads keep.
             </p>
           </div>
-          <ThemeSwitch />
+          <Menu>
+            <MenuTrigger render={<Button variant="tertiary">Theme</Button>} />
+            <MenuContent align="end">
+              <ThemeMenuItems />
+            </MenuContent>
+          </Menu>
         </header>
         <div {...stylex.props(styles.panels)}>
-          {/* Each panel forces its palette, as the switch does for the page. */}
+          {/* Each panel forces its palette, as the theme menu does for the page. */}
           <div data-theme="light" {...stylex.props(styles.panel)}>
             <h2 {...stylex.props(styles.panelTitle)}>Light</h2>
             <Gallery />

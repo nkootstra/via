@@ -25,6 +25,8 @@ export {
   TableHead,
   TableHeader,
   TableRow,
+  actionsColumn,
+  type TableColumn,
   type TableProps,
   type TableRowProps,
 } from "./table.tsx";
@@ -44,19 +46,33 @@ export {
   Menu,
   MenuContent,
   MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
   MenuSeparator,
   MenuTrigger,
   type MenuContentProps,
   type MenuItemProps,
+  type MenuRadioGroupProps,
+  type MenuRadioItemProps,
 } from "./menu.tsx";
+
+export { RowActions, type RowActionsProps } from "./row-actions.tsx";
+
+export { VisuallyHidden } from "./visually-hidden.tsx";
+
+export { Callout, type CalloutProps, type CalloutTone } from "./callout.tsx";
+
+export { TableSkeleton, type TableSkeletonProps } from "./table-skeleton.tsx";
 
 export { ToastProvider, useToast } from "./toast.tsx";
 
 export { CopyField, type CopyFieldProps } from "./copy-field.tsx";
 
-export { ThemeSwitch } from "./theme-switch.tsx";
+export { ThemeMenuItems } from "./theme-menu.tsx";
 
 export { themeScript, themeScriptHash } from "./theme-script.ts";
+
+export { ThemeColor } from "./theme-color.tsx";
 
 export { Switch, type SwitchProps } from "./switch.tsx";
 
@@ -65,3 +81,18 @@ export { Meter, type MeterProps } from "./meter.tsx";
 export { EmptyState, Skeleton, type EmptyStateProps, type SkeletonProps } from "./placeholders.tsx";
 
 export { NavItem, NavList, type NavItemProps, type NavListProps } from "./nav.tsx";
+
+export {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+  SidebarUserMenu,
+  type SidebarInsetProps,
+  type SidebarProps,
+  type SidebarProviderProps,
+  type SidebarUserMenuProps,
+} from "./sidebar.tsx";
