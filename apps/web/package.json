@@ -38,6 +38,7 @@
     "@via/providers": "workspace:*",
     "@via/tsconfig": "workspace:*",
     "@vitejs/plugin-react": "6.1.1",
+    "axe-core": "4.13.0",
     "happy-dom": "catalog:",
     "msw": "2.15.0",
     "vite": "catalog:",

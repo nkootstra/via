@@ -25,10 +25,10 @@ export function createAppRouter(history?: RouterHistory) {
     ...(history === undefined ? {} : { history }),
   });
 
-  // A 401 anywhere means the session ended: forget what it showed, and sign in.
+  // A 401 anywhere means the session ended: forget what it showed, and sign in, told why.
   onSignedOut(() => {
     queryClient.clear();
-    void router.navigate({ to: "/sign-in" });
+    void router.navigate({ to: "/sign-in", search: { expired: true } });
   });
 
   return router;

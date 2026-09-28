@@ -17,6 +17,30 @@ function RevokeButton() {
   );
 }
 
+/** Adds an error toast, and shows each toast's priority and timeout. */
+function Probe() {
+  const toast = useToast();
+
+  return (
+    <>
+      <Button
+        onClick={() =>
+          toast.add({
+            title: "Couldn't revoke",
+            type: "error",
+            actionProps: { children: "Try again" },
+          })
+        }
+      >
+        Fail
+      </Button>
+      <output>
+        {toast.toasts.map((each) => `${each.priority ?? "low"}:${each.timeout ?? "default"}`)}
+      </output>
+    </>
+  );
+}
+
 describe("Toast", () => {
   it("announces a new toast through a polite live region", async () => {
     const user = userEvent.setup();
@@ -86,5 +110,41 @@ describe("Toast", () => {
     await user.click(within(toast).getByRole("button", { name: "Reload" }));
 
     expect(reloaded).toBe(1);
+  });
+
+  it("keeps an error until it is dismissed, and says it at once", async () => {
+    const user = userEvent.setup();
+
+    render(
+      <ToastProvider>
+        <Probe />
+      </ToastProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Fail" }));
+    await waitFor(() => expect(screen.getByRole("status").textContent).toBe("high:0"));
+  });
+
+  it("keeps a hidden error toast out of the tab order until the stack is reached", async () => {
+    const user = userEvent.setup();
+    render(
+      <ToastProvider>
+        <Probe />
+      </ToastProvider>,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Fail" }));
+    await screen.findAllByText("Couldn't revoke");
+
+    const hidden = [...document.querySelectorAll("[aria-hidden='true']")];
+
+    const focusable = hidden.flatMap((element) =>
+      [element, ...element.querySelectorAll("button, [tabindex]")].filter(
+        (each) =>
+          (each.getAttribute("tabindex") ?? (each.tagName === "BUTTON" ? "0" : "-1")) !== "-1",
+      ),
+    );
+
+    expect(focusable).toEqual([]);
   });
 });

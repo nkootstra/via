@@ -11,9 +11,9 @@ export const AlertDialog = BaseAlertDialog.Root;
 
 export const AlertDialogTrigger = BaseAlertDialog.Trigger;
 
-export function AlertDialogContent({ size = "sm", children }: DialogContentProps) {
+export function AlertDialogContent({ size = "sm", finalFocus, children }: DialogContentProps) {
   return (
-    <DialogPanel size={size} closeButton={false}>
+    <DialogPanel size={size} finalFocus={finalFocus} closeButton={false}>
       {children}
     </DialogPanel>
   );

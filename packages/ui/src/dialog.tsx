@@ -11,7 +11,17 @@ import { Button } from "./button.tsx";
 import { XIcon } from "./icons.tsx";
 import { forMotion } from "./motion-props.ts";
 import { spring } from "./springs.ts";
-import { colors, fonts, radii, shadows, space, text, weights } from "./tokens.stylex.ts";
+import {
+  colors,
+  fonts,
+  radii,
+  shadows,
+  space,
+  text,
+  tracking,
+  fontWeights,
+  weights,
+} from "./tokens.stylex.ts";
 
 const styles = stylex.create({
   backdrop: {
@@ -27,7 +37,15 @@ const styles = stylex.create({
     zIndex: 50,
     boxSizing: "border-box",
     width: "calc(100% - 2rem)",
+    // A short viewport scrolls the panel rather than pushing its title, ✕ or
+    // footer off screen.
+    maxHeight: "calc(100dvh - 2rem)",
+    overflowY: "auto",
     padding: space.s6,
+    // Invisible, until forced colours draw it as the panel's edge.
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: "transparent",
     borderRadius: radii.container,
     backgroundColor: colors.surface5,
     boxShadow: shadows.surface5,
@@ -38,16 +56,23 @@ const styles = stylex.create({
   },
   sm: { maxWidth: "400px" },
   lg: { maxWidth: "540px" },
+  // Centred on the title's line: 24px of padding plus half its 20px line,
+  // less half the 28px button.
   close: {
     position: "absolute",
-    top: space.s3,
-    right: space.s3,
+    insetBlockStart: "20px",
+    insetInlineEnd: "20px",
   },
   title: {
     margin: 0,
     fontSize: text.title,
     lineHeight: 1.25,
+    letterSpacing: tracking.snug,
+    // Clear of the ✕, and broken anywhere rather than overflowing.
+    paddingInlineEnd: space.s6,
+    overflowWrap: "anywhere",
     fontVariationSettings: weights.bold,
+    fontWeight: fontWeights.bold,
     color: colors.foreground,
   },
   description: {
@@ -63,6 +88,7 @@ const styles = stylex.create({
   },
   footer: {
     display: "flex",
+    flexWrap: "wrap",
     justifyContent: "flex-end",
     gap: space.s2,
     marginTop: space.s6,
@@ -82,13 +108,18 @@ export const DialogClose = BaseDialog.Close;
 export interface DialogContentProps {
   /** Width: sm 400px, lg 540px. */
   readonly size?: "sm" | "lg";
+  /**
+   * Where focus goes once it closes, when not back to its trigger: such as
+   * when the trigger went with what the dialog removed.
+   */
+  readonly finalFocus?: ComponentProps<typeof BaseDialog.Popup>["finalFocus"];
   readonly children?: ReactNode;
 }
 
 /** The backdrop and panel, portalled to the body. */
-export function DialogContent({ size = "sm", children }: DialogContentProps) {
+export function DialogContent({ size = "sm", finalFocus, children }: DialogContentProps) {
   return (
-    <DialogPanel size={size} closeButton>
+    <DialogPanel size={size} finalFocus={finalFocus} closeButton>
       {children}
     </DialogPanel>
   );
@@ -97,12 +128,14 @@ export function DialogContent({ size = "sm", children }: DialogContentProps) {
 /** The panel shared by Dialog and AlertDialog; only a Dialog gets the ✕. */
 export function DialogPanel({
   size,
+  finalFocus,
   closeButton,
   children,
-}: Required<Pick<DialogContentProps, "size">> & {
-  readonly closeButton: boolean;
-  readonly children?: ReactNode;
-}) {
+}: Required<Pick<DialogContentProps, "size">> &
+  Pick<DialogContentProps, "finalFocus"> & {
+    readonly closeButton: boolean;
+    readonly children?: ReactNode;
+  }) {
   return (
     <BaseDialog.Portal>
       <BaseDialog.Backdrop
@@ -121,6 +154,7 @@ export function DialogPanel({
         }}
       />
       <BaseDialog.Popup
+        finalFocus={finalFocus}
         render={(props, state: TransitionState) => {
           const exiting = state.transitionStatus === "ending";
 

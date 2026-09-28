@@ -69,3 +69,13 @@ export function MonitorIcon({ size }: IconProps) {
     </svg>
   );
 }
+
+export function MoreIcon({ size }: IconProps) {
+  return (
+    <svg width={size} height={size} {...filled}>
+      <rect x="10" y="3" width="4" height="4" rx="2" />
+      <rect x="10" y="10" width="4" height="4" rx="2" />
+      <rect x="10" y="17" width="4" height="4" rx="2" />
+    </svg>
+  );
+}

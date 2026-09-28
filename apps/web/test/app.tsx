@@ -1,8 +1,8 @@
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import { AdminState as ViaState } from "@via/server/admin-api";
 import { Schema } from "effect";
-import userEvent from "@testing-library/user-event";
+import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { RequestHandler } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll } from "vitest";
@@ -48,4 +48,15 @@ export function embed(state: typeof ViaState.Type) {
   script.id = "via-state";
   script.textContent = Schema.encodeSync(Schema.fromJsonString(ViaState))(state);
   document.head.append(script);
+}
+
+/** The sidebar's user row, which opens the admin's menu. */
+export const userMenu = () => screen.getByRole("button", { name: "Admin" });
+
+/** Opens the user menu once the dashboard shows, and finds its Sign out… item. */
+export async function openSignOut(user: UserEvent) {
+  await screen.findByRole("heading", { level: 1 });
+  await user.click(userMenu());
+
+  return screen.findByRole("menuitem", { name: "Sign out…" });
 }

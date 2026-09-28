@@ -1,21 +1,23 @@
 import * as stylex from "@stylexjs/stylex";
 import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
-import { Badge, EmptyState, Input, Skeleton } from "@via/ui";
+import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
+import { Button, EmptyState, Input, Skeleton, VisuallyHidden } from "@via/ui";
 import { colors, fonts, radii, space, text } from "@via/ui/tokens.stylex";
 import { Schema } from "effect";
-import { useDeferredValue, useState } from "react";
+import { useDeferredValue, useRef, useState } from "react";
 import { modelsQuery } from "../../api/admin.ts";
 import { useLiveOptions } from "../../api/live.ts";
 import type { Model } from "../../api/types.ts";
 import { CodexIcon, ModelsIcon, ProviderLogo, SearchIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
+import { QueryError } from "../../components/query-error.tsx";
 import { providerName } from "../../lib/provider-name.ts";
 
 export const Route = createFileRoute("/_app/models")({
   head: () => ({ meta: [{ title: "Models · via" }] }),
   loader: ({ context }) => context.queryClient.ensureQueryData(modelsQuery),
   pendingComponent: ModelsLoading,
+  errorComponent: ModelsError,
   component: Models,
 });
 
@@ -24,12 +26,17 @@ const styles = stylex.create({
   groups: {
     display: "flex",
     flexDirection: "column",
-    gap: "28px",
+    gap: space.s8,
   },
+  // A provider's models share one panel, spaced apart rather than raised each.
   grid: {
     display: "grid",
+    margin: 0,
+    padding: 0,
+    listStyle: "none",
     gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 240px), 1fr))",
-    gap: space.s2,
+    rowGap: space.s3,
+    columnGap: space.s6,
   },
   model: {
     display: "flex",
@@ -37,20 +44,29 @@ const styles = stylex.create({
     gap: space.s1,
     minWidth: 0,
   },
+  loading: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s8,
+  },
+  count: { fontVariantNumeric: "tabular-nums" },
   id: {
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
     fontFamily: fonts.mono,
-    fontSize: text.body,
+    fontSize: "0.92em",
     color: colors.foreground,
   },
   meta: {
-    fontSize: text.compact,
+    fontSize: text.caption,
     color: colors.mutedForeground,
   },
   none: {
-    display: "block",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    gap: space.s3,
     margin: 0,
     paddingBlock: space.s6,
     textAlign: "center",
@@ -74,22 +90,67 @@ const ownerOf = (model: Model) => {
   return slash > 0 ? model.id.slice(0, slash) : "Codex";
 };
 
+const compact = new Intl.NumberFormat(undefined, { notation: "compact" });
+
+const count = new Intl.NumberFormat();
+
 const contextOf = (model: Model) =>
-  hasContext(model) ? `${Math.round(model.context_length / 1_000)}k context` : undefined;
+  hasContext(model) ? `${compact.format(model.context_length)} context` : undefined;
+
+const modelCount = (n: number) => `${count.format(n)} ${n === 1 ? "model" : "models"}`;
+
+const matchCount = (n: number) => `${count.format(n)} ${n === 1 ? "match" : "matches"}`;
 
 const title = "Models";
 
 const description =
   "What clients can ask for at /v1/models: Codex's models through the pool, and each provider's own.";
 
+/** The page's status region, for a screen reader alone. */
+function Status({ children }: { readonly children: string }) {
+  return (
+    <VisuallyHidden>
+      <output aria-live="polite">{children}</output>
+    </VisuallyHidden>
+  );
+}
+
+/** The page while its models load: shaped like it, hidden from assistive tech, which hears the status. */
 function ModelsLoading() {
   return (
     <Page title={title} description={description}>
-      <div aria-busy="true" aria-label="Loading models" {...stylex.props(styles.grid)}>
-        {[0, 1, 2, 3, 4, 5].map((index) => (
-          <Skeleton key={index} height="44px" />
-        ))}
+      <Status>Loading models…</Status>
+      <div aria-hidden="true" {...stylex.props(styles.loading)}>
+        <Skeleton width="min(100%, 360px)" height="36px" />
+        <Panel>
+          <div {...stylex.props(styles.grid)}>
+            {[0, 1, 2, 3, 4, 5].map((index) => (
+              <div key={index} {...stylex.props(styles.model)}>
+                <Skeleton width="70%" height="14px" />
+                <Skeleton width="40%" height="12px" />
+              </div>
+            ))}
+          </div>
+        </Panel>
       </div>
+    </Page>
+  );
+}
+
+/** The page when its data couldn't be loaded: its header stays, and it can try again. */
+function ModelsError({ error, reset }: ErrorComponentProps) {
+  const router = useRouter();
+
+  return (
+    <Page title={title} description={description}>
+      <QueryError
+        what="models"
+        error={error}
+        onRetry={() => {
+          reset();
+          void router.invalidate();
+        }}
+      />
     </Page>
   );
 }
@@ -97,6 +158,7 @@ function ModelsLoading() {
 function Models() {
   const models = useSuspenseQuery({ ...modelsQuery, ...useLiveOptions() });
   const [search, setSearch] = useState("");
+  const field = useRef<HTMLInputElement>(null);
   const query = useDeferredValue(search.trim().toLowerCase());
   const list = models.data;
   const matches = list.filter((model) => model.id.toLowerCase().includes(query));
@@ -107,10 +169,25 @@ function Models() {
     a === "Codex" ? -1 : b === "Codex" ? 1 : a.localeCompare(b),
   );
 
+  // What a screen reader hears as the search narrows the list.
+  const status =
+    query === ""
+      ? ""
+      : matches.length === 0
+        ? `No model matches “${search}”.`
+        : matchCount(matches.length);
+
+  const clear = () => {
+    setSearch("");
+    field.current?.focus();
+  };
+
   return (
     <Page title={title} description={description}>
+      <Status>{status}</Status>
       {list.length === 0 ? (
         <EmptyState
+          headingLevel={2}
           icon={<ModelsIcon size={18} />}
           title="No models to list"
           description="via lists Codex's models once an account is in the pool, and each configured provider's."
@@ -119,9 +196,13 @@ function Models() {
         <>
           <div {...stylex.props(styles.search)}>
             <Input
+              ref={field}
               type="search"
+              name="search"
+              autoComplete="off"
+              spellCheck={false}
               aria-label="Search models"
-              placeholder={`Search ${list.length} models`}
+              placeholder={`Search ${modelCount(list.length)}…`}
               value={search}
               onValueChange={setSearch}
               sunken
@@ -129,7 +210,12 @@ function Models() {
             />
           </div>
           {owners.length === 0 ? (
-            <output {...stylex.props(styles.none)}>No model matches “{search}”.</output>
+            <div {...stylex.props(styles.none)}>
+              No model matches “{search}”.
+              <Button variant="secondary" size="compact" onClick={clear}>
+                Clear search
+              </Button>
+            </div>
           ) : (
             <div {...stylex.props(styles.groups)}>
               {owners.map((owner) => {
@@ -141,29 +227,28 @@ function Models() {
                     title={providerName(owner)}
                     icon={
                       owner === "Codex" ? (
-                        <CodexIcon size={18} />
+                        <CodexIcon size={16} />
                       ) : (
-                        <ProviderLogo name={owner} size={18} />
+                        <ProviderLogo name={owner} size={16} />
                       )
                     }
-                    aside={
-                      <Badge color={owner === "Codex" ? "blue" : "gray"}>
-                        {owned.length} {owned.length === 1 ? "model" : "models"}
-                      </Badge>
-                    }
+                    aside={<span {...stylex.props(styles.count)}>{modelCount(owned.length)}</span>}
                   >
-                    <div {...stylex.props(styles.grid)}>
-                      {owned.map((model) => (
-                        <Panel key={model.id}>
-                          <div {...stylex.props(styles.model)}>
-                            <span {...stylex.props(styles.id)}>{model.id}</span>
+                    <Panel>
+                      <ul {...stylex.props(styles.grid)}>
+                        {owned.map((model) => (
+                          <li key={model.id} {...stylex.props(styles.model)}>
+                            {/* Cut short to fit its column, and kept whole on hover. */}
+                            <span title={model.id} {...stylex.props(styles.id)}>
+                              {model.id}
+                            </span>
                             {contextOf(model) !== undefined && (
                               <span {...stylex.props(styles.meta)}>{contextOf(model)}</span>
                             )}
-                          </div>
-                        </Panel>
-                      ))}
-                    </div>
+                          </li>
+                        ))}
+                      </ul>
+                    </Panel>
                   </Section>
                 );
               })}

@@ -1,7 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useRouter, type ErrorComponentProps } from "@tanstack/react-router";
 import { Button } from "@via/ui";
-import { colors, space, text, weights } from "@via/ui/tokens.stylex";
+import { colors, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { Predicate } from "effect";
 import { Centered } from "./centered.tsx";
 
@@ -9,7 +9,9 @@ const styles = stylex.create({
   title: {
     margin: 0,
     fontSize: text.title,
+    letterSpacing: "-0.01em",
     fontVariationSettings: weights.bold,
+    fontWeight: fontWeights.bold,
   },
   body: {
     marginBlock: `${space.s2} ${space.s6}`,
@@ -27,9 +29,11 @@ export function ErrorScreen({ error, reset }: ErrorComponentProps) {
   return (
     <Centered>
       <div role="alert">
-        <h1 {...stylex.props(styles.title)}>Something's in the way</h1>
+        <h1 {...stylex.props(styles.title)}>Couldn't load this page</h1>
         <p {...stylex.props(styles.body)}>
-          {Predicate.isError(error) ? error.message : "Loading this page failed."}
+          {Predicate.isError(error)
+            ? error.message
+            : "Loading this page failed. Check that via is running, then try again."}
         </p>
       </div>
       <Button

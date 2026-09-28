@@ -1,9 +1,11 @@
 /**
- * NavList and NavItem: an app's page navigation, in the Tabs' motion
- * language from Fluid Functionalism (MIT, see NOTICE). The current page's
- * raised surface springs between items, and a hover highlight glides under
- * the pointer. Each item renders the app's own link (its router's `Link`),
- * marked `aria-current="page"` when it is the current page.
+ * NavList and NavItem: an app's page navigation, as the rows of Fluid
+ * Functionalism's sidebar menu (MIT, see NOTICE). The current page's fill
+ * springs between rows, and a hover highlight glides under the pointer. A
+ * lit row's label and icon turn to the foreground, and the current one's
+ * label turns semibold without reflowing. Each item renders the app's own
+ * link (its router's `Link`), marked `aria-current="page"` when it is the
+ * current page.
  */
 import { useRender } from "@base-ui/react/use-render";
 import * as stylex from "@stylexjs/stylex";
@@ -11,19 +13,13 @@ import { motion } from "motion/react";
 import { createContext, use, useId, type ReactNode } from "react";
 import { FluidHighlight, useFluidHover } from "./fluid-hover.tsx";
 import { spring } from "./springs.ts";
-import { colors, durations, radii, shadows, space, text, weights } from "./tokens.stylex.ts";
+import { colors, durations, radii, space, text, fontWeights, weights } from "./tokens.stylex.ts";
 
 const styles = stylex.create({
   nav: {
     position: "relative",
     display: "flex",
     flexDirection: "column",
-    gap: space.s0_5,
-  },
-  horizontal: {
-    flexDirection: "row",
-    overflowX: "auto",
-    scrollbarWidth: "none",
   },
   highlight: { borderRadius: radii.item },
   item: {
@@ -32,41 +28,59 @@ const styles = stylex.create({
     display: "flex",
     flexShrink: 0,
     alignItems: "center",
-    gap: space.s2_5,
+    gap: space.s2,
     height: "32px",
-    paddingInline: space.s2_5,
+    paddingInline: space.s2,
     borderRadius: radii.item,
     fontSize: text.body,
     fontVariationSettings: weights.normal,
+    fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
     textDecoration: "none",
     whiteSpace: "nowrap",
     outline: {
       default: "none",
-      ":focus-visible": `1px solid ${colors.focusRing}`,
+      ":focus-visible": `2px solid ${colors.focusRing}`,
     },
-    outlineOffset: "1px",
+    outlineOffset: "2px",
     transitionProperty: "color",
     transitionDuration: durations.fast,
   },
   lit: { color: colors.foreground },
-  current: {
-    color: colors.foreground,
-    fontVariationSettings: weights.medium,
-  },
   indicator: {
     position: "absolute",
     inset: 0,
     zIndex: -1,
     borderRadius: radii.item,
-    backgroundColor: colors.surface4,
-    boxShadow: shadows.surface4,
+    backgroundColor: colors.active,
+    // Forced colours drop the fill, so an outline marks the choice instead.
+    borderStyle: "solid",
+    borderWidth: { default: 0, "@media (forced-colors: active)": 1 },
+    borderColor: "Highlight",
   },
   icon: {
     display: "flex",
     flexShrink: 0,
-    opacity: 0.8,
   },
+  // The label and, hidden in the same grid cell, a semibold copy that holds
+  // its width, so turning semibold doesn't move what follows.
+  label: {
+    display: "inline-grid",
+    minWidth: 0,
+  },
+  labelCell: {
+    gridArea: "1 / 1",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    transitionProperty: "font-variation-settings",
+    transitionDuration: durations.fast,
+  },
+  ghost: {
+    visibility: "hidden",
+    fontVariationSettings: weights.semibold,
+    fontWeight: fontWeights.semibold,
+  },
+  semibold: { fontVariationSettings: weights.semibold, fontWeight: fontWeights.semibold },
 });
 
 interface NavState {
@@ -86,27 +100,19 @@ const NavContext = createContext<NavState>({
 export interface NavListProps {
   /** Names the navigation landmark. */
   readonly label: string;
-  readonly orientation?: "vertical" | "horizontal";
   readonly children?: ReactNode;
 }
 
-export function NavList({ label, orientation = "vertical", children }: NavListProps) {
-  const horizontal = orientation === "horizontal";
-
+export function NavList({ label, children }: NavListProps) {
   const { containerRef, register, light, active, handlers } = useFluidHover<HTMLElement, string>(
-    horizontal ? "x" : "y",
+    "y",
   );
 
   const indicator = useId();
 
   return (
     <NavContext value={{ register, light, hovered: active?.key ?? null, indicator }}>
-      <nav
-        ref={containerRef}
-        aria-label={label}
-        {...handlers}
-        {...stylex.props(styles.nav, horizontal && styles.horizontal)}
-      >
+      <nav ref={containerRef} aria-label={label} {...handlers} {...stylex.props(styles.nav)}>
         <FluidHighlight rect={active?.rect ?? null} xstyle={styles.highlight} />
         {children}
       </nav>
@@ -138,7 +144,7 @@ export function NavItem({ label, icon, current, render }: NavItemProps) {
         if (event.currentTarget.matches(":focus-visible")) light(label);
       },
       onBlur: () => light(null),
-      ...stylex.props(styles.item, hovered === label && styles.lit, current && styles.current),
+      ...stylex.props(styles.item, (current || hovered === label) && styles.lit),
       children: (
         <>
           {current && (
@@ -153,7 +159,12 @@ export function NavItem({ label, icon, current, render }: NavItemProps) {
               {icon}
             </span>
           )}
-          {label}
+          <span {...stylex.props(styles.label)}>
+            <span aria-hidden="true" {...stylex.props(styles.labelCell, styles.ghost)}>
+              {label}
+            </span>
+            <span {...stylex.props(styles.labelCell, current && styles.semibold)}>{label}</span>
+          </span>
         </>
       ),
     },

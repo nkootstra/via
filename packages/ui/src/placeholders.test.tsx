@@ -25,4 +25,17 @@ describe("EmptyState", () => {
     expect(region.textContent).toContain("Add a ChatGPT account to start.");
     expect(screen.getByRole("button", { name: "Add account" })).toBeDefined();
   });
+
+  it("labels its region by its heading element, at level 3 by default", () => {
+    render(<EmptyState title="No keys" />);
+
+    const heading = screen.getByRole("heading", { name: "No keys", level: 3 });
+    expect(screen.getByRole("region").getAttribute("aria-labelledby")).toBe(heading.id);
+  });
+
+  it("takes a heading level, so a page need not skip one", () => {
+    render(<EmptyState title="No keys" headingLevel={2} />);
+
+    expect(screen.getByRole("heading", { name: "No keys", level: 2 })).toBeDefined();
+  });
 });

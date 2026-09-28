@@ -1,7 +1,8 @@
 import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
+import { delay, http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
-import { embed, renderApp } from "./app.tsx";
+import { embed, openSignOut, renderApp } from "./app.tsx";
 import { FakeEventSource, openSource } from "./event-source.ts";
 
 const now = Date.parse("2026-09-27T12:00:00.000Z");
@@ -107,13 +108,80 @@ describe("the overview", () => {
     expect(
       (await within(work).findByRole("meter", { name: "5 hours" })).getAttribute("aria-valuenow"),
     ).toBe("42");
-    expect(within(work).getByRole("meter", { name: "7 days" })).toBeDefined();
+    expect(within(work).getByRole("meter", { name: "Weekly" })).toBeDefined();
 
     const spare = await card("spare");
     expect(within(spare).getByText("Locked out")).toBeDefined();
     expect(within(spare).getByText("Refresh token revoked")).toBeDefined();
 
     expect(within(await card("home")).getByText(/ChatGPT didn't answer/)).toBeDefined();
+  });
+
+  it("says what to do about an account whose usage couldn't be read", async () => {
+    renderApp("/", { pool, usage });
+
+    const home = await card("home");
+    expect(await within(home).findByText(/ChatGPT didn't answer/)).toBeDefined();
+    expect(within(home).getByText(/via asks again on its next refresh/)).toBeDefined();
+
+    const go = await card("go spare");
+    expect(
+      within(go).getByText(
+        "Usage unavailable: OpenCode Go did not report usage (HTTP 401). via asks again on its next refresh.",
+      ),
+    ).toBeDefined();
+  });
+
+  it("says how to sign a locked-out account in again", async () => {
+    renderApp("/", { pool, usage, accounts: [account({ id: "acc-3", label: "spare" })] });
+
+    expect(
+      await within(await card("spare")).findByText(
+        "Sign in again: choose Add account and sign in to spare@example.com.",
+      ),
+    ).toBeDefined();
+  });
+
+  it("names each card with a heading, and keeps a cut-short name whole on hover", async () => {
+    renderApp("/", { pool, usage });
+
+    const heading = await screen.findByRole("heading", { level: 3, name: "work" });
+    expect(heading.getAttribute("title")).toBe("work");
+    expect(await card("work")).toBeDefined();
+  });
+
+  it("says when a cooldown is about to end, rather than counting down past it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: now + 10 * 60_000 });
+    renderApp("/", { pool, usage });
+
+    expect(within(await card("home")).getByText("Back any moment")).toBeDefined();
+  });
+
+  it("says the overview couldn't be loaded, rather than that there are no accounts", async () => {
+    const { user } = renderApp("/", { pool, usage }, [
+      http.get("*/admin/pool", () => new HttpResponse(null, { status: 500 }), { once: true }),
+    ]);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't load the pool");
+    expect(screen.getByRole("heading", { level: 1, name: "Overview" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "No accounts yet" })).toBeNull();
+
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+
+    expect(await card("work")).toBeDefined();
+  });
+
+  it("titles the empty pool as a section of the page", async () => {
+    renderApp("/");
+
+    expect(await screen.findByRole("heading", { level: 2, name: "No accounts yet" })).toBeDefined();
+  });
+
+  it("announces that the pool is loading, on a page without the shell's state", async () => {
+    renderApp("/", {}, [http.get("*/admin/pool", () => delay("infinite"))]);
+
+    expect((await screen.findByRole("status")).textContent).toBe("Loading accounts…");
   });
 
   it("shows only the weekly window of a plan without a 5-hour one", async () => {
@@ -136,7 +204,7 @@ describe("the overview", () => {
     });
 
     const work = await card("work");
-    expect(await within(work).findByRole("meter", { name: "7 days" })).toBeDefined();
+    expect(await within(work).findByRole("meter", { name: "Weekly" })).toBeDefined();
     expect(within(work).queryByRole("meter", { name: "5 hours" })).toBeNull();
   });
 
@@ -194,15 +262,17 @@ describe("the overview", () => {
 
     const spare = await card("go spare");
     expect(within(spare).getByText("Locked out")).toBeDefined();
-    expect(within(spare).getByText("OpenCode Go refused its key")).toBeDefined();
+    expect(within(spare).getByText("OpenCode Go refused this key.")).toBeDefined();
+    expect(within(spare).getByText("Remove the account and add it with a new key.")).toBeDefined();
+    expect(within(spare).queryByText("unauthorized")).toBeNull();
   });
 
   it("counts OpenCode Go accounts and providers with the accounts in the summary", async () => {
     renderApp("/", { pool, usage });
 
     expect(await tile("Available")).toBe("2 of 6");
-    expect(await tile("Resting")).toBe("2");
-    expect(await tile("Needs attention")).toBe("2");
+    expect(await tile("Cooling down or exhausted")).toBe("2");
+    expect(await tile("Locked out or unavailable")).toBe("2");
     expect(await tile("Disabled")).toBe("0");
   });
 
@@ -231,13 +301,13 @@ describe("the overview", () => {
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
     await user.click(await screen.findByRole("button", { name: /OpenCode Go/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go key" });
+    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go account" });
     await user.type(within(dialog).getByLabelText("API key"), "sk-go-new-9876");
-    await user.click(within(dialog).getByRole("button", { name: "Add key" }));
+    await user.click(within(dialog).getByRole("button", { name: "Add account" }));
 
     expect(await card("OpenCode Go …9876")).toBeDefined();
     await waitFor(() =>
-      expect(screen.queryByRole("dialog", { name: "Add an OpenCode Go key" })).toBeNull(),
+      expect(screen.queryByRole("dialog", { name: "Add an OpenCode Go account" })).toBeNull(),
     );
     expect(state.opencodeGo.map(({ key }) => key)).toEqual(["…9876"]);
   });
@@ -248,9 +318,9 @@ describe("the overview", () => {
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
     await user.click(await screen.findByRole("button", { name: /OpenCode Go/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go key" });
+    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go account" });
     await user.type(within(dialog).getByLabelText("API key"), "sk-wrong");
-    await user.click(within(dialog).getByRole("button", { name: "Add key" }));
+    await user.click(within(dialog).getByRole("button", { name: "Add account" }));
 
     expect(await within(dialog).findByText(/OpenCode Go refused this key/)).toBeDefined();
     expect(state.opencodeGo).toEqual([]);
@@ -263,14 +333,31 @@ describe("the overview", () => {
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
     await user.click(await screen.findByRole("button", { name: /OpenCode Go/ }));
-    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go key" });
+    const dialog = await screen.findByRole("dialog", { name: "Add an OpenCode Go account" });
     await user.type(within(dialog).getByLabelText("API key"), "sk-go-1234");
-    await user.click(within(dialog).getByRole("button", { name: "Add key" }));
+    await user.click(within(dialog).getByRole("button", { name: "Add account" }));
 
     expect(
       await within(dialog).findByText("That key is already in the pool, as go main."),
     ).toBeDefined();
     expect(state.opencodeGo).toEqual([stored]);
+  });
+
+  it("signs a locked-out ChatGPT account in again from its card", async () => {
+    const { user } = renderApp("/", { pool, usage });
+
+    await user.click(within(await card("spare")).getByRole("button", { name: "Sign in again" }));
+
+    const dialog = await screen.findByRole("dialog", { name: "Add a ChatGPT account" });
+    expect(await within(dialog).findByText("WXYZ-2345")).toBeDefined();
+  });
+
+  it("offers no sign-in to an OpenCode Go account, which needs a new key", async () => {
+    renderApp("/", { pool, usage });
+
+    expect(
+      within(await card("go spare")).queryByRole("button", { name: "Sign in again" }),
+    ).toBeNull();
   });
 
   it("puts a locked-out account back in rotation once it signs in again", async () => {
@@ -411,7 +498,7 @@ describe("the overview, live", () => {
     await card("work");
     const source = openSource();
 
-    await user.click(screen.getByRole("button", { name: "Sign out" }));
+    await user.click(await openSignOut(user));
     const dialog = await screen.findByRole("alertdialog", { name: "Sign out of via?" });
     await user.click(within(dialog).getByRole("button", { name: "Sign out" }));
     await screen.findByRole("heading", { name: "Sign in" });

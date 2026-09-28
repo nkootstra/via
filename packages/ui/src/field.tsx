@@ -1,14 +1,23 @@
 /**
  * Field and Input, ported from Fluid Functionalism's input group (MIT, see
- * NOTICE). The field is quiet at rest: no ring, no fill, until the pointer
- * or focus reaches it. Base UI's Field wires the label to the control, the
+ * NOTICE). The field is quiet at rest, a hairline and no fill, until the
+ * pointer or focus reaches it. Base UI's Field wires the label to the control, the
  * error into its `aria-describedby`, and `invalid` into `aria-invalid`.
  */
 import { Field as BaseField } from "@base-ui/react/field";
 import { Input as BaseInput } from "@base-ui/react/input";
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentProps, ReactNode, Ref } from "react";
-import { colors, durations, fonts, radii, space, text, weights } from "./tokens.stylex.ts";
+import {
+  colors,
+  durations,
+  fonts,
+  radii,
+  space,
+  text,
+  fontWeights,
+  weights,
+} from "./tokens.stylex.ts";
 
 const styles = stylex.create({
   root: {
@@ -21,26 +30,32 @@ const styles = stylex.create({
     pointerEvents: "none",
   },
   label: {
-    paddingLeft: space.s2_5,
+    paddingInlineStart: space.s2_5,
     fontSize: text.body,
     fontVariationSettings: weights.normal,
+    fontWeight: fontWeights.normal,
     color: colors.mutedForeground,
   },
   invalidLabel: { color: colors.destructive },
   error: {
-    paddingLeft: space.s2_5,
+    paddingInlineStart: space.s2_5,
     fontSize: text.caption,
     fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
     color: colors.destructive,
   },
   // The box that draws the field: the input and any adornments sit inside
-  // it, so hover and focus light one border around all of them.
+  // it, so hover and focus light one border and one ring around all of them.
   box: {
     boxSizing: "border-box",
     display: "flex",
     alignItems: "center",
     width: "100%",
     height: space.control,
+    // A resting boundary, which forced colours draw in the system's colour.
+    borderWidth: 1,
+    borderStyle: "solid",
+    borderColor: colors.border,
     borderRadius: radii.item,
     color: colors.mutedForeground,
     backgroundColor: {
@@ -48,38 +63,40 @@ const styles = stylex.create({
       ":hover": `color-mix(in srgb, ${colors.muted} 50%, transparent)`,
       ":focus-within": colors.surface3,
     },
-    boxShadow: {
-      default: "0 0 0 1px transparent",
-      ":hover": `0 0 0 1px ${colors.border}`,
-      ":focus-within": `0 0 0 1px ${colors.border}`,
+    // The ring is the box's, an outline so forced colours keep it, and shows
+    // on a click too, as a text field is typed into next. It follows the
+    // input's focus alone: a trailing button draws its own.
+    outline: {
+      default: "none",
+      ":has(> input:focus)": `2px solid ${colors.focusRing}`,
     },
-    transitionProperty: "background-color, box-shadow",
+    outlineOffset: "2px",
+    transitionProperty: "background-color, border-color",
     transitionDuration: durations.fast,
   },
-  // Shows at rest, for a field that stands alone rather than in a form. Its
-  // border is already drawn, so hover deepens it and focus tints it.
+  // Shows at rest, for a field that stands alone rather than in a form: a
+  // fill, and a border that hover deepens.
   sunken: {
     backgroundColor: {
       default: colors.muted,
       ":hover": colors.muted,
       ":focus-within": colors.surface3,
     },
-    boxShadow: {
-      default: `0 0 0 1px ${colors.border}`,
-      ":hover": `0 0 0 1px color-mix(in srgb, ${colors.mutedForeground} 35%, ${colors.border})`,
-      ":focus-within": `0 0 0 1px color-mix(in srgb, ${colors.focusRing} 70%, ${colors.border})`,
+    borderColor: {
+      default: colors.border,
+      ":hover": `color-mix(in srgb, ${colors.mutedForeground} 35%, ${colors.border})`,
     },
   },
   invalidBox: {
+    borderColor: `color-mix(in srgb, ${colors.destructive} 50%, transparent)`,
     backgroundColor: {
       default: "transparent",
-      ":hover": `color-mix(in srgb, ${colors.destructiveLight} 60%, transparent)`,
+      ":hover": colors.destructiveSurface,
       ":focus-within": colors.surface3,
     },
-    boxShadow: {
-      default: "0 0 0 1px transparent",
-      ":hover": `0 0 0 1px color-mix(in srgb, ${colors.destructive} 50%, transparent)`,
-      ":focus-within": `0 0 0 1px color-mix(in srgb, ${colors.destructive} 50%, transparent)`,
+    outline: {
+      default: "none",
+      ":has(> input:focus)": `2px solid ${colors.destructive}`,
     },
   },
   input: {
@@ -95,20 +112,21 @@ const styles = stylex.create({
     fontFamily: fonts.sans,
     fontSize: text.body,
     fontVariationSettings: weights.normal,
+    fontWeight: fontWeights.normal,
     color: colors.foreground,
     "::placeholder": { color: colors.mutedForeground },
   },
-  afterLeading: { paddingLeft: space.s1_5 },
+  afterLeading: { paddingInlineStart: space.s1_5 },
   leading: {
     display: "flex",
     flexShrink: 0,
-    paddingLeft: space.s2_5,
+    paddingInlineStart: space.s2_5,
     cursor: "text",
   },
   trailing: {
     display: "flex",
     flexShrink: 0,
-    paddingRight: space.s1,
+    paddingInlineEnd: space.s1,
   },
 });
 

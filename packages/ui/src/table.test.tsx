@@ -1,6 +1,15 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "./index.ts";
+import {
+  Button,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  actionsColumn,
+} from "./index.ts";
 
 function Accounts() {
   return (
@@ -84,5 +93,66 @@ describe("Table", () => {
 
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(table.parentElement?.querySelector("[aria-hidden='true']")).not.toBeNull();
+  });
+
+  it("marks an actions column, whose header is named for screen readers alone", () => {
+    render(
+      <Table aria-label="Keys" columns={["100%", actionsColumn]}>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead actions />
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          <TableRow index={0}>
+            <TableCell>laptop</TableCell>
+            <TableCell actions>
+              <Button size="icon-compact" aria-label="Revoke laptop" />
+            </TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+
+    const header = screen.getByRole("columnheader", { name: "Actions" });
+    expect(header.hasAttribute("data-actions")).toBe(true);
+    expect(header.textContent).toBe("Actions");
+    const cell = screen.getByRole("button", { name: "Revoke laptop" }).closest("td");
+    expect(cell?.hasAttribute("data-actions")).toBe(true);
+    expect(screen.getByRole("cell", { name: "laptop" }).hasAttribute("data-actions")).toBe(false);
+    expect(actionsColumn).toMatch(/^\d+px$/);
+  });
+
+  it("keeps an actions header's own label when given one", () => {
+    render(
+      <Table aria-label="Keys">
+        <TableHeader>
+          <TableRow>
+            <TableHead actions>Manage</TableHead>
+          </TableRow>
+        </TableHeader>
+      </Table>,
+    );
+
+    expect(screen.getByRole("columnheader", { name: "Manage" })).toBeDefined();
+  });
+
+  it("drops a secondary column's width with it on narrow screens, in a fixed layout", () => {
+    render(
+      <Table aria-label="Keys" columns={["40%", { width: "30%", secondary: true }, "30%"]}>
+        <TableBody>
+          <TableRow index={0}>
+            <TableCell>laptop</TableCell>
+            <TableCell secondary>k1</TableCell>
+            <TableCell>today</TableCell>
+          </TableRow>
+        </TableBody>
+      </Table>,
+    );
+
+    const cols = [...screen.getByRole("table").querySelectorAll("col")];
+    expect(cols.map((col) => col.style.width)).toEqual(["40%", "30%", "30%"]);
+    expect(cols.map((col) => col.hasAttribute("data-secondary"))).toEqual([false, true, false]);
   });
 });

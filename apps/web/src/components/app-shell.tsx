@@ -1,23 +1,32 @@
-/** The dashboard's frame: the sidebar (a top bar when narrow) and the page. */
+/** The dashboard's frame: the sidebar (a drawer when narrow) and the page. */
 import * as stylex from "@stylexjs/stylex";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
+import { Link, Outlet, useLocation, useNavigate, useRouter } from "@tanstack/react-router";
 import {
   AlertDialog,
   AlertDialogContent,
-  AlertDialogTrigger,
   Button,
   DialogClose,
   DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  MenuItem,
+  MenuSeparator,
   NavItem,
   NavList,
-  ThemeSwitch,
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarHeader,
+  SidebarInset,
+  SidebarProvider,
+  SidebarTrigger,
+  SidebarUserMenu,
+  ThemeMenuItems,
 } from "@via/ui";
-import { colors, fonts, space, text } from "@via/ui/tokens.stylex";
-import { useSyncExternalStore, type ReactNode } from "react";
+import { colors, durations, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
+import { useEffect, useState, type ReactNode } from "react";
 import { signOut } from "../api/admin.ts";
 import { AccountsIcon, KeyIcon, Mark, ModelsIcon, OverviewIcon, SignOutIcon } from "./icons.tsx";
 
@@ -38,90 +47,87 @@ const pages: ReadonlyArray<{
 export const pageAt = (path: string) => pages.find((page) => page.to === path)?.to;
 
 const styles = stylex.create({
-  layout: {
-    display: "flex",
-    flexDirection: { default: "column", "@media (min-width: 800px)": "row" },
-    minHeight: "100dvh",
-    fontFamily: fonts.sans,
+  // Off the top of the page until a keyboard reaches it: the first stop on Tab.
+  skip: {
+    position: "absolute",
+    top: space.s2,
+    left: space.s2,
+    zIndex: 60,
+    paddingBlock: space.s2,
+    paddingInline: space.s3,
+    borderRadius: radii.item,
     fontSize: text.body,
-    color: colors.foreground,
-    backgroundColor: colors.background,
-  },
-  sidebar: {
-    position: { default: "sticky", "@media (min-width: 800px)": "sticky" },
-    top: 0,
-    zIndex: 10,
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: { default: "row", "@media (min-width: 800px)": "column" },
-    flexWrap: { default: "wrap", "@media (min-width: 800px)": "nowrap" },
-    alignItems: { default: "center", "@media (min-width: 800px)": "stretch" },
-    justifyContent: "space-between",
-    gap: { default: space.s2, "@media (min-width: 800px)": space.s6 },
-    flexShrink: 0,
-    width: { default: "100%", "@media (min-width: 800px)": "232px" },
-    height: { default: "auto", "@media (min-width: 800px)": "100dvh" },
-    paddingBlock: { default: space.s3, "@media (min-width: 800px)": "20px" },
-    paddingInline: { default: space.s4, "@media (min-width: 800px)": space.s3 },
-    borderColor: colors.border,
-    borderStyle: "solid",
-    borderWidth: 0,
-    borderBottomWidth: { default: 1, "@media (min-width: 800px)": 0 },
-    borderRightWidth: { default: 0, "@media (min-width: 800px)": 1 },
-    backgroundColor: {
-      default: `color-mix(in oklab, ${colors.background} 85%, transparent)`,
-      "@media (min-width: 800px)": colors.background,
-    },
-    backdropFilter: { default: "blur(12px)", "@media (min-width: 800px)": "none" },
+    textDecoration: "none",
+    color: colors.background,
+    backgroundColor: colors.foreground,
+    outline: "none",
+    boxShadow: `0 0 0 1px ${colors.background}, 0 0 0 2px ${colors.focusRing}`,
+    transform: { default: "translateY(calc(-100% - 16px))", ":focus": "none" },
   },
   brand: {
     display: "flex",
     alignItems: "center",
-    gap: space.s2_5,
-    paddingInline: { default: 0, "@media (min-width: 800px)": space.s2_5 },
-    fontSize: "17px",
+    gap: space.s2,
+    height: "32px",
+    paddingInline: space.s1_5,
+    borderRadius: radii.item,
+    fontSize: text.title,
     letterSpacing: "-0.02em",
-    fontVariationSettings: "'wght' 650",
+    fontVariationSettings: weights.bold,
+    fontWeight: fontWeights.bold,
     color: colors.foreground,
     textDecoration: "none",
+    outline: {
+      default: "none",
+      ":focus-visible": `1px solid ${colors.focusRing}`,
+    },
+    outlineOffset: "1px",
+    // Dims under a pointer that can hover, so it reads as the way home.
+    opacity: { default: 1, "@media (hover: hover)": { ":hover": 0.7 } },
+    transitionProperty: "opacity",
+    transitionDuration: durations.fast,
   },
-  wideNav: { flexGrow: 1 },
-  narrowNav: {
-    order: 3,
-    flexBasis: "100%",
-    marginInline: `calc(-1 * ${space.s2})`,
+  // On a narrow screen the brand rides the top bar, beside the drawer's trigger.
+  topBrand: {
+    display: { default: "flex", "@media (min-width: 768px)": "none" },
   },
-  footer: {
+  topbar: {
     display: "flex",
-    flexDirection: { default: "row", "@media (min-width: 800px)": "column" },
-    alignItems: { default: "center", "@media (min-width: 800px)": "stretch" },
-    gap: space.s2,
-  },
-  footerRow: {
-    display: "flex",
+    flexShrink: 0,
     alignItems: "center",
-    justifyContent: "space-between",
     gap: space.s2,
-    paddingInline: { default: 0, "@media (min-width: 800px)": space.s1 },
-  },
-  signOut: { justifyContent: "flex-start" },
-  signOutLabel: {
-    display: { default: "none", "@media (min-width: 800px)": "inline" },
+    height: "48px",
+    paddingInline: space.s1_5,
   },
   main: {
+    display: "flex",
+    flexDirection: "column",
     flexGrow: 1,
     minWidth: 0,
+    outline: "none",
+  },
+  page: {
     boxSizing: "border-box",
-    paddingBlock: { default: space.s6, "@media (min-width: 800px)": "40px" },
-    paddingInline: { default: space.s4, "@media (min-width: 800px)": "48px" },
+    paddingTop: { default: space.s2, "@media (min-width: 768px)": space.s4 },
+    paddingBottom: { default: space.s6, "@media (min-width: 768px)": "40px" },
+    paddingInline: { default: space.s4, "@media (min-width: 768px)": "48px" },
   },
 });
 
-function Pages({ orientation }: { readonly orientation: "vertical" | "horizontal" }) {
+function Brand({ xstyle }: { readonly xstyle?: stylex.StyleXStyles }) {
+  return (
+    <Link to="/" {...stylex.props(styles.brand, xstyle)}>
+      <Mark size={20} />
+      via
+    </Link>
+  );
+}
+
+function Pages() {
   const { pathname } = useLocation();
 
   return (
-    <NavList label="Pages" orientation={orientation}>
+    <NavList label="Pages">
       {pages.map((page) => (
         <NavItem
           key={page.to}
@@ -135,10 +141,14 @@ function Pages({ orientation }: { readonly orientation: "vertical" | "horizontal
   );
 }
 
-/** Sign out, once the viewer confirms: signing back in needs the admin key. */
-function SignOut() {
+/**
+ * The admin's menu in the sidebar's footer: the theme, and signing out once
+ * the viewer confirms, since signing back in needs the admin key.
+ */
+function AccountMenu() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const [confirming, setConfirming] = useState(false);
 
   const mutation = useMutation({
     mutationFn: signOut,
@@ -149,81 +159,99 @@ function SignOut() {
   });
 
   return (
-    <AlertDialog>
-      <AlertDialogTrigger
-        render={
-          <Button
-            variant="ghost-destructive"
-            size="compact"
-            aria-label="Sign out"
-            xstyle={styles.signOut}
-          >
-            <SignOutIcon size={15} />
-            <span {...stylex.props(styles.signOutLabel)}>Sign out</span>
-          </Button>
-        }
-      />
-      <AlertDialogContent>
-        <DialogHeader>
-          <DialogTitle>Sign out of via?</DialogTitle>
-          <DialogDescription>You'll need the admin key to sign in again.</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-          <Button
-            variant="destructive"
-            loading={mutation.isPending}
-            onClick={() => mutation.mutate()}
-          >
-            <SignOutIcon size={15} />
-            Sign out
-          </Button>
-        </DialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <>
+      <SidebarUserMenu name="Admin">
+        <ThemeMenuItems />
+        <MenuSeparator />
+        <MenuItem
+          label="Sign out…"
+          destructive
+          icon={<SignOutIcon size={16} />}
+          onClick={() => setConfirming(true)}
+        />
+      </SidebarUserMenu>
+      <AlertDialog open={confirming} onOpenChange={setConfirming}>
+        <AlertDialogContent>
+          <DialogHeader>
+            <DialogTitle>Sign out of via?</DialogTitle>
+            <DialogDescription>You'll need the admin key to sign in again.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
+            <Button
+              variant="destructive"
+              loading={mutation.isPending}
+              onClick={() => mutation.mutate()}
+            >
+              <SignOutIcon size={15} />
+              Sign out
+            </Button>
+          </DialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 
-const wideQuery = "(min-width: 800px)";
+/**
+ * After a move to another page, focus goes to its heading, so a keyboard
+ * starts from the top of it and a screen reader announces it. The first
+ * page shown keeps the browser's focus.
+ */
+function useFocusOnNavigation() {
+  const router = useRouter();
 
-const subscribeWide = (onChange: () => void) => {
-  const media = matchMedia(wideQuery);
-  media.addEventListener("change", onChange);
+  useEffect(
+    () =>
+      router.subscribe("onResolved", ({ fromLocation, pathChanged }) => {
+        if (fromLocation === undefined || !pathChanged) return;
 
-  return () => media.removeEventListener("change", onChange);
-};
-
-/** Whether the sidebar has room; only crossing the breakpoint rerenders. */
-const useWide = () =>
-  useSyncExternalStore(
-    subscribeWide,
-    () => matchMedia(wideQuery).matches,
-    () => true,
+        document.querySelector<HTMLElement>("#main h1")?.focus({ preventScroll: true });
+      }),
+    [router],
   );
+}
 
 export function Dashboard() {
-  const wide = useWide();
+  useFocusOnNavigation();
 
   return (
-    <div {...stylex.props(styles.layout)}>
-      <aside {...stylex.props(styles.sidebar)}>
-        <Link to="/" {...stylex.props(styles.brand)}>
-          <Mark size={26} />
-          via
-        </Link>
-        <div {...stylex.props(wide ? styles.wideNav : styles.narrowNav)}>
-          <Pages orientation={wide ? "vertical" : "horizontal"} />
-        </div>
-        <div {...stylex.props(styles.footer)}>
-          <div {...stylex.props(styles.footerRow)}>
-            <ThemeSwitch />
-          </div>
-          <SignOut />
-        </div>
-      </aside>
-      <main {...stylex.props(styles.main)}>
-        <Outlet />
-      </main>
-    </div>
+    <>
+      <a
+        href="#main"
+        onClick={(event) => {
+          // Focus moves to the page without the router seeing a new location.
+          event.preventDefault();
+          document.getElementById("main")?.focus();
+        }}
+        {...stylex.props(styles.skip)}
+      >
+        Skip to content
+      </a>
+      <SidebarProvider>
+        <Sidebar>
+          <SidebarHeader>
+            <Brand />
+          </SidebarHeader>
+          <SidebarContent>
+            <Pages />
+          </SidebarContent>
+          <SidebarFooter>
+            <AccountMenu />
+          </SidebarFooter>
+        </Sidebar>
+        <SidebarInset>
+          <main id="main" tabIndex={-1} {...stylex.props(styles.main)}>
+            <div {...stylex.props(styles.topbar)}>
+              <SidebarTrigger />
+              <Brand xstyle={styles.topBrand} />
+            </div>
+            <div {...stylex.props(styles.page)}>
+              <Outlet />
+            </div>
+          </main>
+        </SidebarInset>
+      </SidebarProvider>
+    </>
   );
 }

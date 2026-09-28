@@ -1,6 +1,15 @@
 /** A focused card in the middle of the page, for signing in and for errors. */
 import * as stylex from "@stylexjs/stylex";
-import { colors, fonts, shadows, space, text } from "@via/ui/tokens.stylex";
+import {
+  colors,
+  fonts,
+  radii,
+  shadows,
+  space,
+  text,
+  fontWeights,
+  weights,
+} from "@via/ui/tokens.stylex";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { Mark } from "./icons.tsx";
@@ -16,6 +25,7 @@ const styles = stylex.create({
     overflow: "hidden",
     fontFamily: fonts.sans,
     fontSize: text.body,
+    lineHeight: 1.5,
     color: colors.foreground,
     backgroundColor: colors.background,
   },
@@ -33,7 +43,7 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
-    gap: "28px",
+    gap: space.s6,
     width: "100%",
     maxWidth: "380px",
     paddingBlock: "48px",
@@ -43,15 +53,16 @@ const styles = stylex.create({
     alignItems: "center",
     gap: space.s2_5,
     color: colors.foreground,
-    fontSize: "20px",
+    fontSize: text.display,
     letterSpacing: "-0.02em",
-    fontVariationSettings: "'wght' 650",
+    fontVariationSettings: weights.bold,
+    fontWeight: fontWeights.bold,
   },
   card: {
     boxSizing: "border-box",
     width: "100%",
-    padding: "28px",
-    borderRadius: "16px",
+    padding: space.s8,
+    borderRadius: radii.container,
     backgroundColor: colors.surface5,
     boxShadow: shadows.surface5,
   },

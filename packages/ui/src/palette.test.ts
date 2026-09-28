@@ -16,16 +16,16 @@ describe("themeStylesheet", () => {
     expect(rule(":root")).toContain(`--via-background:${lightScheme.background};`);
     expect(rule(":root")).toContain("color-scheme:light dark;");
     expect(css).toContain(
-      `@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--via-surface-3:${darkScheme.surface3};`,
+      `@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){--via-surface-2:${darkScheme.surface2};`,
     );
   });
 
   it("forces either palette, and its color-scheme, with data-theme", () => {
     expect(rule('[data-theme="dark"]')).toContain(
-      `color-scheme:dark;--via-surface-3:${darkScheme.surface3};`,
+      `color-scheme:dark;--via-surface-2:${darkScheme.surface2};`,
     );
     expect(rule('[data-theme="light"]')).toContain(
-      `color-scheme:light;--via-surface-3:${lightScheme.surface3};`,
+      `color-scheme:light;--via-surface-2:${lightScheme.surface2};`,
     );
     expect(rule('[data-theme="dark"]')).toContain(
       `--via-muted-foreground:${darkScheme.mutedForeground};`,
@@ -116,5 +116,56 @@ describe.each([
     expect(
       contrast(text, opaque(scheme.destructiveSurface, scheme.background)),
     ).toBeGreaterThanOrEqual(4.5);
+  });
+});
+
+describe.each([
+  ["light", lightScheme],
+  ["dark", darkScheme],
+] satisfies ReadonlyArray<[string, Scheme]>)("the %s muted text", (_, scheme) => {
+  const text = over(scheme.mutedForeground, scheme.surface3);
+
+  // A Callout or Badge lays its tone's subtle tint over the surface it sits on.
+  const tint = (color: string) => over(color, scheme.surface3);
+
+  it("stays at AA on every ground it sits on: page, surface, muted, a lit row and a callout", () => {
+    for (const ground of [
+      over(scheme.background, scheme.background),
+      over(scheme.surface3, scheme.surface3),
+      over(scheme.muted, scheme.surface3),
+      over(scheme.hover, scheme.surface3),
+      tint(scheme.successSubtle),
+      tint(scheme.warningSubtle),
+      tint(scheme.destructiveSurface),
+      tint(scheme.infoSubtle),
+    ]) {
+      expect(contrast(text, ground)).toBeGreaterThanOrEqual(4.5);
+    }
+  });
+});
+
+describe.each([
+  ["light", lightScheme],
+  ["dark", darkScheme],
+] satisfies ReadonlyArray<[string, Scheme]>)("the %s non-text colours", (_, scheme) => {
+  const grounds = [
+    over(scheme.background, scheme.background),
+    over(scheme.surface3, scheme.surface3),
+  ];
+
+  const track = over(scheme.muted, scheme.surface3);
+
+  it("draw a meter's fill at 3:1 on its track, at every level", () => {
+    for (const fill of [scheme.success, scheme.warning, scheme.destructiveSolid]) {
+      expect(contrast(over(fill, scheme.surface3), track)).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("draw a switch's track, on or off, and the focus ring at 3:1 on the page and a surface", () => {
+    for (const mark of [scheme.success, scheme.borderStrong, scheme.focusRing]) {
+      for (const ground of grounds) {
+        expect(contrast(over(mark, scheme.surface3), ground)).toBeGreaterThanOrEqual(3);
+      }
+    }
   });
 });

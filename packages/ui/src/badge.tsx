@@ -4,7 +4,7 @@
  */
 import * as stylex from "@stylexjs/stylex";
 import type { ComponentProps } from "react";
-import { colors, radii, space, text, weights } from "./tokens.stylex.ts";
+import { colors, radii, space, text, fontWeights, weights } from "./tokens.stylex.ts";
 
 export type BadgeColor = "gray" | "green" | "amber" | "red" | "blue";
 
@@ -18,13 +18,21 @@ const styles = stylex.create({
     display: "inline-flex",
     alignItems: "center",
     height: "24px",
+    maxWidth: "100%",
     paddingInline: space.s2_5,
     gap: space.s1_5,
     borderRadius: radii.item,
     fontSize: text.caption,
     fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
     whiteSpace: "nowrap",
     color: colors.foreground,
+  },
+  // A long label, such as a plan's name, ends in an ellipsis within its room.
+  label: {
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   dotVariant: {
     borderWidth: 1,
@@ -39,22 +47,22 @@ const styles = stylex.create({
   },
 });
 
-// A solid badge is its colour at 15% over the background; gray uses the
-// accent surface instead.
+// A solid badge is its colour's subtle tint, the same a Callout uses; gray
+// uses the accent surface instead.
 const solid = stylex.create({
   gray: { backgroundColor: colors.accent },
-  green: { backgroundColor: `color-mix(in srgb, #22c55e 15%, ${colors.background})` },
-  amber: { backgroundColor: `color-mix(in srgb, #f59e0b 15%, ${colors.background})` },
-  red: { backgroundColor: `color-mix(in srgb, #ef4444 15%, ${colors.background})` },
-  blue: { backgroundColor: `color-mix(in srgb, #3b82f6 15%, ${colors.background})` },
+  green: { backgroundColor: colors.successSubtle },
+  amber: { backgroundColor: colors.warningSubtle },
+  red: { backgroundColor: colors.destructiveSurface },
+  blue: { backgroundColor: colors.infoSubtle },
 });
 
 const dots = stylex.create({
   gray: { backgroundColor: colors.mutedForeground },
-  green: { backgroundColor: "#22c55e" },
-  amber: { backgroundColor: "#f59e0b" },
-  red: { backgroundColor: "#ef4444" },
-  blue: { backgroundColor: "#3b82f6" },
+  green: { backgroundColor: colors.success },
+  amber: { backgroundColor: colors.warning },
+  red: { backgroundColor: colors.destructive },
+  blue: { backgroundColor: colors.info },
 });
 
 export function Badge({ color = "gray", variant = "solid", children, ...props }: BadgeProps) {
@@ -63,7 +71,7 @@ export function Badge({ color = "gray", variant = "solid", children, ...props }:
   return (
     <span {...props} {...stylex.props(styles.root, dot ? styles.dotVariant : solid[color])}>
       {dot && <span aria-hidden="true" {...stylex.props(styles.dot, dots[color])} />}
-      {children}
+      <span {...stylex.props(styles.label)}>{children}</span>
     </span>
   );
 }

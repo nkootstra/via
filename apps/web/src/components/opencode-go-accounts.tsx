@@ -1,16 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
 import { accountColumns } from "./account-columns.ts";
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import {
-  AlertDialog,
-  AlertDialogContent,
-  Button,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   EmptyState,
+  MenuItem,
+  MenuSeparator,
+  RowActions,
   Switch,
   Table,
   TableBody,
@@ -18,18 +13,18 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  useToast,
 } from "@via/ui";
-import { colors, fonts, text, weights } from "@via/ui/tokens.stylex";
-import { type ReactNode, useState } from "react";
-import { opencodeGoQuery, removeOpencodeGo, updateOpencodeGo } from "../api/admin.ts";
+import { colors, fonts, text, fontWeights, weights } from "@via/ui/tokens.stylex";
+import { opencodeGoQuery, refreshPool, removeOpencodeGo, updateOpencodeGo } from "../api/admin.ts";
 import { useLiveOptions } from "../api/live.ts";
 import type { OpencodeGoAccount } from "../api/types.ts";
-import { formatDate } from "../lib/time.ts";
-import { ProviderLogo, TrashIcon } from "./icons.tsx";
-import { Panel, VisuallyHidden } from "./page.tsx";
+import { ConfirmDialog } from "./confirm-dialog.tsx";
+import { Day } from "./day.tsx";
+import { useEnabledToggle } from "./enabled-toggle.ts";
+import { ProviderLogo, EditIcon, TrashIcon } from "./icons.tsx";
+import { Panel } from "./page.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
-import { RowActions } from "./row-actions.tsx";
+import { useRowDialog } from "./row-dialog.ts";
 
 const styles = stylex.create({
   scroll: { overflowX: "auto" },
@@ -37,13 +32,21 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: "1px",
+    minWidth: 0,
   },
+  // A long label ends in an ellipsis; its title holds all of it.
   label: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
     fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
     color: colors.foreground,
   },
   note: {
     maxWidth: "46ch",
+    // The variable's name is one long word; it breaks rather than widen the cell.
+    overflowWrap: "anywhere",
     fontSize: text.caption,
     lineHeight: 1.45,
     color: colors.mutedForeground,
@@ -52,186 +55,137 @@ const styles = stylex.create({
     fontFamily: fonts.mono,
     whiteSpace: "nowrap",
   },
-  date: {
-    whiteSpace: "nowrap",
-    fontVariantNumeric: "tabular-nums",
-  },
 });
 
-/** Fetches the OpenCode Go accounts and the pool again, after a change to one. */
-function useChanged() {
-  const queryClient = useQueryClient();
-
-  return () => {
-    void queryClient.invalidateQueries({ queryKey: ["opencode-go"] });
-    void queryClient.invalidateQueries({ queryKey: ["pool"] });
-  };
-}
-
-function RemoveDialog({
-  account,
-  onClose,
-}: {
-  readonly account: OpencodeGoAccount;
-  readonly onClose: () => void;
-}) {
-  const changed = useChanged();
-  const toast = useToast();
-
-  const mutation = useMutation({
-    mutationFn: () => removeOpencodeGo(account.id),
-    onSuccess: () => {
-      changed();
-      toast.add({ title: "Key removed", description: `via no longer uses ${account.label}.` });
-      onClose();
-    },
-    onError: (error) =>
-      toast.add({ type: "error", title: "Couldn't remove", description: error.message }),
-  });
-
-  return (
-    <AlertDialog open onOpenChange={(open) => !open && onClose()}>
-      <AlertDialogContent>
-        <DialogHeader>
-          <DialogTitle>Remove {account.label}?</DialogTitle>
-          <DialogDescription>
-            via stops handing it out and forgets the key. You can add it again by pasting it.
-            {account.environmentVariable !== undefined &&
-              ` While ${account.environmentVariable} is set, via adds it again when it restarts.`}
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-          <Button
-            variant="destructive"
-            loading={mutation.isPending}
-            onClick={() => mutation.mutate()}
-          >
-            <TrashIcon size={15} />
-            Remove key
-          </Button>
-        </DialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-type Open = {
-  readonly dialog: "rename" | "remove";
-  readonly account: OpencodeGoAccount;
-} | null;
-
 /**
- * The OpenCode Go keys via pools, as a table: each one's label, its key's last
- * four characters, whether it is enabled and when it was added, with renaming
- * and removing it. `addButton` offers to add the first one.
+ * The OpenCode Go accounts via pools, as a table: each one's label, its key's
+ * last four characters, whether it is enabled and when it was added, with
+ * renaming and removing it.
  */
-export function OpencodeGoAccounts({ addButton }: { readonly addButton: ReactNode }) {
-  const changed = useChanged();
-  const toast = useToast();
+export function OpencodeGoAccounts() {
+  const queryClient = useQueryClient();
   const accounts = useSuspenseQuery({ ...opencodeGoQuery, ...useLiveOptions() });
-  const [open, setOpen] = useState<Open>(null);
-  const close = () => setOpen(null);
+  const dialogs = useRowDialog<OpencodeGoAccount, "rename" | "remove">();
+  const enabled = useEnabledToggle(opencodeGoQuery.queryKey, updateOpencodeGo);
+  const rename = dialogs.propsFor("rename");
+  const remove = dialogs.propsFor("remove");
 
-  const toggle = useMutation({
-    mutationFn: (account: OpencodeGoAccount) =>
-      updateOpencodeGo(account.id, { enabled: !account.enabled }),
-    onSuccess: (updated) => {
-      changed();
-      toast.add({
-        title: updated.enabled ? "Key enabled" : "Key disabled",
-        description: updated.enabled
-          ? `via hands ${updated.label} out again.`
-          : `via stops handing ${updated.label} out.`,
-      });
-    },
-    onError: (error) =>
-      toast.add({ type: "error", title: "Couldn't change it", description: error.message }),
-  });
-
-  const list = accounts.data;
-
-  if (list.length === 0) {
-    return (
+  // The dialogs sit outside the table, so removing the last account doesn't cut
+  // its dialog's exit short.
+  const body =
+    accounts.data.length === 0 ? (
       <EmptyState
         icon={<ProviderLogo name="opencode-go" size={18} />}
-        title="No OpenCode Go keys yet"
-        description="Paste an OpenCode Go API key, and via pools it next to your others."
-        action={addButton}
+        compact
+        title="No OpenCode Go accounts yet"
+        description="Add one with its OpenCode Go API key, and via pools it next to your others."
       />
+    ) : (
+      <Panel flush>
+        <div {...stylex.props(styles.scroll)}>
+          <Table aria-label="OpenCode Go accounts" columns={accountColumns}>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Account</TableHead>
+                <TableHead secondary>Key</TableHead>
+                <TableHead>Enabled</TableHead>
+                <TableHead secondary>Added</TableHead>
+                <TableHead actions />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {accounts.data.map((account, index) => (
+                <TableRow key={account.id} index={index}>
+                  <TableCell>
+                    <div {...stylex.props(styles.who)}>
+                      <span title={account.label} {...stylex.props(styles.label)}>
+                        {account.label}
+                      </span>
+                      {account.environmentVariable !== undefined && (
+                        <span {...stylex.props(styles.note)}>
+                          Imported from {account.environmentVariable}, which is deprecated. Remove
+                          the variable; via keeps this account.
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell secondary>
+                    <span {...stylex.props(styles.key)}>{account.key}</span>
+                  </TableCell>
+                  <TableCell>
+                    <Switch
+                      aria-label={`${account.label} enabled`}
+                      checked={enabled.isOn(account)}
+                      aria-busy={enabled.busy(account.id)}
+                      onCheckedChange={() => enabled.toggle(account)}
+                    />
+                  </TableCell>
+                  <TableCell secondary>
+                    <Day at={account.createdAt} />
+                  </TableCell>
+                  <TableCell actions>
+                    <RowActions label={`Actions for ${account.label}`}>
+                      <MenuItem
+                        label="Rename…"
+                        icon={<EditIcon size={15} />}
+                        onClick={() => dialogs.show("rename", account)}
+                      />
+                      <MenuSeparator />
+                      <MenuItem
+                        label="Remove…"
+                        icon={<TrashIcon size={15} />}
+                        destructive
+                        onClick={() => dialogs.show("remove", account)}
+                      />
+                    </RowActions>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </Panel>
     );
-  }
 
   return (
-    <Panel flush>
-      <div {...stylex.props(styles.scroll)}>
-        <Table aria-label="OpenCode Go keys" columns={accountColumns}>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Account</TableHead>
-              <TableHead>Key</TableHead>
-              <TableHead>Enabled</TableHead>
-              <TableHead>Added</TableHead>
-              <TableHead>
-                <VisuallyHidden>Actions</VisuallyHidden>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {list.map((account, index) => (
-              <TableRow key={account.id} index={index}>
-                <TableCell>
-                  <div {...stylex.props(styles.who)}>
-                    <span {...stylex.props(styles.label)}>{account.label}</span>
-                    {account.environmentVariable !== undefined && (
-                      <span {...stylex.props(styles.note)}>
-                        Imported from {account.environmentVariable}, which is deprecated. Remove the
-                        variable; via keeps this key.
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <span {...stylex.props(styles.key)}>{account.key}</span>
-                </TableCell>
-                <TableCell>
-                  <Switch
-                    aria-label={`${account.label} enabled`}
-                    checked={account.enabled}
-                    disabled={toggle.isPending && toggle.variables.id === account.id}
-                    onCheckedChange={() => toggle.mutate(account)}
-                  />
-                </TableCell>
-                <TableCell>
-                  <span {...stylex.props(styles.date)}>{formatDate(account.createdAt)}</span>
-                </TableCell>
-                <TableCell>
-                  <RowActions
-                    name={account.label}
-                    remove="Remove"
-                    onRename={() => setOpen({ dialog: "rename", account })}
-                    onRemove={() => setOpen({ dialog: "remove", account })}
-                  />
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
-      {open?.dialog === "rename" && (
+    <>
+      {body}
+      {rename !== undefined && (
         <RenameDialog
-          thing="Key"
-          name={open.account.label}
+          key={rename.row.id}
+          {...rename}
+          thing="Account"
+          name={rename.row.label}
           field="Label"
           description="The label shows in usage, in the pool and in logs."
           rename={async (label) => {
-            await updateOpencodeGo(open.account.id, { label });
+            await updateOpencodeGo(rename.row.id, { label });
           }}
-          onRenamed={changed}
-          onClose={close}
+          onRenamed={() => refreshPool(queryClient)}
         />
       )}
-      {open?.dialog === "remove" && <RemoveDialog account={open.account} onClose={close} />}
-    </Panel>
+      {remove !== undefined && (
+        <ConfirmDialog
+          key={remove.row.id}
+          {...remove}
+          title={`Remove ${remove.row.label}?`}
+          description={
+            <>
+              via stops handing it out and forgets its key. You can add it again by pasting the key.
+              {remove.row.environmentVariable !== undefined &&
+                ` While ${remove.row.environmentVariable} is set, via adds it again when it restarts.`}
+            </>
+          }
+          confirmLabel="Remove account"
+          confirm={() => removeOpencodeGo(remove.row.id)}
+          onConfirmed={() => refreshPool(queryClient)}
+          done={{
+            title: "Account removed",
+            description: `via no longer uses ${remove.row.label}.`,
+          }}
+          failed={`Couldn't remove ${remove.row.label}`}
+        />
+      )}
+    </>
   );
 }

@@ -1,7 +1,16 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { Button, Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "./index.ts";
+import {
+  Button,
+  Menu,
+  MenuContent,
+  MenuItem,
+  MenuRadioGroup,
+  MenuRadioItem,
+  MenuSeparator,
+  MenuTrigger,
+} from "./index.ts";
 
 function AccountActions({
   onRename,
@@ -18,6 +27,20 @@ function AccountActions({
         <MenuItem label="Disable" disabled />
         <MenuSeparator />
         <MenuItem label="Remove" destructive onClick={onRemove} />
+      </MenuContent>
+    </Menu>
+  );
+}
+
+function Sizes({ onValueChange }: { readonly onValueChange: (value: string) => void }) {
+  return (
+    <Menu>
+      <MenuTrigger render={<Button variant="ghost">View</Button>} />
+      <MenuContent>
+        <MenuRadioGroup label="Size" value="small" onValueChange={onValueChange}>
+          <MenuRadioItem value="small" label="Small" />
+          <MenuRadioItem value="large" label="Large" icon={<svg data-testid="large" />} />
+        </MenuRadioGroup>
       </MenuContent>
     </Menu>
   );
@@ -120,5 +143,35 @@ describe("Menu", () => {
     await user.keyboard("{Escape}");
 
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  });
+
+  describe("a choice of one", () => {
+    it("is a named group of items, the chosen one checked", async () => {
+      const user = userEvent.setup();
+      render(<Sizes onValueChange={vi.fn()} />);
+
+      await user.click(screen.getByRole("button", { name: "View" }));
+
+      const group = await screen.findByRole("group", { name: "Size" });
+      expect(within(group).getAllByRole("menuitemradio")).toHaveLength(2);
+      const small = within(group).getByRole("menuitemradio", { name: "Small" });
+      const large = within(group).getByRole("menuitemradio", { name: "Large" });
+      expect(small.getAttribute("aria-checked")).toBe("true");
+      expect(large.getAttribute("aria-checked")).toBe("false");
+    });
+
+    it("picks with a click and closes, back on its trigger", async () => {
+      const user = userEvent.setup();
+      const onValueChange = vi.fn();
+      render(<Sizes onValueChange={onValueChange} />);
+      const trigger = screen.getByRole("button", { name: "View" });
+      await user.click(trigger);
+
+      await user.click(await screen.findByRole("menuitemradio", { name: "Large" }));
+
+      expect(onValueChange).toHaveBeenCalledWith("large");
+      await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+      expect(document.activeElement).toBe(trigger);
+    });
   });
 });

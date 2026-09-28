@@ -53,6 +53,14 @@ export function pickNearest(
   return nearest;
 }
 
+type Lit<K> = { readonly key: K; readonly rect: ItemRect } | null;
+
+const sameRect = (a: ItemRect, b: ItemRect) =>
+  a.top === b.top && a.left === b.left && a.width === b.width && a.height === b.height;
+
+const sameLit = <K,>(a: Lit<K>, b: Lit<K>) =>
+  a === null || b === null ? a === b : a.key === b.key && sameRect(a.rect, b.rect);
+
 function relativeRect(item: Element, container: HTMLElement): ItemRect {
   const box = item.getBoundingClientRect();
   const origin = container.getBoundingClientRect();
@@ -71,7 +79,7 @@ export interface FluidHover<C extends HTMLElement, K> {
   /** A ref callback that registers the item under `key`. */
   readonly register: (key: K) => (element: HTMLElement | null) => void;
   /** The lit item and its rect, or null. */
-  readonly active: { readonly key: K; readonly rect: ItemRect } | null;
+  readonly active: Lit<K>;
   /** Lights an item (keyboard focus moved to it) or none. */
   readonly light: (key: K | null) => void;
   readonly handlers: {
@@ -84,7 +92,17 @@ export interface FluidHover<C extends HTMLElement, K> {
 export function useFluidHover<C extends HTMLElement, K>(axis: Axis): FluidHover<C, K> {
   const containerRef = useRef<C>(null);
   const items = useRef(new Map<K, HTMLElement>());
-  const [active, setActive] = useState<FluidHover<C, K>["active"]>(null);
+  const [active, setActive] = useState<Lit<K>>(null);
+  const lit = useRef<Lit<K>>(null);
+
+  // Lighting what is already lit is skipped before React sees it, so a
+  // pointer moving within one item doesn't re-render the list.
+  const show = useCallback((next: Lit<K>) => {
+    if (sameLit(lit.current, next)) return;
+
+    lit.current = next;
+    setActive(next);
+  }, []);
 
   const register = useCallback(
     (key: K) => (element: HTMLElement | null) => {
@@ -94,16 +112,19 @@ export function useFluidHover<C extends HTMLElement, K>(axis: Axis): FluidHover<
     [],
   );
 
-  const light = useCallback((key: K | null) => {
-    const container = containerRef.current;
-    const item = key === null ? undefined : items.current.get(key);
+  const light = useCallback(
+    (key: K | null) => {
+      const container = containerRef.current;
+      const item = key === null ? undefined : items.current.get(key);
 
-    setActive(
-      key === null || item === undefined || container === null
-        ? null
-        : { key, rect: relativeRect(item, container) },
-    );
-  }, []);
+      show(
+        key === null || item === undefined || container === null
+          ? null
+          : { key, rect: relativeRect(item, container) },
+      );
+    },
+    [show],
+  );
 
   const onPointerMove = useCallback(
     (event: PointerEvent) => {
@@ -129,12 +150,12 @@ export function useFluidHover<C extends HTMLElement, K>(axis: Axis): FluidHover<
         entries.map((entry) => entry.rect),
       );
 
-      setActive(index === null ? null : (entries[index] ?? null));
+      show(index === null ? null : (entries[index] ?? null));
     },
-    [axis],
+    [axis, show],
   );
 
-  const onPointerLeave = useCallback(() => setActive(null), []);
+  const onPointerLeave = useCallback(() => show(null), [show]);
 
   return { containerRef, register, active, light, handlers: { onPointerMove, onPointerLeave } };
 }
@@ -154,7 +175,7 @@ const styles = stylex.create({
 
 /**
  * The overlay: pinned to the container's corner and moved by transform, so
- * travel runs on the compositor. It fades in where it first lands and out
+ * travel runs on the compositor, while its size snaps to the lit item. It fades in where it first lands and out
  * when nothing is lit. Over a destructive item it takes the red tint, and
  * fades back to neutral as it glides off it.
  */
@@ -192,7 +213,14 @@ export function FluidHighlight({
             height: rect.height,
           }}
           exit={{ opacity: 0, transition: spring.fast.exit }}
-          transition={{ ...spring.fast, opacity: { duration: 0.08 } }}
+          // Only the position glides; the size snaps, as animating it would lay
+          // the overlay out again every frame.
+          transition={{
+            ...spring.fast,
+            opacity: { duration: 0.08 },
+            width: { duration: 0 },
+            height: { duration: 0 },
+          }}
         />
       )}
     </AnimatePresence>

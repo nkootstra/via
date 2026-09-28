@@ -9,6 +9,6 @@ export const spring = {
   fast: { type: "spring", duration: 0.08, bounce: 0, exit: { duration: 0.06 } },
   /** Short travel that must land exactly: tab indicators, popups. */
   moderate: { type: "spring", duration: 0.16, bounce: 0, exit: { duration: 0.12 } },
-  /** Large surfaces: dialogs, toasts. */
-  slow: { type: "spring", duration: 0.24, bounce: 0.12, exit: { duration: 0.16 } },
+  /** Large surfaces: dialogs, toasts. A surface this size doesn't bounce. */
+  slow: { type: "spring", duration: 0.24, bounce: 0, exit: { duration: 0.16 } },
 } as const;
