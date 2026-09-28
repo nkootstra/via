@@ -1,10 +1,23 @@
-.git
-.github
-.claude
-.turbo
+# An allowlist: the builder gets only what the image is built from, so untracked
+# local files (.env, keys, config.yaml, via state) never reach a build layer.
+# If the build starts needing another file, add a `!path` line for it below.
+*
+!package.json
+!bun.lock
+!turbo.json
+!apps
+!packages
+!npm
+
+# Build outputs, dependencies and secrets inside the included directories.
 **/node_modules
 **/.turbo
+**/dist
+**/test-results
 npm/via-*/bin
-docs
-*.tgz
-apps/web/dist
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/*.tgz
+**/config.yaml
