@@ -46,12 +46,14 @@ export {
   Menu,
   MenuContent,
   MenuItem,
+  MenuLinkItem,
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
   MenuTrigger,
   type MenuContentProps,
   type MenuItemProps,
+  type MenuLinkItemProps,
   type MenuRadioGroupProps,
   type MenuRadioItemProps,
 } from "./menu.tsx";
@@ -75,7 +77,7 @@ export { ToastProvider, useToast } from "./toast.tsx";
 
 export { CopyField, type CopyFieldProps } from "./copy-field.tsx";
 
-export { ThemeMenuItems } from "./theme-menu.tsx";
+export { ThemeControl, type ThemeControlProps } from "./theme-control.tsx";
 
 export { themeScript, themeScriptHash } from "./theme-script.ts";
 

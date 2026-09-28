@@ -6,6 +6,7 @@ import {
   Menu,
   MenuContent,
   MenuItem,
+  MenuLinkItem,
   MenuRadioGroup,
   MenuRadioItem,
   MenuSeparator,
@@ -132,6 +133,45 @@ describe("Menu", () => {
     expect(item.textContent).toBe("Remove");
     expect(item.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
     expect(item.firstElementChild?.contains(screen.getByTestId("trash"))).toBe(true);
+  });
+
+  it("offers a link as an item, which closes the menu when followed", async () => {
+    const user = userEvent.setup();
+    const followed = vi.fn();
+    render(
+      <Menu>
+        <MenuTrigger render={<Button variant="ghost">Account</Button>} />
+        <MenuContent>
+          <MenuLinkItem
+            label="Settings"
+            icon={<svg data-testid="gear" />}
+            render={(props) => (
+              <a
+                {...props}
+                href="#settings"
+                onClick={(event) => {
+                  props.onClick?.(event);
+                  followed();
+                }}
+              >
+                {props.children}
+              </a>
+            )}
+          />
+        </MenuContent>
+      </Menu>,
+    );
+    await user.click(screen.getByRole("button", { name: "Account" }));
+
+    const item = await screen.findByRole("menuitem", { name: "Settings" });
+    expect(item.tagName).toBe("A");
+    expect(item.getAttribute("href")).toBe("#settings");
+    expect(item.firstElementChild?.getAttribute("aria-hidden")).toBe("true");
+
+    await user.click(item);
+
+    expect(followed).toHaveBeenCalledOnce();
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 
   it("closes on Escape", async () => {

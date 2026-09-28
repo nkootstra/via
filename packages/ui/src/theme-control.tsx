@@ -1,11 +1,11 @@
 /**
- * ThemeMenuItems: System, Light or Dark as a menu's choice of one. It reads
- * and sets the theme through `theme.ts`, so choosing one rerenders these
- * items and nothing else.
+ * ThemeControl: System, Light or Dark as a segmented choice of one. It reads
+ * and sets the theme through `theme.ts`, so choosing one rerenders this
+ * control and nothing else.
  */
 import type { ReactNode } from "react";
 import { MonitorIcon, MoonIcon, SunIcon } from "./icons.tsx";
-import { MenuRadioGroup, MenuRadioItem } from "./menu.tsx";
+import { SegmentedControl, SegmentedItem } from "./segmented-control.tsx";
 import { setTheme, useTheme, type Theme } from "./theme.ts";
 
 const options: ReadonlyArray<{
@@ -20,26 +20,33 @@ const options: ReadonlyArray<{
 
 const isTheme = (value: string): value is Theme => options.some((option) => option.value === value);
 
-/** The theme's choice, for a Menu's content. */
-export function ThemeMenuItems() {
+export interface ThemeControlProps {
+  /** The control's accessible name, when no visible label names it. */
+  readonly "aria-label"?: string;
+  /** The visible label that names the control. */
+  readonly "aria-labelledby"?: string;
+}
+
+/** The theme's choice, as a setting. */
+export function ThemeControl(props: ThemeControlProps) {
   const theme = useTheme();
 
   return (
-    <MenuRadioGroup
-      label="Theme"
+    <SegmentedControl
+      {...props}
       value={theme}
       onValueChange={(value) => {
         if (isTheme(value)) setTheme(value);
       }}
     >
       {options.map((option) => (
-        <MenuRadioItem
+        <SegmentedItem
           key={option.value}
           value={option.value}
           label={option.label}
           icon={option.icon}
         />
       ))}
-    </MenuRadioGroup>
+    </SegmentedControl>
   );
 }

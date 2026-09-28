@@ -35,6 +35,8 @@ import {
   NavList,
   Skeleton,
   Switch,
+  SegmentedControl,
+  SegmentedItem,
   TabItem,
   TabPanel,
   Tabs,
@@ -45,7 +47,7 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  ThemeMenuItems,
+  ThemeControl,
   ToastProvider,
   useToast,
   type BadgeColor,
@@ -177,6 +179,7 @@ function ToastButtons() {
 function Gallery() {
   const [label, setLabel] = useState("work");
   const [enabled, setEnabled] = useState(true);
+  const [hours, setHours] = useState("auto");
   const [page, setPage] = useState("Overview");
 
   return (
@@ -301,6 +304,14 @@ function Gallery() {
             <p {...stylex.props(styles.panelBody)}>Pool panel</p>
           </TabPanel>
         </Tabs>
+      </Section>
+
+      <Section title="SegmentedControl (a choice of one, as Tabs look)">
+        <SegmentedControl aria-label="Time format" value={hours} onValueChange={setHours}>
+          <SegmentedItem value="auto" label="Automatic" />
+          <SegmentedItem value="12h" label="12-hour" />
+          <SegmentedItem value="24h" label="24-hour" />
+        </SegmentedControl>
       </Section>
 
       <Section title="Table (move the pointer down the rows)">
@@ -453,15 +464,10 @@ function Preview() {
               the page theme on the right, which reloads keep.
             </p>
           </div>
-          <Menu>
-            <MenuTrigger render={<Button variant="tertiary">Theme</Button>} />
-            <MenuContent align="end">
-              <ThemeMenuItems />
-            </MenuContent>
-          </Menu>
+          <ThemeControl aria-label="Theme" />
         </header>
         <div {...stylex.props(styles.panels)}>
-          {/* Each panel forces its palette, as the theme menu does for the page. */}
+          {/* Each panel forces its palette, as the theme control does for the page. */}
           <div data-theme="light" {...stylex.props(styles.panel)}>
             <h2 {...stylex.props(styles.panelTitle)}>Light</h2>
             <Gallery />

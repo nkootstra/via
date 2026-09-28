@@ -58,7 +58,8 @@ describe("the document", () => {
     expect(chrome("dark")).toBe("#171717");
 
     await user.click(userMenu());
-    await user.click(await screen.findByRole("menuitemradio", { name: "System" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Settings" }));
+    await user.click(await screen.findByRole("radio", { name: "System" }));
 
     expect(chrome("light")).toBe("#FAFAFA");
     expect(chrome("dark")).toBe("#171717");
@@ -66,16 +67,30 @@ describe("the document", () => {
 });
 
 describe("the dashboard's frame", () => {
-  it("offers the theme and signing out in the admin's menu", async () => {
+  it("offers settings and signing out in the admin's menu", async () => {
     const { user } = renderApp("/");
     await screen.findByRole("heading", { name: "Overview" });
 
     await user.click(userMenu());
 
     const menu = await screen.findByRole("menu");
-    const theme = within(menu).getByRole("group", { name: "Theme" });
-    expect(within(theme).getAllByRole("menuitemradio")).toHaveLength(3);
-    expect(within(menu).getByRole("menuitem", { name: "Sign out…" })).toBeDefined();
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Settings", "Sign out…"]);
+  });
+
+  it("goes to the settings from the admin's menu", async () => {
+    const { user, router } = renderApp("/");
+    await screen.findByRole("heading", { name: "Overview" });
+
+    await user.click(userMenu());
+    await user.click(await screen.findByRole("menuitem", { name: "Settings" }));
+
+    expect(await screen.findByRole("heading", { name: "Settings", level: 1 })).toBeDefined();
+    expect(router.state.location.pathname).toBe("/settings");
+    await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
   });
 
   it("leads home with the logo alone, named for screen readers", async () => {
