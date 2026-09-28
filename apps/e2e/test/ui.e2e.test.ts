@@ -170,4 +170,79 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
       expect(problems).toEqual([]);
     }),
   );
+
+  for (const [width, height] of [
+    [390, 844],
+    [320, 640],
+  ] as const) {
+    it.effect.runIf(withBinary)(`holds up on a ${width}px phone`, () =>
+      Effect.gen(function* () {
+        const via = yield* viaWithUi;
+
+        const { page } = yield* openPage(`phone-${width}`, {
+          viewport: { width, height },
+          isMobile: true,
+          hasTouch: true,
+        });
+
+        yield* signIn(page, via.url);
+
+        // The brand and the drawer's trigger share the top bar's middle.
+        const trigger = page.getByRole("button", { name: "Show sidebar" });
+
+        const [brand, button] = yield* Effect.promise(() =>
+          Promise.all([
+            page.getByRole("link", { name: "via" }).boundingBox(),
+            trigger.boundingBox(),
+          ]),
+        );
+
+        expect(Math.abs(middle(brand) - middle(button))).toBeLessThanOrEqual(1);
+
+        // A stat tile's count sits level with its neighbours', however its label wraps.
+        expect(yield* Effect.promise(() => page.evaluate(statSpread))).toBeLessThanOrEqual(1);
+
+        expect(yield* Effect.promise(() => page.evaluate(scrollsSideways))).toBe(false);
+
+        // The page fills the screen rather than sitting in a frame.
+        const main = yield* Effect.promise(() => page.getByRole("main").boundingBox());
+        expect(main?.x).toBe(0);
+
+        // The trigger stays in reach at the bottom of a page taller than the screen.
+        yield* Effect.promise(() => page.setViewportSize({ width, height: 360 }));
+        yield* Effect.promise(() =>
+          page.evaluate("window.scrollTo(0, document.body.scrollHeight)"),
+        );
+        const scrolled = yield* Effect.promise(() => trigger.boundingBox());
+        expect(scrolled?.y).toBeGreaterThanOrEqual(0);
+        expect(scrolled?.y).toBeLessThan(48);
+
+        // A field under 16px makes iOS zoom the page when it takes focus.
+        yield* Effect.promise(() => page.goto(`${via.url}/ui/models`));
+        const search = page.getByRole("searchbox", { name: "Search models" });
+        yield* Effect.promise(() => search.waitFor());
+        const size = yield* Effect.promise(() => page.evaluate(searchFontSize));
+        expect(size).toBeGreaterThanOrEqual(16);
+      }),
+    );
+  }
 });
+
+const middle = (box: { readonly y: number; readonly height: number } | null) =>
+  box === null ? Number.NaN : box.y + box.height / 2;
+
+/** How far apart the overview's stat counts sit within a row of tiles, at most. */
+const statSpread = `(() => {
+  const rows = Map.groupBy(document.querySelectorAll("dl dd"), (count) =>
+    Math.round(count.parentElement.getBoundingClientRect().top));
+  const spreads = [...rows.values()].map((counts) => {
+    const tops = counts.map((count) => count.getBoundingClientRect().top);
+    return Math.max(...tops) - Math.min(...tops);
+  });
+  return Math.max(...spreads);
+})()`;
+
+const searchFontSize =
+  'parseFloat(getComputedStyle(document.querySelector("input[type=search]")).fontSize)';
+
+const scrollsSideways = "document.documentElement.scrollWidth > window.innerWidth";
