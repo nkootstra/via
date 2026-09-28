@@ -5,6 +5,7 @@ import { completedStream, sse } from "./testing/streams.ts";
 import {
   collectResponse,
   IncompleteStreamError,
+  MaxResponseBytes,
   ResponseTimeoutError,
   ResponseTooLargeError,
   UpstreamFailedError,
@@ -97,7 +98,7 @@ describe("collectResponse", () => {
     }),
   );
 
-  it.effect("gives up on a stream past 128 MiB, which no real response comes near", () =>
+  it.effect("gives up on a stream past its cap, which no real response comes near", () =>
     Effect.gen(function* () {
       // One reasoning delta of 1 MiB, sent over and over; each is dropped as it arrives.
       const delta = new TextEncoder().encode(
@@ -105,8 +106,20 @@ describe("collectResponse", () => {
       );
 
       const endless = Stream.fromIterable([delta]).pipe(Stream.forever);
-      const error = yield* Effect.flip(collectResponse(endless));
-      expect(error).toEqual(new ResponseTooLargeError({ maxBytes: 128 * 1024 * 1024 }));
+      const maxBytes = 4 * 1024 * 1024;
+
+      // A 4 MiB cap, not the default 128 MiB, which is slow to stream on a busy runner.
+      const error = yield* Effect.flip(collectResponse(endless)).pipe(
+        Effect.provideService(MaxResponseBytes, maxBytes),
+      );
+
+      expect(error).toEqual(new ResponseTooLargeError({ maxBytes }));
+    }),
+  );
+
+  it.effect("caps a stream at 128 MiB unless told otherwise", () =>
+    Effect.gen(function* () {
+      expect(yield* MaxResponseBytes).toBe(128 * 1024 * 1024);
     }),
   );
 
