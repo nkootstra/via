@@ -25,25 +25,32 @@ const styles = stylex.create({
 
 /**
  * Asks for a new name for `name`, a `thing` ("Account", "Key"), in a `field`
- * ("Label", "Name"). `rename` saves it, resolving to why via refused the name,
- * shown by the field, if it did; `onRenamed` follows a rename that took.
+ * ("Label", "Name"). `rename` saves it, resolving to why via refused the name
+ * if it did. That, an empty field and a failure show in the form, which stays
+ * open to try again; the same name just closes it. `onRenamed` follows a
+ * rename that took. It stays mounted while it closes, so it animates out.
  */
 export function RenameDialog({
+  open,
+  onClose,
+  onClosed,
   thing,
   name,
   field,
   description,
   rename,
   onRenamed,
-  onClose,
 }: {
+  readonly open: boolean;
+  readonly onClose: () => void;
+  /** Once it has animated out, when it can go. */
+  readonly onClosed: () => void;
   readonly thing: string;
   readonly name: string;
   readonly field: string;
   readonly description: string;
   readonly rename: (to: string) => Promise<string | undefined>;
   readonly onRenamed: () => void;
-  readonly onClose: () => void;
 }) {
   const toast = useToast();
   const [value, setValue] = useState(name);
@@ -59,17 +66,23 @@ export function RenameDialog({
       toast.add({ title: `${thing} renamed`, description: `It's now called ${to}.` });
       onClose();
     },
-    onError: (error) =>
-      toast.add({ type: "error", title: "Couldn't rename", description: error.message }),
   });
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      onOpenChangeComplete={(next) => !next && onClosed()}
+    >
       <DialogContent>
         <form
           {...stylex.props(styles.form)}
           onSubmit={(event) => {
             event.preventDefault();
+
+            if (to === "") return setProblem(`Enter a ${field.toLowerCase()}.`);
+
+            if (to === name) return onClose();
             mutation.mutate();
           }}
         >
@@ -77,20 +90,23 @@ export function RenameDialog({
             <DialogTitle>Rename {name}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
-          <Field label={field} error={problem}>
+          <Field label={field} error={problem ?? mutation.error?.message}>
             <Input
               value={value}
               onValueChange={(next) => {
                 setValue(next);
                 setProblem(undefined);
+                mutation.reset();
               }}
-              required
+              name={field.toLowerCase()}
+              autoComplete="off"
+              spellCheck={false}
             />
           </Field>
           <DialogFooter>
             <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-            <Button type="submit" loading={mutation.isPending} disabled={to === "" || to === name}>
-              Save
+            <Button type="submit" loading={mutation.isPending}>
+              Rename
             </Button>
           </DialogFooter>
         </form>

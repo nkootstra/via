@@ -4,9 +4,10 @@
  * Each goes through `run`, the one Effect boundary. Routes' loaders ensure the
  * data their page needs with these, and the page reads it with the same ones.
  */
-import { queryOptions } from "@tanstack/react-query";
+import { type QueryClient, queryOptions } from "@tanstack/react-query";
 import { Effect, Redacted } from "effect";
 import { run } from "./client.ts";
+import type { LoginStatus } from "./types.ts";
 
 /** Whether the browser has a session: true, or false on a 401. */
 export const sessionQuery = queryOptions({
@@ -94,6 +95,17 @@ export const modelsQuery = queryOptions({
   staleTime: 60_000,
 });
 
+/**
+ * Fetches again everything a change to the pool's accounts shows up in: both
+ * account lists, the pool, usage and the models the accounts serve. While via
+ * pushes its state, the stream brings the change too; this covers it when not.
+ */
+export function refreshPool(queryClient: QueryClient) {
+  for (const { queryKey } of [accountsQuery, opencodeGoQuery, poolQuery, usageQuery, modelsQuery]) {
+    void queryClient.invalidateQueries({ queryKey });
+  }
+}
+
 export const updateAccount = (
   id: string,
   payload: { readonly label?: string; readonly enabled?: boolean },
@@ -104,13 +116,28 @@ export const removeAccount = (id: string) =>
 
 export const startLogin = () => run((admin) => admin.accounts.login());
 
-/** Where a device-code login stands: asked every 2 s while it is pending, and never kept. */
-export const loginStatusQuery = (id: string | undefined) =>
+/**
+ * Where a device-code login stands: asked every 2 s while it is pending, and
+ * never kept. `onAnswer` hears each answer as it arrives, so the one that ends
+ * the login is acted on there, not in an effect after a render. Any answer but
+ * pending is final, so it never goes stale: nothing asks again, and hears it twice.
+ */
+export const loginStatusQuery = (
+  id: string | undefined,
+  onAnswer: (answer: LoginStatus) => void = () => {},
+) =>
   queryOptions({
     queryKey: ["login", id],
-    queryFn: () => run((admin) => admin.accounts.loginStatus({ params: { id: id ?? "" } })),
+    queryFn: () =>
+      run((admin) =>
+        admin.accounts
+          .loginStatus({ params: { id: id ?? "" } })
+          .pipe(Effect.tap((answer) => Effect.sync(() => onAnswer(answer)))),
+      ),
     enabled: id !== undefined,
     refetchInterval: (query) => (query.state.data?.status === "pending" ? 2_000 : false),
+    staleTime: (query) => (query.state.data?.status === "pending" ? 0 : Infinity),
+    refetchOnWindowFocus: false,
     gcTime: 0,
   });
 
@@ -135,7 +162,7 @@ export const renameKey = (id: string, name: string) =>
     admin.keys.rename({ params: { idOrName: id }, payload: { name } }).pipe(
       Effect.as(undefined),
       Effect.catchTag("DuplicateKeyNameError", (error) =>
-        Effect.succeed(`A key named "${error.name}" already exists.`),
+        Effect.succeed(`A key named "${error.name}" already exists. Choose another name.`),
       ),
     ),
   );

@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import {
   Button,
+  Callout,
   CopyField,
   Dialog,
   DialogClose,
@@ -19,10 +20,12 @@ import {
   Input,
   Skeleton,
   useToast,
+  VisuallyHidden,
 } from "@via/ui";
-import { colors, radii, space, text, weights } from "@via/ui/tokens.stylex";
-import { type ReactNode, useEffect, useEffectEvent, useRef, useState } from "react";
-import { addOpencodeGo, loginStatusQuery, startLogin } from "../api/admin.ts";
+import { colors, durations, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
+import { AnimatePresence, motion } from "motion/react";
+import { type ReactNode, useState } from "react";
+import { addOpencodeGo, loginStatusQuery, refreshPool, startLogin } from "../api/admin.ts";
 import type { Account, StartedLogin } from "../api/types.ts";
 import { CodexIcon, ExternalIcon, ProviderLogo } from "./icons.tsx";
 
@@ -35,7 +38,8 @@ const styles = stylex.create({
     paddingBlock: space.s4,
     paddingInline: space.s4,
     marginBottom: space.s4,
-    borderRadius: radii.container,
+    // Nested in the dialog's rounder corners.
+    borderRadius: radii.item,
     backgroundColor: colors.muted,
   },
   steps: {
@@ -60,29 +64,22 @@ const styles = stylex.create({
     width: "8px",
     height: "8px",
     borderRadius: radii.full,
-    backgroundColor: "#3b82f6",
-    animationName: stylex.keyframes({
-      "0%, 100%": { opacity: 1, transform: "scale(1)" },
-      "50%": { opacity: 0.35, transform: "scale(0.8)" },
-    }),
+    backgroundColor: colors.info,
+    // Held still for a viewer who asks for less motion; the text says it's waiting.
+    animationName: {
+      default: stylex.keyframes({
+        "0%, 100%": { opacity: 1, transform: "scale(1)" },
+        "50%": { opacity: 0.35, transform: "scale(0.8)" },
+      }),
+      "@media (prefers-reduced-motion: reduce)": "none",
+    },
     animationDuration: "1.4s",
     animationIterationCount: "infinite",
-  },
-  error: {
-    margin: 0,
-    paddingBlock: space.s2_5,
-    paddingInline: space.s3,
-    borderRadius: radii.item,
-    fontSize: text.caption,
-    lineHeight: 1.45,
-    color: colors.foreground,
-    backgroundColor: `color-mix(in oklab, ${colors.destructive} 10%, transparent)`,
   },
   choices: {
     display: "flex",
     flexDirection: "column",
     gap: space.s2,
-    marginBottom: space.s4,
   },
   // One kind of account to add: a whole-width button with a logo, a name and a line on how.
   choice: {
@@ -98,11 +95,26 @@ const styles = stylex.create({
     cursor: "pointer",
     color: colors.foreground,
     backgroundColor: { default: colors.muted, ":hover": colors.border },
+    transitionProperty: "background-color",
+    transitionDuration: durations.fast,
     outline: "none",
+    // The hairline ring Button shows on focus.
     boxShadow: {
       default: `inset 0 0 0 1px ${colors.border}`,
-      ":focus-visible": `0 0 0 2px ${colors.focusRing}`,
+      ":focus-visible": `inset 0 0 0 1px ${colors.border}, 0 0 0 1px ${colors.focusRing}`,
     },
+  },
+  // The logo's tile, as the overview's cards have; in the dialog's colour, so it
+  // shows against the muted button.
+  choiceLogo: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    width: "32px",
+    height: "32px",
+    borderRadius: radii.item,
+    backgroundColor: colors.surface5,
   },
   choiceText: {
     display: "flex",
@@ -112,39 +124,22 @@ const styles = stylex.create({
   choiceName: {
     fontSize: text.body,
     fontVariationSettings: weights.semibold,
+    fontWeight: fontWeights.semibold,
   },
   choiceHow: {
     fontSize: text.caption,
     color: colors.mutedForeground,
   },
+  step: { outline: "none" },
   form: {
     display: "flex",
     flexDirection: "column",
     margin: 0,
   },
-  // A link dressed as the primary button: it opens OpenAI's page in a new tab.
-  link: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: space.s1_5,
-    height: space.control,
-    paddingInline: space.s4,
-    borderRadius: radii.item,
-    fontSize: text.body,
-    textDecoration: "none",
-    whiteSpace: "nowrap",
-    color: colors.background,
-    backgroundColor: {
-      default: colors.foreground,
-      ":hover": `color-mix(in oklab, ${colors.foreground} 90%, ${colors.background})`,
-    },
-    outline: "none",
-    boxShadow: {
-      default: null,
-      ":focus-visible": `0 0 0 1px ${colors.background}, 0 0 0 2px ${colors.focusRing}`,
-    },
-  },
 });
+
+/** Focus a step as it comes in: its first field, or the step itself to read from. */
+const focusStep = (step: HTMLDivElement | null) => (step?.querySelector("input") ?? step)?.focus();
 
 /** A device-code login: the code to enter, then polling every 2 s until the account is added. */
 function CodexStep({
@@ -158,32 +153,27 @@ function CodexStep({
   const toast = useToast();
   const login = start.data;
 
-  const status = useQuery(loginStatusQuery(login?.id));
-
-  const outcome = status.data;
-
   // A login for an account already in the pool signs it in again: via gives it
   // fresh tokens, and lifts its lockout if it had one.
-  const signedIn = useEffectEvent((account: Account, added: boolean) => {
-    void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    void queryClient.invalidateQueries({ queryKey: ["pool"] });
-    void queryClient.invalidateQueries({ queryKey: ["usage"] });
+  const signedIn = (account: Account, added: boolean) => {
+    refreshPool(queryClient);
     toast.add(
       added
         ? { title: "Account added", description: `${account.label} is in the pool.` }
-        : {
-            title: "Signed in again",
-            description: `${account.label} is already in the pool — signed in again with fresh tokens.`,
-          },
+        : { title: "Signed in again", description: `via has fresh tokens for ${account.label}.` },
     );
     onClose();
-  });
+  };
 
-  useEffect(() => {
-    if (outcome?.status === "added" || outcome?.status === "updated") {
-      signedIn(outcome.account, outcome.status === "added");
-    }
-  }, [outcome]);
+  const status = useQuery(
+    loginStatusQuery(login?.id, (answer) => {
+      if (answer.status === "added" || answer.status === "updated") {
+        signedIn(answer.account, answer.status === "added");
+      }
+    }),
+  );
+
+  const outcome = status.data;
 
   const failed =
     outcome?.status === "failed" ? outcome.error : (start.error?.message ?? status.error?.message);
@@ -199,9 +189,9 @@ function CodexStep({
       </DialogHeader>
 
       {failed !== undefined ? (
-        <p role="alert" {...stylex.props(styles.error)}>
-          The login didn't go through: {failed}
-        </p>
+        <Callout tone="danger" role="alert">
+          Sign-in didn't finish: {failed}
+        </Callout>
       ) : login === undefined ? (
         <div {...stylex.props(styles.code)}>
           <Skeleton width="60%" height="36px" />
@@ -213,7 +203,7 @@ function CodexStep({
             <CopyField label="Your code" value={login.userCode} size="large" />
           </div>
           <ol {...stylex.props(styles.steps)}>
-            <li>Open the sign-in page and log in to the ChatGPT account to add.</li>
+            <li>Open the sign-in page and sign in to the ChatGPT account you want to add.</li>
             <li>Enter the code above and approve the request.</li>
           </ol>
           <output {...stylex.props(styles.waiting)}>
@@ -233,15 +223,17 @@ function CodexStep({
           </Button>
         ) : (
           login !== undefined && (
-            <a
-              href={login.verificationUrl}
-              target="_blank"
-              rel="noreferrer"
-              {...stylex.props(styles.link)}
+            <Button
+              render={(props) => (
+                <a {...props} href={login.verificationUrl} target="_blank" rel="noreferrer">
+                  {props.children}
+                </a>
+              )}
             >
               Open sign-in page
+              <VisuallyHidden> (opens in a new tab)</VisuallyHidden>
               <ExternalIcon size={14} />
-            </a>
+            </Button>
           )
         )}
       </DialogFooter>
@@ -249,7 +241,7 @@ function CodexStep({
   );
 }
 
-/** Which kind of account to add: a ChatGPT one, by device login, or an OpenCode Go key. */
+/** Which kind of account to add: a ChatGPT one, by device login, or an OpenCode Go one, by API key. */
 function ChooseStep({
   onCodex,
   onOpencodeGo,
@@ -261,24 +253,31 @@ function ChooseStep({
     <>
       <DialogHeader>
         <DialogTitle>Add an account</DialogTitle>
-        <DialogDescription>via pools each kind of account on its own.</DialogDescription>
+        <DialogDescription>Choose the kind of account to add.</DialogDescription>
       </DialogHeader>
       <div {...stylex.props(styles.choices)}>
         <button type="button" onClick={onCodex} {...stylex.props(styles.choice)}>
-          <CodexIcon size={18} />
+          <span aria-hidden="true" {...stylex.props(styles.choiceLogo)}>
+            <CodexIcon size={18} />
+          </span>
           <span {...stylex.props(styles.choiceText)}>
             <span {...stylex.props(styles.choiceName)}>ChatGPT (Codex)</span>
             <span {...stylex.props(styles.choiceHow)}>Sign in with a device code.</span>
           </span>
         </button>
         <button type="button" onClick={onOpencodeGo} {...stylex.props(styles.choice)}>
-          <ProviderLogo name="opencode-go" size={18} />
+          <span aria-hidden="true" {...stylex.props(styles.choiceLogo)}>
+            <ProviderLogo name="opencode-go" size={18} />
+          </span>
           <span {...stylex.props(styles.choiceText)}>
             <span {...stylex.props(styles.choiceName)}>OpenCode Go</span>
             <span {...stylex.props(styles.choiceHow)}>Paste an API key.</span>
           </span>
         </button>
       </div>
+      <DialogFooter>
+        <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
+      </DialogFooter>
     </>
   );
 }
@@ -288,58 +287,53 @@ function OpencodeGoStep({ onClose }: { readonly onClose: () => void }) {
   const queryClient = useQueryClient();
   const toast = useToast();
   const [apiKey, setApiKey] = useState("");
-  const field = useRef<HTMLInputElement>(null);
-
-  // The dialog opened on the choice, and focused it then: this step puts the
-  // cursor in its field itself.
-  useEffect(() => field.current?.focus(), []);
+  const [missing, setMissing] = useState(false);
 
   const add = useMutation({
     mutationFn: () => addOpencodeGo(apiKey.trim()),
     onSuccess: (outcome) => {
       if (!outcome.added) return;
-      void queryClient.invalidateQueries({ queryKey: ["opencode-go"] });
-      void queryClient.invalidateQueries({ queryKey: ["pool"] });
-      void queryClient.invalidateQueries({ queryKey: ["usage"] });
-      toast.add({ title: "Key added", description: `${outcome.label} is in the pool.` });
+      refreshPool(queryClient);
+      toast.add({ title: "Account added", description: `${outcome.label} is in the pool.` });
       onClose();
     },
   });
 
-  const problem = add.data?.added === false ? add.data.problem : (add.error?.message ?? undefined);
+  const problem = add.data?.added === false ? add.data.problem : add.error?.message;
 
   return (
     <form
       {...stylex.props(styles.form)}
       onSubmit={(event) => {
         event.preventDefault();
+
+        if (apiKey.trim() === "") return setMissing(true);
         add.mutate();
       }}
     >
       <DialogHeader>
-        <DialogTitle>Add an OpenCode Go key</DialogTitle>
+        <DialogTitle>Add an OpenCode Go account</DialogTitle>
         <DialogDescription>
           Paste an API key from your OpenCode Go account. via checks it with OpenCode Go before
           adding it, and only ever shows its last four characters.
         </DialogDescription>
       </DialogHeader>
-      <Field label="API key" error={problem}>
+      <Field label="API key" error={missing ? "Paste the OpenCode Go API key." : problem}>
         <Input
           type="password"
           autoComplete="off"
-          ref={field}
           value={apiKey}
           onValueChange={(value) => {
             setApiKey(value);
+            setMissing(false);
             add.reset();
           }}
-          required
         />
       </Field>
       <DialogFooter>
         <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-        <Button type="submit" loading={add.isPending} disabled={apiKey.trim() === ""}>
-          Add key
+        <Button type="submit" loading={add.isPending}>
+          Add account
         </Button>
       </DialogFooter>
     </form>
@@ -349,38 +343,61 @@ function OpencodeGoStep({ onClose }: { readonly onClose: () => void }) {
 /**
  * Adding an account, in place on whichever page asks: `open` asks which kind,
  * then starts a device-code login for a ChatGPT one, or takes an OpenCode Go
- * key, in the dialog `dialog` renders. Once the account is added, the pool,
- * its usage and the accounts are fetched again.
- *
- * Every step renders in the one dialog: a dialog of its own per step would
- * drop the backdrop for a frame and fade the next in from nothing, so the
- * undimmed page would flash between them.
+ * key, in the dialog `dialog` renders. Once a ChatGPT account is added, the
+ * pool, its usage, the accounts and their models are fetched again.
  */
 export function useAddAccount() {
-  const [shown, setShown] = useState<"choose" | "codex" | "opencode-go" | undefined>();
+  const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<"choose" | "codex" | "opencode-go">("choose");
   const start = useMutation({ mutationFn: startLogin });
-  const close = () => setShown(undefined);
+  const close = () => setOpen(false);
+
+  const codex = () => {
+    start.mutate();
+    setStep("codex");
+  };
 
   const steps = {
-    choose: (
-      <ChooseStep
-        onCodex={() => {
-          start.mutate();
-          setShown("codex");
-        }}
-        onOpencodeGo={() => setShown("opencode-go")}
-      />
-    ),
+    choose: <ChooseStep onCodex={codex} onOpencodeGo={() => setStep("opencode-go")} />,
     codex: <CodexStep start={start} onClose={close} />,
     "opencode-go": <OpencodeGoStep onClose={close} />,
   };
 
+  // One dialog throughout: a step swaps only what is in it, and it stays
+  // mounted while it closes, starting over once it has.
+  const dialog = (
+    <Dialog
+      open={open}
+      onOpenChange={setOpen}
+      onOpenChangeComplete={(opened) => !opened && setStep("choose")}
+    >
+      <DialogContent size="lg">
+        {/* One step leaves before the next comes, so the dialog is named by one title at a time. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={step}
+            ref={step === "choose" ? undefined : focusStep}
+            tabIndex={-1}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12, ease: "easeOut" }}
+            {...stylex.props(styles.step)}
+          >
+            {steps[step]}
+          </motion.div>
+        </AnimatePresence>
+      </DialogContent>
+    </Dialog>
+  );
+
   return {
-    open: () => setShown("choose"),
-    dialog: (shown === undefined ? null : (
-      <Dialog open onOpenChange={(open) => !open && close()}>
-        <DialogContent size={shown === "codex" ? "lg" : "sm"}>{steps[shown]}</DialogContent>
-      </Dialog>
-    )) satisfies ReactNode,
+    open: () => setOpen(true),
+    /** Opens at the ChatGPT sign-in, skipping the choice: to sign an account in again. */
+    openCodex: () => {
+      codex();
+      setOpen(true);
+    },
+    dialog: dialog satisfies ReactNode,
   };
 }

@@ -1,19 +1,14 @@
 import * as stylex from "@stylexjs/stylex";
 import { accountColumns } from "../../components/account-columns.ts";
-import { useMutation, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute } from "@tanstack/react-router";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import {
-  AlertDialog,
-  AlertDialogContent,
   Badge,
   Button,
-  DialogClose,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
   EmptyState,
-  Skeleton,
+  MenuItem,
+  MenuSeparator,
+  RowActions,
   Switch,
   Table,
   TableBody,
@@ -21,26 +16,35 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-  useToast,
+  TableSkeleton,
 } from "@via/ui";
-import { colors, text, weights } from "@via/ui/tokens.stylex";
-import { useState } from "react";
-import { accountsQuery, opencodeGoQuery, removeAccount, updateAccount } from "../../api/admin.ts";
+import { colors, text, fontWeights, weights } from "@via/ui/tokens.stylex";
+import {
+  accountsQuery,
+  opencodeGoQuery,
+  refreshPool,
+  removeAccount,
+  updateAccount,
+} from "../../api/admin.ts";
 import { useLiveOptions } from "../../api/live.ts";
 import type { Account } from "../../api/types.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
+import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
+import { Day } from "../../components/day.tsx";
+import { useEnabledToggle } from "../../components/enabled-toggle.ts";
 import {
   AccountsIcon,
   CodexIcon,
   PlusIcon,
   ProviderLogo,
+  EditIcon,
   TrashIcon,
 } from "../../components/icons.tsx";
 import { OpencodeGoAccounts } from "../../components/opencode-go-accounts.tsx";
+import { Page, Panel, Section } from "../../components/page.tsx";
+import { QueryError } from "../../components/query-error.tsx";
 import { RenameDialog } from "../../components/rename-dialog.tsx";
-import { RowActions } from "../../components/row-actions.tsx";
-import { Page, Panel, Section, VisuallyHidden } from "../../components/page.tsx";
-import { formatDate } from "../../lib/time.ts";
+import { useRowDialog } from "../../components/row-dialog.ts";
 
 export const Route = createFileRoute("/_app/accounts")({
   head: () => ({ meta: [{ title: "Accounts · via" }] }),
@@ -50,6 +54,7 @@ export const Route = createFileRoute("/_app/accounts")({
       queryClient.ensureQueryData(opencodeGoQuery),
     ]),
   pendingComponent: AccountsLoading,
+  errorComponent: AccountsError,
   component: Accounts,
 });
 
@@ -59,184 +64,132 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: "1px",
+    minWidth: 0,
+  },
+  // A long label or email ends in an ellipsis; its title holds all of it.
+  truncate: {
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
   label: {
     fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
     color: colors.foreground,
   },
   email: {
     fontSize: text.caption,
     color: colors.mutedForeground,
   },
-  date: {
-    whiteSpace: "nowrap",
-    fontVariantNumeric: "tabular-nums",
-  },
 });
-
-function RemoveDialog({
-  account,
-  onClose,
-}: {
-  readonly account: Account;
-  readonly onClose: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const toast = useToast();
-
-  const mutation = useMutation({
-    mutationFn: () => removeAccount(account.id),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-      void queryClient.invalidateQueries({ queryKey: ["pool"] });
-      toast.add({ title: "Account removed", description: `via no longer uses ${account.label}.` });
-      onClose();
-    },
-    onError: (error) =>
-      toast.add({ type: "error", title: "Couldn't remove", description: error.message }),
-  });
-
-  return (
-    <AlertDialog open onOpenChange={(open) => !open && onClose()}>
-      <AlertDialogContent>
-        <DialogHeader>
-          <DialogTitle>Remove {account.label}?</DialogTitle>
-          <DialogDescription>
-            via stops handing it out and forgets its tokens. You can add it again with a new login.
-          </DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <DialogClose render={<Button variant="tertiary">Cancel</Button>} />
-          <Button
-            variant="destructive"
-            loading={mutation.isPending}
-            onClick={() => mutation.mutate()}
-          >
-            <TrashIcon size={15} />
-            Remove account
-          </Button>
-        </DialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
-  );
-}
-
-type Open = { readonly dialog: "rename" | "remove"; readonly account: Account } | null;
 
 const title = "Accounts";
 
 const description =
-  "The ChatGPT accounts and OpenCode Go keys via pools. Disable one to keep it out of rotation without losing it.";
+  "The ChatGPT and OpenCode Go accounts via pools. Disable one to keep it out of rotation without losing it.";
 
 /** The page while its data is on its way, which only a page without the shell's state waits for. */
 function AccountsLoading() {
   return (
     <Page title={title} description={description}>
-      <Panel>
-        <div {...stylex.props(styles.who)} aria-busy="true" aria-label="Loading accounts">
-          <Skeleton height="20px" />
-          <Skeleton height="20px" />
-          <Skeleton height="20px" />
-        </div>
-      </Panel>
+      <Section title="ChatGPT (Codex)" icon={<CodexIcon size={16} />}>
+        <Panel flush>
+          <TableSkeleton rows={3} columns={accountColumns} label="Loading accounts" />
+        </Panel>
+      </Section>
     </Page>
   );
 }
 
 function Accounts() {
   const queryClient = useQueryClient();
-  const toast = useToast();
   const accounts = useSuspenseQuery({ ...accountsQuery, ...useLiveOptions() });
-  const [open, setOpen] = useState<Open>(null);
+  const dialogs = useRowDialog<Account, "rename" | "remove">();
   const add = useAddAccount();
-
-  /** Fetches the accounts and the pool again, after a change to one. */
-  const changed = () => {
-    void queryClient.invalidateQueries({ queryKey: ["accounts"] });
-    void queryClient.invalidateQueries({ queryKey: ["pool"] });
-  };
-
-  const toggle = useMutation({
-    mutationFn: (account: Account) => updateAccount(account.id, { enabled: !account.enabled }),
-    onSuccess: (updated) => {
-      changed();
-      toast.add({
-        title: updated.enabled ? "Account enabled" : "Account disabled",
-        description: updated.enabled
-          ? `via hands ${updated.label} out again.`
-          : `via stops handing ${updated.label} out.`,
-      });
-    },
-    onError: (error) =>
-      toast.add({ type: "error", title: "Couldn't change it", description: error.message }),
-  });
-
-  const close = () => setOpen(null);
-
-  const addButton = (
-    <Button onClick={add.open}>
-      <PlusIcon size={15} />
-      Add account
-    </Button>
-  );
-
-  const list = accounts.data;
+  const enabled = useEnabledToggle(accountsQuery.queryKey, updateAccount);
+  const rename = dialogs.propsFor("rename");
+  const remove = dialogs.propsFor("remove");
 
   return (
-    <Page title={title} description={description} actions={addButton}>
-      <Section title="Codex" icon={<CodexIcon size={16} />}>
-        {list.length === 0 ? (
+    <Page
+      title={title}
+      description={description}
+      actions={
+        <Button onClick={add.open}>
+          <PlusIcon size={15} />
+          Add account
+        </Button>
+      }
+    >
+      <Section title="ChatGPT (Codex)" icon={<CodexIcon size={16} />}>
+        {accounts.data.length === 0 ? (
           <EmptyState
             icon={<AccountsIcon size={18} />}
+            compact
             title="No accounts yet"
             description="Add a ChatGPT account with a device login. via keeps its tokens fresh from then on."
-            action={addButton}
           />
         ) : (
           <Panel flush>
             <div {...stylex.props(styles.scroll)}>
-              <Table aria-label="Accounts" columns={accountColumns}>
+              <Table aria-label="ChatGPT accounts" columns={accountColumns}>
                 <TableHeader>
                   <TableRow>
                     <TableHead>Account</TableHead>
-                    <TableHead>Plan</TableHead>
+                    <TableHead secondary>Plan</TableHead>
                     <TableHead>Enabled</TableHead>
-                    <TableHead>Added</TableHead>
-                    <TableHead>
-                      <VisuallyHidden>Actions</VisuallyHidden>
-                    </TableHead>
+                    <TableHead secondary>Added</TableHead>
+                    <TableHead actions />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {list.map((account, index) => (
+                  {accounts.data.map((account, index) => (
                     <TableRow key={account.id} index={index}>
                       <TableCell>
                         <div {...stylex.props(styles.who)}>
-                          <span {...stylex.props(styles.label)}>{account.label}</span>
-                          <span {...stylex.props(styles.email)}>{account.email}</span>
+                          <span
+                            title={account.label}
+                            {...stylex.props(styles.label, styles.truncate)}
+                          >
+                            {account.label}
+                          </span>
+                          <span
+                            title={account.email}
+                            {...stylex.props(styles.email, styles.truncate)}
+                          >
+                            {account.email}
+                          </span>
                         </div>
                       </TableCell>
-                      <TableCell>
+                      <TableCell secondary>
                         <Badge>{account.plan}</Badge>
                       </TableCell>
                       <TableCell>
                         <Switch
                           aria-label={`${account.label} enabled`}
-                          checked={account.enabled}
-                          disabled={toggle.isPending && toggle.variables.id === account.id}
-                          onCheckedChange={() => toggle.mutate(account)}
+                          checked={enabled.isOn(account)}
+                          aria-busy={enabled.busy(account.id)}
+                          onCheckedChange={() => enabled.toggle(account)}
                         />
                       </TableCell>
-                      <TableCell>
-                        <span {...stylex.props(styles.date)}>{formatDate(account.createdAt)}</span>
+                      <TableCell secondary>
+                        <Day at={account.createdAt} />
                       </TableCell>
-                      <TableCell>
-                        <RowActions
-                          name={account.label}
-                          remove="Remove"
-                          onRename={() => setOpen({ dialog: "rename", account })}
-                          onRemove={() => setOpen({ dialog: "remove", account })}
-                        />
+                      <TableCell actions>
+                        <RowActions label={`Actions for ${account.label}`}>
+                          <MenuItem
+                            label="Rename…"
+                            icon={<EditIcon size={15} />}
+                            onClick={() => dialogs.show("rename", account)}
+                          />
+                          <MenuSeparator />
+                          <MenuItem
+                            label="Remove…"
+                            icon={<TrashIcon size={15} />}
+                            destructive
+                            onClick={() => dialogs.show("remove", account)}
+                          />
+                        </RowActions>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -248,24 +201,58 @@ function Accounts() {
       </Section>
 
       <Section title="OpenCode Go" icon={<ProviderLogo name="opencode-go" size={16} />}>
-        <OpencodeGoAccounts addButton={addButton} />
+        <OpencodeGoAccounts />
       </Section>
 
       {add.dialog}
-      {open?.dialog === "rename" && (
+      {rename !== undefined && (
         <RenameDialog
+          key={rename.row.id}
+          {...rename}
           thing="Account"
-          name={open.account.label}
+          name={rename.row.label}
           field="Label"
           description="The label shows in usage, in the pool and in logs."
           rename={async (label) => {
-            await updateAccount(open.account.id, { label });
+            await updateAccount(rename.row.id, { label });
           }}
-          onRenamed={changed}
-          onClose={close}
+          onRenamed={() => refreshPool(queryClient)}
         />
       )}
-      {open?.dialog === "remove" && <RemoveDialog account={open.account} onClose={close} />}
+      {remove !== undefined && (
+        <ConfirmDialog
+          key={remove.row.id}
+          {...remove}
+          title={`Remove ${remove.row.label}?`}
+          description="via stops handing it out and forgets its tokens. You can add it again by signing in."
+          confirmLabel="Remove account"
+          confirm={() => removeAccount(remove.row.id)}
+          onConfirmed={() => refreshPool(queryClient)}
+          done={{
+            title: "Account removed",
+            description: `via no longer uses ${remove.row.label}.`,
+          }}
+          failed={`Couldn't remove ${remove.row.label}`}
+        />
+      )}
+    </Page>
+  );
+}
+
+/** The page when its data couldn't be loaded: its header stays, and it can try again. */
+function AccountsError({ error, reset }: ErrorComponentProps) {
+  const router = useRouter();
+
+  return (
+    <Page title={title} description={description}>
+      <QueryError
+        what="accounts"
+        error={error}
+        onRetry={() => {
+          reset();
+          void router.invalidate();
+        }}
+      />
     </Page>
   );
 }
