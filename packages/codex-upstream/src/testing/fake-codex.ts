@@ -25,11 +25,19 @@ const hangUp = Stream.fromEffect(
   Effect.sleep("20 millis").pipe(Effect.provideService(Clock.Clock, Clock.Clock.defaultValue())),
 ).pipe(Stream.drain, Stream.concat(Stream.fail(undefined)));
 
-const endings = { close: Stream.empty, hangUp, stall: Stream.never };
-
-const respond = (plan: Plan) =>
+/**
+ * The fake's answer to a request by `plan`. A stalled answer only ends when its
+ * client hangs up, which `hungUp` is then told of.
+ */
+const respond = (plan: Plan, hungUp: Effect.Effect<void>) =>
   Effect.gen(function* () {
     if (plan.gate !== undefined) yield* Deferred.await(plan.gate);
+
+    const endings = {
+      close: Stream.empty,
+      hangUp,
+      stall: Stream.never.pipe(Stream.ensuring(hungUp)),
+    };
 
     const body = Stream.fromIterable(plan.chunks).pipe(
       Stream.concat(endings[plan.ending]),
@@ -102,6 +110,7 @@ const requestLog = () => {
 export const startFakeCodex = Effect.gen(function* () {
   const log = requestLog();
   const modelLog = requestLog();
+  const hangUps = requestLog();
   const shared: Array<Reply> = [];
   const perAccount = new Map<string, Array<Reply>>();
   const usageByAccount = new Map<string, { status: number; body: string }>();
@@ -120,7 +129,7 @@ export const startFakeCodex = Effect.gen(function* () {
       HttpServerRequest.schemaBodyJson(Schema.JsonObject).pipe(
         Effect.flatMap(recorded),
         Effect.tap(log.add),
-        Effect.flatMap((request) => respond(next(request)(request))),
+        Effect.flatMap((request) => respond(next(request)(request), hangUps.add(request))),
         // Test fixture: a body that is not JSON is a bug in the code under test.
         Effect.orDie,
       ),
@@ -196,6 +205,8 @@ export const startFakeCodex = Effect.gen(function* () {
     received: log.received,
     /** Waits until at least `count` `/codex/models` requests have arrived. */
     modelsReceived: modelLog.received,
+    /** Waits until the clients of at least `count` stalled replies have hung up. */
+    hungUp: hangUps.received,
   };
 });
 

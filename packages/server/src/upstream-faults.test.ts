@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply, sse, sseFrames } from "@via/codex-upstream/testing";
-import { Clock, Effect, Fiber } from "effect";
+import { Clock, Effect, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { withVia } from "./testing/harness.ts";
 
@@ -205,6 +205,25 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
       }),
     ),
   );
+
+  for (const path of [CHAT, RESPONSES] as const) {
+    it.effect(`a client hanging up on a ${path} stream hangs up on Codex too`, () =>
+      withVia(
+        () => reply.stalled(reply.text("hello"), 3),
+        (via) =>
+          Effect.gen(function* () {
+            const answer = yield* via.post(path, { ...bodies[path], stream: true });
+            const reading = yield* answer.stream.pipe(Stream.runDrain, Effect.forkChild);
+            const hungUp = yield* via.upstreamHungUp(1).pipe(Effect.forkChild);
+            yield* realPause.pipe(Effect.repeat({ times: 40 }));
+            // While the client reads, via keeps reading from Codex.
+            expect(hungUp.pollUnsafe()).toBeUndefined();
+            yield* Fiber.interrupt(reading);
+            yield* Fiber.join(hungUp);
+          }),
+      ),
+    );
+  }
 
   it.effect(`a ${RESPONSES} stream cut off by Codex ends in an error event`, () =>
     withVia(cutOff, (via) =>
