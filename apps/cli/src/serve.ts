@@ -57,6 +57,15 @@ const tracing = Layer.unwrap(
 );
 
 /**
+ * The largest request body via reads; Bun answers a larger one 413 before via
+ * sees it. OpenAI takes up to 50 MB of payload per request, base64 images
+ * included, so any request an upstream would take fits, with room for the JSON
+ * around it. Each body is held in memory while it is served, so this bounds
+ * what one request can make via hold.
+ */
+const MAX_REQUEST_BODY_BYTES = 64 * 1024 * 1024;
+
+/**
  * Imports OpenCode Go's key from its deprecated environment variable, when it is
  * set, and warns that the variable is deprecated for as long as it is.
  */
@@ -138,6 +147,7 @@ export const serve = ({
             BunHttpServer.layer({
               hostname: Option.getOrElse(host, () => config.host),
               port: Option.getOrElse(port, () => config.port),
+              maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
             }),
           ),
           // One pool and one set of usage snapshots, shared by the API and the usage poll.
