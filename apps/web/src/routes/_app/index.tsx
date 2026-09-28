@@ -42,14 +42,17 @@ const styles = stylex.create({
     gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
     gap: space.s3,
   },
+  // The count keeps to the tile's foot, so counts in a row line up however their labels wrap.
   stat: {
     display: "flex",
     flexDirection: "column",
+    justifyContent: "space-between",
     gap: space.s1,
   },
+  // The dot keeps to the label's first line.
   statLabel: {
     display: "flex",
-    alignItems: "center",
+    alignItems: "baseline",
     gap: space.s1_5,
     fontSize: text.caption,
     color: colors.mutedForeground,
@@ -71,6 +74,7 @@ const styles = stylex.create({
     fontWeight: fontWeights.normal,
   },
   dot: {
+    flexShrink: 0,
     width: "7px",
     height: "7px",
     borderRadius: radii.full,
@@ -105,12 +109,12 @@ const styles = stylex.create({
     gap: space.s0_5,
     minWidth: 0,
   },
+  // A long name or email wraps rather than hiding its end: on a phone the badge beside it
+  // leaves little room.
   name: {
     margin: 0,
     maxWidth: "100%",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    overflowWrap: "anywhere",
     fontSize: text.subtitle,
     fontVariationSettings: weights.semibold,
     fontWeight: fontWeights.semibold,
@@ -118,9 +122,7 @@ const styles = stylex.create({
   },
   email: {
     maxWidth: "100%",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    overflowWrap: "anywhere",
     fontSize: text.caption,
     color: colors.mutedForeground,
   },
