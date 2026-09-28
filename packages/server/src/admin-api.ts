@@ -22,6 +22,16 @@ import {
   OpenApi,
 } from "effect/unstable/httpapi";
 
+/**
+ * A name or label a request carries: longer than any real one, short enough that
+ * a request can't make via store or show a huge string. (An id in a path is kept
+ * to 100 characters by the router, which answers a longer one 404.)
+ */
+const Name = Schema.String.check(Schema.isMaxLength(200));
+
+/** A key a request carries, the admin key or an API key: longer than any real one. */
+const Key = Schema.Redacted(Schema.String.check(Schema.isMaxLength(1024)));
+
 /** An account as the admin API shows it: everything but its tokens. */
 const AdminAccount = Schema.Struct({
   id: Schema.String,
@@ -248,7 +258,7 @@ export class AdminAuthorization extends HttpApiMiddleware.Service<AdminAuthoriza
 class SessionGroup extends HttpApiGroup.make("session")
   .add(
     HttpApiEndpoint.post("signIn", "/session", {
-      payload: Schema.Struct({ key: Schema.Redacted(Schema.String) }),
+      payload: Schema.Struct({ key: Key }),
       error: [Unauthorized, TooManySignInsError],
     }),
   )
@@ -279,7 +289,7 @@ class AccountsGroup extends HttpApiGroup.make("accounts")
     HttpApiEndpoint.patch("update", "/accounts/:id", {
       params: { id: Schema.String },
       payload: Schema.Struct({
-        label: Schema.optional(Schema.String),
+        label: Schema.optional(Name),
         enabled: Schema.optional(Schema.Boolean),
       }),
       success: AdminAccount,
@@ -309,8 +319,8 @@ class OpencodeGoGroup extends HttpApiGroup.make("opencodeGo")
     HttpApiEndpoint.post("add", "/opencode-go/accounts", {
       // A plain fields object would make this a form body; a Struct makes it JSON.
       payload: Schema.Struct({
-        apiKey: Schema.Redacted(Schema.String),
-        label: Schema.optional(Schema.String),
+        apiKey: Key,
+        label: Schema.optional(Name),
       }),
       success: AdminOpencodeGoAccount.pipe(HttpApiSchema.status(201)),
       error: [
@@ -324,7 +334,7 @@ class OpencodeGoGroup extends HttpApiGroup.make("opencodeGo")
     HttpApiEndpoint.patch("update", "/opencode-go/accounts/:id", {
       params: { id: Schema.String },
       payload: Schema.Struct({
-        label: Schema.optional(Schema.String),
+        label: Schema.optional(Name),
         enabled: Schema.optional(Schema.Boolean),
       }),
       success: AdminOpencodeGoAccount,
@@ -345,7 +355,7 @@ class KeysGroup extends HttpApiGroup.make("keys")
   .add(
     HttpApiEndpoint.post("create", "/keys", {
       // A plain fields object would make this a form body; a Struct makes it JSON.
-      payload: Schema.Struct({ name: Schema.String }),
+      payload: Schema.Struct({ name: Name }),
       success: CreatedKey.pipe(HttpApiSchema.status(201)),
       error: DuplicateKeyNameError.pipe(HttpApiSchema.status(409)),
     }),
@@ -353,7 +363,7 @@ class KeysGroup extends HttpApiGroup.make("keys")
   .add(
     HttpApiEndpoint.patch("rename", "/keys/:idOrName", {
       params: { idOrName: Schema.String },
-      payload: Schema.Struct({ name: Schema.String }),
+      payload: Schema.Struct({ name: Name }),
       success: AdminKey,
       error: [
         KeyNotFoundError.pipe(HttpApiSchema.status(404)),
