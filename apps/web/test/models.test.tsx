@@ -26,7 +26,7 @@ describe("the models page", () => {
     expect(within(codex).getByText("gpt-5.5-mini")).toBeDefined();
 
     const provider = screen.getByRole("region", { name: "OpenCode Go" });
-    expect(within(provider).getByText("opencode-go/kimi-k2")).toBeDefined();
+    expect(within(provider).getByText("kimi-k2")).toBeDefined();
     expect(within(provider).getByText("262K context")).toBeDefined();
 
     const groups = screen
@@ -62,13 +62,56 @@ describe("the models page", () => {
     expect(await screen.findByRole("region", { name: "Codex" })).toBeDefined();
   });
 
-  it("lists a provider's models as a list, keeping a cut-short id whole on hover", async () => {
+  it("lists a provider's models as a list", async () => {
     renderApp("/models", { models });
 
     const codex = await screen.findByRole("region", { name: "Codex" });
     const items = within(within(codex).getByRole("list")).getAllByRole("listitem");
     expect(items.map((item) => item.textContent)).toEqual(["gpt-5.5", "gpt-5.5-mini"]);
-    expect(within(codex).getByText("gpt-5.5-mini").getAttribute("title")).toBe("gpt-5.5-mini");
+  });
+
+  it("shows a model once, with the reasoning efforts its suffixes pick", async () => {
+    renderApp("/models", {
+      models: [
+        ...models,
+        { id: "gpt-5.5-low", object: "model", created: 0, owned_by: "openai" },
+        { id: "gpt-5.5-high", object: "model", created: 0, owned_by: "openai" },
+        // A suffix that reads like an effort, on a model via doesn't list bare.
+        { id: "opencode-go/qwen3-max", object: "model", created: 0, owned_by: "opencode" },
+      ],
+    });
+
+    const codex = await screen.findByRole("region", { name: "Codex" });
+    const items = within(within(codex).getByRole("list")).getAllByRole("listitem");
+    expect(items).toHaveLength(2);
+    expect(items[0]?.textContent).toBe("gpt-5.5Efforts: low · high");
+    expect(within(codex).getByText("2 models")).toBeDefined();
+
+    const provider = screen.getByRole("region", { name: "OpenCode Go" });
+    expect(within(provider).getByText("qwen3-max")).toBeDefined();
+  });
+
+  it("names a provider's models without its prefix, keeping the full id at hand", async () => {
+    renderApp("/models", { models });
+
+    const provider = await screen.findByRole("region", { name: "OpenCode Go" });
+    expect(within(provider).getByText("kimi-k2").getAttribute("title")).toBe("opencode-go/kimi-k2");
+  });
+
+  it("finds a model by any id a client can ask for", async () => {
+    const { user } = renderApp("/models", {
+      models: [...models, { id: "gpt-5.5-high", object: "model", created: 0, owned_by: "openai" }],
+    });
+
+    const search = await screen.findByRole("searchbox", { name: "Search models" });
+    await user.type(search, "5.5-high");
+    expect(await screen.findByText("gpt-5.5")).toBeDefined();
+    expect(screen.queryByText("gpt-5.5-mini")).toBeNull();
+
+    await user.clear(search);
+    await user.type(search, "opencode-go/");
+    expect(await screen.findByText("kimi-k2")).toBeDefined();
+    expect(screen.queryByRole("region", { name: "Codex" })).toBeNull();
   });
 
   it("announces how many models match as the search changes", async () => {

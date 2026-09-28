@@ -2,7 +2,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import { Button, EmptyState, Input, Skeleton, VisuallyHidden } from "@via/ui";
-import { colors, fonts, radii, space, text } from "@via/ui/tokens.stylex";
+import { colors, fontWeights, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { Schema } from "effect";
 import { useDeferredValue, useRef, useState } from "react";
 import { modelsQuery } from "../../api/admin.ts";
@@ -11,6 +11,7 @@ import type { Model } from "../../api/types.ts";
 import { CodexIcon, ModelsIcon, ProviderLogo, SearchIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
+import { modelEntries } from "../../lib/model-entries.ts";
 import { providerName } from "../../lib/provider-name.ts";
 
 export const Route = createFileRoute("/_app/models")({
@@ -34,14 +35,14 @@ const styles = stylex.create({
     margin: 0,
     padding: 0,
     listStyle: "none",
-    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 240px), 1fr))",
-    rowGap: space.s3,
+    gridTemplateColumns: "repeat(auto-fill, minmax(min(100%, 220px), 1fr))",
+    rowGap: space.s4,
     columnGap: space.s6,
   },
   model: {
     display: "flex",
     flexDirection: "column",
-    gap: space.s1,
+    gap: space.s0_5,
     minWidth: 0,
   },
   loading: {
@@ -50,17 +51,23 @@ const styles = stylex.create({
     gap: space.s8,
   },
   count: { fontVariantNumeric: "tabular-nums" },
+  // Wrapped rather than cut short: an id is only useful whole.
   id: {
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    overflowWrap: "anywhere",
     fontFamily: fonts.mono,
-    fontSize: "0.92em",
+    fontSize: text.code,
+    fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
     color: colors.foreground,
   },
   meta: {
     fontSize: text.caption,
     color: colors.mutedForeground,
+  },
+  code: {
+    fontFamily: fonts.mono,
+    fontSize: text.code,
+    color: colors.foreground,
   },
   none: {
     display: "flex",
@@ -80,16 +87,6 @@ const WithContext = Schema.Struct({ context_length: Schema.Finite });
 
 const hasContext = Schema.is(WithContext);
 
-/**
- * Who serves a model, from its id: via names a provider's models `<provider>/<model>`,
- * and Codex's have no prefix. `owned_by` is the provider's own say, so it can't be trusted.
- */
-const ownerOf = (model: Model) => {
-  const slash = model.id.indexOf("/");
-
-  return slash > 0 ? model.id.slice(0, slash) : "Codex";
-};
-
 const compact = new Intl.NumberFormat(undefined, { notation: "compact" });
 
 const count = new Intl.NumberFormat();
@@ -103,8 +100,13 @@ const matchCount = (n: number) => `${count.format(n)} ${n === 1 ? "match" : "mat
 
 const title = "Models";
 
-const description =
-  "What clients can ask for at /v1/models: Codex's models through the pool, and each provider's own.";
+const description = (
+  <>
+    What clients can ask for at /v1/models. A Codex model takes its reasoning effort as a suffix, as
+    in <code {...stylex.props(styles.code)}>gpt-5.5-high</code>; a provider’s models go by its name,
+    as in <code {...stylex.props(styles.code)}>opencode-go/glm-5.2</code>.
+  </>
+);
 
 /** The page's status region, for a screen reader alone. */
 function Status({ children }: { readonly children: string }) {
@@ -160,9 +162,9 @@ function Models() {
   const [search, setSearch] = useState("");
   const field = useRef<HTMLInputElement>(null);
   const query = useDeferredValue(search.trim().toLowerCase());
-  const list = models.data;
-  const matches = list.filter((model) => model.id.toLowerCase().includes(query));
-  const groups = Map.groupBy(matches, ownerOf);
+  const list = modelEntries(models.data);
+  const matches = list.filter((entry) => entry.ids.some((id) => id.toLowerCase().includes(query)));
+  const groups = Map.groupBy(matches, (entry) => entry.owner);
 
   // Codex first, then providers by name.
   const owners = [...groups.keys()].toSorted((a, b) =>
@@ -236,12 +238,21 @@ function Models() {
                   >
                     <Panel>
                       <ul {...stylex.props(styles.grid)}>
-                        {owned.map((model) => (
+                        {owned.map(({ model, name, efforts }) => (
                           <li key={model.id} {...stylex.props(styles.model)}>
-                            {/* Cut short to fit its column, and kept whole on hover. */}
-                            <span title={model.id} {...stylex.props(styles.id)}>
-                              {model.id}
+                            {/* Named without its provider's prefix; the id it goes by on hover. */}
+                            <span
+                              title={name === model.id ? undefined : model.id}
+                              {...stylex.props(styles.id)}
+                            >
+                              {name}
                             </span>
+                            {efforts.length > 0 && (
+                              <span {...stylex.props(styles.meta)}>
+                                <VisuallyHidden>Efforts: </VisuallyHidden>
+                                {efforts.join(" · ")}
+                              </span>
+                            )}
                             {contextOf(model) !== undefined && (
                               <span {...stylex.props(styles.meta)}>{contextOf(model)}</span>
                             )}

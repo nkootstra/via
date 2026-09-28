@@ -354,7 +354,9 @@ see the pool at a glance, add ChatGPT accounts by device-code login or OpenCode
 Go keys by pasting them, rename, disable and remove them, create, rename and revoke API
 keys, and list the models. The Accounts page lists the ChatGPT accounts under
 Codex and the OpenCode Go keys under their own heading, each key only by its
-last four characters.
+last four characters. The Models page shows each model once: a Codex model
+with the reasoning efforts its suffixed ids pick, and a provider's models under
+its heading without their `<provider>/` prefix. Search matches every id.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
