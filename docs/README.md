@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-dark.svg">
+    <img src="assets/logo-light.svg" alt="" width="96" height="96">
+  </picture>
+</p>
+
 # via
 
 Pool several ChatGPT/Codex subscriptions behind one OpenAI-compatible endpoint
