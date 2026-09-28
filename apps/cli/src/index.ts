@@ -40,7 +40,9 @@ const main = Effect.gen(function* () {
   const codexBaseUrl = Option.getOrUndefined(env.codexBaseUrl);
 
   const via = Command.make("via").pipe(
-    Command.withDescription("Pool Codex subscriptions behind one OpenAI-compatible endpoint"),
+    Command.withDescription(
+      "One OpenAI-compatible endpoint for your ChatGPT subscriptions, OpenCode Go keys and other providers",
+    ),
     Command.withSubcommands([
       accounts(paths.config, codexBaseUrl),
       keys,

@@ -1,7 +1,8 @@
 # via — contributor rules
 
-`via` pools multiple ChatGPT/Codex subscriptions behind one OpenAI-compatible
-local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
+`via` pools ChatGPT/Codex subscriptions and OpenCode Go keys, and passes
+requests on to other OpenAI-compatible providers such as OpenRouter, behind one
+OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 
 ## Workflow
 
@@ -12,14 +13,21 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 - Merge gates: `bun run lint` (Oxlint plus the anti-slop rules in
   `tools/oxlint/anti-slop`), `bun run format:check`, `bun run knip` (unused
   files, exports and dependencies), `bun run typecheck`, `bun run test`. CI
-  runs the same. Fix what the lint finds; don't disable a rule to get past it.
+  runs the same, plus `bun run smoke` (the packed npm packages under Node,
+  including the CLI's `--help`) and the Docker image; run `bun run smoke` too
+  when a change touches the CLI or packaging. Fix what the lint finds; don't disable a rule to get past it.
   Every anti-slop rule is on except `no-conditional-empty-object-spread`, whose
   fix trades one object expression for statement-by-statement mutation.
 - Tests use `@effect/vitest` via `bun --bun vitest run`. Never use `bun test`.
-- Tests never call real OpenAI endpoints. Fake upstreams run as local HTTP
-  servers, and base URLs are injected through layers.
+- Tests never call real upstreams (OpenAI, OpenCode Go or any provider). Fake
+  upstreams run as local HTTP servers, and base URLs are injected through layers.
 - Pure, invariant-heavy logic (the pool's selection and cooldown rules) ships
   with property tests (`it.prop`/`it.effect.prop`), not just examples.
+- **Docs change with the code.** A change to anything a user or contributor
+  sees (commands, flags, config keys, environment variables, files, routes,
+  providers, limits, the web UI, the build or the workflow) updates
+  `docs/README.md`, `CONTRIBUTING.md`, `SECURITY.md` or this file in the same
+  PR. Check the docs against the code, not against memory.
 
 ## Versions
 
@@ -72,6 +80,8 @@ local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   `@via/server/admin-api`), and `Promise` only where TanStack Query or the
   router expects one. Every other rule still applies. Its tests use plain
   `vitest` with happy-dom, Testing Library and MSW standing in for `/admin`.
+- `apps/e2e`: end-to-end tests against a compiled binary, browser tests
+  included (Playwright + Chromium); see `CONTRIBUTING.md`.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
   `codex-upstream`, `account-pool`, `providers`, `translate`, `server`).
   Create a package only when the first test needs it.

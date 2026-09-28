@@ -78,8 +78,9 @@ A failed browser test leaves a trace in `apps/e2e/test-results/`; open it with
   that makes it pass, then refactor. Commit each green step.
 - **Build only what's needed.** No speculative options, config keys or
   abstractions.
-- **No real OpenAI calls in tests.** Fake upstreams run as local HTTP servers and
-  their base URLs are injected through layers.
+- **No real upstream calls in tests:** not to OpenAI, OpenCode Go or any
+  other provider. Fake upstreams run as local HTTP servers and their base URLs
+  are injected through layers.
 - **Effect everywhere outside the CLI's `main`:** no `async`/`await`, `Promise`,
   `throw` or `try`/`catch` in library code. Parse external data with `Schema`,
   and use the `FileSystem`, `HttpClient` and `Clock` services.
@@ -167,9 +168,11 @@ This repo's `.claude/settings.json` already stops Claude Code from adding them.
 
 1. Branch off `main`.
 2. Keep the PR to one change.
-3. Fill in the PR template, and keep its Summary, Type of change and Checklist
+3. Update the docs in the same PR when the change is something a user or
+   contributor sees: `docs/README.md`, this file, `SECURITY.md` or `AGENTS.md`.
+4. Fill in the PR template, and keep its Summary, Type of change and Checklist
    sections.
-4. Link related issues with `Closes #N`.
+5. Link related issues with `Closes #N`.
 
 These checks must pass:
 

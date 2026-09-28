@@ -17,6 +17,7 @@
 ## Checklist
 
 - [ ] Every new behaviour started as a failing test
+- [ ] Docs match the change (`docs/README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `AGENTS.md`)
 - [ ] `bun run lint`, `bun run format:check`, `bun run knip`, `bun run typecheck` and `bun run test` pass locally
 - [ ] Commits are signed and show as verified on GitHub
 - [ ] Commits carry no AI attribution trailers

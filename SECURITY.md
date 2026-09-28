@@ -19,17 +19,20 @@ agree on a fix and a release, and publish an advisory where it's warranted.
 
 Examples of what's in scope:
 
-- Leaking account tokens or API keys: in logs, error messages, responses to
-  clients, or files with loose permissions.
-- Reaching the API without a valid via key.
+- Leaking ChatGPT account tokens, OpenCode Go or provider API keys, via's own
+  API keys, the admin key or an admin session: in logs, error messages,
+  responses to clients, or files with loose permissions.
+- Reaching `/v1` without a valid via key, or `/admin` and the web UI without
+  the admin key or a session.
 - Files in `~/.config/via` (or `$VIA_HOME`) created with permissions wider than
   owner-only.
-- A client request that makes via send headers or requests to the upstream
-  that it didn't intend.
+- A client request that makes via send headers or requests to an upstream
+  (Codex, OpenCode Go or a configured provider) that it didn't intend.
 
 Out of scope:
 
-- OpenAI's own services. Report those to OpenAI.
+- The upstreams' own services, such as OpenAI's, OpenCode's or OpenRouter's.
+  Report those to their owners.
 - Running `via serve` on a non-local interface without TLS. The README warns
   against it.
 - Other processes running as your own OS user reading your files.

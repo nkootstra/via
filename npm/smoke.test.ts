@@ -50,7 +50,7 @@ it.effect(
         dir,
       );
       const help = yield* run(["node", "node_modules/.bin/via", "--help"], dir);
-      expect(help).toContain("Pool Codex subscriptions");
+      expect(help).toContain("One OpenAI-compatible endpoint");
     }).pipe(Effect.scoped, Effect.provide(BunFileSystem.layer)),
   120_000,
 );
