@@ -106,7 +106,7 @@ describe("collectResponse", () => {
 
       const endless = Stream.fromIterable([delta]).pipe(Stream.forever);
       const error = yield* Effect.flip(collectResponse(endless));
-      expect(error).toBeInstanceOf(ResponseTooLargeError);
+      expect(error).toEqual(new ResponseTooLargeError({ maxBytes: 128 * 1024 * 1024 }));
     }),
   );
 
