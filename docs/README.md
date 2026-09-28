@@ -564,7 +564,10 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   OpenCode Go account, that answered.
 - `input_tokens` and `output_tokens` are the token counts the upstream
   reported for an answered request, and `cached_tokens` joins them when the
-  upstream reports a cache hit. Absent usage stays absent, never a zero.
+  upstream reports a cache hit. `reasoning_tokens` is the part of the output
+  the model spent reasoning, and `cost_usd` what the upstream says it billed,
+  when it reports either (OpenRouter reports its cost). Absent usage stays
+  absent, never a zero.
 - For a stream, `headers_ms` and `first_chunk_ms` say when its headers and first
   chunk went out, and `stream_end` how it ended: `completed`, `client_aborted`
   (the client went away first) or `failed` (it broke off, such as when the

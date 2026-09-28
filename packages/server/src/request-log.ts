@@ -83,6 +83,8 @@ const usageAnnotations = (usage: Option.Option<TokenUsage>) =>
       input_tokens: u.inputTokens,
       output_tokens: u.outputTokens,
       ...(u.cachedTokens === undefined ? {} : { cached_tokens: u.cachedTokens }),
+      ...(u.reasoningTokens === undefined ? {} : { reasoning_tokens: u.reasoningTokens }),
+      ...(u.costUsd === undefined ? {} : { cost_usd: u.costUsd }),
     }),
   });
 

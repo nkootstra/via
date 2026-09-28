@@ -250,6 +250,36 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs the reasoning tokens and cost a provider reports", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.json({
+            choices: [],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 8,
+              total_tokens: 18,
+              completion_tokens_details: { reasoning_tokens: 6 },
+              cost: 0.00042,
+            },
+          }),
+        );
+
+        yield* (yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          messages: [],
+        })).text;
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 10,
+          output_tokens: 8,
+          reasoning_tokens: 6,
+          cost_usd: 0.00042,
+        });
+      }),
+    ),
+  );
+
   it.effect("logs token usage for a streamed Codex answer to /v1/responses", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
