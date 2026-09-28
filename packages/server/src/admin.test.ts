@@ -42,10 +42,13 @@ const accountId = (via: Via, name: string) =>
     return all.find(({ email }) => email === `${name}@example.com`)?.id ?? "";
   });
 
-/** Polls a login, a minute of test time apart, until it is no longer pending. */
+/**
+ * Polls a login, a second of test time apart, until it is no longer pending: a
+ * step short of the 30 seconds via gives the issuer to answer each request.
+ */
 const settled = (via: Via, id: string) =>
   Effect.gen(function* () {
-    yield* TestClock.adjust("1 minute");
+    yield* TestClock.adjust("1 second");
 
     return yield* (yield* via.get(`/admin/accounts/logins/${id}`, adminKey)).json;
   }).pipe(
