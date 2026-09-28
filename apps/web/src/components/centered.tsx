@@ -1,15 +1,7 @@
 /** A focused card in the middle of the page, for signing in and for errors. */
 import * as stylex from "@stylexjs/stylex";
-import {
-  colors,
-  fonts,
-  radii,
-  shadows,
-  space,
-  text,
-  fontWeights,
-  weights,
-} from "@via/ui/tokens.stylex";
+import { colors, fonts, radii, shadows, space, text } from "@via/ui/tokens.stylex";
+import { VisuallyHidden } from "@via/ui";
 import { motion } from "motion/react";
 import type { ReactNode } from "react";
 import { Mark } from "./icons.tsx";
@@ -51,12 +43,6 @@ const styles = stylex.create({
   brand: {
     display: "flex",
     alignItems: "center",
-    gap: space.s2_5,
-    color: colors.foreground,
-    fontSize: text.display,
-    letterSpacing: "-0.02em",
-    fontVariationSettings: weights.bold,
-    fontWeight: fontWeights.bold,
   },
   card: {
     boxSizing: "border-box",
@@ -88,8 +74,8 @@ export function Centered({
       <div aria-hidden="true" {...stylex.props(styles.glow)} />
       <div {...stylex.props(styles.column)}>
         <div {...stylex.props(styles.brand)}>
-          <Mark size={30} />
-          via
+          <Mark size={40} />
+          <VisuallyHidden>via</VisuallyHidden>
         </div>
         <motion.div
           initial={{ opacity: 0, y: 10, scale: 0.98 }}

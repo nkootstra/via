@@ -18,6 +18,16 @@ describe("signing in", () => {
     expect(router.history.location.pathname).toBe("/ui/sign-in");
   });
 
+  it("shows the logo alone above the form, named for screen readers", async () => {
+    renderApp("/sign-in", { signedIn: false });
+    await screen.findByRole("heading", { name: "Sign in" });
+
+    // The name is for assistive tech alone; the logo is what's drawn.
+    const name = screen.getByText("via");
+    expect(name.querySelector("svg")).toBeNull();
+    expect(name.parentElement?.querySelector("svg")).not.toBeNull();
+  });
+
   it("signs in with the admin key and lands where the visitor was going", async () => {
     const { state, user, router } = renderApp("/keys", { signedIn: false });
 
