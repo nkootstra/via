@@ -176,6 +176,13 @@ const fromTheUi = (via: Via, cookie: string) => ({
   "x-via-csrf": "1",
 });
 
+/** Headers that would say a request came from `address`, if via believed them. */
+const from = (address: string) => ({
+  "x-forwarded-for": address,
+  "x-real-ip": address,
+  forwarded: `for=${address}`,
+});
+
 layer(BunFileSystem.layer)("admin API", (it) => {
   it.effect("does not exist without VIA_ADMIN_KEY", () =>
     withVia(ok, (via) =>
@@ -1293,7 +1300,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
-  it.effect("refuses every sign-in for a while after ten wrong keys in a minute", () =>
+  it.effect("refuses a client's sign-ins for a while after ten wrong keys in a minute", () =>
     withVia(
       ok,
       (via) =>
@@ -1308,6 +1315,28 @@ layer(BunFileSystem.layer)("admin API", (it) => {
 
           expect(wrong.map(({ status }) => status)).toEqual(Array.from({ length: 10 }, () => 401));
           expect((yield* signIn(via, adminKey)).status).toBe(429);
+          yield* TestClock.adjust("1 minute");
+          expect((yield* signIn(via, adminKey)).status).toBe(204);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("tells clients apart by their connection, not by forwarding headers", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const wrong = yield* clocked(
+            Effect.forEach(
+              Array.from({ length: 10 }, (_, index) => `198.51.100.${index}`),
+              (address) => via.post("/admin/session", { key: "wrong" }, null, from(address)),
+              { concurrency: "unbounded" },
+            ),
+          );
+
+          expect(wrong.map(({ status }) => status)).toEqual(Array.from({ length: 10 }, () => 401));
+          expect((yield* signIn(via, adminKey, from("198.51.100.99"))).status).toBe(429);
           yield* TestClock.adjust("1 minute");
           expect((yield* signIn(via, adminKey)).status).toBe(204);
         }),

@@ -322,10 +322,15 @@ cookie instead, so the key is never kept in the page:
   must send `x-via-csrf: 1` and an `Origin` whose host is the `Host` it was
   sent to; otherwise it answers 403. A proxy in front of via must pass the
   `Host` header through unchanged. Requests with the bearer key need neither.
-- A wrong key answers 401 after a one-second delay, and after 10 wrong keys
-  within a minute every sign-in answers 429 until the minute has passed. Each
-  failed sign-in is logged, without the key. via never logs the key or the
-  cookie.
+- A wrong key answers 401 after a one-second delay. After 10 wrong keys
+  within a minute from one address, sign-ins from that address answer 429,
+  after the same delay, until the minute has passed; other addresses can still
+  sign in. After 1000 wrong keys within a minute from all addresses together,
+  every sign-in answers 429, which keeps many addresses guessing at once from
+  getting far. The address is the connection's: via ignores `X-Forwarded-For`
+  and similar headers, so behind a proxy every sign-in shares the proxy's
+  address. Each failed sign-in is logged, without the key. via never logs the
+  key or the cookie.
 
 ### Web UI
 

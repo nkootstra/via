@@ -11,10 +11,10 @@ const wrongKey = Redacted.make("not-the-admin-key");
 
 const sessions = AdminSessions.layer(adminKey);
 
-/** Signs in with `key`, moving the test clock past the delay a failed sign-in takes. */
-const signIn = (key: Redacted.Redacted<string>) =>
+/** Signs in with `key` from `client`, moving the test clock past the delay a failed sign-in takes. */
+const signIn = (key: Redacted.Redacted<string>, client = "203.0.113.1") =>
   Effect.gen(function* () {
-    const fiber = yield* Effect.forkChild((yield* AdminSessions).signIn(key));
+    const fiber = yield* Effect.forkChild((yield* AdminSessions).signIn(key, client));
     yield* TestClock.adjust("1 second");
 
     return yield* Fiber.await(fiber);
@@ -24,7 +24,7 @@ describe("AdminSessions", () => {
   it.effect("hands out a session for the admin key, and only for it", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
-      const token = yield* admin.signIn(adminKey);
+      const token = yield* admin.signIn(adminKey, "203.0.113.1");
       expect(yield* admin.verify(token)).toBe(true);
       expect(yield* admin.verify(Redacted.make("made-up"))).toBe(false);
       expect(yield* admin.verify(Redacted.make(""))).toBe(false);
@@ -34,8 +34,8 @@ describe("AdminSessions", () => {
   it.effect("hands out a different 256-bit token each time", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
-      const first = Redacted.value(yield* admin.signIn(adminKey));
-      const second = Redacted.value(yield* admin.signIn(adminKey));
+      const first = Redacted.value(yield* admin.signIn(adminKey, "203.0.113.1"));
+      const second = Redacted.value(yield* admin.signIn(adminKey, "203.0.113.1"));
       expect(first).not.toBe(second);
       expect(Buffer.from(first, "base64url")).toHaveLength(32);
     }).pipe(Effect.provide(sessions)),
@@ -52,7 +52,7 @@ describe("AdminSessions", () => {
 
   it.effect("answers a wrong key only after a fixed delay", () =>
     Effect.gen(function* () {
-      const fiber = yield* Effect.forkChild((yield* AdminSessions).signIn(wrongKey));
+      const fiber = yield* Effect.forkChild((yield* AdminSessions).signIn(wrongKey, "203.0.113.1"));
       yield* TestClock.adjust("999 millis");
       expect(fiber.pollUnsafe()).toBeUndefined();
       yield* TestClock.adjust("1 milli");
@@ -61,28 +61,73 @@ describe("AdminSessions", () => {
     }).pipe(Effect.provide(sessions)),
   );
 
-  it.effect("refuses every sign-in for a minute after ten failed ones", () =>
+  it.effect("refuses a client's sign-ins for a minute after ten of its failed ones", () =>
+    Effect.gen(function* () {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        expect(Exit.isFailure(yield* signIn(wrongKey, "a"))).toBe(true);
+      }
+
+      const refused = yield* Effect.flip(yield* signIn(adminKey, "a"));
+      expect(Schema.is(TooManySignInsError)(refused)).toBe(true);
+      // The first failure was eleven seconds ago, so it drops out of the minute after 49 more.
+      yield* TestClock.adjust("49 seconds");
+      expect(Exit.isSuccess(yield* signIn(adminKey, "a"))).toBe(true);
+    }).pipe(Effect.provide(sessions)),
+  );
+
+  it.effect("lets another client sign in while one is refused", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
 
       for (let attempt = 0; attempt < 10; attempt++) {
-        expect(Exit.isFailure(yield* signIn(wrongKey))).toBe(true);
+        yield* signIn(wrongKey, "a");
       }
 
-      const refused = yield* Effect.flip(admin.signIn(adminKey));
-      expect(Schema.is(TooManySignInsError)(refused)).toBe(true);
-      // The first failure was ten seconds ago, so it drops out of the minute after fifty more.
-      yield* TestClock.adjust("50 seconds");
-      expect(yield* admin.verify(yield* admin.signIn(adminKey))).toBe(true);
+      expect(Exit.isFailure(yield* signIn(adminKey, "a"))).toBe(true);
+      expect(yield* admin.verify(yield* admin.signIn(adminKey, "b"))).toBe(true);
+      expect(Exit.isFailure(yield* signIn(wrongKey, "b"))).toBe(true);
     }).pipe(Effect.provide(sessions)),
   );
 
-  it.effect("counts failures that arrive together", () =>
+  it.effect("answers a refused sign-in after the same delay as a wrong key", () =>
+    Effect.gen(function* () {
+      for (let attempt = 0; attempt < 10; attempt++) {
+        yield* signIn(wrongKey, "a");
+      }
+
+      const fiber = yield* Effect.forkChild((yield* AdminSessions).signIn(adminKey, "a"));
+      yield* TestClock.adjust("999 millis");
+      expect(fiber.pollUnsafe()).toBeUndefined();
+      yield* TestClock.adjust("1 milli");
+      const error = yield* Effect.flip(Fiber.join(fiber));
+      expect(Schema.is(TooManySignInsError)(error)).toBe(true);
+    }).pipe(Effect.provide(sessions)),
+  );
+
+  it.effect("clears only the signed-in client's failures", () =>
+    Effect.gen(function* () {
+      const admin = yield* AdminSessions;
+
+      for (let attempt = 0; attempt < 9; attempt++) {
+        yield* signIn(wrongKey, "a");
+        yield* signIn(wrongKey, "b");
+      }
+
+      yield* admin.signIn(adminKey, "a");
+      // "a" starts over; "b" has one failure left before it is refused.
+      yield* signIn(wrongKey, "a");
+      yield* signIn(wrongKey, "b");
+      expect(Exit.isSuccess(yield* signIn(adminKey, "a"))).toBe(true);
+      expect(Exit.isFailure(yield* signIn(adminKey, "b"))).toBe(true);
+    }).pipe(Effect.provide(sessions)),
+  );
+
+  it.effect("counts a client's failures that arrive together", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
 
       const fibers = yield* Effect.forEach(Array.from({ length: 12 }), () =>
-        Effect.forkChild(admin.signIn(wrongKey)),
+        Effect.forkChild(admin.signIn(wrongKey, "a")),
       );
 
       yield* TestClock.adjust("1 second");
@@ -96,8 +141,8 @@ describe("AdminSessions", () => {
   it.effect("ends a session on sign-out", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
-      const token = yield* admin.signIn(adminKey);
-      const other = yield* admin.signIn(adminKey);
+      const token = yield* admin.signIn(adminKey, "203.0.113.1");
+      const other = yield* admin.signIn(adminKey, "203.0.113.1");
       yield* admin.signOut(token);
       expect(yield* admin.verify(token)).toBe(false);
       expect(yield* admin.verify(other)).toBe(true);
@@ -107,7 +152,7 @@ describe("AdminSessions", () => {
   it.effect("ends a session left unused for an hour", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
-      const token = yield* admin.signIn(adminKey);
+      const token = yield* admin.signIn(adminKey, "203.0.113.1");
       yield* TestClock.adjust("59 minutes");
       expect(yield* admin.verify(token)).toBe(true);
       yield* TestClock.adjust("1 hour");
@@ -118,7 +163,7 @@ describe("AdminSessions", () => {
   it.effect("ends a session 12 hours after sign-in, however much it is used", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
-      const token = yield* admin.signIn(adminKey);
+      const token = yield* admin.signIn(adminKey, "203.0.113.1");
 
       for (let use = 0; use < 12; use++) {
         yield* TestClock.adjust("59 minutes");
@@ -143,7 +188,7 @@ describe("AdminSessions", () => {
     ({ gaps: values }) =>
       Effect.gen(function* () {
         const admin = yield* AdminSessions;
-        const token = yield* admin.signIn(adminKey);
+        const token = yield* admin.signIn(adminKey, "203.0.113.1");
         let elapsed = Duration.zero;
         let lastUse = Duration.zero;
         let live = true;

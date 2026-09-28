@@ -7,6 +7,7 @@ import {
   Effect,
   Function,
   Layer,
+  Option,
   Predicate,
   Redacted,
   Schema,
@@ -118,13 +119,21 @@ const setSessionCookie = (token: Redacted.Redacted<string> | "", maxAge: Duratio
     });
   });
 
+/**
+ * Who is signing in, for counting their failed sign-ins: the address the
+ * connection came from. Never a header such as `X-Forwarded-For`, which the
+ * client could make up; behind a proxy, every sign-in is the proxy's.
+ */
+const clientOf = (request: HttpServerRequest.HttpServerRequest) =>
+  Option.getOrElse(request.remoteAddress, () => "unknown");
+
 const sessions = HttpApiBuilder.group(AdminApi, "session", (handlers) =>
   Effect.gen(function* () {
     const admin = yield* AdminSessions;
 
     return handlers
-      .handle("signIn", ({ payload }) =>
-        Effect.flatMap(admin.signIn(payload.key), (token) =>
+      .handle("signIn", ({ payload, request }) =>
+        Effect.flatMap(admin.signIn(payload.key, clientOf(request)), (token) =>
           setSessionCookie(token, SESSION_LIFETIME),
         ),
       )

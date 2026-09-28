@@ -1,6 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { Clock, Context, Duration, Effect, Layer, Redacted, Ref } from "effect";
 import { TooManySignInsError, Unauthorized } from "./admin-api.ts";
+import { type Failures, SIGN_IN_LIMITS, attempt } from "./sign-in-throttle.ts";
 
 /** A session ends this long after sign-in, however much it is used. */
 export const SESSION_LIFETIME = Duration.hours(12);
@@ -8,13 +9,8 @@ export const SESSION_LIFETIME = Duration.hours(12);
 /** A session ends once unused for this long. */
 const SESSION_IDLE = Duration.hours(1);
 
-/** How long a failed sign-in takes to answer, to slow down guessing. */
+/** How long a wrong or refused sign-in takes to answer, to slow down guessing. */
 const FAILED_SIGN_IN_DELAY = Duration.seconds(1);
-
-/** After this many failed sign-ins within `FAILURE_WINDOW`, every sign-in is refused. */
-const MAX_FAILURES = 10;
-
-const FAILURE_WINDOW = Duration.minutes(1);
 
 /** A signed-in session: when it began and when it was last used, in epoch millis. */
 interface Session {
@@ -33,7 +29,7 @@ const make = (adminKey: Redacted.Redacted<string>) =>
     const expected = sha256(Redacted.value(adminKey));
     // Sessions by the SHA-256 of their token, so the tokens themselves are never kept.
     const sessions = yield* Ref.make<ReadonlyMap<string, Session>>(new Map());
-    const failures = yield* Ref.make<ReadonlyArray<number>>([]);
+    const failures = yield* Ref.make<Failures>(new Map());
 
     // Comparing hashes keeps the comparison constant-time whatever the length.
     const matches = (key: Redacted.Redacted<string>) =>
@@ -43,19 +39,20 @@ const make = (adminKey: Redacted.Redacted<string>) =>
 
     const isAdminKey = (key: Redacted.Redacted<string>) => Effect.sync(() => matches(key));
 
-    const signIn = Effect.fn("AdminSessions.signIn")(function* (key: Redacted.Redacted<string>) {
+    const signIn = Effect.fn("AdminSessions.signIn")(function* (
+      key: Redacted.Redacted<string>,
+      client: string,
+    ) {
       const now = yield* Clock.currentTimeMillis;
 
       // Checked and counted in one step, so failures that arrive together all count.
-      const outcome = yield* Ref.modify(failures, (all) => {
-        const recent = all.filter((at) => now - at < Duration.toMillis(FAILURE_WINDOW));
-
-        if (recent.length >= MAX_FAILURES) return ["throttled", recent] as const;
-
-        return matches(key) ? (["ok", recent] as const) : (["wrong", [...recent, now]] as const);
-      });
+      const outcome = yield* Ref.modify(failures, (all) =>
+        attempt(SIGN_IN_LIMITS, all, { client, now, matches: matches(key) }),
+      );
 
       if (outcome === "throttled") {
+        yield* Effect.sleep(FAILED_SIGN_IN_DELAY);
+
         return yield* new TooManySignInsError({ message: "Too many failed sign-ins; try later" });
       }
 
@@ -119,11 +116,14 @@ export class AdminSessions extends Context.Service<
     /** Whether `key` is the admin key. */
     readonly isAdminKey: (key: Redacted.Redacted<string>) => Effect.Effect<boolean>;
     /**
-     * A new session's token, for the admin key. A wrong key is answered only after a
-     * delay, and after too many of them in a minute every sign-in is refused for a while.
+     * A new session's token, for the admin key sent by `client`, the address it
+     * connected from. A wrong key is answered only after a delay. After too many
+     * of them in a minute, the client's sign-ins are refused for a while, after
+     * the same delay; after far more from all clients, everyone's are.
      */
     readonly signIn: (
       key: Redacted.Redacted<string>,
+      client: string,
     ) => Effect.Effect<Redacted.Redacted<string>, Unauthorized | TooManySignInsError>;
     /** Whether `token` is a live session's, which counts as using it. */
     readonly verify: (token: Redacted.Redacted<string>) => Effect.Effect<boolean>;
