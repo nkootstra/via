@@ -1,6 +1,12 @@
 import type { UsageWindow } from "@via/pool";
-import { Context, Effect, Layer, Schema } from "effect";
-import { HttpBody, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { Context, Duration, Effect, Layer, Schema } from "effect";
+import {
+  HttpBody,
+  HttpClient,
+  HttpClientError,
+  HttpClientRequest,
+  HttpClientResponse,
+} from "effect/unstable/http";
 import type { CatalogModel } from "./models.ts";
 import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 import { readRejection, RequestRejectedError } from "./rejection.ts";
@@ -16,6 +22,35 @@ const IDENTITIES = {
   },
   plain: (version: string) => ({ originator: "via", "user-agent": `via/${version}` }),
 };
+
+/** How long usage or the model catalog may take, which Codex answers at once. */
+const LOOKUP_TIMEOUT = Duration.seconds(30);
+
+/**
+ * How long Codex may take to start answering a response. Only the start is
+ * timed: the stream after it lasts as long as the model takes.
+ */
+const RESPONSE_START_TIMEOUT = Duration.minutes(2);
+
+/**
+ * `effect`, failing once it has run for `limit` as `request` failing to reach
+ * Codex, which is what a request that is never answered amounts to.
+ */
+const answeredWithin =
+  (request: HttpClientRequest.HttpClientRequest, limit: Duration.Duration) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.timeoutOrElse(effect, {
+      duration: limit,
+      orElse: () =>
+        Effect.fail(
+          new HttpClientError.HttpClientError({
+            reason: new HttpClientError.TransportError({
+              request,
+              description: `no answer within ${Duration.format(limit)}`,
+            }),
+          }),
+        ),
+    });
 
 type UpstreamAccount = { readonly accessToken: string; readonly accountId: string };
 
@@ -93,7 +128,7 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
       body: ResponsesBody,
       session: string,
     ) {
-      const response = yield* HttpClientRequest.post(`${baseUrl}/codex/responses`).pipe(
+      const request = HttpClientRequest.post(`${baseUrl}/codex/responses`).pipe(
         asAccount(account),
         HttpClientRequest.setHeaders({ session_id: session, accept: "text/event-stream" }),
         // A raw string goes to fetch as-is; bodyJsonUnsafe would copy it into bytes first.
@@ -102,34 +137,38 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
             contentType: "application/json",
           }),
         ),
-        http.execute,
       );
 
-      if (response.status === 200) return response;
+      return yield* Effect.gen(function* () {
+        const response = yield* http.execute(request);
 
-      // An error body that breaks off still leaves its status to judge the answer by.
-      const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+        if (response.status === 200) return response;
 
-      return yield* new RequestRejectedError({
-        status: response.status,
-        contentType: response.headers["content-type"],
-        body: text,
-        rejection: readRejection(response.status, response.headers, text),
-      });
+        // An error body that breaks off still leaves its status to judge the answer by.
+        const text = yield* response.text.pipe(Effect.orElseSucceed(() => ""));
+
+        return yield* new RequestRejectedError({
+          status: response.status,
+          contentType: response.headers["content-type"],
+          body: text,
+          rejection: readRejection(response.status, response.headers, text),
+        });
+      }).pipe(answeredWithin(request, RESPONSE_START_TIMEOUT));
     });
 
     /** The account's rate limit windows: the short (5-hour) one first, then the weekly one. */
     const usage = Effect.fn("CodexUpstream.usage")(function* (account: UpstreamAccount) {
-      const response = yield* HttpClientRequest.get(`${baseUrl}/wham/usage`).pipe(
-        asAccount(account),
-        http.execute,
-      );
+      const request = HttpClientRequest.get(`${baseUrl}/wham/usage`).pipe(asAccount(account));
 
-      if (response.status !== 200) {
-        return yield* new UsageUnavailableError({ status: response.status });
-      }
+      const { rate_limit } = yield* Effect.gen(function* () {
+        const response = yield* http.execute(request);
 
-      const { rate_limit } = yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
+        if (response.status !== 200) {
+          return yield* new UsageUnavailableError({ status: response.status });
+        }
+
+        return yield* HttpClientResponse.schemaBodyJson(UsagePayload)(response);
+      }).pipe(answeredWithin(request, LOOKUP_TIMEOUT));
 
       return [rate_limit.primary_window, rate_limit.secondary_window].flatMap(
         (window): Array<UsageWindow> =>
@@ -150,17 +189,20 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
      * hidden models are left out. The catalog differs by plan.
      */
     const models = Effect.fn("CodexUpstream.models")(function* (account: UpstreamAccount) {
-      const response = yield* HttpClientRequest.get(`${baseUrl}/codex/models`).pipe(
+      const request = HttpClientRequest.get(`${baseUrl}/codex/models`).pipe(
         HttpClientRequest.setUrlParam("client_version", CODEX_TUI_VERSION),
         asAccount(account),
-        http.execute,
       );
 
-      if (response.status !== 200) {
-        return yield* new ModelsUnavailableError({ status: response.status });
-      }
+      const payload = yield* Effect.gen(function* () {
+        const response = yield* http.execute(request);
 
-      const payload = yield* HttpClientResponse.schemaBodyJson(ModelsPayload)(response);
+        if (response.status !== 200) {
+          return yield* new ModelsUnavailableError({ status: response.status });
+        }
+
+        return yield* HttpClientResponse.schemaBodyJson(ModelsPayload)(response);
+      }).pipe(answeredWithin(request, LOOKUP_TIMEOUT));
 
       return payload.models
         .filter((model) => model.visibility === undefined || model.visibility === "list")

@@ -161,6 +161,22 @@ A streamed answer that goes quiet, as while the model reasons, gets a
 `: keepalive` SSE comment every five seconds, so neither via's server nor a proxy
 in between closes the connection as idle. SSE clients skip comments.
 
+via bounds what one request can take:
+
+- A request body over 64 MiB is refused with `413`, on every route. OpenAI
+  takes up to 50 MB per request, images included, so anything an upstream
+  would accept fits.
+- Codex has 2 minutes to start answering a response, and a provider 10, as a
+  provider that doesn't stream answers only once the model is done. After
+  that, a stream runs as long as the model takes. An upstream that doesn't
+  start in time answers `502`, like one that can't be reached.
+- A non-streaming Codex response that hasn't completed after 30 minutes
+  answers `504 upstream_timeout`, and one whose stream runs past 128 MiB
+  answers `502 upstream_too_large`.
+- Usage, model lists, key checks and sign-in requests to OpenAI give up after
+  30 seconds.
+- A client that hangs up on a stream ends via's request upstream too.
+
 `/v1/models` lists what the Codex model picker shows your accounts, combined,
 since plans offer different models. So new models appear without a via update.
 Only accounts that can serve count: enabled ones, including one cooling down,
@@ -218,7 +234,8 @@ Accounts are named by their `id` from `GET /admin/accounts`. Unlike the
 commands, the admin API doesn't take a label or email, which would otherwise
 end up in URLs and access logs. An account, login or key that doesn't exist
 answers 404; a key name that is taken
-answers 409.
+answers 409. A name or label over 200 characters, or a key over 1,024,
+answers 400.
 
 A key's `lastUsedAt` is `null` until a client first uses it. `via serve` knows
 it to the second, but writes it to `keys.json` at most once a minute per key

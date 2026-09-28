@@ -77,6 +77,10 @@ export type Via = {
   readonly key: string;
   /** Every request the fake Codex received so far. */
   readonly upstreamRequests: ReadonlyArray<CodexRequest>;
+  /** Waits until the fake Codex has received at least `count` requests. */
+  readonly upstreamReceived: (count: number) => Effect.Effect<void>;
+  /** Waits until via has hung up on at least `count` of the fake Codex's stalled replies. */
+  readonly upstreamHungUp: (count: number) => Effect.Effect<void>;
   /** Sets an account's `/wham/usage` answer on the fake Codex, by ChatGPT account id. */
   readonly codexUsage: (account: string, body: Schema.Json, status?: number) => void;
   /**
@@ -304,6 +308,8 @@ export const withVia = <A, E>(
         baseUrl: base,
         key,
         upstreamRequests: codex.requests,
+        upstreamReceived: codex.received,
+        upstreamHungUp: codex.hungUp,
         codexUsage: codex.usage,
         provider,
         logged: logs.logged,

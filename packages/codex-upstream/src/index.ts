@@ -2,7 +2,13 @@ export { CodexUpstream, ModelsUnavailableError, UsageUnavailableError } from "./
 
 export { type ResponsesBody } from "./prepare-body.ts";
 
-export { collectResponse, IncompleteStreamError, UpstreamFailedError } from "./collect-response.ts";
+export {
+  collectResponse,
+  IncompleteStreamError,
+  ResponseTimeoutError,
+  ResponseTooLargeError,
+  UpstreamFailedError,
+} from "./collect-response.ts";
 
 export { type CatalogModel, modelIds, resolveAlias } from "./models.ts";
 

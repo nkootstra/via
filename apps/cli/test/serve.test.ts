@@ -251,6 +251,17 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
+  it.effect("refuses a request body over 64 MiB with 413, without reading it", () =>
+    Effect.gen(function* () {
+      const { home, key, env, codex } = yield* loggedIn;
+      const url = yield* serveVia(home, ["--port", "0"], env);
+      const input = "x".repeat(64 * 1024 * 1024);
+      const response = yield* post(url, key, "/v1/responses", { model: "gpt-6-astra", input });
+      expect(response.status).toBe(413);
+      expect(responsesOf(codex)).toHaveLength(0);
+    }),
+  );
+
   it.effect("keeps a stream open through a pause longer than Bun's 10s idle timeout", () =>
     Effect.gen(function* () {
       const { home, key, env, codex } = yield* loggedIn;

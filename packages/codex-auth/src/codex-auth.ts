@@ -9,6 +9,9 @@ export const CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
 
 const LOGIN_TIMEOUT = Duration.minutes(15);
 
+/** How long one request to the issuer may take, which it answers at once. */
+const REQUEST_TIMEOUT = Duration.seconds(30);
+
 const UserCodeResponse = Schema.Struct({
   device_auth_id: Schema.String,
   user_code: Schema.String,
@@ -87,6 +90,16 @@ const decodeJson =
 const toAuthRequestError = (error: { message: string }) =>
   new AuthRequestError({ reason: error.message });
 
+/** `effect`, failing once it has run for `REQUEST_TIMEOUT`, as a request the issuer never answered. */
+const answeredInTime = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.timeoutOrElse(effect, {
+    duration: REQUEST_TIMEOUT,
+    orElse: () =>
+      Effect.fail(
+        new AuthRequestError({ reason: `no answer within ${Duration.format(REQUEST_TIMEOUT)}` }),
+      ),
+  });
+
 const toTokens = Effect.fn("toTokens")(function* (response: typeof TokenResponse.Type) {
   const [, payload = ""] = response.access_token.split(".");
   const { exp } = yield* Schema.decodeEffect(AccessTokenExpiry)(payload);
@@ -117,10 +130,12 @@ const make = (issuer: string) =>
         intervalSeconds: body.interval,
       })),
       Effect.mapError(toAuthRequestError),
+      answeredInTime,
       Effect.withSpan("CodexAuth.requestDeviceCode"),
     );
 
-    // 403/404 mean the user has not approved yet.
+    // 403/404 mean the user has not approved yet. A poll is not timed on its own:
+    // `LOGIN_TIMEOUT` ends the wait for approval, polls and all.
     const pollOnce = (code: DeviceCode) =>
       HttpClientRequest.post(`${issuer}/api/accounts/deviceauth/token`).pipe(
         HttpClientRequest.bodyJsonUnsafe({
@@ -169,6 +184,7 @@ const make = (issuer: string) =>
         Effect.flatMap(decodeJson(TokenResponse)),
         Effect.flatMap(toTokens),
         Effect.mapError(toAuthRequestError),
+        answeredInTime,
       );
 
     const awaitDeviceTokens = Effect.fn("CodexAuth.awaitDeviceTokens")(function* (
@@ -224,7 +240,7 @@ const make = (issuer: string) =>
         ),
         Effect.mapError(toAuthRequestError),
       );
-    });
+    }, answeredInTime);
 
     return { requestDeviceCode, awaitDeviceTokens, refresh };
   });

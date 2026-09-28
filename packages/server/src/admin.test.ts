@@ -42,10 +42,13 @@ const accountId = (via: Via, name: string) =>
     return all.find(({ email }) => email === `${name}@example.com`)?.id ?? "";
   });
 
-/** Polls a login, a minute of test time apart, until it is no longer pending. */
+/**
+ * Polls a login, a second of test time apart, until it is no longer pending: a
+ * step short of the 30 seconds via gives the issuer to answer each request.
+ */
 const settled = (via: Via, id: string) =>
   Effect.gen(function* () {
-    yield* TestClock.adjust("1 minute");
+    yield* TestClock.adjust("1 second");
 
     return yield* (yield* via.get(`/admin/accounts/logins/${id}`, adminKey)).json;
   }).pipe(
@@ -1189,6 +1192,36 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           expect(response.headers["set-cookie"]).toBeUndefined();
           yield* via.logged("Failed admin sign-in");
           expect(JSON.stringify(via.logs)).not.toContain("wrong-key-with-a-guess-in-it");
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("refuses strings too long to be real with 400, before acting on them", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const long = "x".repeat(10_000);
+          const id = yield* accountId(via, "a");
+
+          const responses = [
+            yield* signIn(via, long),
+            yield* via.post("/admin/keys", { name: long }, adminKey),
+            yield* via.patch("/admin/keys/test", { name: long }, adminKey),
+            yield* via.patch(`/admin/accounts/${id}`, { label: long }, adminKey),
+            yield* via.post("/admin/opencode-go/accounts", { apiKey: long }, adminKey),
+            yield* via.post(
+              "/admin/opencode-go/accounts",
+              { apiKey: "sk-new", label: long },
+              adminKey,
+            ),
+          ];
+
+          expect(responses.map(({ status }) => status)).toEqual(responses.map(() => 400));
+          expect(via.provider.requests).toHaveLength(0);
+          // The router keeps a path's ids to 100 characters, and finds no route for longer.
+          expect((yield* via.delete(`/admin/keys/${long}`, adminKey)).status).toBe(404);
         }),
       { adminKey },
     ),
