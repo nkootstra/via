@@ -1,14 +1,14 @@
 /** The pieces every screen is built from: its header, sections and panels. */
 import * as stylex from "@stylexjs/stylex";
-import { colors, radii, shadows, space, text, weights } from "@via/ui/tokens.stylex";
+import { colors, radii, shadows, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { motion } from "motion/react";
-import type { ReactNode } from "react";
+import { createContext, use, useId, useRef, type ReactNode, type RefObject } from "react";
 
 const styles = stylex.create({
   page: {
     display: "flex",
     flexDirection: "column",
-    gap: "32px",
+    gap: space.s8,
     width: "100%",
     maxWidth: "1080px",
     marginInline: "auto",
@@ -28,10 +28,14 @@ const styles = stylex.create({
   },
   title: {
     margin: 0,
-    fontSize: "22px",
+    // It takes focus only from code, when what had it is gone; no ring for that.
+    outline: "none",
+    fontSize: text.display,
     lineHeight: 1.2,
-    letterSpacing: "-0.01em",
+    textWrap: "balance",
+    letterSpacing: "-0.02em",
     fontVariationSettings: weights.bold,
+    fontWeight: fontWeights.bold,
     color: colors.foreground,
   },
   description: {
@@ -62,9 +66,12 @@ const styles = stylex.create({
     display: "flex",
     alignItems: "center",
     gap: space.s2,
+    minWidth: 0,
     margin: 0,
     fontSize: text.subtitle,
+    textWrap: "balance",
     fontVariationSettings: weights.semibold,
+    fontWeight: fontWeights.semibold,
     color: colors.foreground,
   },
   sectionAside: {
@@ -79,19 +86,20 @@ const styles = stylex.create({
     backgroundColor: colors.surface3,
     boxShadow: shadows.surface3,
   },
-  visuallyHidden: {
-    position: "absolute",
-    width: "1px",
-    height: "1px",
-    overflow: "hidden",
-    clipPath: "inset(50%)",
-    whiteSpace: "nowrap",
-  },
+  // A table's cells bring 12px of their own, so its text lines up 16px in, as in any panel.
   flush: {
     paddingBlock: space.s1,
-    paddingInline: space.s2,
+    paddingInline: space.s1,
   },
 });
+
+const PageHeading = createContext<RefObject<HTMLHeadingElement | null>>({ current: null });
+
+/**
+ * The page's heading, for focus to land on when what had it is gone: a
+ * dialog's `finalFocus` once the row it removed took its trigger along.
+ */
+export const usePageHeading = () => use(PageHeading);
 
 export function Page({
   title,
@@ -104,21 +112,26 @@ export function Page({
   readonly actions?: ReactNode;
   readonly children?: ReactNode;
 }) {
+  const heading = useRef<HTMLHeadingElement>(null);
+
   return (
+    // A fade only: the page arrives on every navigation, so nothing travels.
     <motion.div
-      initial={{ opacity: 0, y: 6 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ type: "spring", duration: 0.3, bounce: 0 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.15, ease: "easeOut" }}
       {...stylex.props(styles.page)}
     >
       <header {...stylex.props(styles.header)}>
         <div {...stylex.props(styles.heading)}>
-          <h1 {...stylex.props(styles.title)}>{title}</h1>
+          <h1 ref={heading} tabIndex={-1} {...stylex.props(styles.title)}>
+            {title}
+          </h1>
           {description !== undefined && <p {...stylex.props(styles.description)}>{description}</p>}
         </div>
         {actions !== undefined && <div {...stylex.props(styles.actions)}>{actions}</div>}
       </header>
-      {children}
+      <PageHeading value={heading}>{children}</PageHeading>
     </motion.div>
   );
 }
@@ -135,10 +148,12 @@ export function Section({
   readonly aside?: ReactNode;
   readonly children?: ReactNode;
 }) {
+  const id = useId();
+
   return (
-    <section aria-label={title} {...stylex.props(styles.section)}>
+    <section aria-labelledby={id} {...stylex.props(styles.section)}>
       <div {...stylex.props(styles.sectionHeader)}>
-        <h2 {...stylex.props(styles.sectionTitle)}>
+        <h2 id={id} {...stylex.props(styles.sectionTitle)}>
           {icon}
           {title}
         </h2>
@@ -160,9 +175,4 @@ export function Panel({
   readonly children?: ReactNode;
 }) {
   return <div {...stylex.props(styles.panel, flush && styles.flush, xstyle)}>{children}</div>;
-}
-
-/** Text for assistive tech only, such as a column header over row actions. */
-export function VisuallyHidden({ children }: { readonly children: ReactNode }) {
-  return <span {...stylex.props(styles.visuallyHidden)}>{children}</span>;
 }
