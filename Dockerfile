@@ -2,7 +2,7 @@
 
 # Runs on the build machine's platform and cross-compiles via for the image's,
 # so a multi-platform build needs no emulation.
-FROM --platform=$BUILDPLATFORM oven/bun:1.4.0@sha256:5ff609364c049b54eb0ff560ec96319729a972078ef2c755d758f0c6ef89c2d6 AS build
+FROM --platform=$BUILDPLATFORM oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS build
 ARG TARGETARCH
 # The release workflow passes the version it tags; `via --version` prints it.
 ARG VERSION=0.0.0
