@@ -1,5 +1,7 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option, Schema } from "effect";
+import { BunFileSystem } from "@effect/platform-bun";
+import { describe, expect, it, layer } from "@effect/vitest";
+import { Duration, Effect, FileSystem, Option, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
 import type { UsageEntry } from "./usage-history.ts";
 import { UsageHistory } from "./usage-history.ts";
@@ -404,5 +406,88 @@ describe("UsageHistory totals", () => {
           }
         }),
       ),
+  );
+});
+
+const DAY = 24 * HOUR;
+
+describe("UsageHistory retention", () => {
+  it.effect("forgets requests older than 90 days, and only those", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const now = 200 * DAY;
+        yield* TestClock.setTime(now);
+        yield* usage.record(entry({ requestId: "old", at: now - 90 * DAY - 1 }));
+        yield* usage.record(entry({ requestId: "edge", at: now - 90 * DAY }));
+        yield* usage.record(entry({ requestId: "new", at: now - DAY }));
+
+        yield* usage.prune;
+
+        const page = yield* usage.requests({ from: 0, to: now, limit: 10 });
+        expect(page.requests.map((r) => r.requestId)).toEqual(["new", "edge"]);
+      }),
+    ),
+  );
+
+  it.effect.prop(
+    "pruning never forgets a request from the last 90 days",
+    {
+      ages: Arbitrary.array(
+        Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 200 }))),
+        { maxLength: 20 },
+      ),
+    },
+    ({ ages }) =>
+      history((usage) =>
+        Effect.gen(function* () {
+          const now = 400 * DAY;
+          yield* TestClock.setTime(now);
+
+          yield* Effect.forEach(
+            ages,
+            (age, i) => usage.record(entry({ requestId: `r${i}`, at: now - age * DAY })),
+            { discard: true },
+          );
+
+          yield* usage.prune;
+
+          const page = yield* usage.requests({ from: 0, to: now + 1, limit: 1_000 });
+          expect(page.requests.length).toBe(ages.filter((age) => age <= 90).length);
+        }),
+      ),
+  );
+
+  it.effect("prunes once a day while it runs", () =>
+    Effect.gen(function* () {
+      const usage = yield* UsageHistory;
+      yield* usage.record(entry({ requestId: "old", at: 0 }));
+      yield* TestClock.adjust(Duration.days(89));
+      expect((yield* usage.requests({ from: 0, to: 1, limit: 1 })).requests).toHaveLength(1);
+
+      yield* TestClock.adjust(Duration.days(2));
+      expect((yield* usage.requests({ from: 0, to: 1, limit: 1 })).requests).toHaveLength(0);
+    }).pipe(Effect.provide(UsageHistory.layerMemory)),
+  );
+});
+
+layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
+  withFs.effect("keeps the database readable by its owner only, and across a restart", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/nested/usage.db`;
+      const open = UsageHistory.layer(path);
+
+      yield* Effect.flatMap(UsageHistory, (usage) => usage.record(entry())).pipe(
+        Effect.provide(open),
+      );
+
+      expect(((yield* fs.stat(path)).mode & 0o777).toString(8)).toBe("600");
+
+      const page = yield* Effect.flatMap(UsageHistory, (usage) =>
+        usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 }),
+      ).pipe(Effect.provide(open));
+
+      expect(page.requests).toEqual([entry()]);
+    }),
   );
 });

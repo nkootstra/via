@@ -1,5 +1,16 @@
 import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun";
-import { Context, Effect, Layer, Option, Schema } from "effect";
+import {
+  Clock,
+  Context,
+  Duration,
+  Effect,
+  FileSystem,
+  Layer,
+  Option,
+  Schedule,
+  Schema,
+} from "effect";
+import { dirname } from "node:path";
 import { Migrator, SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
@@ -185,6 +196,9 @@ const decodePercentiles = Schema.decodeUnknownEffect(Schema.Array(PercentileRow)
 const BUCKET_MS = { hour: 60 * 60 * 1000, day: 24 * 60 * 60 * 1000 } as const;
 
 const noPercentiles: Percentiles = { p50: Option.none(), p95: Option.none() };
+
+/** How long a request is kept. */
+const RETENTION = Duration.days(90);
 
 const encodeEntry = Schema.encodeEffect(UsageEntry);
 
@@ -446,7 +460,34 @@ const make = Effect.gen(function* () {
     } satisfies Breakdown;
   });
 
-  return { record, requests, series, breakdown };
+  const prune = Effect.gen(function* () {
+    const now = yield* Clock.currentTimeMillis;
+    yield* sql`DELETE FROM requests WHERE at < ${now - Duration.toMillis(RETENTION)}`;
+  }).pipe(Effect.withSpan("UsageHistory.prune"));
+
+  // At start and then once a day. A failed prune is only logged: the next one retries.
+  yield* prune.pipe(
+    Effect.catchCause((cause) => Effect.logWarning("Could not prune the usage history", cause)),
+    Effect.repeat(Schedule.spaced(Duration.days(1))),
+    Effect.forkScoped,
+  );
+
+  return { record, requests, series, breakdown, prune };
+});
+
+/**
+ * Creates the database file, owner-only, before SQLite opens it: SQLite would
+ * create it with the umask's mode, and gives its WAL files the mode of the database.
+ */
+const createOwnerOnly = Effect.fn("UsageHistory.createOwnerOnly")(function* (filename: string) {
+  const fs = yield* FileSystem.FileSystem;
+  yield* fs.makeDirectory(dirname(filename), { recursive: true, mode: 0o700 });
+
+  if (!(yield* fs.exists(filename))) {
+    yield* fs.writeFile(filename, new Uint8Array(), { mode: 0o600 });
+  }
+
+  yield* fs.chmod(filename, 0o600);
 });
 
 /** Every request via has served, kept in SQLite so it outlives a restart. */
@@ -461,15 +502,21 @@ export class UsageHistory extends Context.Service<
     readonly series: (query: SeriesQuery) => Effect.Effect<ReadonlyArray<SeriesPoint>, SqlError>;
     /** Each group's usage over `[from, to)`. */
     readonly breakdown: (query: BreakdownQuery) => Effect.Effect<Breakdown, SqlError>;
+    /** Forgets requests older than 90 days; it also runs by itself once a day. */
+    readonly prune: Effect.Effect<void, SqlError>;
   }
 >()("via/UsageHistory") {
-  /** The history in the SQLite database at `filename`, created and migrated as needed. */
-  static readonly layer = (filename: string) =>
+  /** The history in SQLite's `filename`, migrated as needed; `:memory:` lasts only as long as the layer. */
+  private static readonly open = (filename: string) =>
     Layer.effect(UsageHistory, make).pipe(
       Layer.provide(SqliteMigrator.layer({ loader: migrations })),
-      Layer.provideMerge(SqliteClient.layer({ filename })),
+      Layer.provide(SqliteClient.layer({ filename })),
     );
 
+  /** The history in the SQLite database at `filename`, created owner-only as needed. */
+  static readonly layer = (filename: string) =>
+    UsageHistory.open(filename).pipe(Layer.provide(Layer.effectDiscard(createOwnerOnly(filename))));
+
   /** A history that lasts only as long as the layer, for tests. */
-  static readonly layerMemory = UsageHistory.layer(":memory:");
+  static readonly layerMemory = UsageHistory.open(":memory:");
 }
