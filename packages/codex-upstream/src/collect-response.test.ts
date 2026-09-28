@@ -1,7 +1,14 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Stream } from "effect";
+import { Effect, Fiber, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import { completedStream, sse } from "./testing/streams.ts";
-import { collectResponse, IncompleteStreamError, UpstreamFailedError } from "./index.ts";
+import {
+  collectResponse,
+  IncompleteStreamError,
+  ResponseTimeoutError,
+  ResponseTooLargeError,
+  UpstreamFailedError,
+} from "./index.ts";
 
 /** The SSE text as a byte stream, cut into `size`-byte chunks like a network would. */
 const bytes = (text: string, size = 7) => {
@@ -87,6 +94,31 @@ describe("collectResponse", () => {
       const failed = sse([{ type: "response.failed", response: { id: "resp_1" } }]);
       const error = yield* Effect.flip(collectResponse(bytes(failed)));
       expect(error).toBeInstanceOf(IncompleteStreamError);
+    }),
+  );
+
+  it.effect("gives up on a stream past 128 MiB, which no real response comes near", () =>
+    Effect.gen(function* () {
+      // One reasoning delta of 1 MiB, sent over and over; each is dropped as it arrives.
+      const delta = new TextEncoder().encode(
+        sse([{ type: "response.reasoning_text.delta", delta: "x".repeat(1024 * 1024) }]),
+      );
+
+      const endless = Stream.fromIterable([delta]).pipe(Stream.forever);
+      const error = yield* Effect.flip(collectResponse(endless));
+      expect(error).toBeInstanceOf(ResponseTooLargeError);
+    }),
+  );
+
+  it.effect("gives up on a response that has not completed after 30 minutes", () =>
+    Effect.gen(function* () {
+      const started = sse([{ type: "response.created", response: { id: "resp_1" } }]);
+      const collecting = yield* collectResponse(
+        bytes(started).pipe(Stream.concat(Stream.never)),
+      ).pipe(Effect.flip, Effect.forkChild);
+
+      yield* TestClock.adjust("30 minutes");
+      expect(yield* Fiber.join(collecting)).toBeInstanceOf(ResponseTimeoutError);
     }),
   );
 });
