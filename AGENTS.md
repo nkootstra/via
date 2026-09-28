@@ -17,8 +17,8 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   Every anti-slop rule is on except `no-conditional-empty-object-spread`, whose
   fix trades one object expression for statement-by-statement mutation.
 - Tests use `@effect/vitest` via `bun --bun vitest run`. Never use `bun test`.
-- Tests never call real OpenAI endpoints. Fake upstreams run as local HTTP
-  servers, and base URLs are injected through layers.
+- Tests never call real upstreams (OpenAI, OpenCode Go or any provider). Fake
+  upstreams run as local HTTP servers, and base URLs are injected through layers.
 - Pure, invariant-heavy logic (the pool's selection and cooldown rules) ships
   with property tests (`it.prop`/`it.effect.prop`), not just examples.
 - **Docs change with the code.** A change to anything a user or contributor
@@ -78,6 +78,8 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   `@via/server/admin-api`), and `Promise` only where TanStack Query or the
   router expects one. Every other rule still applies. Its tests use plain
   `vitest` with happy-dom, Testing Library and MSW standing in for `/admin`.
+- `apps/e2e`: end-to-end tests against a compiled binary, browser tests
+  included (Playwright + Chromium); see `CONTRIBUTING.md`.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
   `codex-upstream`, `account-pool`, `providers`, `translate`, `server`).
   Create a package only when the first test needs it.
