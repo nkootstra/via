@@ -231,6 +231,8 @@ const styles = stylex.create({
   },
   // Beside the pinned sidebar the panel gives up its gutter on that side.
   insetBeside: { marginLeft: 0 },
+  // On a phone the page fills the screen: a frame there only costs room.
+  insetFull: { margin: 0, borderRadius: 0, boxShadow: "none" },
   glyph: {
     display: "flex",
     animationName: fadeIn,
@@ -497,7 +499,9 @@ export function SidebarInset({ children }: SidebarInsetProps) {
   const { mobile, open } = useSidebar();
 
   return (
-    <div {...stylex.props(styles.inset, !mobile && open && styles.insetBeside)}>{children}</div>
+    <div {...stylex.props(styles.inset, mobile ? styles.insetFull : open && styles.insetBeside)}>
+      {children}
+    </div>
   );
 }
 
