@@ -43,21 +43,6 @@ const accountId = (via: Via, name: string) =>
     return all.find(({ email }) => email === `${name}@example.com`)?.id ?? "";
   });
 
-/**
- * Polls a login, a second of test time apart, until it is no longer pending: a
- * step short of the 30 seconds via gives the issuer to answer each request.
- */
-const settled = (via: Via, id: string) =>
-  Effect.gen(function* () {
-    yield* TestClock.adjust("1 second");
-
-    return yield* (yield* via.get(`/admin/accounts/logins/${id}`, adminKey)).json;
-  }).pipe(
-    Effect.repeat({
-      until: (login) => !Schema.is(Schema.Struct({ status: Schema.Literal("pending") }))(login),
-    }),
-  );
-
 /** Decodes `GET /admin/pool`'s answer: its accounts and providers, each with a state. */
 const poolOf = (response: HttpClientResponse.HttpClientResponse) =>
   Effect.flatMap(
@@ -107,6 +92,17 @@ const eventually = <A, E>(read: Effect.Effect<A, E>, done: (value: A) => boolean
   TestClock.withLive(Effect.sleep("5 millis")).pipe(
     Effect.andThen(read),
     Effect.repeat({ until: done, schedule: Schedule.recurs(400) }),
+  );
+
+/**
+ * Polls a login, a few real milliseconds apart, until it is no longer pending.
+ * It doesn't move the test clock: that would run out the 30 seconds via gives
+ * the issuer to answer a request still in flight.
+ */
+const settled = (via: Via, id: string) =>
+  eventually(
+    Effect.flatMap(via.get(`/admin/accounts/logins/${id}`, adminKey), (login) => login.json),
+    (login) => !Schema.is(Schema.Struct({ status: Schema.Literal("pending") }))(login),
   );
 
 /** `GET /admin/usage`'s answer once via is no longer asking for newer usage. */
@@ -670,6 +666,8 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       (via) =>
         Effect.gen(function* () {
           const login = yield* (yield* via.post("/admin/accounts/logins", {}, adminKey)).json;
+          // Only polls, which aren't timed on their own, can be in flight as the clock moves.
+          yield* TestClock.adjust("15 minutes");
           expect(yield* settled(via, decodeLogin(login).id)).toEqual({
             status: "failed",
             error: expect.stringContaining("not approved"),

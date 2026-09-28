@@ -10,12 +10,16 @@ const realPause = Effect.sleep("5 millis").pipe(
   Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
 );
 
-/** Moves test time on a minute at a time until `fiber` is done, and answers its result. */
+/**
+ * Moves test time on a minute at a time until `fiber` is done, and answers its
+ * result. Each step waits on the real clock first, for Codex's headers to reach
+ * via before the two minutes via gives them run out.
+ */
 const advanceUntilDone = <A, E>(fiber: Fiber.Fiber<A, E>) =>
   Effect.gen(function* () {
     while (fiber.pollUnsafe() === undefined) {
-      yield* TestClock.adjust("1 minute");
       yield* realPause;
+      yield* TestClock.adjust("1 minute");
     }
 
     return yield* Fiber.join(fiber);
