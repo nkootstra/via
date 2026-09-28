@@ -2,12 +2,14 @@
  * Table, ported from Fluid Functionalism's table (MIT, see NOTICE): a native
  * table whose body rows share one gliding hover highlight. The lit row's
  * text turns to the foreground colour and the rules either side of it fade,
- * so the highlight reads as one band.
+ * so the highlight reads as one band. The band is rounded like an item, so
+ * in a flush panel (4px inset, 12px corners) it sits concentric with the
+ * panel's corners instead of cutting across them.
  */
 import * as stylex from "@stylexjs/stylex";
 import { createContext, use, type ComponentProps } from "react";
 import { FluidHighlight, useFluidHover } from "./fluid-hover.tsx";
-import { colors, durations, space, text, fontWeights, weights } from "./tokens.stylex.ts";
+import { colors, durations, radii, space, text, fontWeights, weights } from "./tokens.stylex.ts";
 import { VisuallyHidden } from "./visually-hidden.tsx";
 
 const styles = stylex.create({
@@ -19,6 +21,7 @@ const styles = stylex.create({
     fontSize: text.body,
   },
   fixed: { tableLayout: "fixed" },
+  highlight: { borderRadius: radii.item },
   row: {
     borderBottomWidth: 1,
     borderBottomStyle: "solid",
@@ -123,7 +126,7 @@ export function Table({ columns, children, ...props }: TableProps) {
   return (
     <TableContext value={state}>
       <div ref={containerRef} {...handlers} {...stylex.props(styles.container)}>
-        <FluidHighlight rect={active?.rect ?? null} />
+        <FluidHighlight rect={active?.rect ?? null} xstyle={styles.highlight} />
         <table {...props} {...stylex.props(styles.table, columns !== undefined && styles.fixed)}>
           {columns !== undefined && (
             <colgroup>
