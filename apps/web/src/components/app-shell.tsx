@@ -67,7 +67,6 @@ const styles = stylex.create({
   brand: {
     display: "flex",
     alignItems: "center",
-    alignSelf: "flex-start",
     height: "32px",
     paddingInline: space.s1_5,
     borderRadius: radii.item,
@@ -81,17 +80,24 @@ const styles = stylex.create({
     transitionProperty: "opacity",
     transitionDuration: durations.fast,
   },
+  // In the sidebar's column it keeps to the start, rather than stretching across.
+  headerBrand: { alignSelf: "flex-start" },
   // On a narrow screen the brand rides the top bar, beside the drawer's trigger.
   topBrand: {
     display: { default: "flex", "@media (min-width: 768px)": "none" },
   },
+  // On a narrow screen it stays at the top as the page scrolls, so the drawer is always in reach.
   topbar: {
+    position: { default: "sticky", "@media (min-width: 768px)": "static" },
+    top: "env(safe-area-inset-top, 0px)",
+    zIndex: 10,
     display: "flex",
     flexShrink: 0,
     alignItems: "center",
-    gap: space.s2,
+    gap: space.s1,
     height: "48px",
     paddingInline: space.s1_5,
+    backgroundColor: colors.surface2,
   },
   main: {
     display: "flex",
@@ -224,7 +230,7 @@ export function Dashboard() {
       <SidebarProvider>
         <Sidebar>
           <SidebarHeader>
-            <Brand />
+            <Brand xstyle={styles.headerBrand} />
           </SidebarHeader>
           <SidebarContent>
             <Pages />

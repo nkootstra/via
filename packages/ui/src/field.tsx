@@ -110,7 +110,8 @@ const styles = stylex.create({
     outline: "none",
     backgroundColor: "transparent",
     fontFamily: fonts.sans,
-    fontSize: text.body,
+    // iOS zooms the page into a field under 16px when it takes focus.
+    fontSize: { default: text.body, "@media (pointer: coarse)": "16px" },
     fontVariationSettings: weights.normal,
     fontWeight: fontWeights.normal,
     color: colors.foreground,

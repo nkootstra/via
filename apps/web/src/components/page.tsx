@@ -58,6 +58,7 @@ const styles = stylex.create({
   },
   sectionHeader: {
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "baseline",
     justifyContent: "space-between",
     gap: space.s3,
@@ -75,6 +76,7 @@ const styles = stylex.create({
     color: colors.foreground,
   },
   sectionAside: {
+    whiteSpace: "nowrap",
     fontSize: text.caption,
     color: colors.mutedForeground,
   },
