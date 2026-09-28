@@ -1,8 +1,18 @@
 import { AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
 import { OpencodeGoAccountNotFoundError, OpencodeGoAccounts, Providers } from "@via/providers";
-import { type Duration, Effect, Layer, Redacted, Schema, Stream } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { createHash } from "node:crypto";
+import {
+  type Duration,
+  Effect,
+  Function,
+  Layer,
+  Predicate,
+  Redacted,
+  Schema,
+  Stream,
+} from "effect";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
 import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
@@ -22,6 +32,7 @@ import { ModelCatalog } from "./catalog.ts";
 import { keepAlive } from "./keep-alive.ts";
 import { Logins } from "./logins.ts";
 import { RequestLog } from "./request-log.ts";
+import { securityHeaders } from "./security-headers.ts";
 import { type EmbeddedUi, uiRoutes } from "./ui.ts";
 
 export type { OpencodeGoEnvironment } from "./admin-state.ts";
@@ -303,6 +314,40 @@ const scalarConfig = {
   showDeveloperTools: "never",
 };
 
+/** The CSP source (`'sha256-…'`) of each inline script in `html`. */
+const inlineScriptHashes = (html: string) =>
+  Array.from(
+    html.matchAll(/<script>([\s\S]*?)<\/script>/g),
+    ([, script = ""]) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`,
+  );
+
+/**
+ * The reference page with its headers. Its CSP lets it run only its own two
+ * inline scripts, Scalar's and the one that starts it, whose hashes are taken
+ * from the page itself; style itself inline, as Scalar does; and send its test
+ * requests only to via. The page is built once, so this runs once too.
+ */
+const securedPage = Function.memoize((page: HttpServerResponse.HttpServerResponse) => {
+  const { body } = page;
+
+  const html =
+    Predicate.hasProperty(body, "body") && Predicate.isUint8Array(body.body)
+      ? new TextDecoder().decode(body.body)
+      : "";
+
+  return HttpServerResponse.setHeaders(
+    page,
+    securityHeaders([
+      `script-src ${inlineScriptHashes(html).join(" ")}`,
+      "style-src 'unsafe-inline'",
+      "img-src data:",
+      "connect-src 'self'",
+    ]),
+  );
+});
+
+const referenceHeaders = HttpRouter.middleware((page) => Effect.map(page, securedPage));
+
 /**
  * The admin API under `/admin`, behind `adminKey` (`VIA_ADMIN_KEY`), and with `ui`,
  * the admin UI at `/ui`, whose signed-in pages share the API's sessions. Without
@@ -343,7 +388,9 @@ export const adminRoutes = ({
         ),
         // Scalar's script is served inline rather than from a CDN: the page is where
         // the admin key gets typed in, so it runs no third-party code.
-        HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }),
+        HttpApiScalar.layer(AdminApi, { path: "/admin/docs", scalar: scalarConfig }).pipe(
+          Layer.provide(referenceHeaders.layer),
+        ),
         ui === undefined
           ? Layer.empty
           : uiRoutes(ui, { environment: opencodeGoEnvironment, version }),
