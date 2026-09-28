@@ -182,6 +182,26 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("serves its OpenAPI spec as JSON that nothing may sniff, run or frame", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.get("/admin/openapi.json", null);
+
+          expect(response.headers).toMatchObject({
+            "content-type": "application/json",
+            "content-security-policy":
+              "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            "x-frame-options": "DENY",
+            "x-content-type-options": "nosniff",
+            "referrer-policy": "no-referrer",
+          });
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("publishes its OpenAPI spec with a lowercase bearer scheme without the admin key", () =>
     withVia(
       ok,

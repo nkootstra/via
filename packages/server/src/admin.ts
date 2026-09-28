@@ -13,7 +13,7 @@ import {
   Stream,
 } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder, HttpApiScalar } from "effect/unstable/httpapi";
+import { HttpApiBuilder, HttpApiScalar, OpenApi } from "effect/unstable/httpapi";
 import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
 import { hasLiveSession, signOutAll, staleSessionCookies } from "./session-cookie.ts";
@@ -303,8 +303,9 @@ const events = (options: StateOptions) =>
   );
 
 /**
- * The reference page shows the spec and nothing else: system fonts rather than
- * Scalar's web fonts, and no API client or developer toolbar. Effect's
+ * The reference page shows the spec with little else: system fonts rather than
+ * Scalar's web fonts, and no Open API Client button or developer toolbar. Each
+ * route's Test Request button still opens the client, to try it out. Effect's
  * `ScalarConfig` type lacks the last two options, but it hands every key to
  * Scalar, whose bundled version supports them.
  */
@@ -373,7 +374,7 @@ export const adminRoutes = ({
       if (length < 32) return yield* new AdminKeyTooShortError({ length });
 
       return Layer.mergeAll(
-        HttpApiBuilder.layer(AdminApi, { openapiPath: "/admin/openapi.json" }).pipe(
+        HttpApiBuilder.layer(AdminApi).pipe(
           Layer.provide([
             sessions,
             accounts,
@@ -385,6 +386,13 @@ export const adminRoutes = ({
             events({ environment: opencodeGoEnvironment, version }),
           ]),
           Layer.provide([authorization, Logins.layer]),
+        ),
+        HttpRouter.add(
+          "GET",
+          "/admin/openapi.json",
+          HttpServerResponse.jsonUnsafe(OpenApi.fromApi(AdminApi), {
+            headers: securityHeaders([]),
+          }),
         ),
         // Scalar's script is served inline rather than from a CDN: the page is where
         // the admin key gets typed in, so it runs no third-party code.
