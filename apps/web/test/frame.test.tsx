@@ -78,6 +78,18 @@ describe("the dashboard's frame", () => {
     expect(within(menu).getByRole("menuitem", { name: "Sign out…" })).toBeDefined();
   });
 
+  it("leads home with the logo alone, named for screen readers", async () => {
+    renderApp("/keys");
+    await screen.findByRole("heading", { name: "Keys" });
+
+    const home = screen.getAllByRole("link", { name: "via" });
+    expect(home.length).toBeGreaterThan(0);
+
+    for (const link of home) {
+      expect(link.textContent).toBe("");
+    }
+  });
+
   it("offers to skip to the page first, which moves focus to it", async () => {
     const { user } = renderApp("/");
     await screen.findByRole("heading", { name: "Overview" });

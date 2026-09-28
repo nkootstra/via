@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/logo.svg" alt="" width="96" height="96">
+</p>
+
 # via
 
 Pool several ChatGPT/Codex subscriptions behind one OpenAI-compatible endpoint

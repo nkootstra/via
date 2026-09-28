@@ -25,7 +25,7 @@ import {
   SidebarUserMenu,
   ThemeMenuItems,
 } from "@via/ui";
-import { colors, durations, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
+import { colors, durations, radii, space, text } from "@via/ui/tokens.stylex";
 import { useEffect, useState, type ReactNode } from "react";
 import { signOut } from "../api/admin.ts";
 import { AccountsIcon, KeyIcon, Mark, ModelsIcon, OverviewIcon, SignOutIcon } from "./icons.tsx";
@@ -67,16 +67,10 @@ const styles = stylex.create({
   brand: {
     display: "flex",
     alignItems: "center",
-    gap: space.s2,
+    alignSelf: "flex-start",
     height: "32px",
     paddingInline: space.s1_5,
     borderRadius: radii.item,
-    fontSize: text.title,
-    letterSpacing: "-0.02em",
-    fontVariationSettings: weights.bold,
-    fontWeight: fontWeights.bold,
-    color: colors.foreground,
-    textDecoration: "none",
     outline: {
       default: "none",
       ":focus-visible": `1px solid ${colors.focusRing}`,
@@ -116,9 +110,8 @@ const styles = stylex.create({
 
 function Brand({ xstyle }: { readonly xstyle?: stylex.StyleXStyles }) {
   return (
-    <Link to="/" {...stylex.props(styles.brand, xstyle)}>
-      <Mark size={20} />
-      via
+    <Link to="/" aria-label="via" {...stylex.props(styles.brand, xstyle)}>
+      <Mark size={24} />
     </Link>
   );
 }

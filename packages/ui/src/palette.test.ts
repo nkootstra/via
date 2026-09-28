@@ -32,6 +32,13 @@ describe("themeStylesheet", () => {
     );
   });
 
+  it("colours the logo's three strokes in either scheme", () => {
+    for (const key of ["logoBack", "logoMiddle", "logoFront"] as const) {
+      expect(rule(":root")).toContain(`${cssVariable(key)}:${lightScheme[key]};`);
+      expect(rule('[data-theme="dark"]')).toContain(`${cssVariable(key)}:${darkScheme[key]};`);
+    }
+  });
+
   it("paints the page itself with the palette", () => {
     expect(rule("html,body")).toContain("background-color:var(--via-background);");
   });
