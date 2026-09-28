@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/logo.svg" alt="" width="96" height="96">
+  <img src="https://raw.githubusercontent.com/nkootstra/via/main/docs/assets/logo.svg" alt="" width="96" height="96">
 </p>
 
 # via
@@ -596,7 +596,7 @@ each request it serves. The other standard variables work too:
 - The web UI runs only first-party code, under a Content Security Policy that
   refuses scripts, styles and requests from anywhere but via.
 
-To report a vulnerability, see [SECURITY.md](../SECURITY.md).
+To report a vulnerability, see [SECURITY.md](https://github.com/nkootstra/via/blob/main/SECURITY.md).
 
 ## Disclaimer
 
@@ -607,8 +607,8 @@ accounts you own, at your own risk.
 
 ## Contributing
 
-See [CONTRIBUTING.md](../CONTRIBUTING.md).
+See [CONTRIBUTING.md](https://github.com/nkootstra/via/blob/main/CONTRIBUTING.md).
 
 ## License
 
-[MIT](../LICENSE)
+[MIT](https://github.com/nkootstra/via/blob/main/LICENSE)
