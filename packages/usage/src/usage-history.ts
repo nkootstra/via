@@ -65,7 +65,126 @@ export interface RequestPage {
   readonly next: Option.Option<RequestCursor>;
 }
 
+/**
+ * What usage is totalled by. A request no account served, as one a plain
+ * provider answered or one via turned away, counts under `provider:<name>`
+ * when grouped by account.
+ */
+export type GroupBy = "model" | "account" | "key" | "provider";
+
+export interface SeriesQuery {
+  readonly from: number;
+  readonly to: number;
+  readonly bucket: "hour" | "day";
+  /** Minutes the viewer's clock is ahead of UTC, so days start at their midnight. */
+  readonly tzOffsetMinutes: number;
+  readonly groupBy: GroupBy;
+}
+
+/** Token sums, 0 where no request reported any. */
+const TokenSums = {
+  inputTokens: Schema.Finite,
+  cachedTokens: Schema.Finite,
+  outputTokens: Schema.Finite,
+  reasoningTokens: Schema.Finite,
+};
+
+/** One group's usage in one bucket of time. */
+const SeriesPoint = Schema.Struct({
+  /** When the bucket starts, in epoch milliseconds. */
+  bucket: Schema.Finite,
+  group: Schema.String,
+  requests: Schema.Finite,
+  /** How many of `requests` reported their usage; the sums leave out the rest. */
+  measured: Schema.Finite,
+  ...TokenSums,
+});
+
+export type SeriesPoint = typeof SeriesPoint.Type;
+
+export interface BreakdownQuery {
+  readonly from: number;
+  readonly to: number;
+  readonly groupBy: GroupBy;
+}
+
+/** The median and 95th percentile of a timing, by nearest rank; none without any timings. */
+export interface Percentiles {
+  readonly p50: Option.Option<number>;
+  readonly p95: Option.Option<number>;
+}
+
+/**
+ * One model's part of a group, split for pricing: what upstreams billed, and
+ * the tokens of the requests they didn't bill, for via to price itself.
+ */
+export interface ModelUsage {
+  readonly model: string;
+  readonly billedUsd: number;
+  readonly billedRequests: number;
+  readonly unbilled: {
+    readonly inputTokens: number;
+    readonly cachedTokens: number;
+    readonly outputTokens: number;
+  };
+}
+
+export interface GroupUsage {
+  readonly group: string;
+  /** The group's name as its latest request had it: a model, account label, key name or provider. */
+  readonly label: string;
+  readonly requests: number;
+  /** Requests that failed, as `Outcome` defines it. */
+  readonly errors: number;
+  readonly measured: number;
+  readonly inputTokens: number;
+  readonly cachedTokens: number;
+  readonly outputTokens: number;
+  readonly reasoningTokens: number;
+  readonly firstChunkMs: Percentiles;
+  readonly models: ReadonlyArray<ModelUsage>;
+}
+
+export interface Breakdown {
+  /** The groups, the most requested first. */
+  readonly groups: ReadonlyArray<GroupUsage>;
+  /** Over every request in the range. */
+  readonly firstChunkMs: Percentiles;
+}
+
+const ModelRow = Schema.Struct({
+  group: Schema.String,
+  label: Schema.String,
+  model: Schema.String,
+  lastAt: Schema.Finite,
+  requests: Schema.Finite,
+  errors: Schema.Finite,
+  measured: Schema.Finite,
+  ...TokenSums,
+  billedUsd: Schema.Finite,
+  billedRequests: Schema.Finite,
+  unbilledInput: Schema.Finite,
+  unbilledCached: Schema.Finite,
+  unbilledOutput: Schema.Finite,
+});
+
+const PercentileRow = Schema.Struct({
+  group: Schema.String,
+  p50: Schema.OptionFromNullOr(Schema.Finite),
+  p95: Schema.OptionFromNullOr(Schema.Finite),
+});
+
 const decodeEntries = Schema.decodeUnknownEffect(Schema.Array(UsageEntry));
+
+const decodePoints = Schema.decodeUnknownEffect(Schema.Array(SeriesPoint));
+
+const decodeModelRows = Schema.decodeUnknownEffect(Schema.Array(ModelRow));
+
+const decodePercentiles = Schema.decodeUnknownEffect(Schema.Array(PercentileRow));
+
+const BUCKET_MS = { hour: 60 * 60 * 1000, day: 24 * 60 * 60 * 1000 } as const;
+
+const noPercentiles: Percentiles = { p50: Option.none(), p95: Option.none() };
 
 const encodeEntry = Schema.encodeEffect(UsageEntry);
 
@@ -182,7 +301,152 @@ const make = Effect.gen(function* () {
     } satisfies RequestPage;
   });
 
-  return { record, requests };
+  /** The SQL expressions for a grouping's key and its name. */
+  const grouping = (groupBy: GroupBy) => {
+    switch (groupBy) {
+      case "model":
+        return { key: sql`model`, label: sql`model` };
+      case "provider":
+        return { key: sql`provider`, label: sql`provider` };
+      case "key":
+        return { key: sql`COALESCE(key_id, '')`, label: sql`COALESCE(key_name, key_id, '')` };
+      case "account":
+        return {
+          key: sql`COALESCE(account_id, 'provider:' || provider)`,
+          label: sql`COALESCE(account_label, account_id, provider)`,
+        };
+    }
+  };
+
+  const series = Effect.fn("UsageHistory.series")(function* (query: SeriesQuery) {
+    const size = BUCKET_MS[query.bucket];
+    const offset = query.tzOffsetMinutes * 60 * 1000;
+    const { key } = grouping(query.groupBy);
+
+    // Floors each time, shifted to the viewer's clock, to its bucket. SQLite's `%`
+    // truncates toward zero, so the remainder is made non-negative first.
+    const local = sql`(at + ${offset})`;
+
+    const rows = yield* sql`
+      SELECT
+        ${local} - ((${local} % ${size}) + ${size}) % ${size} - ${offset} AS bucket,
+        ${key} AS "group",
+        COUNT(*) AS requests,
+        COUNT(input_tokens) AS measured,
+        COALESCE(SUM(input_tokens), 0) AS "inputTokens",
+        COALESCE(SUM(cached_tokens), 0) AS "cachedTokens",
+        COALESCE(SUM(output_tokens), 0) AS "outputTokens",
+        COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens"
+      FROM requests
+      WHERE at >= ${query.from} AND at < ${query.to}
+      GROUP BY bucket, "group"
+      ORDER BY bucket, "group"
+    `;
+
+    // Rows only ever come from this query, so they always decode.
+    return yield* decodePoints(rows).pipe(Effect.orDie);
+  });
+
+  /** The first-chunk percentiles of each group of `key`, by nearest rank. */
+  const percentiles = (query: BreakdownQuery, key: ReturnType<typeof grouping>["key"]) =>
+    Effect.flatMap(
+      sql`
+        WITH ranked AS (
+          SELECT
+            ${key} AS "group",
+            first_chunk_ms AS ms,
+            ROW_NUMBER() OVER (PARTITION BY ${key} ORDER BY first_chunk_ms) AS rank,
+            COUNT(*) OVER (PARTITION BY ${key}) AS n
+          FROM requests
+          WHERE at >= ${query.from} AND at < ${query.to} AND first_chunk_ms IS NOT NULL
+        )
+        SELECT
+          "group",
+          MIN(CASE WHEN rank >= 0.5 * n THEN ms END) AS p50,
+          MIN(CASE WHEN rank >= 0.95 * n THEN ms END) AS p95
+        FROM ranked
+        GROUP BY "group"
+      `,
+      // Rows only ever come from this query, so they always decode.
+      (rows) => decodePercentiles(rows).pipe(Effect.orDie),
+    );
+
+  const breakdown = Effect.fn("UsageHistory.breakdown")(function* (query: BreakdownQuery) {
+    const { key, label } = grouping(query.groupBy);
+
+    // `label` is a bare column beside the one MAX(at), so SQLite takes it from the latest request.
+    const rows = yield* sql`
+      SELECT
+        ${key} AS "group",
+        ${label} AS label,
+        model,
+        MAX(at) AS "lastAt",
+        COUNT(*) AS requests,
+        COALESCE(SUM(${failed}), 0) AS errors,
+        COUNT(input_tokens) AS measured,
+        COALESCE(SUM(input_tokens), 0) AS "inputTokens",
+        COALESCE(SUM(cached_tokens), 0) AS "cachedTokens",
+        COALESCE(SUM(output_tokens), 0) AS "outputTokens",
+        COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens",
+        COALESCE(SUM(cost_usd), 0) AS "billedUsd",
+        COUNT(cost_usd) AS "billedRequests",
+        COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN input_tokens END), 0) AS "unbilledInput",
+        COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN cached_tokens END), 0) AS "unbilledCached",
+        COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN output_tokens END), 0) AS "unbilledOutput"
+      FROM requests
+      WHERE at >= ${query.from} AND at < ${query.to}
+      GROUP BY "group", model
+    `.pipe(
+      // Rows only ever come from this query, so they always decode.
+      Effect.flatMap((found) => decodeModelRows(found).pipe(Effect.orDie)),
+    );
+
+    const byGroup = new Map(
+      (yield* percentiles(query, key)).map((row) => [row.group, { p50: row.p50, p95: row.p95 }]),
+    );
+
+    const [overall] = yield* percentiles(query, sql`''`);
+    const groups = new Map<string, Array<typeof ModelRow.Type>>();
+
+    for (const row of rows) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
+
+    const totalled = [...groups].map(([group, models]): GroupUsage => {
+      const total = (field: "requests" | "errors" | "measured" | keyof typeof TokenSums) =>
+        models.reduce((sum, row) => sum + row[field], 0);
+
+      const latest = models.reduce((a, b) => (b.lastAt > a.lastAt ? b : a));
+
+      return {
+        group,
+        label: latest.label,
+        requests: total("requests"),
+        errors: total("errors"),
+        measured: total("measured"),
+        inputTokens: total("inputTokens"),
+        cachedTokens: total("cachedTokens"),
+        outputTokens: total("outputTokens"),
+        reasoningTokens: total("reasoningTokens"),
+        firstChunkMs: byGroup.get(group) ?? noPercentiles,
+        models: models.map((row) => ({
+          model: row.model,
+          billedUsd: row.billedUsd,
+          billedRequests: row.billedRequests,
+          unbilled: {
+            inputTokens: row.unbilledInput,
+            cachedTokens: row.unbilledCached,
+            outputTokens: row.unbilledOutput,
+          },
+        })),
+      };
+    });
+
+    return {
+      groups: totalled.toSorted((a, b) => b.requests - a.requests),
+      firstChunkMs: overall === undefined ? noPercentiles : { p50: overall.p50, p95: overall.p95 },
+    } satisfies Breakdown;
+  });
+
+  return { record, requests, series, breakdown };
 });
 
 /** Every request via has served, kept in SQLite so it outlives a restart. */
@@ -193,6 +457,10 @@ export class UsageHistory extends Context.Service<
     readonly record: (entry: UsageEntry) => Effect.Effect<void, SqlError>;
     /** A page of the requests in `[from, to)`, newest first. */
     readonly requests: (query: RequestQuery) => Effect.Effect<RequestPage, SqlError>;
+    /** Each group's usage per hour or day in `[from, to)`, oldest first. */
+    readonly series: (query: SeriesQuery) => Effect.Effect<ReadonlyArray<SeriesPoint>, SqlError>;
+    /** Each group's usage over `[from, to)`. */
+    readonly breakdown: (query: BreakdownQuery) => Effect.Effect<Breakdown, SqlError>;
   }
 >()("via/UsageHistory") {
   /** The history in the SQLite database at `filename`, created and migrated as needed. */

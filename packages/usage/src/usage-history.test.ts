@@ -1,5 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Effect, Option } from "effect";
+import { Effect, Option, Schema } from "effect";
+import { Arbitrary } from "effect/unstable/arbitrary";
 import type { UsageEntry } from "./usage-history.ts";
 import { UsageHistory } from "./usage-history.ts";
 
@@ -121,5 +122,287 @@ describe("UsageHistory", () => {
         expect(failed.requests.map((r) => r.requestId)).toEqual(["failed"]);
       }),
     ),
+  );
+});
+
+describe("UsageHistory.series", () => {
+  it.effect("sums each hour's tokens per model", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(entry({ requestId: "a", at: 10 * HOUR + 5 }));
+        yield* usage.record(entry({ requestId: "b", at: 10 * HOUR + 50 }));
+        yield* usage.record(entry({ requestId: "c", at: 10 * HOUR + 9, model: "gpt-6-sol" }));
+        yield* usage.record(entry({ requestId: "d", at: 11 * HOUR, inputTokens: Option.none() }));
+
+        const points = yield* usage.series({
+          from: 0,
+          to: 24 * HOUR,
+          bucket: "hour",
+          tzOffsetMinutes: 0,
+          groupBy: "model",
+        });
+
+        expect(points).toEqual([
+          {
+            bucket: 10 * HOUR,
+            group: "gpt-6-astra",
+            requests: 2,
+            measured: 2,
+            inputTokens: 200,
+            cachedTokens: 80,
+            outputTokens: 40,
+            reasoningTokens: 0,
+          },
+          {
+            bucket: 10 * HOUR,
+            group: "gpt-6-sol",
+            requests: 1,
+            measured: 1,
+            inputTokens: 100,
+            cachedTokens: 40,
+            outputTokens: 20,
+            reasoningTokens: 0,
+          },
+          {
+            bucket: 11 * HOUR,
+            group: "gpt-6-astra",
+            requests: 1,
+            measured: 0,
+            inputTokens: 0,
+            cachedTokens: 40,
+            outputTokens: 20,
+            reasoningTokens: 0,
+          },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("starts each day at local midnight", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const midnight = 1_000 * 24 * HOUR;
+        // 23:30 UTC is already the next day an hour east of UTC.
+        yield* usage.record(entry({ at: midnight - HOUR / 2 }));
+
+        const points = yield* usage.series({
+          from: 0,
+          to: 2 * midnight,
+          bucket: "day",
+          tzOffsetMinutes: 60,
+          groupBy: "model",
+        });
+
+        expect(points.map((p) => p.bucket)).toEqual([midnight - HOUR]);
+      }),
+    ),
+  );
+
+  it.effect("groups by account, filing a request no account served under its provider", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(entry({ requestId: "a" }));
+
+        yield* usage.record(
+          entry({
+            requestId: "b",
+            provider: "openrouter",
+            accountId: Option.none(),
+            accountLabel: Option.none(),
+          }),
+        );
+
+        const points = yield* usage.series({
+          from: 0,
+          to: 2_000 * HOUR,
+          bucket: "day",
+          tzOffsetMinutes: 0,
+          groupBy: "account",
+        });
+
+        expect(points.map((p) => p.group).toSorted()).toEqual(["acc-1", "provider:openrouter"]);
+      }),
+    ),
+  );
+});
+
+describe("UsageHistory.breakdown", () => {
+  it.effect("totals each group, labelled as its latest request was", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(entry({ requestId: "a", at: HOUR, keyName: Option.some("old") }));
+        yield* usage.record(entry({ requestId: "b", at: 2 * HOUR, keyName: Option.some("new") }));
+        yield* usage.record(entry({ requestId: "c", at: 3 * HOUR, status: 429 }));
+        yield* usage.record(entry({ requestId: "d", at: 4 * HOUR, status: 499 }));
+
+        yield* usage.record(
+          entry({ requestId: "e", at: 5 * HOUR, streamEnd: Option.some("failed") }),
+        );
+
+        const { groups } = yield* usage.breakdown({ from: 0, to: 10 * HOUR, groupBy: "key" });
+
+        expect(groups).toEqual([
+          {
+            group: "key-1",
+            label: "laptop",
+            requests: 5,
+            errors: 2,
+            measured: 5,
+            inputTokens: 500,
+            cachedTokens: 200,
+            outputTokens: 100,
+            reasoningTokens: 0,
+            firstChunkMs: { p50: Option.none(), p95: Option.none() },
+            models: [
+              {
+                model: "gpt-6-astra",
+                billedUsd: 0,
+                billedRequests: 0,
+                unbilled: { inputTokens: 500, cachedTokens: 200, outputTokens: 100 },
+              },
+            ],
+          },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("splits what an upstream billed from what via has to price itself", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(entry({ requestId: "a", costUsd: Option.some(0.25) }));
+        yield* usage.record(entry({ requestId: "b", costUsd: Option.some(0.5) }));
+        yield* usage.record(entry({ requestId: "c" }));
+
+        const { groups } = yield* usage.breakdown({
+          from: 0,
+          to: 2_000 * HOUR,
+          groupBy: "model",
+        });
+
+        expect(groups[0]?.models).toEqual([
+          {
+            model: "gpt-6-astra",
+            billedUsd: 0.75,
+            billedRequests: 2,
+            unbilled: { inputTokens: 100, cachedTokens: 40, outputTokens: 20 },
+          },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("gives the median and 95th percentile time to the first chunk, by nearest rank", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        for (const ms of [10, 20, 30, 40, 50, 60, 70, 80, 90, 1_000]) {
+          yield* usage.record(entry({ requestId: `r${ms}`, firstChunkMs: Option.some(ms) }));
+        }
+
+        yield* usage.record(entry({ requestId: "none" }));
+
+        const result = yield* usage.breakdown({ from: 0, to: 2_000 * HOUR, groupBy: "model" });
+        const expected = { p50: Option.some(50), p95: Option.some(1_000) };
+
+        expect(result.groups[0]?.firstChunkMs).toEqual(expected);
+        expect(result.firstChunkMs).toEqual(expected);
+      }),
+    ),
+  );
+});
+
+/** A request, in small ranges so that property runs share hours, models and keys. */
+const Spec = Schema.Struct({
+  hour: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 71 })),
+  model: Schema.Literals(["m1", "m2", "m3"]),
+  key: Schema.Literals(["k1", "k2"]),
+  account: Schema.Literals(["a1", "a2", "none"]),
+  tokens: Schema.OptionFromNullOr(
+    Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1_000 })),
+  ),
+  status: Schema.Literals([200, 429, 499, 500]),
+});
+
+const toEntry = (spec: typeof Spec.Type, i: number) =>
+  entry({
+    requestId: `r${i}`,
+    at: spec.hour * HOUR + i,
+    model: spec.model,
+    keyId: Option.some(spec.key),
+    accountId: spec.account === "none" ? Option.none() : Option.some(spec.account),
+    provider: spec.account === "none" ? "openrouter" : "codex",
+    inputTokens: spec.tokens,
+    cachedTokens: spec.tokens,
+    outputTokens: spec.tokens,
+    reasoningTokens: spec.tokens,
+    status: spec.status,
+  });
+
+const specs = Arbitrary.array(Arbitrary.schema(Spec), { maxLength: 30 });
+
+const groupings = Arbitrary.schema(Schema.Literals(["model", "account", "key", "provider"]));
+
+const buckets = Arbitrary.schema(Schema.Literals(["hour", "day"]));
+
+const offsets = Arbitrary.schema(
+  Schema.Int.check(Schema.isBetween({ minimum: -720, maximum: 840 })),
+);
+
+const sum = (values: ReadonlyArray<number>) => values.reduce((a, b) => a + b, 0);
+
+describe("UsageHistory totals", () => {
+  it.effect.prop(
+    "the series and the breakdown both add up to every request's tokens, however they group",
+    { specs, groupBy: groupings, bucket: buckets, tzOffsetMinutes: offsets },
+    ({ specs: values, groupBy, bucket, tzOffsetMinutes }) =>
+      history((usage) =>
+        Effect.gen(function* () {
+          const entries = values.map(toEntry);
+          yield* Effect.forEach(entries, usage.record, { discard: true });
+          const range = { from: 0, to: 72 * HOUR };
+          const points = yield* usage.series({ ...range, bucket, tzOffsetMinutes, groupBy });
+          const { groups } = yield* usage.breakdown({ ...range, groupBy });
+          const tokens = sum(entries.map((e) => Option.getOrElse(e.inputTokens, () => 0)));
+
+          expect(sum(points.map((p) => p.inputTokens))).toBe(tokens);
+          expect(sum(groups.map((g) => g.inputTokens))).toBe(tokens);
+          expect(sum(points.map((p) => p.requests))).toBe(entries.length);
+          expect(sum(groups.map((g) => g.requests))).toBe(entries.length);
+
+          expect(sum(groups.map((g) => g.errors))).toBe(
+            entries.filter((e) => e.status >= 400 && e.status !== 499).length,
+          );
+        }),
+      ),
+  );
+
+  it.effect.prop(
+    "a bucket never holds a request from outside it",
+    { specs, bucket: buckets, tzOffsetMinutes: offsets },
+    ({ specs: values, bucket, tzOffsetMinutes }) =>
+      history((usage) =>
+        Effect.gen(function* () {
+          const entries = values.map(toEntry);
+          yield* Effect.forEach(entries, usage.record, { discard: true });
+
+          const points = yield* usage.series({
+            from: 0,
+            to: 72 * HOUR,
+            bucket,
+            tzOffsetMinutes,
+            groupBy: "model",
+          });
+
+          const size = bucket === "hour" ? HOUR : 24 * HOUR;
+
+          for (const point of points) {
+            const inside = entries.filter(
+              (e) => e.model === point.group && e.at >= point.bucket && e.at < point.bucket + size,
+            );
+
+            expect(inside.length).toBe(point.requests);
+          }
+        }),
+      ),
   );
 });
