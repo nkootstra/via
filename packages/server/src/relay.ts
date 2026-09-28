@@ -18,7 +18,8 @@ const unreadable = openAiError(
 
 /**
  * Reads a Codex stream to its final response for a non-streaming client, and
- * answers a response that failed or broke off with a 502.
+ * answers a response that failed, broke off or grew too large with a 502, and
+ * one that took too long with a 504.
  */
 export const collected = (
   upstream: HttpClientResponse.HttpClientResponse,
@@ -39,6 +40,8 @@ export const collected = (
     Effect.catchTags({
       UpstreamFailedError: (error) => openAiError(502, error.code, error.reason),
       IncompleteStreamError: (error) => openAiError(502, streamIncomplete.code, error.message),
+      ResponseTooLargeError: (error) => openAiError(502, "upstream_too_large", error.message),
+      ResponseTimeoutError: (error) => openAiError(504, "upstream_timeout", error.message),
     }),
     // The body broke off, was not SSE, or held an event that is not a Responses one.
     Effect.catch(() => unreadable),

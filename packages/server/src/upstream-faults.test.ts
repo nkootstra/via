@@ -1,8 +1,25 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply, sse, sseFrames } from "@via/codex-upstream/testing";
-import { Effect } from "effect";
+import { Clock, Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import { withVia } from "./testing/harness.ts";
+
+/** A pause on the real clock, for via to act on what a socket brought; a TestClock can't freeze it. */
+const realPause = Effect.sleep("5 millis").pipe(
+  Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
+);
+
+/** Moves test time on a minute at a time until `fiber` is done, and answers its result. */
+const advanceUntilDone = <A, E>(fiber: Fiber.Fiber<A, E>) =>
+  Effect.gen(function* () {
+    while (fiber.pollUnsafe() === undefined) {
+      yield* TestClock.adjust("1 minute");
+      yield* realPause;
+    }
+
+    return yield* Fiber.join(fiber);
+  });
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
 const response = {
@@ -15,6 +32,9 @@ const created = {
   type: "response.created",
   response: { ...response, status: "in_progress" },
 };
+
+/** A reasoning delta of 1 MiB, as one SSE frame. */
+const megabyte = sse([{ type: "response.reasoning_text.delta", delta: "x".repeat(1024 * 1024) }]);
 
 const cutOff = () => reply.sse(sse([created]));
 
@@ -116,6 +136,44 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
               });
             }),
         ),
+    );
+
+    it.effect(`${path} answers a Codex response that never completes with 504 in 30 minutes`, () =>
+      withVia(
+        () => reply.stalled(reply.text("hello"), 2),
+        (via) =>
+          Effect.gen(function* () {
+            const pending = yield* via.post(path, bodies[path]).pipe(Effect.forkChild);
+            yield* via.upstreamReceived(1);
+            const start = yield* Clock.currentTimeMillis;
+            const answer = yield* advanceUntilDone(pending);
+            expect(answer.status).toBe(504);
+            expect((yield* Clock.currentTimeMillis) - start).toBeGreaterThanOrEqual(30 * 60_000);
+            expect(yield* answer.json).toMatchObject({
+              error: { type: "server_error", code: "upstream_timeout" },
+            });
+          }),
+      ),
+    );
+
+    it.effect(`${path} answers a Codex stream that runs past 128 MiB with 502`, () =>
+      withVia(
+        () => () => ({
+          status: 200,
+          headers: {},
+          contentType: "text/event-stream",
+          chunks: Array.from({ length: 129 }, () => megabyte),
+          ending: "close",
+        }),
+        (via) =>
+          Effect.gen(function* () {
+            const answer = yield* via.post(path, bodies[path]);
+            expect(answer.status).toBe(502);
+            expect(yield* answer.json).toMatchObject({
+              error: { type: "server_error", code: "upstream_too_large" },
+            });
+          }),
+      ),
     );
 
     it.effect(`${path} answers an unreachable Codex with 502 upstream_unavailable`, () =>
