@@ -51,12 +51,12 @@ export const lightScheme = {
   successSubtle: "rgb(21 160 69 / 0.12)",
   warningSubtle: "rgb(208 112 5 / 0.12)",
   infoSubtle: "rgb(59 130 246 / 0.12)",
-  // The logo's strokes, back to front: one blue-to-teal family, each at 3:1
-  // on every surface. The front stroke anchors the mark, so it is the darkest
-  // here and the lightest in the dark scheme.
-  logoBack: "#1F74BF",
-  logoMiddle: "#1FA098",
-  logoFront: "#17397B",
+  // The logo's strokes, back to front: cool greys stepped by lightness, each
+  // at 3:1 on every surface. The front stroke anchors the mark, so it sits
+  // nearest the text colour in either scheme.
+  logoBack: "#878D94",
+  logoMiddle: "#555B63",
+  logoFront: "#161B22",
   // Surface-relative overlays: they tint whatever elevation they sit on.
   hover: "rgb(0 0 0 / 0.04)",
   active: "rgb(0 0 0 / 0.07)",
@@ -94,9 +94,9 @@ export const darkScheme: Scheme = {
   successSubtle: "rgb(34 197 94 / 0.12)",
   warningSubtle: "rgb(245 158 11 / 0.12)",
   infoSubtle: "rgb(59 130 246 / 0.12)",
-  logoBack: "#3E96EA",
-  logoMiddle: "#41DFCF",
-  logoFront: "#D4F0FE",
+  logoBack: "#6D7279",
+  logoMiddle: "#A6ABB2",
+  logoFront: "#F3F5F8",
   hover: "rgb(255 255 255 / 0.06)",
   active: "rgb(255 255 255 / 0.1)",
   backdrop: "rgb(0 0 0 / 0.8)",
