@@ -139,14 +139,8 @@ with Compose or a platform with volumes. What via needs from it:
   `config.yaml` names. So is `VIA_ADMIN_KEY`, if you want the
   [admin API](#admin-api) and [web UI](#web-ui) instead of `docker exec`.
 
-The image isn't public yet, so log the host in to ghcr.io with a GitHub token
-that has only the `read:packages` scope:
-
-```sh
-echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-user> --password-stdin
-```
-
-Then add accounts on the host with `docker exec -it via via accounts add`; the
+The image is public, so the host needs no registry login. Add accounts on the
+host with `docker exec -it via via accounts add`; the
 device-code login needs no browser there. Or copy an existing `~/.config/via`
 into the volume, owned by uid 65532, with the files kept at `0600`.
 
