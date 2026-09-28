@@ -7,7 +7,7 @@ import { Clock, Effect, Fiber, Schedule, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import type { HttpClientResponse } from "effect/unstable/http";
 import { type Via, ok, withVia } from "./testing/harness.ts";
-import { LoginNotFoundError } from "./admin-api.ts";
+import { LoginNotFoundError, TooManyLoginsError } from "./admin-api.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";
 
@@ -619,6 +619,24 @@ layer(BunFileSystem.layer)("admin API", (it) => {
             status: "failed",
             error: expect.stringContaining("not approved"),
           });
+        }),
+      { adminKey, pendingPolls: Infinity, interval: "5" },
+    ),
+  );
+
+  it.effect("answers 429 to a login while ten others wait for approval", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          for (let started = 0; started < 10; started++) {
+            expect((yield* via.post("/admin/accounts/logins", {}, adminKey)).status).toBe(201);
+          }
+
+          const refused = yield* via.post("/admin/accounts/logins", {}, adminKey);
+          expect(refused.status).toBe(429);
+          const error = yield* Schema.decodeUnknownEffect(TooManyLoginsError)(yield* refused.json);
+          expect(error.message).toContain("waiting for approval");
         }),
       { adminKey, pendingPolls: Infinity, interval: "5" },
     ),

@@ -216,7 +216,7 @@ work on `/v1`.
 | `PATCH /admin/accounts/<id>`              | Change `label` and/or `enabled`; returns the account.            |
 | `DELETE /admin/accounts/<id>`             | Forget an account and delete its tokens.                         |
 | `POST /admin/accounts/logins`             | Start a device-code login.                                       |
-| `GET /admin/accounts/logins/<id>`         | Check on a login: `pending`, `added` or `failed`.                |
+| `GET /admin/accounts/logins/<id>`         | Check on a login: `pending`, `added`, `updated` or `failed`.     |
 | `GET /admin/opencode-go/accounts`         | List OpenCode Go keys, each only by its last four characters.    |
 | `POST /admin/opencode-go/accounts`        | Add a key from `{"apiKey": "..."}`, once OpenCode Go accepts it. |
 | `PATCH /admin/opencode-go/accounts/<id>`  | Change `label` and/or `enabled`; returns the key's account.      |
@@ -260,8 +260,10 @@ curl -H "Authorization: Bearer $VIA_ADMIN_KEY" http://127.0.0.1:8317/admin/accou
 # {"status":"added","account":{"id":"...","label":"you@example.com",...}}
 ```
 
-A login fails if it isn't approved within 15 minutes. Logins in progress are
-kept in memory, so restarting via cancels them.
+A login fails if it isn't approved within 15 minutes. At most 10 logins can
+wait for approval at once; starting another answers 429 until one ends. Logins
+are kept in memory, so restarting via cancels them, and one that has ended is
+forgotten 5 minutes later, when polling it answers 404.
 
 `GET /admin/pool` answers `{"accounts": [...], "opencodeGo": [...], "providers": [...]}`.
 It lists every ChatGPT account, and in `opencodeGo` every OpenCode Go account,
