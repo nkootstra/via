@@ -12,19 +12,22 @@ import {
 import { issuedTokens } from "./testing/index.ts";
 import { AuthRequestError, CodexAuth, type DeviceCode, type Tokens } from "./index.ts";
 
+/** What the issuer answers a poll with once the user approved the login. */
+type Approval = { readonly authorization_code: string; readonly code_verifier: string };
+
 /**
- * An issuer that answers the paths in `answers` with their JSON, and takes every
+ * An issuer that answers a poll with `approval`, when given, and takes every
  * other request without ever answering it; `arrived` waits for the first of those.
  */
-const startSilentIssuer = (answers: Readonly<Record<string, object>> = {}) =>
+const startSilentIssuer = (approval: Approval | undefined) =>
   Effect.gen(function* () {
     const arrived = yield* Deferred.make<void>();
 
     const answer = Effect.gen(function* () {
       const { url } = yield* HttpServerRequest.HttpServerRequest;
-      const known = answers[new URL(url, "http://issuer").pathname];
+      const polled = new URL(url, "http://issuer").pathname === "/api/accounts/deviceauth/token";
 
-      if (known !== undefined) return HttpServerResponse.jsonUnsafe(known);
+      if (polled && approval !== undefined) return HttpServerResponse.jsonUnsafe(approval);
       yield* Deferred.succeed(arrived, undefined);
 
       return yield* Effect.never;
@@ -55,23 +58,21 @@ const current: Tokens = {
   expiresAt: 0,
 };
 
-const approved = {
-  "/api/accounts/deviceauth/token": { authorization_code: "ac-1", code_verifier: "cv-1" },
-};
+const approved: Approval = { authorization_code: "ac-1", code_verifier: "cv-1" };
 
 describe("CodexAuth against an issuer that never answers", () => {
   type Call = (auth: CodexAuth["Service"]) => Effect.Effect<unknown, { message: string }>;
 
-  const cases: ReadonlyArray<readonly [string, Readonly<Record<string, object>>, Call]> = [
-    ["asking for a device code", {}, (auth) => auth.requestDeviceCode],
+  const cases: ReadonlyArray<readonly [string, Approval | undefined, Call]> = [
+    ["asking for a device code", undefined, (auth) => auth.requestDeviceCode],
     ["exchanging an approved code", approved, (auth) => auth.awaitDeviceTokens(code)],
-    ["refreshing tokens", {}, (auth) => auth.refresh(current)],
+    ["refreshing tokens", undefined, (auth) => auth.refresh(current)],
   ];
 
-  for (const [what, answers, call] of cases) {
+  for (const [what, approval, call] of cases) {
     it.effect(`gives up ${what} after 30 seconds`, () =>
       Effect.gen(function* () {
-        const issuer = yield* startSilentIssuer(answers);
+        const issuer = yield* startSilentIssuer(approval);
 
         const failing = yield* Effect.flatMap(CodexAuth, (auth) => Effect.flip(call(auth))).pipe(
           Effect.provide(CodexAuth.layer(issuer.url).pipe(Layer.provide(FetchHttpClient.layer))),

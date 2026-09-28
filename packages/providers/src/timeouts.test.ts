@@ -2,7 +2,8 @@ import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Deferred, type Duration, Effect, Fiber, FileSystem, Layer, Redacted } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient, HttpRouter, HttpServer } from "effect/unstable/http";
+import { FetchHttpClient, HttpClientError, HttpRouter, HttpServer } from "effect/unstable/http";
+import { OpencodeGoUnavailableError } from "./errors.ts";
 import { OpencodeGoAccounts, Providers } from "./index.ts";
 
 /** A server that takes every request and never answers; `arrived` waits for the first. */
@@ -40,9 +41,7 @@ const againstSilence = <A, E>(
     const accounts = OpencodeGoAccounts.layer(`${yield* fs.makeTempDirectoryScoped()}/go.json`);
     const config = { baseUrl: silent.url, apiKeyEnv: "LOCAL_KEY" };
 
-    const running = yield* Effect.flatMap(Providers, (providers) =>
-      Effect.exit(call(providers)),
-    ).pipe(
+    const running = yield* Effect.flatMap(Providers, call).pipe(
       Effect.provide(
         Providers.layer({
           providers: { local: config, "opencode-go": config },
@@ -63,7 +62,7 @@ layer(BunFileSystem.layer)("Providers against a provider that never answers", (i
   it.effect("lists no models from it after 30 seconds", () =>
     Effect.gen(function* () {
       const listed = yield* againstSilence("30 seconds", (providers) => providers.models);
-      expect(listed).toMatchObject({ _tag: "Success", value: [] });
+      expect(listed).toEqual([]);
     }),
   );
 
@@ -71,39 +70,38 @@ layer(BunFileSystem.layer)("Providers against a provider that never answers", (i
     Effect.gen(function* () {
       const usage = yield* againstSilence("30 seconds", (providers) => providers.usage(key));
 
-      expect(usage).toMatchObject({
-        _tag: "Success",
-        value: { provider: "opencode-go", error: expect.stringContaining("no answer within 30s") },
+      expect(usage).toEqual({
+        provider: "opencode-go",
+        error: expect.stringContaining("no answer within 30s"),
       });
     }),
   );
 
   it.effect("fails to verify a key after 30 seconds, as unreachable", () =>
     Effect.gen(function* () {
-      const verified = yield* againstSilence("30 seconds", (providers) => providers.verify(key));
+      const error = yield* againstSilence("30 seconds", (providers) =>
+        Effect.flip(providers.verify(key)),
+      );
 
-      expect(verified).toMatchObject({
-        _tag: "Failure",
-        cause: { reasons: [{ error: { _tag: "OpencodeGoUnavailableError" } }] },
-      });
+      expect(error).toBeInstanceOf(OpencodeGoUnavailableError);
     }),
   );
 
   it.effect("gives up on a request it has not started answering after 10 minutes", () =>
     Effect.gen(function* () {
-      const sent = yield* againstSilence("10 minutes", (providers) =>
-        providers.send(
-          { provider: "local", model: "m", pooled: false },
-          "/chat/completions",
-          { messages: [] },
-          "session-1",
+      const error = yield* againstSilence("10 minutes", (providers) =>
+        Effect.flip(
+          providers.send(
+            { provider: "local", model: "m", pooled: false },
+            "/chat/completions",
+            { messages: [] },
+            "session-1",
+          ),
         ),
       );
 
-      expect(sent).toMatchObject({
-        _tag: "Failure",
-        cause: { reasons: [{ error: { _tag: "HttpClientError" } }] },
-      });
+      // As unreachable as a refused connection, so via answers it the same way.
+      expect(error).toBeInstanceOf(HttpClientError.HttpClientError);
     }),
   );
 });

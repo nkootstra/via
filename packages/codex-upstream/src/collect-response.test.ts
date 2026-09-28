@@ -113,6 +113,7 @@ describe("collectResponse", () => {
   it.effect("gives up on a response that has not completed after 30 minutes", () =>
     Effect.gen(function* () {
       const started = sse([{ type: "response.created", response: { id: "resp_1" } }]);
+
       const collecting = yield* collectResponse(
         bytes(started).pipe(Stream.concat(Stream.never)),
       ).pipe(Effect.flip, Effect.forkChild);

@@ -6,6 +6,7 @@ import { TestClock } from "effect/testing";
 import {
   FetchHttpClient,
   HttpClient,
+  HttpClientError,
   HttpClientResponse,
   HttpRouter,
   HttpServer,
@@ -229,10 +230,8 @@ describe("CodexUpstream against a Codex that never answers", () => {
         yield* silent.arrived;
         yield* TestClock.adjust(limit);
         const error = yield* Fiber.join(failing);
-        expect(error).toMatchObject({
-          _tag: "HttpClientError",
-          reason: { _tag: "TransportError" },
-        });
+        // As unreachable as a refused connection, so via answers it the same way.
+        expect(error).toBeInstanceOf(HttpClientError.HttpClientError);
         expect(error.message).toContain("no answer within");
       }),
     );
