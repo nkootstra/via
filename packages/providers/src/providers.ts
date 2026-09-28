@@ -1,9 +1,19 @@
 import type { ProviderConfig } from "@via/config";
-import { Context, Effect, identity, Layer, Option, Predicate, Redacted, Schema } from "effect";
+import {
+  Context,
+  Duration,
+  Effect,
+  identity,
+  Layer,
+  Option,
+  Predicate,
+  Redacted,
+  Schema,
+} from "effect";
 import {
   HttpBody,
   HttpClient,
-  type HttpClientError,
+  HttpClientError,
   HttpClientRequest,
   HttpClientResponse,
 } from "effect/unstable/http";
@@ -78,6 +88,29 @@ class ProviderUsageUnavailableError extends Schema.TaggedError<ProviderUsageUnav
 ) {
   override get message() {
     return `${this.provider} did not report usage (HTTP ${this.status})`;
+  }
+}
+
+/** How long a provider may take over its models, usage or a key check, which it answers at once. */
+const LOOKUP_TIMEOUT = Duration.seconds(30);
+
+/**
+ * How long a provider may take to start answering a request. A request that
+ * doesn't stream is answered only once the model is done, so this is long;
+ * a stream, once started, lasts as long as the model takes.
+ */
+const RESPONSE_START_TIMEOUT = Duration.minutes(10);
+
+/** `limit`, as a reason a request failed: it was not answered in time. */
+const unansweredWithin = (limit: Duration.Duration) => `no answer within ${Duration.format(limit)}`;
+
+/** A provider did not answer a lookup within `LOOKUP_TIMEOUT`. */
+class ProviderTimeoutError extends Schema.TaggedError<ProviderTimeoutError>()(
+  "ProviderTimeoutError",
+  { provider: Schema.String },
+) {
+  override get message() {
+    return `${this.provider} gave ${unansweredWithin(LOOKUP_TIMEOUT)}`;
   }
 }
 
@@ -156,7 +189,8 @@ const modelsOf = ({ name, client }: Provider, apiKey: Redacted.Redacted<string>)
       Effect.map(({ data }) =>
         data.map((model) => ({ provider: name, model: { ...model, id: `${name}/${model.id}` } })),
       ),
-      // A provider that is down or answers oddly just has no models to offer now.
+      Effect.timeout(LOOKUP_TIMEOUT),
+      // A provider that is down, slow or answers oddly just has no models to offer now.
       Effect.orElseSucceed(() => []),
     );
 
@@ -181,6 +215,10 @@ const usageOf = ({ name, client }: Provider, path: string, apiKey: Redacted.Reda
       })),
     } satisfies ProviderUsage;
   }).pipe(
+    Effect.timeoutOrElse({
+      duration: LOOKUP_TIMEOUT,
+      orElse: () => Effect.fail(new ProviderTimeoutError({ provider: name })),
+    }),
     // Usage failing, for whatever reason, is reported rather than failing whoever asked.
     Effect.catch((error) =>
       Effect.succeed<ProviderUsage>({ provider: name, error: error.message }),
@@ -227,6 +265,15 @@ const make = (
             Effect.catchTag("HttpClientError", () =>
               Effect.fail(new OpencodeGoUnavailableError({ reason: "it could not be reached" })),
             ),
+            Effect.timeoutOrElse({
+              duration: LOOKUP_TIMEOUT,
+              orElse: () =>
+                Effect.fail(
+                  new OpencodeGoUnavailableError({
+                    reason: `it gave ${unansweredWithin(LOOKUP_TIMEOUT)}`,
+                  }),
+                ),
+            }),
           );
 
         if (status === 401 || status === 403) {
@@ -270,7 +317,7 @@ const make = (
         // The pooled provider's routes are only ever sent with an account's key.
         if (apiKey === undefined) return yield* Effect.die(`no API key for ${route.provider}`);
 
-        return yield* HttpClientRequest.post(path).pipe(
+        const request = HttpClientRequest.post(path).pipe(
           Predicate.isObject(provider.session)
             ? HttpClientRequest.setHeader(provider.session.header, session)
             : identity,
@@ -285,8 +332,25 @@ const make = (
               { contentType: "application/json" },
             ),
           ),
-          keyed(provider.client, apiKey).execute,
         );
+
+        // A provider that never starts answering is as good as unreachable.
+        return yield* keyed(provider.client, apiKey)
+          .execute(request)
+          .pipe(
+            Effect.timeoutOrElse({
+              duration: RESPONSE_START_TIMEOUT,
+              orElse: () =>
+                Effect.fail(
+                  new HttpClientError.HttpClientError({
+                    reason: new HttpClientError.TransportError({
+                      request,
+                      description: unansweredWithin(RESPONSE_START_TIMEOUT),
+                    }),
+                  }),
+                ),
+            }),
+          );
       }),
     });
   });
