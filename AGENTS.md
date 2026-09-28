@@ -13,7 +13,9 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 - Merge gates: `bun run lint` (Oxlint plus the anti-slop rules in
   `tools/oxlint/anti-slop`), `bun run format:check`, `bun run knip` (unused
   files, exports and dependencies), `bun run typecheck`, `bun run test`. CI
-  runs the same. Fix what the lint finds; don't disable a rule to get past it.
+  runs the same, plus `bun run smoke` (the packed npm packages under Node,
+  including the CLI's `--help`) and the Docker image; run `bun run smoke` too
+  when a change touches the CLI or packaging. Fix what the lint finds; don't disable a rule to get past it.
   Every anti-slop rule is on except `no-conditional-empty-object-spread`, whose
   fix trades one object expression for statement-by-statement mutation.
 - Tests use `@effect/vitest` via `bun --bun vitest run`. Never use `bun test`.
