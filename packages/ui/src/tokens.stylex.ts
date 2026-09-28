@@ -11,6 +11,7 @@
 import * as stylex from "@stylexjs/stylex";
 
 export const colors = stylex.defineConsts({
+  surface2: "var(--via-surface-2)",
   surface3: "var(--via-surface-3)",
   surface4: "var(--via-surface-4)",
   surface5: "var(--via-surface-5)",
@@ -20,19 +21,27 @@ export const colors = stylex.defineConsts({
   mutedForeground: "var(--via-muted-foreground)",
   accent: "var(--via-accent)",
   border: "var(--via-border)",
+  borderStrong: "var(--via-border-strong)",
   destructive: "var(--via-destructive)",
   destructiveSolid: "var(--via-destructive-solid)",
   destructiveHover: "var(--via-destructive-hover)",
   destructiveForeground: "var(--via-destructive-foreground)",
   destructiveSurface: "var(--via-destructive-surface)",
-  destructiveLight: "var(--via-destructive-light)",
-  focusRing: "#6B97FF",
+  // Status fills for dots, bars and tints; red is `destructive`.
+  success: "var(--via-success)",
+  warning: "var(--via-warning)",
+  info: "var(--via-info)",
+  successSubtle: "var(--via-success-subtle)",
+  warningSubtle: "var(--via-warning-subtle)",
+  infoSubtle: "var(--via-info-subtle)",
+  focusRing: "var(--via-focus-ring)",
   hover: "var(--via-hover)",
   active: "var(--via-active)",
   backdrop: "var(--via-backdrop)",
 });
 
 export const shadows = stylex.defineConsts({
+  surface2: "var(--via-shadow-2)",
   surface3: "var(--via-shadow-3)",
   surface4: "var(--via-shadow-4)",
   surface5: "var(--via-shadow-5)",
@@ -57,6 +66,7 @@ export const space = stylex.defineVars({
   s3: "12px",
   s4: "16px",
   s6: "24px",
+  s8: "32px",
   // The control heights of the size ladder: default 36px, compact 28px.
   control: "36px",
   controlCompact: "28px",
@@ -67,12 +77,25 @@ export const fonts = stylex.defineVars({
   mono: 'ui-monospace, "SF Mono", Menlo, Consolas, monospace',
 });
 
+// In rem, so a reader's larger default font or text-only zoom scales them;
+// the comments give the size at the usual 16px.
 export const text = stylex.defineVars({
-  title: "16px",
-  subtitle: "14px",
-  body: "13px",
-  caption: "12px",
-  compact: "11px",
+  // A figure to read at a glance: a page's headline number, a stat tile's value.
+  stat: "1.625rem", // 26px
+  display: "1.375rem", // 22px
+  title: "1rem", // 16px
+  subtitle: "0.875rem", // 14px
+  body: "0.8125rem", // 13px
+  caption: "0.75rem", // 12px
+  // Monospace runs large for its x-height: code sits at this share of the text around it.
+  code: "0.92em",
+});
+
+// Large type tightens as it grows: display and stat sizes take `tight`, a
+// title `snug`.
+export const tracking = stylex.defineVars({
+  tight: "-0.02em",
+  snug: "-0.01em",
 });
 
 // Each weight pairs with a tighter optical size, so a label that turns heavier
@@ -84,9 +107,20 @@ export const weights = stylex.defineVars({
   bold: "'wght' 700, 'opsz' 25",
 });
 
+// The same weights for fonts with no weight axis, such as Segoe UI or Arial,
+// which ignore `weights`: set beside it, they still render the hierarchy.
+export const fontWeights = stylex.defineVars({
+  normal: "400",
+  medium: "500",
+  semibold: "600",
+  bold: "700",
+});
+
 // CSS-side motion: colour and shadow transitions that don't need a spring.
 export const durations = stylex.defineVars({
   fast: "80ms",
+  // A change of state worth seeing happen, such as a meter changing colour.
+  moderate: "200ms",
   press: "180ms",
   pressEase: "cubic-bezier(0.23, 1, 0.32, 1)",
 });
