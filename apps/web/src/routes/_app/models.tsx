@@ -64,7 +64,9 @@ const styles = stylex.create({
     fontSize: text.caption,
     color: colors.mutedForeground,
   },
+  // An id breaks at its hyphens otherwise, and reads as two.
   code: {
+    whiteSpace: "nowrap",
     fontFamily: fonts.mono,
     fontSize: text.code,
     color: colors.foreground,
