@@ -1,0 +1,22 @@
+{
+  "name": "@via/usage",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "bun --bun vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@effect/sql-sqlite-bun": "catalog:",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/vitest": "catalog:",
+    "@via/tsconfig": "workspace:*",
+    "vitest": "catalog:"
+  }
+}

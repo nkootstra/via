@@ -23,6 +23,7 @@
       "vite": "8.3.0",
       "effect": "4.0.0-rc.117",
       "@effect/platform-bun": "4.0.0-rc.117",
+      "@effect/sql-sqlite-bun": "4.0.0-rc.117",
       "@effect/vitest": "4.0.0-rc.117",
       "vitest": "^5.0.1"
     }
