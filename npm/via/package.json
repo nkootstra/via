@@ -1,7 +1,7 @@
 {
   "name": "via",
   "version": "0.0.0",
-  "description": "Pool Codex subscriptions behind one OpenAI-compatible endpoint",
+  "description": "One OpenAI-compatible endpoint for your ChatGPT subscriptions, OpenCode Go keys and other providers",
   "license": "MIT",
   "bin": {
     "via": "bin/via.js"
