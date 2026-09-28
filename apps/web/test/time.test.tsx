@@ -3,6 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ago,
   countdown,
+  formatTime,
+  formatTimestamp,
   providerWindowName,
   timeAgo,
   useNow,
@@ -83,6 +85,30 @@ describe("timeAgo", () => {
     expect(timeAgo("2026-09-27T11:57:00.000Z", now)).toBe("3 min ago");
     expect(timeAgo("2026-09-27T07:00:00.000Z", now)).toBe("5 h ago");
     expect(timeAgo("2026-09-25T09:00:00.000Z", now)).toBe("2 d ago");
+  });
+});
+
+// 15:05 on the machine's clock, wherever the tests run.
+const afternoon = new Date(2026, 8, 27, 15, 5, 9).toISOString();
+
+describe("formatTime", () => {
+  it("writes the hour as the time format asks: 24-hour, or 12-hour", () => {
+    expect(formatTime(afternoon, "24h")).toContain("15:05");
+    expect(formatTime(afternoon, "12h")).toContain("3:05");
+    expect(formatTime(afternoon, "12h")).not.toContain("15:05");
+  });
+
+  it("leaves the hour to the viewer's locale on Automatic", () => {
+    const locale = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+
+    expect(formatTime(afternoon, "auto")).toContain(locale.format(new Date(afternoon)));
+  });
+});
+
+describe("formatTimestamp", () => {
+  it("writes the hour as the time format asks, to the second", () => {
+    expect(formatTimestamp(afternoon, "24h")).toContain("15:05:09");
+    expect(formatTimestamp(afternoon, "12h")).toContain("3:05:09");
   });
 });
 
