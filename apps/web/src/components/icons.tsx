@@ -87,14 +87,6 @@ export const SearchIcon = (props: IconProps) => (
   </Glyph>
 );
 
-export const MoreIcon = (props: IconProps) => (
-  <Glyph {...props}>
-    <rect x="10" y="3" width="4" height="4" rx="2" />
-    <rect x="10" y="10" width="4" height="4" rx="2" />
-    <rect x="10" y="17" width="4" height="4" rx="2" />
-  </Glyph>
-);
-
 export const EyeIcon = (props: IconProps) => (
   <Glyph {...props}>
     <path

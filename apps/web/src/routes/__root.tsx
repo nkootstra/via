@@ -3,7 +3,8 @@ import "../app.css";
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
 import type { LiveUpdates } from "../api/live.ts";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
-import { themeScript, ToastProvider } from "@via/ui";
+import { ThemeColor, themeScript, ToastProvider } from "@via/ui";
+import { MotionConfig } from "motion/react";
 import type { ReactNode } from "react";
 import { ErrorScreen } from "../components/error-screen.tsx";
 
@@ -34,6 +35,9 @@ function Shell({ children }: { readonly children: ReactNode }) {
         {/* Ahead of the app: a stored theme applies before anything paints. */}
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
         <HeadContent />
+        {/* The browser's chrome takes the page's background, following the theme
+            choice. Here rather than in `head`, which keeps one meta per name. */}
+        <ThemeColor />
         {import.meta.env.DEV && <DevStyleXInject />}
       </head>
       <body>
@@ -57,9 +61,12 @@ function Root() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <ToastProvider>
-        <Outlet />
-      </ToastProvider>
+      {/* Every spring and fade holds still for a viewer who asks for less motion. */}
+      <MotionConfig reducedMotion="user">
+        <ToastProvider>
+          <Outlet />
+        </ToastProvider>
+      </MotionConfig>
     </QueryClientProvider>
   );
 }
