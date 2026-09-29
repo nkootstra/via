@@ -415,12 +415,20 @@ const offsets = Arbitrary.schema(
 
 const sum = (values: ReadonlyArray<number>) => values.reduce((a, b) => a + b, 0);
 
-describe("UsageHistory totals", () => {
-  it.effect.prop(
+/**
+ * The history the shared layer holds, emptied first. A property runs a hundred
+ * times, and opening and migrating a database for each run took over five
+ * seconds on CI's slowest runner; clearing one costs next to nothing.
+ */
+const emptied = <A, E>(body: (history: UsageHistory["Service"]) => Effect.Effect<A, E>) =>
+  Effect.flatMap(UsageHistory, (usage) => Effect.andThen(usage.clear, body(usage)));
+
+layer(UsageHistory.layerMemory)("UsageHistory properties", (shared) => {
+  shared.effect.prop(
     "the series and the breakdown both add up to every request's tokens, however they group",
     { specs, groupBy: groupings, bucket: buckets, tzOffsetMinutes: offsets },
     ({ specs: values, groupBy, bucket, tzOffsetMinutes }) =>
-      history((usage) =>
+      emptied((usage) =>
         Effect.gen(function* () {
           const entries = values.map(toEntry);
           yield* Effect.forEach(entries, usage.record, { discard: true });
@@ -441,11 +449,11 @@ describe("UsageHistory totals", () => {
       ),
   );
 
-  it.effect.prop(
+  shared.effect.prop(
     "a bucket never holds a request from outside it",
     { specs, bucket: buckets, tzOffsetMinutes: offsets },
     ({ specs: values, bucket, tzOffsetMinutes }) =>
-      history((usage) =>
+      emptied((usage) =>
         Effect.gen(function* () {
           const entries = values.map(toEntry);
           yield* Effect.forEach(entries, usage.record, { discard: true });
@@ -469,6 +477,37 @@ describe("UsageHistory totals", () => {
           }
         }),
       ),
+  );
+
+  shared.effect.prop(
+    "pruning never forgets a request from the last 90 days",
+    {
+      ages: Arbitrary.array(
+        Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 200 }))),
+        { maxLength: 20 },
+      ),
+    },
+    ({ ages }) => {
+      const now = 400 * DAY;
+
+      return Effect.andThen(
+        TestClock.setTime(now),
+        emptied((usage) =>
+          Effect.gen(function* () {
+            yield* Effect.forEach(
+              ages,
+              (age, i) => usage.record(entry({ requestId: `r${i}`, at: now - age * DAY })),
+              { discard: true },
+            );
+
+            yield* usage.prune;
+
+            const page = yield* usage.requests({ from: 0, to: now + 1, limit: 1_000 });
+            expect(page.requests.length).toBe(ages.filter((age) => age <= 90).length);
+          }),
+        ),
+      );
+    },
   );
 });
 
@@ -507,34 +546,6 @@ describe("UsageHistory retention", () => {
       }),
     );
   });
-
-  it.effect.prop(
-    "pruning never forgets a request from the last 90 days",
-    {
-      ages: Arbitrary.array(
-        Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 200 }))),
-        { maxLength: 20 },
-      ),
-    },
-    ({ ages }) => {
-      const now = 400 * DAY;
-
-      return historyAt(now, (usage) =>
-        Effect.gen(function* () {
-          yield* Effect.forEach(
-            ages,
-            (age, i) => usage.record(entry({ requestId: `r${i}`, at: now - age * DAY })),
-            { discard: true },
-          );
-
-          yield* usage.prune;
-
-          const page = yield* usage.requests({ from: 0, to: now + 1, limit: 1_000 });
-          expect(page.requests.length).toBe(ages.filter((age) => age <= 90).length);
-        }),
-      );
-    },
-  );
 
   it.effect("prunes once a day while it runs", () =>
     Effect.gen(function* () {
