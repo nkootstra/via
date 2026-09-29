@@ -90,6 +90,32 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
     }),
   );
 
+  it.effect.runIf(withBinary)(
+    "keeps the sidebar's toggle in reach on a desktop as the page scrolls",
+    () =>
+      Effect.gen(function* () {
+        const via = yield* viaWithUi;
+
+        // Shorter than the overview, so it scrolls.
+        const { page, problems } = yield* openPage("sticky-toggle", {
+          viewport: { width: 1280, height: 360 },
+        });
+
+        yield* signIn(page, via.url);
+
+        const toggle = page.getByRole("button", { name: /^(Hide|Show) sidebar$/ });
+        yield* Effect.promise(() =>
+          page.evaluate("window.scrollTo(0, document.body.scrollHeight)"),
+        );
+        expect(yield* Effect.promise(() => page.evaluate("window.scrollY"))).toBeGreaterThan(0);
+
+        const box = yield* Effect.promise(() => toggle.boundingBox());
+        expect(box?.y).toBeGreaterThanOrEqual(0);
+        expect(box?.y).toBeLessThan(48);
+        expect(problems).toEqual([]);
+      }),
+  );
+
   it.effect.runIf(withBinary)("reloads a deep link on the same page", () =>
     Effect.gen(function* () {
       const via = yield* viaWithUi;

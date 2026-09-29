@@ -97,9 +97,11 @@ const styles = stylex.create({
   topBrand: {
     display: { default: "flex", "@media (min-width: 768px)": "none" },
   },
-  // On a narrow screen it stays at the top as the page scrolls, so the drawer is always in reach.
+  // It stays at the top as the page scrolls, so the sidebar's toggle, or the drawer's on a
+  // narrow screen, is always in reach. Its background is the page's panel, so what scrolls
+  // under it doesn't show through.
   topbar: {
-    position: { default: "sticky", "@media (min-width: 768px)": "static" },
+    position: "sticky",
     top: "env(safe-area-inset-top, 0px)",
     zIndex: 10,
     display: "flex",
