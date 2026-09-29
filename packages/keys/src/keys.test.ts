@@ -9,6 +9,7 @@ import {
   FileSystem,
   Layer,
   Option,
+  PlatformError,
   Ref,
   Schema,
   Stream,
@@ -26,6 +27,68 @@ const withKeyStore = <A, E>(
 
     return yield* body(file).pipe(Effect.provide(KeyStore.layer(file)));
   });
+
+/** A file-system call's failure, as a real file system reports it. */
+const fail = (reason: "AlreadyExists" | "NotFound", method: string, path: string) =>
+  Effect.fail(
+    PlatformError.systemError({
+      _tag: reason,
+      module: "FileSystem",
+      method,
+      pathOrDescriptor: path,
+    }),
+  );
+
+/** A file system in memory, with just the calls a store makes on its key file and lock. */
+const memoryFileSystem = () => {
+  const files = new Map<string, string>();
+
+  return FileSystem.makeNoop({
+    makeDirectory: () => Effect.void,
+    chmod: () => Effect.void,
+    readFileString: (path) => {
+      const text = files.get(path);
+
+      return text === undefined ? fail("NotFound", "readFileString", path) : Effect.succeed(text);
+    },
+    writeFileString: (path, text, options) =>
+      options?.flag === "wx" && files.has(path)
+        ? fail("AlreadyExists", "writeFileString", path)
+        : Effect.sync(() => {
+            files.set(path, text);
+          }),
+    rename: (from, to) => {
+      const text = files.get(from);
+
+      return text === undefined
+        ? fail("NotFound", "rename", from)
+        : Effect.sync(() => {
+            files.delete(from);
+            files.set(to, text);
+          });
+    },
+    remove: (path) =>
+      Effect.sync(() => {
+        files.delete(path);
+      }),
+  });
+};
+
+/**
+ * Like `withKeyStore`, with the key file in memory. A property runs a hundred times, and each
+ * run's real file calls on a loaded machine (the whole repo's tests at once) took it past 20 s;
+ * the examples keep the store on real files.
+ */
+const withKeyStoreInMemory = <A, E>(
+  body: (file: string) => Effect.Effect<A, E, KeyStore | FileSystem.FileSystem>,
+) => {
+  const file = "/via/keys.json";
+
+  return body(file).pipe(
+    Effect.provide(KeyStore.layer(file)),
+    Effect.provideService(FileSystem.FileSystem, memoryFileSystem()),
+  );
+};
 
 /** A store on `file` of its own, as another process (`via keys`, a restarted `via serve`) has. */
 const storeAt = (file: string) =>
@@ -378,7 +441,7 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     "the file's last use lags the real one by under a minute, and changes at most once a minute",
     { gaps },
     ({ gaps: values }) =>
-      withKeyStore((file) =>
+      withKeyStoreInMemory((file) =>
         Effect.gen(function* () {
           const store = yield* KeyStore;
           const { key } = yield* store.create("laptop");
@@ -397,7 +460,8 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
           }
         }),
       ),
-    // Every run writes real files; a loaded machine (the whole repo's tests at once) needs longer.
+    // A hundred runs, where an example makes one: a loaded machine (the whole repo's tests at
+    // once) needs longer.
     { timeout: 20_000 },
   );
 
