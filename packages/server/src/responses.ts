@@ -27,7 +27,7 @@ export const responses = authenticated(
 
     return yield* dispatch(body, session, (upstream) =>
       body.stream === true
-        ? relayed(upstream, { contentType: "text/event-stream" }, relayStream)
+        ? relayed(upstream, { contentType: "text/event-stream", sse: true }, relayStream)
         : collected(upstream, (response) =>
             Effect.succeed(HttpServerResponse.jsonUnsafe(response)),
           ),

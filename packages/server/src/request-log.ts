@@ -11,8 +11,11 @@ import {
   Schema,
   Stream,
 } from "effect";
+import { UsageHistory } from "@via/usage";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import type { UsageEntry } from "@via/usage";
 import type { TokenUsage } from "./token-usage.ts";
+import type { UpstreamError } from "./upstream-error.ts";
 
 /**
  * Notes, for the one line via logs about each request, what the request is
@@ -23,15 +26,17 @@ export class RequestLog extends Context.Service<
   {
     /** Records the API key the client presented. */
     readonly key: (key: ClientKey) => Effect.Effect<void>;
-    /** Records the model the request asks for. */
-    readonly asked: (model: string) => Effect.Effect<void>;
+    /** Records the model the request asks for, and whether it asks for its answer as a stream. */
+    readonly asked: (model: string, stream: boolean) => Effect.Effect<void>;
     /**
      * Records that `by`, a provider or an account's label, serves the request,
      * with the account's id when an account of a pool serves it.
      */
     readonly served: (by: string, accountId?: string) => Effect.Effect<void>;
     /** Records the error code of an answer via gives itself, such as `rate_limit_exceeded`. */
-    readonly refused: (code: string) => Effect.Effect<void>;
+    readonly refused: (code: string, message: string) => Effect.Effect<void>;
+    /** Records why an upstream refused the request, as its answer says. */
+    readonly upstreamFailed: (error: UpstreamError) => Effect.Effect<void>;
     /** Records the token usage the upstream reported for the answer. */
     readonly usage: (usage: TokenUsage) => Effect.Effect<void>;
     /** Leaves the request out of the log, as a file a page fetches with it. */
@@ -99,12 +104,78 @@ export interface ClientKey {
   readonly name: string;
 }
 
+/**
+ * Whether a request's answer went out as a stream the client asked for. A
+ * request that asked for no model, such as the admin UI's event stream, counts
+ * its streamed answer as one.
+ */
+const streamedAnswer = (line: Noted) =>
+  line.streamed && Option.getOrElse(line.streamAsked, () => true);
+
+/** The upstream a model goes to: the provider it is prefixed with, else Codex. */
+const providerOf = (model: string) => {
+  const slash = model.indexOf("/");
+
+  return slash === -1 ? "codex" : model.slice(0, slash);
+};
+
+/** The usage-history entry for a request that asked for `model`, as `line` noted it. */
+const entryOf = (
+  id: string,
+  start: number,
+  end: number,
+  model: string,
+  line: Noted,
+): UsageEntry => {
+  const usage = line.usage;
+
+  const count = (read: (u: TokenUsage) => number | undefined) =>
+    Option.flatMap(usage, (u) => Option.fromUndefinedOr(read(u)));
+
+  return {
+    requestId: id,
+    at: start,
+    status: line.status,
+    error: Option.orElse(line.error, () =>
+      Option.flatMap(line.upstreamError, (upstream) => upstream.code),
+    ),
+    errorMessage: Option.orElse(line.errorMessage, () =>
+      Option.flatMap(line.upstreamError, (upstream) => upstream.message),
+    ),
+    streamEnd: streamedAnswer(line) ? line.streamEnd : Option.none(),
+    keyId: Option.map(line.key, (key) => key.id),
+    keyName: Option.map(line.key, (key) => key.name),
+    model,
+    provider: providerOf(model),
+    accountId: line.accountId,
+    accountLabel: Option.flatMap(line.accountId, () => line.servedBy),
+    inputTokens: count((u) => u.inputTokens),
+    cachedTokens: count((u) => u.cachedTokens),
+    outputTokens: count((u) => u.outputTokens),
+    reasoningTokens: count((u) => u.reasoningTokens),
+    costUsd: count((u) => u.costUsd),
+    durationMs: end - start,
+    firstChunkMs: streamedAnswer(line)
+      ? Option.map(line.firstChunkAt, (at) => at - start)
+      : Option.none(),
+  };
+};
+
 /** What a request's log line says, noted while the request is handled. */
 interface Noted {
   readonly key: Option.Option<ClientKey>;
   readonly model: Option.Option<string>;
+  /**
+   * Whether the client asked for a stream. via relays a provider's answer as a
+   * stream either way, but only an answer the client streams has stream timings.
+   */
+  readonly streamAsked: Option.Option<boolean>;
   readonly servedBy: Option.Option<string>;
   readonly accountId: Option.Option<string>;
+  /** via's own words for an error it answered itself; its code is `error`. */
+  readonly errorMessage: Option.Option<string>;
+  /** Why the upstream refused the request, when it did. */
+  readonly upstreamError: Option.Option<UpstreamError>;
   readonly error: Option.Option<string>;
   readonly usage: Option.Option<TokenUsage>;
   readonly retryAfter: Option.Option<string>;
@@ -125,6 +196,9 @@ interface Noted {
  * streamed answer is logged once the stream ends, so `http.span` covers it,
  * with when its headers and its first chunk were sent.
  *
+ * A request that asked for a model is also kept in the `UsageHistory`; one it
+ * can't keep is only warned about, as the answer has already gone out.
+ *
  * It also gives every request a correlation ID (see `requestId`), which
  * annotates every log made while handling it, so a cooldown warning ties back
  * to its request, and goes back as `x-request-id`. Both the header and the
@@ -135,14 +209,18 @@ interface Noted {
 export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>) =>
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
+    const history = yield* UsageHistory;
     const id = yield* requestId(request.headers);
     const start = yield* Clock.currentTimeMillis;
 
     const noting = yield* Ref.make<Noted>({
       key: Option.none(),
       model: Option.none(),
+      streamAsked: Option.none(),
       servedBy: Option.none(),
       accountId: Option.none(),
+      errorMessage: Option.none(),
+      upstreamError: Option.none(),
       error: Option.none(),
       usage: Option.none(),
       retryAfter: Option.none(),
@@ -171,9 +249,13 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
           ...noted("model", line.model),
           ...noted("served_by", line.servedBy),
           ...noted("error", line.error),
+          ...noted(
+            "upstream_error",
+            Option.flatMap(line.upstreamError, (upstream) => upstream.code),
+          ),
           ...noted("retry_after", line.retryAfter),
           ...usageAnnotations(line.usage),
-          ...(line.streamed
+          ...(streamedAnswer(line)
             ? {
                 headers_ms: line.headersAt - start,
                 ...noted(
@@ -188,6 +270,20 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         Effect.provideService(References.CurrentLogSpans, [["http.span", start]]),
       );
 
+    // Kept before the line is logged, so whoever sees the line finds the request kept.
+    const keep = (line: Noted) =>
+      Option.match(line.model, {
+        onNone: () => Effect.void,
+        onSome: (model) =>
+          Effect.flatMap(Clock.currentTimeMillis, (end) =>
+            history.record(entryOf(id, start, end, model, line)),
+          ).pipe(
+            Effect.catchCause((cause) =>
+              Effect.logWarning("Could not keep the request in the usage history", cause),
+            ),
+          ),
+      });
+
     const finish = Ref.modify(noting, (sofar): [Noted, Noted] => {
       const line = { ...sofar, pending: sofar.pending - 1 };
 
@@ -195,16 +291,21 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     }).pipe(
       // A host's health checks would drown out the requests.
       Effect.flatMap((line) =>
-        line.pending === 0 && line.logged && request.url !== "/healthz" ? log(line) : Effect.void,
+        line.pending === 0 && line.logged && request.url !== "/healthz"
+          ? Effect.andThen(keep(line), log(line))
+          : Effect.void,
       ),
     );
 
     const service = RequestLog.of({
       key: (key) => note({ key: Option.some(key) }),
-      asked: (model) => note({ model: Option.some(model) }),
+      asked: (model, stream) =>
+        note({ model: Option.some(model), streamAsked: Option.some(stream) }),
       served: (by, accountId) =>
         note({ servedBy: Option.some(by), accountId: Option.fromUndefinedOr(accountId) }),
-      refused: (code) => note({ error: Option.some(code) }),
+      refused: (code, message) =>
+        note({ error: Option.some(code), errorMessage: Option.some(message) }),
+      upstreamFailed: (error) => note({ upstreamError: Option.some(error) }),
       usage: (usage) => note({ usage: Option.some(usage) }),
       unlogged: note({ logged: false }),
       timed: (stream) =>

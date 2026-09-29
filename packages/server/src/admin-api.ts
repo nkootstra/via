@@ -11,6 +11,7 @@ import {
   OpencodeGoUnavailableError,
 } from "@via/providers/errors";
 import { ProviderState } from "@via/providers/schemas";
+import { UsageEntry } from "@via/usage/entry";
 import { Schema } from "effect";
 import {
   HttpApi,
@@ -261,6 +262,82 @@ export class AdminAuthorization extends HttpApiMiddleware.Service<AdminAuthoriza
   { security: { bearer, session }, error: [Unauthorized, Forbidden] },
 ) {}
 
+/** An integer, as a query parameter carries it, such as a time in epoch milliseconds. */
+const IntParam = Schema.FiniteFromString.check(Schema.isInt());
+
+/** What the usage history totals by. */
+const GroupBy = Schema.Literals(["model", "account", "key", "provider"]);
+
+/** The span of time a history query covers: from `from` up to, not including, `to`. */
+const HistoryRange = { from: IntParam, to: IntParam };
+
+/** Request and token counts; a sum is 0 where no request reported its usage. */
+const Totals = {
+  requests: Schema.Finite,
+  /** How many of `requests` reported their usage: the token sums leave the rest out. */
+  measured: Schema.Finite,
+  inputTokens: Schema.Finite,
+  cachedTokens: Schema.Finite,
+  outputTokens: Schema.Finite,
+  reasoningTokens: Schema.Finite,
+};
+
+/** The median and 95th percentile of a timing, in milliseconds; null without any. */
+const Percentiles = Schema.Struct({
+  p50: Schema.OptionFromNullOr(Schema.Finite),
+  p95: Schema.OptionFromNullOr(Schema.Finite),
+});
+
+/**
+ * What usage cost, in USD: what upstreams billed, and what the rest would have
+ * cost at API prices. `unpriced` names the models via knows no price for, whose
+ * tokens that leaves out.
+ */
+const Cost = Schema.Struct({
+  apiEquivalentUsd: Schema.Finite,
+  billedUsd: Schema.Finite,
+  unpriced: Schema.Array(Schema.String),
+});
+
+/** One group's usage in one hour or day. */
+const HistoryPoint = Schema.Struct({
+  /** When the hour or day starts, in epoch milliseconds. */
+  bucket: Schema.Finite,
+  group: Schema.String,
+  ...Totals,
+});
+
+/** The usage of the requests in a range, as a whole: `errors` counts the failed ones. */
+const HistoryTotals = Schema.Struct({
+  ...Totals,
+  /** Answered requests that reported no usage, which the token sums leave out. */
+  unmeasured: Schema.Finite,
+  errors: Schema.Finite,
+  firstChunkMs: Percentiles,
+  cost: Cost,
+});
+
+/** One group's usage over a range, and its name: the key's or account's as it is now. */
+const HistoryGroup = Schema.Struct({
+  group: Schema.String,
+  label: Schema.String,
+  ...HistoryTotals.fields,
+});
+
+const HistoryBreakdown = Schema.Struct({
+  /** The most requested first. */
+  groups: Schema.Array(HistoryGroup),
+  totals: HistoryTotals,
+});
+
+/** Where the next page of requests starts, when there is one. */
+const RequestCursor = Schema.Struct({ at: Schema.Finite, requestId: Schema.String });
+
+const RequestPage = Schema.Struct({
+  requests: Schema.Array(UsageEntry),
+  next: Schema.OptionFromNullOr(RequestCursor),
+});
+
 /** Signing in to the admin API with the admin key, for a browser. */
 class SessionGroup extends HttpApiGroup.make("session")
   .add(
@@ -392,6 +469,50 @@ class UsageGroup extends HttpApiGroup.make("usage")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
+/** Every request via kept in the last 90 days, totalled or one by one. */
+class UsageHistoryGroup extends HttpApiGroup.make("history")
+  .add(
+    HttpApiEndpoint.get("series", "/history/series", {
+      query: {
+        ...HistoryRange,
+        bucket: Schema.Literals(["hour", "day"]),
+        /** Minutes the viewer's clock is ahead of UTC, so their days start at midnight. */
+        tzOffsetMinutes: IntParam.check(Schema.isBetween({ minimum: -840, maximum: 840 })),
+        groupBy: GroupBy,
+      },
+      success: Schema.Struct({ points: Schema.Array(HistoryPoint) }),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("breakdown", "/history/breakdown", {
+      query: { ...HistoryRange, groupBy: GroupBy },
+      success: HistoryBreakdown,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("requests", "/history/requests", {
+      query: {
+        ...HistoryRange,
+        limit: Schema.optionalKey(IntParam.check(Schema.isBetween({ minimum: 1, maximum: 500 }))),
+        /** The `next` of the page before: the list goes on after that request. */
+        afterAt: Schema.optionalKey(IntParam),
+        afterId: Schema.optionalKey(Name),
+        model: Schema.optionalKey(Name),
+        accountId: Schema.optionalKey(Name),
+        keyId: Schema.optionalKey(Name),
+        outcome: Schema.optionalKey(Schema.Literals(["ok", "error"])),
+      },
+      success: RequestPage,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.delete("clear", "/history", {
+      success: Schema.Struct({ deleted: Schema.Finite }),
+    }),
+  )
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
 class PoolGroup extends HttpApiGroup.make("pool")
   .add(HttpApiEndpoint.get("get", "/pool", { success: Pool }))
   .middleware(AdminAuthorization)
@@ -418,6 +539,7 @@ export class AdminApi extends HttpApi.make("via-admin")
   .add(OpencodeGoGroup)
   .add(KeysGroup)
   .add(UsageGroup)
+  .add(UsageHistoryGroup)
   .add(PoolGroup)
   .add(ModelsGroup)
   .add(EventsGroup)

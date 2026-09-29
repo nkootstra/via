@@ -9,6 +9,7 @@ import { keepAlive } from "./keep-alive.ts";
 import { openAiError } from "./openai-error.ts";
 import { RequestLog } from "./request-log.ts";
 import { spotUsage, usageOf } from "./token-usage.ts";
+import { spotUpstreamError } from "./upstream-error.ts";
 
 const unreadable = openAiError(
   502,
@@ -51,20 +52,40 @@ export const collected = (
  * A response relaying `upstream`'s body through `relay` as it comes, with the
  * token usage it reports and the time of its first chunk noted in the
  * request's log line. An SSE body is kept alive through quiet spells.
+ *
+ * Whether the body is SSE is `sse` when given, else what its `content-type`
+ * says. Codex always streams SSE but labels it with no `content-type` at all,
+ * so its callers say so rather than read the header.
  */
 export const relayed = <E>(
   upstream: HttpClientResponse.HttpClientResponse,
-  options: { readonly status?: number; readonly contentType: string },
+  options: {
+    readonly status?: number;
+    readonly contentType: string;
+    readonly sse?: boolean;
+  },
   relay: (
     body: Stream.Stream<Uint8Array, HttpClientError.HttpClientError>,
   ) => Stream.Stream<Uint8Array, E>,
 ) =>
   Effect.gen(function* () {
     const log = yield* RequestLog;
-    const sse = (upstream.headers["content-type"] ?? "").includes("text/event-stream");
-    const relaying = relay(spotUsage(upstream.stream, sse, log.usage));
+
+    const sse =
+      options.sse ?? (upstream.headers["content-type"] ?? "").includes("text/event-stream");
+
+    // An error answer says why in its body; any other carries its usage.
+    const relaying = relay(
+      upstream.status >= 400
+        ? spotUpstreamError(upstream.stream, log.upstreamFailed)
+        : spotUsage(upstream.stream, sse, log.usage),
+    );
+
     // Timed outermost: the request log counts the stream from when the server starts it.
     const body = log.timed(sse ? keepAlive(relaying) : relaying);
 
-    return HttpServerResponse.stream(body, options);
+    return HttpServerResponse.stream(body, {
+      ...(options.status === undefined ? {} : { status: options.status }),
+      contentType: options.contentType,
+    });
   });

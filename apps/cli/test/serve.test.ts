@@ -146,7 +146,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       const via = yield* startVia(home, ["--port", "0"], env);
       yield* postResponses(via.url, key);
       expect(yield* via.output("Sent HTTP response")).toMatch(
-        /^timestamp=\S+ level=INFO fiber=#\d+ message="Sent HTTP response" http\.span=\d+ms request_id=[0-9a-f-]{36} http\.method=POST http\.url=\/v1\/responses http\.status=200 model=gpt-6-astra served_by=dev@example\.com input_tokens=10 output_tokens=2$/,
+        /^timestamp=\S+ level=INFO fiber=#\d+ message="Sent HTTP response" http\.span=\d+ms request_id=[0-9a-f-]{36} http\.method=POST http\.url=\/v1\/responses http\.status=200 key=\S+ model=gpt-6-astra served_by=dev@example\.com input_tokens=10 output_tokens=2$/,
       );
     }),
   );

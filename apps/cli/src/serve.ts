@@ -1,3 +1,4 @@
+import { UsageHistory } from "@via/usage";
 import { BunHttpServer } from "@effect/platform-bun";
 import { AccountPool, UsagePoll, UsageSnapshots } from "@via/account-pool";
 import { AccountTokens } from "@via/codex-auth";
@@ -99,19 +100,22 @@ const opencodeGoEnvironment = (
 };
 
 /**
- * `via serve`, reading `configPath` and keeping cooldowns in `statePath`.
+ * `via serve`, reading `configPath`, keeping cooldowns in `statePath` and the
+ * usage history in the SQLite database at `usageDbPath`.
  * `upstreamBaseUrl` replaces the Codex backend, which only tests do. With
  * `adminKey`, the admin API is served behind it, and `ui`, the admin UI, at `/ui`.
  */
 export const serve = ({
   configPath,
   statePath,
+  usageDbPath,
   upstreamBaseUrl,
   adminKey,
   ui,
 }: {
   readonly configPath: string;
   readonly statePath: string;
+  readonly usageDbPath: string;
   readonly upstreamBaseUrl: string | undefined;
   readonly adminKey: Redacted.Redacted<string> | undefined;
   readonly ui: EmbeddedUi;
@@ -139,6 +143,7 @@ export const serve = ({
             ui,
             opencodeGoEnvironment: opencodeGoEnvironment(config, keys),
             version,
+            prices: config.prices,
           }),
           UsagePoll.layer,
           importDeprecatedKey(config.providers, keys),
@@ -154,6 +159,7 @@ export const serve = ({
           Layer.provide(Layer.mergeAll(AccountPool.layer, OpencodeGoPool.layer)),
           Layer.provide(UsageSnapshots.layer),
           Layer.provide(PoolStates.layerFile(statePath)),
+          Layer.provide(UsageHistory.layer(usageDbPath)),
           Layer.provide(AccountTokens.layer),
           Layer.provide(
             CodexUpstream.layer({

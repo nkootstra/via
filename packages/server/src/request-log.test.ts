@@ -48,6 +48,24 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs a provider's answer the client didn't ask to stream without stream timings", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.json({ choices: [] }));
+
+        yield* (yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          messages: [],
+        })).text;
+
+        const { annotations } = yield* via.logged("Sent HTTP response");
+        expect(annotations).not.toHaveProperty("headers_ms");
+        expect(annotations).not.toHaveProperty("first_chunk_ms");
+        expect(annotations).not.toHaveProperty("stream_end");
+      }),
+    ),
+  );
+
   it.effect("logs a streamed answer that sent nothing without a first-chunk time", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

@@ -48,7 +48,7 @@ export const chatCompletions = authenticated(
 
     return yield* dispatch(toResponsesRequest(chat.value), session, (upstream) =>
       stream === true
-        ? relayed(upstream, { contentType: "text/event-stream" }, (events) =>
+        ? relayed(upstream, { contentType: "text/event-stream", sse: true }, (events) =>
             toChatStream(events, { includeUsage: stream_options?.include_usage === true }),
           )
         : collected(upstream, (response) =>

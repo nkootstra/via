@@ -29,7 +29,8 @@ layer(BunFileSystem.layer)("the fake Codex backend", (it) => {
       codex.script(reply.text("pong"));
       const answer = yield* post(codex.url, "acc-a");
       expect(answer.status).toBe(200);
-      expect(answer.headers["content-type"]).toContain("text/event-stream");
+      // As Codex's own stream: SSE, but not labelled as such.
+      expect(answer.headers["content-type"] ?? "").not.toContain("text/event-stream");
       expect(events(answer.text)).toEqual([
         "response.created",
         "response.in_progress",

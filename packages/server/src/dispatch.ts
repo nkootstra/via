@@ -7,12 +7,16 @@ import { ModelCatalog } from "./catalog.ts";
 import { openAiError } from "./openai-error.ts";
 import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
+import { upstreamErrorOf } from "./upstream-error.ts";
 
 const namesModel = Schema.is(Schema.Struct({ model: Schema.String }));
 
 /** The model a request body asks for, if it names one. */
 export const modelOf = (body: Schema.JsonObject) =>
   namesModel(body) ? Option.some(body.model) : Option.none();
+
+/** Whether a request body asks for its answer as a stream. */
+export const streams = Schema.is(Schema.Struct({ stream: Schema.Literal(true) }));
 
 /**
  * The answer once no `kind` of account can serve: 429 while some cool down,
@@ -48,7 +52,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
 
   const model = modelOf(body);
 
-  if (Option.isSome(model)) yield* log.asked(model.value);
+  if (Option.isSome(model)) yield* log.asked(model.value, streams(body));
 
   const allowed = Option.isSome(model)
     ? yield* (yield* ModelCatalog).mayServe(model.value)
@@ -109,6 +113,7 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     }
 
     yield* log.served(account.label, account.id);
+    yield* log.upstreamFailed(upstreamErrorOf(rejected.body));
 
     return HttpServerResponse.text(rejected.body, {
       status: rejected.status,

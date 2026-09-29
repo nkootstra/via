@@ -10,7 +10,7 @@ export const openAiError = (
   headers: Record<string, string> = {},
 ) =>
   Effect.gen(function* () {
-    yield* (yield* RequestLog).refused(code);
+    yield* (yield* RequestLog).refused(code, message);
 
     return HttpServerResponse.jsonUnsafe(
       {
