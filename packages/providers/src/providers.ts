@@ -27,8 +27,14 @@ import type { ProviderUsage } from "./schemas.ts";
  */
 export type Route = { provider: string; model: string; pooled: boolean };
 
-/** The paths via forwards to an OpenAI-compatible provider. */
-export type ProviderPath = "/chat/completions" | "/responses";
+/**
+ * The paths via forwards to an OpenAI-compatible provider, and Anthropic's
+ * Messages, which OpenCode Go serves some of its models in.
+ */
+export type ProviderPath = "/chat/completions" | "/responses" | "/messages";
+
+/** The Messages API version via speaks. */
+const ANTHROPIC_VERSION = "2023-06-01";
 
 /**
  * Where a provider wants the conversation's session id, so it can keep the
@@ -318,6 +324,13 @@ const make = (
         if (apiKey === undefined) return yield* Effect.die(`no API key for ${route.provider}`);
 
         const request = HttpClientRequest.post(path).pipe(
+          // Anthropic's SDK sends the key as `x-api-key`, and names the version it speaks.
+          path === "/messages"
+            ? HttpClientRequest.setHeaders({
+                "x-api-key": Redacted.value(apiKey),
+                "anthropic-version": ANTHROPIC_VERSION,
+              })
+            : identity,
           Predicate.isObject(provider.session)
             ? HttpClientRequest.setHeader(provider.session.header, session)
             : identity,

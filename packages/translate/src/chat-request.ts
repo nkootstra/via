@@ -95,6 +95,14 @@ export const ChatRequest = Schema.Struct({
   parallel_tool_calls: Schema.optionalKey(Schema.Boolean),
   response_format: Schema.optionalKey(ResponseFormat),
   reasoning_effort: Schema.optionalKey(Schema.String),
+  // Only a Messages request uses these; Codex takes none of them.
+  max_tokens: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  max_completion_tokens: Schema.optionalKey(Schema.NullOr(Schema.Int)),
+  temperature: Schema.optionalKey(Schema.NullOr(Schema.Finite)),
+  top_p: Schema.optionalKey(Schema.NullOr(Schema.Finite)),
+  stop: Schema.optionalKey(
+    Schema.NullOr(Schema.Union([Schema.String, Schema.Array(Schema.String)])),
+  ),
   stream: Schema.optionalKey(Schema.Boolean),
   stream_options: Schema.optionalKey(
     Schema.Struct({ include_usage: Schema.optionalKey(Schema.Boolean) }),

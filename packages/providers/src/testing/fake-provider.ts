@@ -133,6 +133,7 @@ export const startFakeProvider = Effect.gen(function* () {
   const routes = Layer.mergeAll(
     HttpRouter.add("POST", "/chat/completions", answer),
     HttpRouter.add("POST", "/responses", answer),
+    HttpRouter.add("POST", "/messages", answer),
     HttpRouter.add(
       "GET",
       "/models",

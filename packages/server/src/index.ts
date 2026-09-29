@@ -4,6 +4,7 @@ import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { adminRoutes, type OpencodeGoEnvironment } from "./admin.ts";
 import { chatCompletions } from "./chat-completions.ts";
 import { ModelCatalog } from "./catalog.ts";
+import { ModelProtocols } from "./model-protocols.ts";
 import { models } from "./models.ts";
 import { logRequest } from "./request-log.ts";
 import { responses } from "./responses.ts";
@@ -50,5 +51,9 @@ export const ViaServer = {
       // One line per request from `logRequest`, instead of Effect's; `via serve`
       // announces the address itself.
       { disableLogger: true, disableListenLog: true, middleware: logRequest },
-    ).pipe(Layer.provide(ModelCatalog.layer), Layer.provide(SessionBindings.layer)),
+    ).pipe(
+      Layer.provide(ModelCatalog.layer),
+      Layer.provide(SessionBindings.layer),
+      Layer.provide(ModelProtocols.layer),
+    ),
 };
