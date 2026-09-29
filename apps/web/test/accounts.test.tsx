@@ -11,7 +11,7 @@ import {
   createAdminState,
   opencodeGoAccount,
 } from "../src/testing/admin-handlers.ts";
-import { renderApp, server } from "./app.tsx";
+import { fakeClock, renderApp, server, skip } from "./app.tsx";
 import { openSource } from "./event-source.ts";
 
 const work = account({ id: "acc-1", label: "work", email: "me@work.example" });
@@ -280,14 +280,12 @@ describe("the accounts page", () => {
   });
 
   it("shows a stand-in table while the accounts load", async () => {
+    fakeClock();
     renderApp("/accounts", {}, [http.get("*/admin/accounts", () => delay("infinite"))]);
 
     // The router shows it once loading takes a moment, 1 s.
-    const codex = await screen.findByRole(
-      "region",
-      { name: "ChatGPT (Codex)" },
-      { timeout: 3_000 },
-    );
+    await skip(1_000);
+    const codex = await screen.findByRole("region", { name: "ChatGPT (Codex)" });
 
     expect(within(codex).getByRole("status").textContent).toBe("Loading accounts");
   });
@@ -420,6 +418,7 @@ describe("adding an account", () => {
 
   it("shows the code to enter, polls until the account is added, then says so", async () => {
     const added = account({ id: "acc-9", label: "new" });
+    fakeClock();
 
     const { user } = renderApp("/accounts", {
       nextLogin: [{ status: "pending" }, { status: "added", account: added }],
@@ -445,9 +444,8 @@ describe("adding an account", () => {
     ).toBe("https://auth.openai.com/codex/device");
 
     // The first poll says pending; the next, 2 s later, says added.
-    expect(
-      await screen.findByRole("dialog", { name: "Account added" }, { timeout: 4_000 }),
-    ).toBeDefined();
+    await skip(2_000);
+    expect(await screen.findByRole("dialog", { name: "Account added" })).toBeDefined();
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Add a ChatGPT account" })).toBeNull(),
     );

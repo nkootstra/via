@@ -1,11 +1,11 @@
 import { createMemoryHistory, RouterProvider } from "@tanstack/react-router";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import { AdminState as ViaState } from "@via/server/admin-api";
 import { Schema } from "effect";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
 import type { RequestHandler } from "msw";
 import { setupServer } from "msw/node";
-import { afterAll, afterEach, beforeAll } from "vitest";
+import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { createAppRouter } from "../src/router.tsx";
 import { adminHandlers, createAdminState, type AdminState } from "../src/testing/admin-handlers.ts";
 
@@ -37,6 +37,22 @@ export function renderApp(
 
   return { state, router, user };
 }
+
+/**
+ * Fakes the clock the router's and Query's waits run on (`setTimeout`,
+ * `setInterval` and `Date`), so that a test can `skip` a wait rather than sit
+ * it out in real time. The fake clock still moves with the real one, as
+ * Testing Library's own waits need; React's scheduler keeps its real timers.
+ * The setup puts the real clock back after each test.
+ */
+export const fakeClock = () =>
+  vi.useFakeTimers({
+    toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"],
+    shouldAdvanceTime: true,
+  });
+
+/** Moves the fake clock on by `ms` at once, running what falls due meanwhile. */
+export const skip = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 
 /**
  * Puts `state` in the page as via's shell does for a signed-in page: JSON in a

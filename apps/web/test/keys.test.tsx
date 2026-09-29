@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { renderApp } from "./app.tsx";
+import { fakeClock, renderApp, skip } from "./app.tsx";
 
 const laptop = {
   id: "key-1",
@@ -252,12 +252,12 @@ describe("the keys page", () => {
   });
 
   it("shows a stand-in table while the keys load", async () => {
+    fakeClock();
     renderApp("/keys", {}, [http.get("*/admin/keys", () => delay("infinite"))]);
 
     // The router shows it once loading takes a moment, 1 s.
-    expect((await screen.findByRole("status", {}, { timeout: 3_000 })).textContent).toBe(
-      "Loading keys",
-    );
+    await skip(1_000);
+    expect((await screen.findByRole("status")).textContent).toBe("Loading keys");
   });
 
   it("titles the empty state under the page's own heading", async () => {

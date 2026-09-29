@@ -16,5 +16,11 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     setupFiles: ["./test/setup.ts"],
+    // A test's waits may each take up to the setup's asyncUtilTimeout, 5 s,
+    // which vitest's default for the whole test, also 5 s, can't fit: a wait
+    // that ran out would fail as the test timing out, not with Testing
+    // Library's account of the page. Twice that fits one full wait and the
+    // rest of the test.
+    testTimeout: 10_000,
   },
 });

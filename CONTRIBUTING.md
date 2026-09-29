@@ -40,6 +40,14 @@ bun apps/cli/src/index.ts --help   # run the CLI from source
 
 Never use `bun test`; it's a different test runner.
 
+`bun run test` and `bun run check` run the packages' tests side by side, so
+they give each package two vitest workers (`VITEST_MAX_WORKERS=2`, which
+`turbo.json` passes through) rather than vitest's default of one per core less
+one. With the default, a ten-core machine ran up to nine test processes in each
+of ten packages at once, and on a busy machine tests timed out. Running one
+package's tests with `bun --bun vitest run` in its directory still uses every
+core.
+
 ### The web UI
 
 `apps/web` is the admin UI, which via serves at `/ui`. For a quick loop, run
