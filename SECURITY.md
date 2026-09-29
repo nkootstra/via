@@ -26,6 +26,8 @@ Examples of what's in scope:
   the admin key or a session.
 - Files in `~/.config/via` (or `$VIA_HOME`) created with permissions wider than
   owner-only.
+- A prompt, an answer or a secret ending up in the usage history
+  (`usage.db`), which keeps only what the README lists.
 - A client request that makes via send headers or requests to an upstream
   (Codex, OpenCode Go or a configured provider) that it didn't intend.
 

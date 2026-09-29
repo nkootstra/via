@@ -230,6 +230,10 @@ work on `/v1`.
 | `PATCH /admin/opencode-go/accounts/<id>`  | Change `label` and/or `enabled`; returns the key's account.                                       |
 | `DELETE /admin/opencode-go/accounts/<id>` | Forget an OpenCode Go key.                                                                        |
 | `GET /admin/usage`                        | How much of each account's limits is used.                                                        |
+| `GET /admin/history/series`               | Tokens per hour or day, by group (see [Usage history](#usage-history)).                           |
+| `GET /admin/history/breakdown`            | Requests, tokens, failures, latency and cost over a range, by group.                              |
+| `GET /admin/history/requests`             | The requests in a range, newest first, a page at a time.                                          |
+| `DELETE /admin/history`                   | Delete the whole usage history; answers `{"deleted": <count>}`.                                   |
 | `GET /admin/pool`                         | Each account's and provider's state (see below).                                                  |
 | `GET /admin/models`                       | The models `/v1/models` lists.                                                                    |
 | `GET /admin/events`                       | The admin state as server-sent events, as it changes.                                             |
@@ -360,10 +364,20 @@ its heading without their `<provider>/` prefix. Search matches every id.
 
 **Settings**, in the menu under **Admin** at the foot of the sidebar, holds the
 page's preferences: the theme (System, Light or Dark) and the time format
-(Automatic, 12-hour or 24-hour). Automatic writes times as the browser's
+(Automatic, 12-hour or 24-hour). It also deletes the whole
+[usage history](#usage-history), after asking; that one isn't a preference of
+the browser, so it's gone for every viewer. Automatic writes times as the browser's
 language does. Each choice applies at once, to every open tab, and is kept in
 that browser's local storage, not in via, so another browser starts from the
 defaults.
+
+The **Usage** page shows the [usage history](#usage-history): requests,
+tokens, cache hit rate, API-equivalent cost and time to first token (of
+streamed answers that didn't fail) over the
+last day, week, 30 or 90 days; tokens per hour or day, stacked by model,
+account or key; a table of each; and the requests themselves, newest first.
+Pick a model, account or key in its table to list only its requests. The page
+asks again every 15 seconds while it's open.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
@@ -477,6 +491,7 @@ via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set.
 | `auth/<id>.json`   | One account's OAuth tokens.                         |
 | `state.json`       | Running cooldowns; safe to delete.                  |
 | `opencode-go.json` | Your OpenCode Go API keys, as accounts.             |
+| `usage.db`         | The [usage history](#usage-history), in SQLite.     |
 
 `config.yaml`, with the defaults:
 
@@ -489,6 +504,29 @@ codex:
 ```
 
 `via serve --host` and `--port` override the file.
+
+### Model prices
+
+The [usage history](#usage-history) prices tokens with a snapshot of two
+price tables that ships with via: [models.dev](https://models.dev) for what
+OpenCode Go charges for each of its models, and
+[LiteLLM's](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)
+for the rest. For a model neither lists, or at another price, add it under
+`prices`, in USD per million tokens. `cachedInput` is optional: cached input
+costs what input does unless it's set. A price that grows past a long context
+is taken at its base rate.
+
+```yaml
+prices:
+  opencode-go/kimi-k3:
+    input: 0.6
+    cachedInput: 0.1
+    output: 2.5
+```
+
+A model is looked up as it's asked for, then without its `<provider>/` prefix,
+then without a reasoning-effort suffix such as `-high`, ignoring case; a price
+in `config.yaml` wins over the snapshot at each step.
 
 ### Providers
 
@@ -569,12 +607,13 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   the model spent reasoning, and `cost_usd` what the upstream says it billed,
   when it reports either (OpenRouter reports its cost). Absent usage stays
   absent, never a zero.
-- For a stream, `headers_ms` and `first_chunk_ms` say when its headers and first
-  chunk went out, and `stream_end` how it ended: `completed`, `client_aborted`
+- For an answer the client asked to stream, `headers_ms` and `first_chunk_ms`
+  say when its headers and first chunk went out, and `stream_end` how it ended: `completed`, `client_aborted`
   (the client went away first) or `failed` (it broke off, such as when the
   upstream dropped the connection).
 - For an error via answers itself, `error` is its code and `retry_after` the
-  seconds until an account frees up.
+  seconds until an account frees up. For an error the upstream answered,
+  `upstream_error` is the code it gave, such as `ModelProtocolUnsupported`.
 - A request the client gave up on before via answered is logged with
   `http.status=499`, as nginx does. The client never sees that status.
 - Opening a page of the [web UI](#web-ui) logs one line for the page; the
@@ -582,6 +621,39 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
 
 It also warns when an account cools down, is locked out, or has its token
 rejected, and says until when.
+
+### Usage history
+
+`via serve` keeps every request that asks for a model in `usage.db`, a SQLite
+database: when it came in, the API key's id and name, the model, the provider
+and account that served it, its status, why it failed if it did (the error
+code and message, via's own or the upstream's, the message cut to 500
+characters), its input, cached,
+output and reasoning tokens as the upstream reported them, any cost the
+upstream billed (OpenRouter reports one), and how long it took to answer and,
+for a streamed answer, to send its first chunk. It never keeps a prompt or an answer. Requests older
+than 90 days are deleted at startup and once a day after that.
+
+The [web UI](#web-ui)'s Usage page and the `/admin/history` routes of the
+[admin API](#admin-api) read it. Each takes a range, `from` and `to` in epoch
+milliseconds; `series` and `breakdown` also take `groupBy` (`model`,
+`account`, `key` or `provider`), and `series` takes a `bucket` (`hour` or
+`day`) and `tzOffsetMinutes`, so days start at your midnight. A request no
+account served, such as one to a plain provider, counts under
+`provider:<name>` when grouped by account.
+
+Cost is worked out when you ask, from the tokens and the [model prices](#model-prices),
+so a price change applies to old requests too:
+
+- A request whose upstream reported a cost counts at that cost, as billed.
+- Every other request counts at API prices, as the **API-equivalent cost**:
+  what its tokens would have cost pay-as-you-go. For a ChatGPT or OpenCode Go
+  subscription that's what the plan saved, not money spent.
+- A model with no known price is named rather than counted as free.
+
+Token totals leave out answered requests whose upstream reported no usage, and
+the page says how many. A failed request has no tokens to report, so it isn't
+counted there; the Requests list says why it failed.
 
 ### Tracing
 
@@ -598,6 +670,10 @@ each request it serves. The other standard variables work too:
   accounts.
 - OpenCode Go API keys are stored the same way, in plaintext in
   `opencode-go.json`, readable only by you.
+- The usage history, `usage.db`, holds API key names, account labels and
+  models, never prompts or answers, and is readable only by you. It does keep
+  an upstream's error message, cut to 500 characters, which could quote part
+  of a request the upstream refused.
 - API keys are stored only as SHA-256 hashes.
 - `VIA_ADMIN_KEY` can add, change and remove accounts and API keys. Keep it
   out of clients; only its SHA-256 hash is compared, in constant time.
