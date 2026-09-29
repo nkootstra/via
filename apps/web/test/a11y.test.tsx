@@ -5,16 +5,31 @@ import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
 import { renderApp } from "./app.tsx";
 
 /**
+ * The last audit started. axe runs one audit at a time and refuses a second
+ * while one is going, and a test that times out leaves its audit running, so
+ * each audit waits for the one before it rather than failing the next test.
+ */
+let lastAudit: Promise<unknown> = Promise.resolve();
+
+/**
  * What axe finds in `scope`, the whole document by default. happy-dom
  * computes no colours behind text, so contrast is left to a real browser.
  * Base UI's focus guards are aria-hidden yet tabbable by design: each hands
- * focus straight on to the popup or its trigger, and never keeps it.
+ * focus straight on to the popup or its trigger, and never keeps it. Only
+ * violations are read, so axe keeps no detail on what passed.
  */
 async function violations(scope: Element | Document = document) {
-  const found = await axe.run(
-    { include: [scope], exclude: [["[data-base-ui-focus-guard]"]] },
-    { rules: { "color-contrast": { enabled: false } } },
-  );
+  const audit = lastAudit
+    .catch(() => undefined)
+    .then(() =>
+      axe.run(
+        { include: [scope], exclude: [["[data-base-ui-focus-guard]"]] },
+        { resultTypes: ["violations"], rules: { "color-contrast": { enabled: false } } },
+      ),
+    );
+
+  lastAudit = audit;
+  const found = await audit;
 
   return found.violations.map(
     ({ id, help, nodes }) =>
@@ -97,7 +112,10 @@ const heading = (name: string) => screen.findByRole("heading", { level: 1, name 
 
 // An open popup is checked on its own: behind it, the page is hidden from
 // assistive tech, and its own test checks it.
-describe("accessibility", () => {
+// Each test may wait up to five seconds for its screen (the setup's
+// `asyncUtilTimeout`) and then audits it, which alone takes over a second on a
+// busy machine, so it needs more than vitest's default five-second budget.
+describe("accessibility", { timeout: 15_000 }, () => {
   it("the sign-in screen", async () => {
     renderApp("/sign-in", { signedIn: false });
     await heading("Sign in");
