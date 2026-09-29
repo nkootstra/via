@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Deferred, Effect, Fiber, FileSystem } from "effect";
+import { Deferred, Duration, Effect, Fiber, FileSystem } from "effect";
 import { TestClock } from "effect/testing";
 import { FileLockTimeoutError, withFileLock } from "./index.ts";
 
@@ -12,23 +12,25 @@ const tempFile = Effect.gen(function* () {
   return `${yield* fs.makeTempDirectoryScoped()}/data.json`;
 });
 
-/** Lets real time pass for pending file-system calls, then moves the test clock on a little. */
-const step = Effect.andThen(
-  TestClock.withLive(Effect.sleep("2 millis")),
-  TestClock.adjust("50 millis"),
-);
+/**
+ * Lets real time pass for pending file-system calls, then moves the test clock on by `by`. A
+ * waiter tries the lock once per step however long it is: it sleeps again only once it has tried.
+ */
+const step = (by: Duration.Input = "50 millis") =>
+  Effect.andThen(TestClock.withLive(Effect.sleep("2 millis")), TestClock.adjust(by));
 
 /**
- * Moves the test clock forward a `step` at a time until `fiber` is done; `tick` runs before each step.
+ * Moves the test clock forward a `step` of `by` at a time until `fiber` is done; `tick` runs
+ * before each step.
  */
 const advanceUntilDone = <A, E>(
   fiber: Fiber.Fiber<A, E>,
-  tick: Effect.Effect<void> = Effect.void,
+  { tick = Effect.void, by }: { tick?: Effect.Effect<void>; by?: Duration.Input } = {},
 ) =>
   Effect.gen(function* () {
     while (fiber.pollUnsafe() === undefined) {
       yield* tick;
-      yield* step;
+      yield* step(by);
     }
 
     return yield* Fiber.join(fiber);
@@ -82,7 +84,7 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
         Effect.sync(() => events.push("second")),
       ).pipe(Effect.forkChild);
 
-      yield* Effect.replicateEffect(step, 20, { discard: true });
+      yield* Effect.replicateEffect(step(), 20, { discard: true });
 
       expect(second.pollUnsafe()).toBeUndefined();
       yield* Deferred.succeed(release, undefined);
@@ -121,7 +123,10 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
 
       yield* touch;
       const waiting = yield* withFileLock(file, Effect.void).pipe(Effect.flip, Effect.forkChild);
-      const error = yield* advanceUntilDone(waiting, touch);
+      // A second at a time, well inside the 5 s after which a lock counts as stale: the waiter
+      // gives up after ten or so tries, not the two hundred that 50 ms steps take, each of them
+      // file-system calls that a loaded machine slows down.
+      const error = yield* advanceUntilDone(waiting, { tick: touch, by: "1 second" });
 
       expect(error).toEqual(new FileLockTimeoutError({ path: file }));
     }),
