@@ -34,11 +34,12 @@ import {
   Mark,
   ModelsIcon,
   OverviewIcon,
+  UsageIcon,
   SettingsIcon,
   SignOutIcon,
 } from "./icons.tsx";
 
-type Page = "/" | "/accounts" | "/keys" | "/models" | "/settings";
+type Page = "/" | "/usage" | "/accounts" | "/keys" | "/models" | "/settings";
 
 const pages: ReadonlyArray<{
   readonly to: Page;
@@ -46,6 +47,7 @@ const pages: ReadonlyArray<{
   readonly icon: ReactNode;
 }> = [
   { to: "/", label: "Overview", icon: <OverviewIcon /> },
+  { to: "/usage", label: "Usage", icon: <UsageIcon /> },
   { to: "/accounts", label: "Accounts", icon: <AccountsIcon /> },
   { to: "/keys", label: "Keys", icon: <KeyIcon /> },
   { to: "/models", label: "Models", icon: <ModelsIcon /> },

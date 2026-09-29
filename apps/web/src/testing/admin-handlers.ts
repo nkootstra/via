@@ -13,19 +13,22 @@ import {
   OpencodeGoAccountNotFoundError,
   OpencodeGoKeyRejectedError,
 } from "@via/providers/errors";
-import { Schema } from "effect";
+import { Option, Schema } from "effect";
 import type {
   Account,
   Key,
   LoginStatus,
+  HistoryBreakdown,
+  HistorySeries,
   Model,
   OpencodeGoAccount,
   Pool,
   Usage,
+  UsageRequest,
 } from "../api/types.ts";
 import { http, HttpResponse, type JsonBodyType, type PathParams } from "msw";
 
-const { accounts, opencodeGo, keys, usage, pool, models } = AdminApi.groups;
+const { accounts, opencodeGo, keys, usage, pool, models, history } = AdminApi.groups;
 
 type Encodable = Schema.Top & { readonly EncodingServices: never };
 
@@ -78,6 +81,14 @@ export interface AdminState {
   models: Array<Model>;
   /** Every request the fake received, as "METHOD /path". */
   readonly requests: Array<string>;
+  /** What `/admin/history/series` answers, whatever it is asked. */
+  historySeries: HistorySeries;
+  /** What `/admin/history/breakdown` answers, by what it groups by. */
+  historyBreakdown: ReadonlyMap<string, HistoryBreakdown>;
+  /** The requests `/admin/history/requests` pages through, newest first, filtered by model. */
+  historyRequests: Array<UsageRequest>;
+  /** The query of every history request the fake received, in order. */
+  readonly historyQueries: Array<URLSearchParams>;
 }
 
 export const account = (fields: Partial<Account> & Pick<Account, "id" | "label">): Account => ({
@@ -111,6 +122,10 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     usage: { accounts: [], opencodeGo: [], refreshing: false },
     models: [],
     requests: [],
+    historySeries: { points: [] },
+    historyBreakdown: new Map(),
+    historyRequests: [],
+    historyQueries: [],
     ...seed,
   };
 }
@@ -418,5 +433,74 @@ export function adminHandlers(state: AdminState) {
       at("/models"),
       guarded(() => ok(models.endpoints.list, state.models)),
     ),
+
+    http.get(
+      at("/history/series"),
+      guarded(({ request }) => {
+        state.historyQueries.push(new URL(request.url).searchParams);
+
+        return ok(history.endpoints.series, state.historySeries);
+      }),
+    ),
+    http.get(
+      at("/history/breakdown"),
+      guarded(({ request }) => {
+        const query = new URL(request.url).searchParams;
+        state.historyQueries.push(query);
+
+        return ok(
+          history.endpoints.breakdown,
+          state.historyBreakdown.get(query.get("groupBy") ?? "") ?? emptyBreakdown,
+        );
+      }),
+    ),
+    http.delete(
+      at("/history"),
+      guarded(() => {
+        const deleted = state.historyRequests.length;
+        state.historyRequests = [];
+        state.historySeries = { points: [] };
+        state.historyBreakdown = new Map();
+
+        return ok(history.endpoints.clear, { deleted });
+      }),
+    ),
+    http.get(
+      at("/history/requests"),
+      guarded(({ request }) => {
+        const query = new URL(request.url).searchParams;
+        state.historyQueries.push(query);
+        const model = query.get("model");
+        const limit = Number(query.get("limit") ?? "50");
+        const after = query.get("afterId");
+        const matching = state.historyRequests.filter((r) => model === null || r.model === model);
+        const start = after === null ? 0 : matching.findIndex((r) => r.requestId === after) + 1;
+        const page = matching.slice(start, start + limit);
+        const last = page.at(-1);
+
+        return ok(history.endpoints.requests, {
+          requests: page,
+          next:
+            start + limit < matching.length && last !== undefined
+              ? Option.some({ at: last.at, requestId: last.requestId })
+              : Option.none(),
+        });
+      }),
+    ),
   ];
 }
+
+const emptyTotals = {
+  requests: 0,
+  errors: 0,
+  measured: 0,
+  unmeasured: 0,
+  inputTokens: 0,
+  cachedTokens: 0,
+  outputTokens: 0,
+  reasoningTokens: 0,
+  firstChunkMs: { p50: Option.none(), p95: Option.none() },
+  cost: { apiEquivalentUsd: 0, billedUsd: 0, unpriced: [] },
+};
+
+const emptyBreakdown: HistoryBreakdown = { groups: [], totals: emptyTotals };

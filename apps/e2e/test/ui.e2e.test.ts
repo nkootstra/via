@@ -147,6 +147,28 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
       }),
   );
 
+  it.effect.runIf(withBinary)("shows a request it served on the usage page", () =>
+    Effect.gen(function* () {
+      const { via, codex } = yield* viaAndCodex;
+      codex.respond(() => reply.text("hi"));
+      const served = yield* post(via, "/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+      expect(served.status).toBe(200);
+
+      const { page, problems } = yield* openPage("usage");
+      yield* signIn(page, via.url);
+      yield* Effect.promise(() => page.getByRole("link", { name: "Usage" }).click());
+      yield* visible(page, "Usage");
+
+      const requests = page.getByRole("table", { name: "Requests" });
+      yield* Effect.promise(() => requests.getByText("gpt-5.1-codex").waitFor({ timeout: 10_000 }));
+      yield* Effect.promise(() =>
+        page.getByRole("figure", { name: "Tokens per hour" }).waitFor({ timeout: 10_000 }),
+      );
+
+      expect(problems).toEqual([]);
+    }),
+  );
+
   it.effect.runIf(withBinary)("shows a cooldown as Codex answers 429, without a reload", () =>
     Effect.gen(function* () {
       const { via, codex } = yield* viaAndCodex;
@@ -223,6 +245,15 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
         yield* Effect.promise(() => search.waitFor());
         const size = yield* Effect.promise(() => page.evaluate(searchFontSize));
         expect(size).toBeGreaterThanOrEqual(16);
+
+        // The usage page's charts and tables fit too, its tables scrolling on their own.
+        yield* post(via, "/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+        yield* Effect.promise(() => page.goto(`${via.url}/ui/usage`));
+        yield* Effect.promise(() =>
+          page.getByRole("table", { name: "Requests" }).waitFor({ timeout: 10_000 }),
+        );
+        expect(yield* Effect.promise(() => page.evaluate(scrollsSideways))).toBe(false);
+        expect(yield* Effect.promise(() => page.evaluate(radiosOnScreen))).toBe(true);
 
         // Every setting's choices fit across the screen, whole.
         yield* Effect.promise(() => page.goto(`${via.url}/ui/settings`));

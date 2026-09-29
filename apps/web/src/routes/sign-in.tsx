@@ -15,7 +15,9 @@ import { countdown, useNow } from "../lib/time.ts";
 const LOCKOUT_MS = 60_000;
 
 const Search = Schema.Struct({
-  redirect: Schema.optional(Schema.Literals(["/", "/accounts", "/keys", "/models", "/settings"])),
+  redirect: Schema.optional(
+    Schema.Literals(["/", "/usage", "/accounts", "/keys", "/models", "/settings"]),
+  ),
   // Set when via ended the session, so the page says why the viewer is back here.
   expired: Schema.optional(Schema.Boolean),
 });

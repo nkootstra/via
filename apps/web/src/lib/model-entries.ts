@@ -22,10 +22,17 @@ export interface ModelEntry {
  * Who serves a model, from its id: via names a provider's models `<provider>/<model>`,
  * and Codex's have no prefix. `owned_by` is the provider's own say, so it can't be trusted.
  */
-const ownerOf = (id: string) => {
+export const ownerOf = (id: string) => {
   const slash = id.indexOf("/");
 
   return slash > 0 ? id.slice(0, slash) : "Codex";
+};
+
+/** A model's id without its provider's `<provider>/` prefix, as the pages show it. */
+export const withoutPrefix = (id: string) => {
+  const owner = ownerOf(id);
+
+  return owner === "Codex" ? id : id.slice(owner.length + 1);
 };
 
 /**
@@ -58,7 +65,7 @@ export const modelEntries = (models: ReadonlyArray<Model>): ReadonlyArray<ModelE
       {
         model,
         owner,
-        name: owner === "Codex" ? model.id : model.id.slice(owner.length + 1),
+        name: withoutPrefix(model.id),
         efforts: picked,
         ids: [model.id, ...picked.map((effort) => `${model.id}-${effort}`)],
       },
