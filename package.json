@@ -34,14 +34,14 @@
     "prepare": "effect-tsgo patch --typescript --no-oxlint",
     "build": "turbo run build",
     "smoke": "turbo run smoke",
-    "test": "turbo run test",
+    "test": "VITEST_MAX_WORKERS=2 turbo run test",
     "typecheck": "turbo run typecheck",
     "lint": "oxlint --deny-warnings",
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "knip": "knip",
     "prices:update": "bun run --cwd packages/usage prices:update",
-    "check": "oxlint --deny-warnings && oxfmt --check && knip && turbo run typecheck test"
+    "check": "oxlint --deny-warnings && oxfmt --check && knip && VITEST_MAX_WORKERS=2 turbo run typecheck test"
   },
   "devDependencies": {
     "@effect/tsgo": "0.45.0",
