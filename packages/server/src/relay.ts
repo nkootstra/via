@@ -63,6 +63,8 @@ export const relayed = <E>(
     readonly status?: number;
     readonly contentType: string;
     readonly sse?: boolean;
+    /** False when `relay` reports the usage itself, from a body via can't read it in. */
+    readonly spotUsage?: boolean;
   },
   relay: (
     body: Stream.Stream<Uint8Array, HttpClientError.HttpClientError>,
@@ -78,7 +80,9 @@ export const relayed = <E>(
     const relaying = relay(
       upstream.status >= 400
         ? spotUpstreamError(upstream.stream, log.upstreamFailed)
-        : spotUsage(upstream.stream, sse, log.usage),
+        : options.spotUsage === false
+          ? upstream.stream
+          : spotUsage(upstream.stream, sse, log.usage),
     );
 
     // Timed outermost: the request log counts the stream from when the server starts it.

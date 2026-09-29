@@ -1,24 +1,16 @@
-import {
-  ChatRequest,
-  CompletedResponse,
-  toChatCompletion,
-  toChatStream,
-  toResponsesRequest,
-} from "@via/translate";
+import { ChatRequest, toResponsesRequest } from "@via/translate";
 import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/unstable/http";
 import { authenticated } from "./authenticated.ts";
 import { dispatch, modelOf } from "./dispatch.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
-import { collected, relayed } from "./relay.ts";
+import { chatFromResponses } from "./chat-answer.ts";
 import { resolveSession } from "./session.ts";
 import { withSharedPrefix } from "./shared-prefix.ts";
 
 const decodeChat = Schema.decodeUnknownEffect(ChatRequest);
-
-const decodeCompleted = Schema.decodeUnknownEffect(CompletedResponse);
 
 const invalid = openAiError(400, "invalid_request", "The request is not a valid chat completion");
 
@@ -44,18 +36,8 @@ export const chatCompletions = authenticated(
 
     if (Option.isNone(chat)) return yield* invalid;
 
-    const { stream, stream_options } = chat.value;
-
     return yield* dispatch(toResponsesRequest(chat.value), session, (upstream) =>
-      stream === true
-        ? relayed(upstream, { contentType: "text/event-stream", sse: true }, (events) =>
-            toChatStream(events, { includeUsage: stream_options?.include_usage === true }),
-          )
-        : collected(upstream, (response) =>
-            decodeCompleted(response).pipe(
-              Effect.map((completed) => HttpServerResponse.jsonUnsafe(toChatCompletion(completed))),
-            ),
-          ),
+      chatFromResponses(upstream, chat.value),
     );
   }),
 );

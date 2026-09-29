@@ -561,8 +561,19 @@ Prefix a model with the provider's name to use it, as in
 `openrouter/qwen/qwen3-coder` or `opencode-go/kimi-k3`. via passes
 `/v1/chat/completions` and `/v1/responses` requests on as they are, with only
 the prefix taken off the model, and passes the provider's answer back the same
-way, errors included. Models OpenCode Go serves only through Anthropic's
-`/messages` API don't work through via. `/v1/models` lists every provider's
+way, errors included.
+
+OpenCode Go serves each model in one API of its own choosing: Chat
+Completions, the Responses API, or Anthropic's Messages, and refuses a
+request in another with `ModelProtocolUnsupported`. For a
+`/v1/chat/completions` request, via then asks again in the next of those,
+translating the request and the answer, streamed or not, tool calls and
+usage included, and remembers which one the model answered in, so later
+requests go straight there. A restart forgets, at the cost of one refused
+request per model. A `/v1/responses` request still goes only as it came, so
+a model OpenCode Go serves only in Chat Completions or Messages refuses it.
+
+`/v1/models` lists every provider's
 models with their prefix and the details the provider gives, such as
 `context_length`; a provider that can't be reached is left out, as is OpenCode
 Go while none of its accounts is enabled.
