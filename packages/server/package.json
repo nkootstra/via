@@ -15,10 +15,12 @@
     "@via/account-pool": "workspace:*",
     "@via/codex-auth": "workspace:*",
     "@via/codex-upstream": "workspace:*",
+    "@via/config": "workspace:*",
     "@via/keys": "workspace:*",
     "@via/pool": "workspace:*",
     "@via/providers": "workspace:*",
     "@via/translate": "workspace:*",
+    "@via/usage": "workspace:*",
     "effect": "catalog:"
   },
   "devDependencies": {

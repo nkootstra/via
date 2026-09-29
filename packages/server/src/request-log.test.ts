@@ -36,6 +36,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
             "http.method": "POST",
             "http.url": "/v1/chat/completions",
             "http.status": 200,
+            key: "test",
             model: "opencode-go/kimi-k3",
             served_by: "go-1",
             headers_ms: expect.any(Number),
@@ -43,6 +44,24 @@ layer(BunFileSystem.layer)("request log", (it) => {
             stream_end: "completed",
           },
         });
+      }),
+    ),
+  );
+
+  it.effect("logs a provider's answer the client didn't ask to stream without stream timings", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.json({ choices: [] }));
+
+        yield* (yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          messages: [],
+        })).text;
+
+        const { annotations } = yield* via.logged("Sent HTTP response");
+        expect(annotations).not.toHaveProperty("headers_ms");
+        expect(annotations).not.toHaveProperty("first_chunk_ms");
+        expect(annotations).not.toHaveProperty("stream_end");
       }),
     ),
   );
@@ -212,6 +231,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
             "http.method": "POST",
             "http.url": "/v1/responses",
             "http.status": 200,
+            key: "test",
             model: "gpt-6-astra",
             served_by: "a@example.com",
             input_tokens: 10,
@@ -245,6 +265,36 @@ layer(BunFileSystem.layer)("request log", (it) => {
           input_tokens: 10,
           output_tokens: 2,
           cached_tokens: 4,
+        });
+      }),
+    ),
+  );
+
+  it.effect("logs the reasoning tokens and cost a provider reports", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.json({
+            choices: [],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 8,
+              total_tokens: 18,
+              completion_tokens_details: { reasoning_tokens: 6 },
+              cost: 0.00042,
+            },
+          }),
+        );
+
+        yield* (yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          messages: [],
+        })).text;
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 10,
+          output_tokens: 8,
+          reasoning_tokens: 6,
+          cost_usd: 0.00042,
         });
       }),
     ),
@@ -432,6 +482,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
             "http.method": "POST",
             "http.url": "/v1/responses",
             "http.status": 429,
+            key: "test",
             model: "gpt-6-astra",
             error: "rate_limit_exceeded",
             retry_after: "120",
@@ -446,6 +497,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
               "http.method": "POST",
               "http.url": "/v1/chat/completions",
               "http.status": 429,
+              key: "test",
               model: "gpt-6-sol",
               error: "rate_limit_exceeded",
               retry_after: "120",

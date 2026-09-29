@@ -20,6 +20,7 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
         port: 8317,
         codex: { cloak: true },
         providers: {},
+        prices: {},
       });
     }),
   );
@@ -34,6 +35,7 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
         port: 9000,
         codex: { cloak: false },
         providers: {},
+        prices: {},
       });
     }),
   );
@@ -63,6 +65,41 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
           sessionHeader: "x-litellm-session-id",
         },
       });
+    }),
+  );
+
+  it.effect("reads model prices, in USD per million tokens", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = yield* tempFile("config.yaml");
+      yield* fs.writeFileString(
+        file,
+        [
+          "prices:",
+          "  opencode-go/kimi-k3:",
+          "    input: 0.6",
+          "    cachedInput: 0.1",
+          "    output: 2.5",
+          "  local/llama:",
+          "    input: 0",
+          "    output: 0",
+          "",
+        ].join("\n"),
+      );
+      expect((yield* loadConfig(file)).prices).toEqual({
+        "opencode-go/kimi-k3": { input: 0.6, cachedInput: 0.1, output: 2.5 },
+        "local/llama": { input: 0, output: 0 },
+      });
+    }),
+  );
+
+  it.effect("rejects a negative price", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = yield* tempFile("config.yaml");
+      yield* fs.writeFileString(file, "prices:\n  m:\n    input: -1\n    output: 1\n");
+      const error = yield* Effect.flip(loadConfig(file));
+      expect(error).toBeInstanceOf(InvalidConfigError);
     }),
   );
 

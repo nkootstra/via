@@ -1,3 +1,4 @@
+import type { ModelPrice } from "@via/config";
 import { Effect, Layer, type Redacted } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
 import { adminRoutes, type OpencodeGoEnvironment } from "./admin.ts";
@@ -27,6 +28,8 @@ export const ViaServer = {
     readonly opencodeGoEnvironment?: OpencodeGoEnvironment | undefined;
     /** The running via's version, which the admin UI compares with its own. */
     readonly version: string;
+    /** Model prices from config.yaml, over those via ships with, for the usage history's costs. */
+    readonly prices?: Readonly<Record<string, ModelPrice>> | undefined;
   }) =>
     HttpRouter.serve(
       Layer.mergeAll(
@@ -41,6 +44,7 @@ export const ViaServer = {
           ui: options.ui,
           opencodeGoEnvironment: options.opencodeGoEnvironment,
           version: options.version,
+          prices: options.prices ?? {},
         }),
       ),
       // One line per request from `logRequest`, instead of Effect's; `via serve`

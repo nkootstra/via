@@ -7,47 +7,75 @@ export interface TokenUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cachedTokens?: number;
+  /** The part of `outputTokens` the model spent reasoning. */
+  readonly reasoningTokens?: number;
+  /** What the upstream says it billed, in USD, as OpenRouter reports in `usage.cost`. */
+  readonly costUsd?: number;
 }
 
 const ChatUsage = Schema.Struct({
   prompt_tokens: Schema.Finite,
   completion_tokens: Schema.Finite,
   prompt_tokens_details: Schema.optionalKey(
-    Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) }),
+    Schema.NullOr(Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) })),
+  ),
+  completion_tokens_details: Schema.optionalKey(
+    Schema.NullOr(Schema.Struct({ reasoning_tokens: Schema.optionalKey(Schema.Finite) })),
   ),
 });
+
+const ReportedCost = Schema.Struct({ cost: Schema.Finite });
 
 const isResponsesUsage = Schema.is(ResponsesUsage);
 
 const isChatUsage = Schema.is(ChatUsage);
 
-const withCached = (
-  usage: { inputTokens: number; outputTokens: number },
-  cachedTokens: number | undefined,
-): TokenUsage => (cachedTokens === undefined ? usage : { ...usage, cachedTokens });
+const isReportedCost = Schema.is(ReportedCost);
+
+/** The counts every usage object has, with the optional ones only when reported. */
+const tokenUsage = (
+  inputTokens: number,
+  outputTokens: number,
+  optional: {
+    readonly cachedTokens: number | undefined;
+    readonly reasoningTokens: number | undefined;
+    readonly costUsd: number | undefined;
+  },
+): TokenUsage => ({
+  inputTokens,
+  outputTokens,
+  ...(optional.cachedTokens === undefined ? {} : { cachedTokens: optional.cachedTokens }),
+  ...(optional.reasoningTokens === undefined ? {} : { reasoningTokens: optional.reasoningTokens }),
+  ...(optional.costUsd === undefined ? {} : { costUsd: optional.costUsd }),
+});
 
 /**
  * Reads token counts out of a Responses `usage` object
- * (`input_tokens`/`output_tokens`/`input_tokens_details.cached_tokens`) or a
- * Chat Completions one (`prompt_tokens`/`completion_tokens`/
- * `prompt_tokens_details.cached_tokens`). Anything else is absent, not zero.
+ * (`input_tokens`/`output_tokens`, with `cached_tokens` and `reasoning_tokens`
+ * in their details) or a Chat Completions one (`prompt_tokens`/
+ * `completion_tokens`, likewise), plus the `cost` an upstream such as
+ * OpenRouter adds. Anything else is absent, not zero.
  */
 export const usageOf = (usage: Schema.Json | undefined): Option.Option<TokenUsage> => {
+  const costUsd = isReportedCost(usage) ? usage.cost : undefined;
+
   if (isResponsesUsage(usage)) {
     return Option.some(
-      withCached(
-        { inputTokens: usage.input_tokens, outputTokens: usage.output_tokens },
-        usage.input_tokens_details?.cached_tokens,
-      ),
+      tokenUsage(usage.input_tokens, usage.output_tokens, {
+        cachedTokens: usage.input_tokens_details?.cached_tokens,
+        reasoningTokens: usage.output_tokens_details?.reasoning_tokens,
+        costUsd,
+      }),
     );
   }
 
   if (isChatUsage(usage)) {
     return Option.some(
-      withCached(
-        { inputTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens },
-        usage.prompt_tokens_details?.cached_tokens,
-      ),
+      tokenUsage(usage.prompt_tokens, usage.completion_tokens, {
+        cachedTokens: usage.prompt_tokens_details?.cached_tokens,
+        reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+        costUsd,
+      }),
     );
   }
 

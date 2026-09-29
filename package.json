@@ -23,8 +23,11 @@
       "vite": "8.3.0",
       "effect": "4.0.0-rc.117",
       "@effect/platform-bun": "4.0.0-rc.117",
+      "@effect/sql-sqlite-bun": "4.0.0-rc.117",
       "@effect/vitest": "4.0.0-rc.117",
-      "vitest": "^5.0.1"
+      "vitest": "^5.0.1",
+      "recharts": "3.10.1",
+      "react-is": "19.3.0"
     }
   },
   "scripts": {
@@ -37,6 +40,7 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "knip": "knip",
+    "prices:update": "bun run --cwd packages/usage prices:update",
     "check": "oxlint --deny-warnings && oxfmt --check && knip && turbo run typecheck test"
   },
   "devDependencies": {

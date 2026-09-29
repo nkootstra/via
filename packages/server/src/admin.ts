@@ -1,4 +1,5 @@
 import { AccountNotFoundError, AccountStore } from "@via/codex-auth";
+import type { ModelPrice } from "@via/config";
 import { KeyStore } from "@via/keys";
 import { OpencodeGoAccountNotFoundError, OpencodeGoAccounts, Providers } from "@via/providers";
 import { createHash } from "node:crypto";
@@ -16,6 +17,7 @@ import {
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar, OpenApi } from "effect/unstable/httpapi";
 import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
+import { history } from "./admin-history.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
 import { hasLiveSession, signOutAll, staleSessionCookies } from "./session-cookie.ts";
 import {
@@ -363,11 +365,13 @@ export const adminRoutes = ({
   ui,
   opencodeGoEnvironment,
   version,
+  prices,
 }: {
   readonly adminKey: Redacted.Redacted<string> | undefined;
   readonly ui: EmbeddedUi | undefined;
   readonly opencodeGoEnvironment: OpencodeGoEnvironment | undefined;
   readonly version: string;
+  readonly prices: Readonly<Record<string, ModelPrice>>;
 }) =>
   Layer.unwrap(
     Effect.gen(function* () {
@@ -384,6 +388,7 @@ export const adminRoutes = ({
             opencodeGo(opencodeGoEnvironment),
             keys,
             usage,
+            history(prices),
             pool,
             models,
             events({ environment: opencodeGoEnvironment, version }),

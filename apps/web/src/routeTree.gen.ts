@@ -16,6 +16,7 @@ import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 import { Route as AppKeysRouteImport } from './routes/_app/keys'
 import { Route as AppModelsRouteImport } from './routes/_app/models'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
+import { Route as AppUsageRouteImport } from './routes/_app/usage'
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
@@ -51,6 +52,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppUsageRoute = AppUsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => AppRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -59,6 +65,7 @@ export interface FileRoutesByFullPath {
   '/keys': typeof AppKeysRoute
   '/models': typeof AppModelsRoute
   '/settings': typeof AppSettingsRoute
+  '/usage': typeof AppUsageRoute
 }
 export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
@@ -66,6 +73,7 @@ export interface FileRoutesByTo {
   '/keys': typeof AppKeysRoute
   '/models': typeof AppModelsRoute
   '/settings': typeof AppSettingsRoute
+  '/usage': typeof AppUsageRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -76,13 +84,28 @@ export interface FileRoutesById {
   '/_app/keys': typeof AppKeysRoute
   '/_app/models': typeof AppModelsRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/usage': typeof AppUsageRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/sign-in' | '/accounts' | '/keys' | '/models' | '/settings'
+  fullPaths:
+    | '/'
+    | '/sign-in'
+    | '/accounts'
+    | '/keys'
+    | '/models'
+    | '/settings'
+    | '/usage'
   fileRoutesByTo: FileRoutesByTo
-  to: '/sign-in' | '/accounts' | '/keys' | '/models' | '/settings' | '/'
+  to:
+    | '/sign-in'
+    | '/accounts'
+    | '/keys'
+    | '/models'
+    | '/settings'
+    | '/usage'
+    | '/'
   id:
     | '__root__'
     | '/_app'
@@ -91,6 +114,7 @@ export interface FileRouteTypes {
     | '/_app/keys'
     | '/_app/models'
     | '/_app/settings'
+    | '/_app/usage'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
@@ -150,6 +174,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/usage': {
+      id: '/_app/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof AppUsageRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -158,6 +189,7 @@ interface AppRouteChildren {
   AppKeysRoute: typeof AppKeysRoute
   AppModelsRoute: typeof AppModelsRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppUsageRoute: typeof AppUsageRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -166,6 +198,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppKeysRoute: AppKeysRoute,
   AppModelsRoute: AppModelsRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppUsageRoute: AppUsageRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

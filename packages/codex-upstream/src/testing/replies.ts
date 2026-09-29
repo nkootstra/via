@@ -16,7 +16,8 @@ export type CodexRequest = {
 export type Plan = {
   status: number;
   headers: Record<string, string>;
-  contentType: string;
+  /** None for a stream: Codex sends its SSE stream without a `content-type`. */
+  contentType?: string;
   /** SSE frames, or a single JSON body for an error. */
   chunks: ReadonlyArray<string>;
   /**
@@ -31,11 +32,13 @@ export type Plan = {
 /** How the fake answers one request. */
 export type Reply = (request: CodexRequest) => Plan;
 
-/** Each event is its own chunk, so a reply can be cut off between any two. */
+/**
+ * Each event is its own chunk, so a reply can be cut off between any two. Like
+ * Codex, the stream has no `content-type`, so nothing may rely on one.
+ */
 const stream = (events: ReadonlyArray<CodexEvent>): Plan => ({
   status: 200,
   headers: {},
-  contentType: "text/event-stream",
   chunks: events.map((event, index) => sse([{ ...event, sequence_number: index }])),
   ending: "close",
 });

@@ -174,3 +174,24 @@ export const formatTimestamp = (iso: string, format: TimeFormat) =>
 /** A clock time with its weekday, for a reset or a cooldown's end, the hour as `format` asks. */
 export const formatTime = (iso: string, format: TimeFormat) =>
   timeFormat(format).format(new Date(iso));
+
+const hourFormat = formatter({ hour: "numeric", minute: "2-digit" });
+
+const dayFormat = new Intl.DateTimeFormat(undefined, { month: "short", day: "numeric" });
+
+const momentFormat = formatter({
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+  second: "2-digit",
+});
+
+/** A chart's hour, "14:00" or "2:00 PM", the hour as `format` asks. */
+export const formatHour = (at: number, format: TimeFormat) => hourFormat(format).format(at);
+
+/** A chart's day, "Sep 27", as the viewer's locale writes it. */
+export const formatDay = (at: number) => dayFormat.format(at);
+
+/** When a request came in, "Sep 27, 14:05:09", the hour as `format` asks. */
+export const formatMoment = (at: number, format: TimeFormat) => momentFormat(format).format(at);

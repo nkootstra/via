@@ -11,6 +11,9 @@
     "packages/ui": {
       "entry": ["test/build-fixture/main.tsx"],
       "includeEntryExports": false
+    },
+    "packages/usage": {
+      "entry": ["scripts/update-prices.ts"]
     }
   },
   "ignoreDependencies": ["@effect/language-service"],

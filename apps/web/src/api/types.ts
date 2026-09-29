@@ -25,3 +25,13 @@ export type PoolAccount = Pool["accounts"][number];
 export type PoolProvider = Pool["providers"][number];
 
 export type Model = SuccessOf<Groups["models"]["endpoints"]["list"]>[number];
+
+export type HistorySeries = SuccessOf<Groups["history"]["endpoints"]["series"]>;
+
+export type HistoryBreakdown = SuccessOf<Groups["history"]["endpoints"]["breakdown"]>;
+
+export type HistoryGroup = HistoryBreakdown["groups"][number];
+
+export type RequestPage = SuccessOf<Groups["history"]["endpoints"]["requests"]>;
+
+export type UsageRequest = RequestPage["requests"][number];

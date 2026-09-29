@@ -1,4 +1,6 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
+import type { ModelPrice } from "@via/config";
+import { UsageHistory } from "@via/usage";
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { AccountPool, UsageSnapshots } from "@via/account-pool";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
@@ -92,6 +94,8 @@ export type Via = {
   readonly logged: (text: string) => Effect.Effect<LogLine>;
   /** Every line via logged so far. */
   readonly logs: ReadonlyArray<LogLine>;
+  /** The usage history via keeps its requests in. */
+  readonly usage: UsageHistory["Service"];
 };
 
 /** A line via logged, with the labels of its log spans. */
@@ -152,6 +156,8 @@ const collectLogs = () => {
  * behind that key, and with `ui` as well, the admin UI. Device-code logins
  * go to the fake issuer, with its `pendingPolls` and `interval`. With
  * `maxResponseBytes`, via reads that much of a Codex stream at most, not 128 MiB.
+ * Requests are kept in an in-memory usage history, or in `history`'s, and
+ * priced with `prices` over those via ships with.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -175,6 +181,8 @@ export const withVia = <A, E>(
     opencodeGoKeys = ["sk-provider"],
     opencodeGoVariable,
     maxResponseBytes,
+    history = UsageHistory.layerMemory,
+    prices,
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
     opencodeGoKeys?: ReadonlyArray<string>;
@@ -184,6 +192,8 @@ export const withVia = <A, E>(
     adminKey?: string;
     ui?: EmbeddedUi;
     maxResponseBytes?: number;
+    history?: Layer.Layer<UsageHistory, unknown>;
+    prices?: Readonly<Record<string, ModelPrice>>;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -245,6 +255,7 @@ export const withVia = <A, E>(
         adminKey: adminKey === undefined ? undefined : Redacted.make(adminKey),
         ui,
         version: "1.2.3-test",
+        prices,
         opencodeGoEnvironment:
           opencodeGoVariable === undefined
             ? undefined
@@ -263,6 +274,7 @@ export const withVia = <A, E>(
             ? Layer.empty
             : Layer.succeed(MaxResponseBytes, maxResponseBytes),
         ),
+        Layer.provideMerge(history),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(Layer.succeedContext(built)),
       ),
@@ -322,6 +334,7 @@ export const withVia = <A, E>(
         provider,
         logged: logs.logged,
         logs: logs.lines,
+        usage: yield* UsageHistory,
       });
     }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
   });

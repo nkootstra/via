@@ -51,6 +51,34 @@ describe("usageOf", () => {
     ).toEqual(Option.some({ inputTokens: 10, outputTokens: 2, cachedTokens: 4 }));
   });
 
+  it("reads a Responses usage object's reasoning tokens", () => {
+    expect(
+      usageOf({
+        input_tokens: 10,
+        output_tokens: 8,
+        total_tokens: 18,
+        output_tokens_details: { reasoning_tokens: 6 },
+      }),
+    ).toEqual(Option.some({ inputTokens: 10, outputTokens: 8, reasoningTokens: 6 }));
+  });
+
+  it("reads a Chat Completions usage object's reasoning tokens", () => {
+    expect(
+      usageOf({
+        prompt_tokens: 10,
+        completion_tokens: 8,
+        total_tokens: 18,
+        completion_tokens_details: { reasoning_tokens: 6 },
+      }),
+    ).toEqual(Option.some({ inputTokens: 10, outputTokens: 8, reasoningTokens: 6 }));
+  });
+
+  it("reads the cost an upstream such as OpenRouter reports, in USD", () => {
+    expect(
+      usageOf({ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12, cost: 0.00042 }),
+    ).toEqual(Option.some({ inputTokens: 10, outputTokens: 2, costUsd: 0.00042 }));
+  });
+
   it("is absent for a value that isn't a usage object", () => {
     expect(usageOf(undefined)).toEqual(Option.none());
     expect(usageOf({ input_tokens: 10 })).toEqual(Option.none());

@@ -47,7 +47,7 @@ const respond = (plan: Plan, hungUp: Effect.Effect<void>) =>
     return HttpServerResponse.stream(body, {
       status: plan.status,
       headers: plan.headers,
-      contentType: plan.contentType,
+      ...(plan.contentType === undefined ? {} : { contentType: plan.contentType }),
     });
   });
 

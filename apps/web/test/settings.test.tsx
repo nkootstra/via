@@ -1,4 +1,5 @@
-import { screen, within } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
+import { Option } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "./app.tsx";
 
@@ -48,5 +49,54 @@ describe("the settings", () => {
     await screen.findByRole("heading", { name: "Settings", level: 1 });
 
     expect(document.title).toBe("Settings · via");
+  });
+});
+
+describe("deleting the usage history", () => {
+  const kept = {
+    requestId: "r1",
+    at: 0,
+    status: 200,
+    error: Option.none(),
+    errorMessage: Option.none(),
+    streamEnd: Option.none(),
+    keyId: Option.none(),
+    keyName: Option.none(),
+    model: "gpt-6-astra",
+    provider: "codex",
+    accountId: Option.none(),
+    accountLabel: Option.none(),
+    inputTokens: Option.some(1),
+    cachedTokens: Option.none(),
+    outputTokens: Option.some(1),
+    reasoningTokens: Option.none(),
+    costUsd: Option.none(),
+    durationMs: 1,
+    firstChunkMs: Option.none(),
+  };
+
+  it("asks first, then deletes every request via kept", async () => {
+    const { state, user } = renderApp("/settings", { historyRequests: [kept] });
+
+    await user.click(await screen.findByRole("button", { name: "Delete usage history…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete all usage history?" });
+    expect(dialog.textContent).toContain("can't be undone");
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete history" }));
+
+    await waitFor(() => expect(state.historyRequests).toEqual([]));
+    expect(await screen.findByText("Usage history deleted")).toBeDefined();
+  });
+
+  it("keeps it all when the question is turned down", async () => {
+    const { state, user } = renderApp("/settings", { historyRequests: [kept] });
+
+    await user.click(await screen.findByRole("button", { name: "Delete usage history…" }));
+    const dialog = await screen.findByRole("alertdialog", { name: "Delete all usage history?" });
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(state.historyRequests).toHaveLength(1);
+    expect(state.requests).not.toContain("DELETE /admin/history");
   });
 });

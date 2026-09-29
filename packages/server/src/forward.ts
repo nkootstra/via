@@ -1,7 +1,7 @@
 import { OpencodeGoPool, type ProviderPath, Providers, type Route } from "@via/providers";
 import { Effect, identity, Option, type Schema } from "effect";
 import type { HttpClientResponse } from "effect/unstable/http";
-import { noAccountLeft } from "./dispatch.ts";
+import { noAccountLeft, streams } from "./dispatch.ts";
 import { openAiError } from "./openai-error.ts";
 import { relayed } from "./relay.ts";
 import { RequestLog } from "./request-log.ts";
@@ -69,7 +69,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
       continue;
     }
 
-    yield* log.served(account.label);
+    yield* log.served(account.label, account.id);
     yield* bindings.bind(binding, account.id);
 
     return yield* relay(upstream);
@@ -87,7 +87,7 @@ export const forward = Effect.fn("forward")(function* (
   session: string,
 ) {
   const log = yield* RequestLog;
-  yield* log.asked(`${route.provider}/${route.model}`);
+  yield* log.asked(`${route.provider}/${route.model}`, streams(body));
 
   if (route.pooled) return yield* forwardPooled(route, path, body, session);
   yield* log.served(route.provider);

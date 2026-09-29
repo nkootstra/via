@@ -4,10 +4,10 @@
  * Each goes through `run`, the one Effect boundary. Routes' loaders ensure the
  * data their page needs with these, and the page reads it with the same ones.
  */
-import { type QueryClient, queryOptions } from "@tanstack/react-query";
-import { Effect, Redacted } from "effect";
+import { infiniteQueryOptions, type QueryClient, queryOptions } from "@tanstack/react-query";
+import { Effect, Option, Redacted } from "effect";
 import { run } from "./client.ts";
-import type { LoginStatus } from "./types.ts";
+import type { LoginStatus, RequestPage } from "./types.ts";
 
 /** Whether the browser has a session: true, or false on a 401. */
 export const sessionQuery = queryOptions({
@@ -94,6 +94,90 @@ export const modelsQuery = queryOptions({
   queryFn: () => run((admin) => admin.models.list()),
   staleTime: 60_000,
 });
+
+/** What the usage history is grouped by. */
+export type HistoryGroupBy = "model" | "account" | "key";
+
+/** A span of the usage history: from `from` up to `to`, in epoch milliseconds. */
+export interface HistoryRange {
+  readonly from: number;
+  readonly to: number;
+}
+
+/**
+ * How often the usage page asks again while it's open, so requests show up as
+ * they're served; via pushes no event for each one.
+ */
+const HISTORY_REFRESH_MS = 15_000;
+
+/** Each group's tokens per hour or day, in the viewer's time zone. */
+export const historySeriesQuery = (
+  range: HistoryRange,
+  bucket: "hour" | "day",
+  tzOffsetMinutes: number,
+  groupBy: HistoryGroupBy,
+) =>
+  queryOptions({
+    queryKey: ["history", "series", range, bucket, tzOffsetMinutes, groupBy],
+    queryFn: () =>
+      run((admin) =>
+        admin.history.series({ query: { ...range, bucket, tzOffsetMinutes, groupBy } }),
+      ),
+    refetchInterval: HISTORY_REFRESH_MS,
+  });
+
+/** Each group's usage over the range, with the totals. */
+export const historyBreakdownQuery = (range: HistoryRange, groupBy: HistoryGroupBy) =>
+  queryOptions({
+    queryKey: ["history", "breakdown", range, groupBy],
+    queryFn: () => run((admin) => admin.history.breakdown({ query: { ...range, groupBy } })),
+    refetchInterval: HISTORY_REFRESH_MS,
+  });
+
+/** What the request list shows only: one model's, account's or key's requests. */
+export interface RequestFilter {
+  readonly model?: string;
+  readonly accountId?: string;
+  readonly keyId?: string;
+}
+
+/** Where a page of requests starts: after the last request of the page before. */
+type RequestCursor = Option.Option.Value<RequestPage["next"]>;
+
+/** The first page starts at the newest request: after none. */
+const newest: Option.Option<RequestCursor> = Option.none();
+
+/** The requests in the range, newest first, a page at a time. */
+export const historyRequestsQuery = (range: HistoryRange, filter: RequestFilter) =>
+  infiniteQueryOptions({
+    queryKey: ["history", "requests", range, filter],
+    queryFn: ({ pageParam }) =>
+      run((admin) =>
+        admin.history.requests({
+          query: {
+            ...range,
+            ...filter,
+            ...(pageParam === undefined
+              ? {}
+              : { afterAt: pageParam.at, afterId: pageParam.requestId }),
+          },
+        }),
+      ),
+    initialPageParam: Option.getOrUndefined(newest),
+    getNextPageParam: (page) => Option.getOrUndefined(page.next),
+    // Refetching an infinite query fetches every page it holds again, one by one, so
+    // the list keeps up only while it shows its first page; loaded further, it holds still.
+    refetchInterval: (query) =>
+      (query.state.data?.pages.length ?? 0) > 1 ? false : HISTORY_REFRESH_MS,
+  });
+
+/** Deletes every request the usage history kept. */
+export const clearHistory = () => run((admin) => admin.history.clear());
+
+/** Fetches the usage page's queries again, after the history changed under them. */
+export function refreshHistory(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: ["history"] });
+}
 
 /**
  * Fetches again everything a change to the pool's accounts shows up in: both

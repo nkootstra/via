@@ -3,6 +3,8 @@ import type { ReactNode } from "react";
 
 interface IconProps {
   readonly size?: number;
+  /** What the icon stands for, when it says something the text beside it doesn't. */
+  readonly label?: string;
 }
 
 export const OverviewIcon = (props: IconProps) => (
@@ -20,6 +22,17 @@ export const AccountsIcon = (props: IconProps) => (
     <path d="M17.7487 6.25C17.7487 4.73122 16.5174 3.5 14.9987 3.5C14.5844 3.5 14.2487 3.16421 14.2487 2.75C14.2487 2.33579 14.5844 2 14.9987 2C17.3459 2 19.2487 3.90279 19.2487 6.25C19.2487 8.59721 17.3459 10.5 14.9987 10.5C14.5844 10.5 14.2487 10.1642 14.2487 9.75C14.2487 9.33579 14.5844 9 14.9987 9C16.5174 9 17.7487 7.76878 17.7487 6.25Z" />
     <path d="M17.4398 20.1334C16.964 20.6577 16.2523 20.9688 15.4984 20.9688H2.99835C2.24436 20.9688 1.53272 20.6577 1.05693 20.1334C0.569158 19.5958 0.334337 18.831 0.587295 18.025C1.66368 14.5955 5.15685 12 9.24835 12C13.3399 12 16.833 14.5955 17.9094 18.025C18.1624 18.831 17.9275 19.5958 17.4398 20.1334Z" />
     <path d="M21.249 20.9999C22.003 20.9999 22.7146 20.6889 23.1898 20.1641C23.6772 19.6258 23.9102 18.8604 23.6543 18.0549C22.9013 15.6838 20.9787 13.6799 18.4994 12.8018C18.109 12.6635 17.6804 12.8679 17.5421 13.2583C17.4038 13.6488 17.6082 14.0774 17.9986 14.2157C20.0433 14.9399 21.6165 16.5939 22.2247 18.5089C22.3032 18.7561 22.2432 18.9747 22.0779 19.1573C21.9004 19.3533 21.5997 19.4999 21.249 19.4999H20.749C20.3348 19.4999 19.999 19.8357 19.999 20.2499C19.999 20.6641 20.3348 20.9999 20.749 20.9999H21.249Z" />
+  </Glyph>
+);
+
+/** Usage history: bars in a rounded square. */
+export const UsageIcon = (props: IconProps) => (
+  <Glyph {...props}>
+    <path
+      fillRule="evenodd"
+      clipRule="evenodd"
+      d="M18.25 3C19.7688 3 21 4.23122 21 5.75V18.25C21 19.7688 19.7688 21 18.25 21H5.75C4.23122 21 3 19.7688 3 18.25V5.75C3 4.23122 4.23122 3 5.75 3H18.25ZM7.75 12C7.33579 12 7 12.3358 7 12.75V16.25C7 16.6642 7.33579 17 7.75 17C8.16421 17 8.5 16.6642 8.5 16.25V12.75C8.5 12.3358 8.16421 12 7.75 12ZM12 7C11.5858 7 11.25 7.33579 11.25 7.75V16.25C11.25 16.6642 11.5858 17 12 17C12.4142 17 12.75 16.6642 12.75 16.25V7.75C12.75 7.33579 12.4142 7 12 7ZM16.25 10C15.8358 10 15.5 10.3358 15.5 10.75V16.25C15.5 16.6642 15.8358 17 16.25 17C16.6642 17 17 16.6642 17 16.25V10.75C17 10.3358 16.6642 10 16.25 10Z"
+    />
   </Glyph>
 );
 
@@ -153,9 +166,15 @@ export function Mark({ size = 24 }: IconProps) {
 }
 
 /** A 24-unit filled glyph in the current text colour, drawn at `size`: a brand mark, a key. */
-function Glyph({ size = 16, children }: IconProps & { readonly children: ReactNode }) {
+function Glyph({ size = 16, label, children }: IconProps & { readonly children: ReactNode }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      {...(label === undefined ? { "aria-hidden": true } : { role: "img", "aria-label": label })}
+    >
       {children}
     </svg>
   );

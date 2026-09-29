@@ -1,8 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import { createFileRoute } from "@tanstack/react-router";
-import { SegmentedControl, SegmentedItem, ThemeControl } from "@via/ui";
+import { useQueryClient } from "@tanstack/react-query";
+import { Button, SegmentedControl, SegmentedItem, ThemeControl } from "@via/ui";
 import { colors, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
-import { useId, type ReactNode } from "react";
+import { useId, useState, type ReactNode } from "react";
+import { clearHistory, refreshHistory } from "../../api/admin.ts";
+import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
+import { TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { formatTime } from "../../lib/time.ts";
 import { setTimeFormat, useTimeFormat, type TimeFormat } from "../../lib/time-format.ts";
@@ -88,7 +92,10 @@ function Settings() {
   const formatLabel = useId();
 
   return (
-    <Page title="Settings" description="How the dashboard looks in this browser.">
+    <Page
+      title="Settings"
+      description="How the dashboard looks in this browser, and the usage history via keeps."
+    >
       <Section title="Appearance">
         <Panel>
           <Setting
@@ -122,6 +129,62 @@ function Settings() {
           </Setting>
         </Panel>
       </Section>
+
+      <Section title="Usage history">
+        <Panel>
+          <UsageHistorySetting />
+        </Panel>
+      </Section>
     </Page>
+  );
+}
+
+/**
+ * Deletes every request via kept, for every viewer, not only this browser: it
+ * asks first, as that can't be undone. Keys, accounts and settings stay.
+ */
+function UsageHistorySetting() {
+  const label = useId();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(false);
+
+  return (
+    <Setting
+      id={label}
+      label="Delete usage history"
+      description="via keeps each request for 90 days. Deleting starts the Usage page over; keys, accounts and settings stay."
+    >
+      <Button
+        variant="secondary"
+        aria-describedby={label}
+        onClick={() => {
+          setShown(true);
+          setOpen(true);
+        }}
+      >
+        <TrashIcon size={15} />
+        Delete usage history…
+      </Button>
+      {shown && (
+        <ConfirmDialog
+          open={open}
+          onClose={() => setOpen(false)}
+          onClosed={() => setShown(false)}
+          title="Delete all usage history?"
+          description="Every request via kept goes: its tokens, cost and errors, for every key and account. This can't be undone."
+          confirmLabel="Delete history"
+          confirm={async () => {
+            await clearHistory();
+          }}
+          onConfirmed={() => refreshHistory(queryClient)}
+          done={{
+            title: "Usage history deleted",
+            description: "via keeps recording new requests from now on.",
+          }}
+          failed="Couldn't delete the usage history"
+        />
+      )}
+    </Setting>
   );
 }

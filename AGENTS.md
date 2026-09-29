@@ -83,7 +83,8 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 - `apps/e2e`: end-to-end tests against a compiled binary, browser tests
   included (Playwright + Chromium); see `CONTRIBUTING.md`.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
-  `codex-upstream`, `account-pool`, `providers`, `translate`, `server`).
+  `codex-upstream`, `account-pool`, `providers`, `translate`, `usage`,
+  `server`).
   Create a package only when the first test needs it.
 - `packages/ui`: the UI components, a React design system (Base UI + StyleX)
   ported from Fluid Functionalism. No network or API code; screens and data

@@ -26,16 +26,17 @@ bun apps/cli/src/index.ts --help   # run the CLI from source
 
 ## Commands
 
-| Command             | What it does                                                           |
-| ------------------- | ---------------------------------------------------------------------- |
-| `bun run check`     | Lint, format check, knip, typecheck and tests: everything CI gates on. |
-| `bun run test`      | Tests (`@effect/vitest`, run as `bun --bun vitest run`).               |
-| `bun run typecheck` | TypeScript 7 plus Effect diagnostics.                                  |
-| `bun run lint`      | oxlint, warnings are errors.                                           |
-| `bun run format`    | oxfmt. `format:check` only checks.                                     |
-| `bun run knip`      | Finds unused files, exports and dependencies.                          |
-| `bun run build`     | Compiles the binary, web UI included, for every package in `npm/`.     |
-| `bun run smoke`     | Installs the packed npm packages and runs them under Node.             |
+| Command                 | What it does                                                                            |
+| ----------------------- | --------------------------------------------------------------------------------------- |
+| `bun run check`         | Lint, format check, knip, typecheck and tests: everything CI gates on.                  |
+| `bun run test`          | Tests (`@effect/vitest`, run as `bun --bun vitest run`).                                |
+| `bun run typecheck`     | TypeScript 7 plus Effect diagnostics.                                                   |
+| `bun run lint`          | oxlint, warnings are errors.                                                            |
+| `bun run format`        | oxfmt. `format:check` only checks.                                                      |
+| `bun run knip`          | Finds unused files, exports and dependencies.                                           |
+| `bun run build`         | Compiles the binary, web UI included, for every package in `npm/`.                      |
+| `bun run smoke`         | Installs the packed npm packages and runs them under Node.                              |
+| `bun run prices:update` | Refreshes the model prices via ships with from models.dev and LiteLLM; review the diff. |
 
 Never use `bun test`; it's a different test runner.
 

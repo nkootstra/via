@@ -49,6 +49,7 @@ const main = Effect.gen(function* () {
       serve({
         configPath: paths.config,
         statePath: paths.state,
+        usageDbPath: paths.usageDb,
         upstreamBaseUrl: codexBaseUrl,
         adminKey: Option.getOrUndefined(env.adminKey),
         ui,
