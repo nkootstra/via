@@ -34,6 +34,15 @@ const entry = (overrides: Partial<UsageEntry> = {}): UsageEntry => ({
 const history = <A, E>(body: (history: UsageHistory["Service"]) => Effect.Effect<A, E>) =>
   Effect.flatMap(UsageHistory, body).pipe(Effect.provide(UsageHistory.layerMemory));
 
+/**
+ * `history` with the clock already at `now`. Moving the clock ahead after the
+ * history has started would make its daily prune catch up a run for every day.
+ */
+const historyAt = <A, E>(
+  now: number,
+  body: (history: UsageHistory["Service"]) => Effect.Effect<A, E>,
+) => Effect.andThen(TestClock.setTime(now), history(body));
+
 describe("UsageHistory", () => {
   it.effect("gives back a recorded request as it was recorded", () =>
     history((usage) =>
@@ -482,11 +491,11 @@ describe("UsageHistory.clear", () => {
 });
 
 describe("UsageHistory retention", () => {
-  it.effect("forgets requests older than 90 days, and only those", () =>
-    history((usage) =>
+  it.effect("forgets requests older than 90 days, and only those", () => {
+    const now = 200 * DAY;
+
+    return historyAt(now, (usage) =>
       Effect.gen(function* () {
-        const now = 200 * DAY;
-        yield* TestClock.setTime(now);
         yield* usage.record(entry({ requestId: "old", at: now - 90 * DAY - 1 }));
         yield* usage.record(entry({ requestId: "edge", at: now - 90 * DAY }));
         yield* usage.record(entry({ requestId: "new", at: now - DAY }));
@@ -496,8 +505,8 @@ describe("UsageHistory retention", () => {
         const page = yield* usage.requests({ from: 0, to: now, limit: 10 });
         expect(page.requests.map((r) => r.requestId)).toEqual(["new", "edge"]);
       }),
-    ),
-  );
+    );
+  });
 
   it.effect.prop(
     "pruning never forgets a request from the last 90 days",
@@ -507,12 +516,11 @@ describe("UsageHistory retention", () => {
         { maxLength: 20 },
       ),
     },
-    ({ ages }) =>
-      history((usage) =>
-        Effect.gen(function* () {
-          const now = 400 * DAY;
-          yield* TestClock.setTime(now);
+    ({ ages }) => {
+      const now = 400 * DAY;
 
+      return historyAt(now, (usage) =>
+        Effect.gen(function* () {
           yield* Effect.forEach(
             ages,
             (age, i) => usage.record(entry({ requestId: `r${i}`, at: now - age * DAY })),
@@ -524,7 +532,8 @@ describe("UsageHistory retention", () => {
           const page = yield* usage.requests({ from: 0, to: now + 1, limit: 1_000 });
           expect(page.requests.length).toBe(ages.filter((age) => age <= 90).length);
         }),
-      ),
+      );
+    },
   );
 
   it.effect("prunes once a day while it runs", () =>
