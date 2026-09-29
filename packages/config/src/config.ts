@@ -12,6 +12,17 @@ export const ProviderConfig = Schema.Struct({
 
 export type ProviderConfig = typeof ProviderConfig.Type;
 
+const UsdPerMillion = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
+
+/** What a model costs, in USD per million tokens; cached input costs as much as input unless set. */
+export const ModelPrice = Schema.Struct({
+  input: UsdPerMillion,
+  cachedInput: Schema.optionalKey(UsdPerMillion),
+  output: UsdPerMillion,
+});
+
+export type ModelPrice = typeof ModelPrice.Type;
+
 const Config = Schema.Struct({
   host: Schema.String.pipe(Schema.withDecodingDefaultKey(Effect.succeed("127.0.0.1"))),
   port: Schema.Int.check(Schema.isBetween({ minimum: 1, maximum: 65535 })).pipe(
@@ -21,6 +32,10 @@ const Config = Schema.Struct({
     cloak: Schema.Boolean.pipe(Schema.withDecodingDefaultKey(Effect.succeed(true))),
   }).pipe(Schema.withDecodingDefaultKey(Effect.succeed({}))),
   providers: Schema.Record(Schema.String, ProviderConfig).pipe(
+    Schema.withDecodingDefaultKey(Effect.succeed({})),
+  ),
+  /** Prices by model, over those via ships with. */
+  prices: Schema.Record(Schema.String, ModelPrice).pipe(
     Schema.withDecodingDefaultKey(Effect.succeed({})),
   ),
 });

@@ -1,4 +1,4 @@
-export { InvalidConfigError, loadConfig, ProviderConfig } from "./config.ts";
+export { InvalidConfigError, loadConfig, ModelPrice, ProviderConfig } from "./config.ts";
 
 export { FileLockTimeoutError, withFileLock } from "./file-lock.ts";
 
