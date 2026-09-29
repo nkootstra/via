@@ -37,6 +37,15 @@ describe("priceBook", () => {
     );
   });
 
+  it("does not use the maker's price for an unpriced OpenCode Go model", () => {
+    expect(book("opencode-go/deepseek-v4.1-flash")).toEqual(
+      Option.some({ input: 0.15, cachedInput: 0.003, output: 0.6 }),
+    );
+    expect(book("opencode-go/deepseek-v4.1-flash")).not.toEqual(
+      Option.some({ input: 0.3, output: 1.2 }),
+    );
+  });
+
   it("ignores case, as model names differ in it from provider to provider", () => {
     expect(book("opencode-go/MiniMax-M3")).toEqual(Option.some({ input: 0.3, output: 1.2 }));
   });
