@@ -38,6 +38,7 @@
     "format": "oxfmt",
     "format:check": "oxfmt --check",
     "knip": "knip",
+    "prices:update": "bun run --cwd packages/usage prices:update",
     "check": "oxlint --deny-warnings && oxfmt --check && knip && turbo run typecheck test"
   },
   "devDependencies": {

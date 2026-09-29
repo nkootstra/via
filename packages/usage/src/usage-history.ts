@@ -11,44 +11,12 @@ import {
   Schema,
 } from "effect";
 import { dirname } from "node:path";
+import { UsageEntry } from "./entry.ts";
 import { Migrator, SqlClient } from "effect/unstable/sql";
 import type { SqlError } from "effect/unstable/sql/SqlError";
 
-const Nullable = <S extends Schema.Top>(schema: S) => Schema.OptionFromNullOr(schema);
-
-/** One finished request, as the usage history keeps it. Prompts and answers are never kept. */
-export const UsageEntry = Schema.Struct({
-  requestId: Schema.String,
-  /** When the request came in, in epoch milliseconds. */
-  at: Schema.Finite,
-  status: Schema.Finite,
-  /** The error code of an answer via gave itself, such as `rate_limit_exceeded`. */
-  error: Nullable(Schema.String),
-  /** How a streamed answer ended: `completed`, `client_aborted` or `failed`. */
-  streamEnd: Nullable(Schema.String),
-  keyId: Nullable(Schema.String),
-  /** The key's name when the request came in; a key can be renamed or revoked since. */
-  keyName: Nullable(Schema.String),
-  model: Schema.String,
-  /** `codex`, `opencode-go`, or the name of the provider that served it. */
-  provider: Schema.String,
-  accountId: Nullable(Schema.String),
-  /** The account's label when the request came in. */
-  accountLabel: Nullable(Schema.String),
-  inputTokens: Nullable(Schema.Finite),
-  cachedTokens: Nullable(Schema.Finite),
-  outputTokens: Nullable(Schema.Finite),
-  reasoningTokens: Nullable(Schema.Finite),
-  /** What the upstream says it billed, in USD. */
-  costUsd: Nullable(Schema.Finite),
-  durationMs: Schema.Finite,
-  firstChunkMs: Nullable(Schema.Finite),
-});
-
-export type UsageEntry = typeof UsageEntry.Type;
-
 /** Where a page of the request list starts: just after this request. */
-export interface RequestCursor {
+interface RequestCursor {
   readonly at: number;
   readonly requestId: string;
 }
@@ -57,7 +25,7 @@ export interface RequestCursor {
  * Whether a request failed: an error status, other than a client giving up
  * (499), or a stream that broke off.
  */
-export type Outcome = "ok" | "error";
+type Outcome = "ok" | "error";
 
 export interface RequestQuery {
   readonly from: number;
@@ -148,6 +116,8 @@ export interface GroupUsage {
   /** Requests that failed, as `Outcome` defines it. */
   readonly errors: number;
   readonly measured: number;
+  /** Answered requests that reported no usage, which the token sums leave out; failed ones have none to report. */
+  readonly unmeasured: number;
   readonly inputTokens: number;
   readonly cachedTokens: number;
   readonly outputTokens: number;
@@ -171,6 +141,7 @@ const ModelRow = Schema.Struct({
   requests: Schema.Finite,
   errors: Schema.Finite,
   measured: Schema.Finite,
+  unmeasured: Schema.Finite,
   ...TokenSums,
   billedUsd: Schema.Finite,
   billedRequests: Schema.Finite,
@@ -192,6 +163,8 @@ const decodePoints = Schema.decodeUnknownEffect(Schema.Array(SeriesPoint));
 const decodeModelRows = Schema.decodeUnknownEffect(Schema.Array(ModelRow));
 
 const decodePercentiles = Schema.decodeUnknownEffect(Schema.Array(PercentileRow));
+
+const decodeCount = Schema.decodeUnknownEffect(Schema.Struct({ n: Schema.Finite }));
 
 const BUCKET_MS = { hour: 60 * 60 * 1000, day: 24 * 60 * 60 * 1000 } as const;
 
@@ -232,6 +205,10 @@ const migrations = Migrator.fromRecord({
     yield* sql`CREATE INDEX requests_account ON requests (account_id, at)`;
     yield* sql`CREATE INDEX requests_model ON requests (model, at)`;
   }),
+  "2_error_message": Effect.flatMap(
+    SqlClient.SqlClient,
+    (sql) => sql`ALTER TABLE requests ADD COLUMN error_message TEXT`,
+  ),
 });
 
 const make = Effect.gen(function* () {
@@ -244,7 +221,8 @@ const make = Effect.gen(function* () {
   const failed = sql`((status >= 400 AND status <> 499) OR stream_end IS 'failed')`;
 
   const columns = sql`
-    request_id AS "requestId", at, status, error, stream_end AS "streamEnd",
+    request_id AS "requestId", at, status, error, error_message AS "errorMessage",
+    stream_end AS "streamEnd",
     key_id AS "keyId", key_name AS "keyName", model, provider,
     account_id AS "accountId", account_label AS "accountLabel",
     input_tokens AS "inputTokens", cached_tokens AS "cachedTokens",
@@ -261,6 +239,7 @@ const make = Effect.gen(function* () {
       at: row.at,
       status: row.status,
       error: row.error,
+      error_message: row.errorMessage,
       stream_end: row.streamEnd,
       key_id: row.keyId,
       key_name: row.keyName,
@@ -361,7 +340,7 @@ const make = Effect.gen(function* () {
     return yield* decodePoints(rows).pipe(Effect.orDie);
   });
 
-  /** The first-chunk percentiles of each group of `key`, by nearest rank. */
+  /** The first-chunk percentiles of each group of `key`, by nearest rank, of answered requests only. */
   const percentiles = (query: BreakdownQuery, key: ReturnType<typeof grouping>["key"]) =>
     Effect.flatMap(
       sql`
@@ -372,7 +351,9 @@ const make = Effect.gen(function* () {
             ROW_NUMBER() OVER (PARTITION BY ${key} ORDER BY first_chunk_ms) AS rank,
             COUNT(*) OVER (PARTITION BY ${key}) AS n
           FROM requests
+          -- An error that answers at once says nothing of how soon a model starts answering.
           WHERE at >= ${query.from} AND at < ${query.to} AND first_chunk_ms IS NOT NULL
+            AND NOT ${failed}
         )
         SELECT
           "group",
@@ -398,6 +379,8 @@ const make = Effect.gen(function* () {
         COUNT(*) AS requests,
         COALESCE(SUM(${failed}), 0) AS errors,
         COUNT(input_tokens) AS measured,
+        COALESCE(SUM(CASE WHEN input_tokens IS NULL AND NOT ${failed} THEN 1 ELSE 0 END), 0)
+          AS unmeasured,
         COALESCE(SUM(input_tokens), 0) AS "inputTokens",
         COALESCE(SUM(cached_tokens), 0) AS "cachedTokens",
         COALESCE(SUM(output_tokens), 0) AS "outputTokens",
@@ -425,8 +408,9 @@ const make = Effect.gen(function* () {
     for (const row of rows) groups.set(row.group, [...(groups.get(row.group) ?? []), row]);
 
     const totalled = [...groups].map(([group, models]): GroupUsage => {
-      const total = (field: "requests" | "errors" | "measured" | keyof typeof TokenSums) =>
-        models.reduce((sum, row) => sum + row[field], 0);
+      const total = (
+        field: "requests" | "errors" | "measured" | "unmeasured" | keyof typeof TokenSums,
+      ) => models.reduce((sum, row) => sum + row[field], 0);
 
       const latest = models.reduce((a, b) => (b.lastAt > a.lastAt ? b : a));
 
@@ -436,6 +420,7 @@ const make = Effect.gen(function* () {
         requests: total("requests"),
         errors: total("errors"),
         measured: total("measured"),
+        unmeasured: total("unmeasured"),
         inputTokens: total("inputTokens"),
         cachedTokens: total("cachedTokens"),
         outputTokens: total("outputTokens"),
@@ -472,7 +457,15 @@ const make = Effect.gen(function* () {
     Effect.forkScoped,
   );
 
-  return { record, requests, series, breakdown, prune };
+  const clear = Effect.gen(function* () {
+    const [counted] = yield* sql`SELECT COUNT(*) AS n FROM requests`;
+    yield* sql`DELETE FROM requests`;
+
+    // A count of rows always decodes: SQLite answers COUNT(*) with a number.
+    return (yield* decodeCount(counted).pipe(Effect.orDie)).n;
+  }).pipe(sql.withTransaction, Effect.withSpan("UsageHistory.clear"));
+
+  return { record, requests, series, breakdown, prune, clear };
 });
 
 /**
@@ -504,6 +497,8 @@ export class UsageHistory extends Context.Service<
     readonly breakdown: (query: BreakdownQuery) => Effect.Effect<Breakdown, SqlError>;
     /** Forgets requests older than 90 days; it also runs by itself once a day. */
     readonly prune: Effect.Effect<void, SqlError>;
+    /** Forgets every request, and says how many there were. */
+    readonly clear: Effect.Effect<number, SqlError>;
   }
 >()("via/UsageHistory") {
   /** The history in SQLite's `filename`, migrated as needed; `:memory:` lasts only as long as the layer. */

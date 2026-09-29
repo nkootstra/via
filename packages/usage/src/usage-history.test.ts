@@ -3,7 +3,7 @@ import { describe, expect, it, layer } from "@effect/vitest";
 import { Duration, Effect, FileSystem, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
-import type { UsageEntry } from "./usage-history.ts";
+import type { UsageEntry } from "./entry.ts";
 import { UsageHistory } from "./usage-history.ts";
 
 const HOUR = 60 * 60 * 1000;
@@ -13,6 +13,7 @@ const entry = (overrides: Partial<UsageEntry> = {}): UsageEntry => ({
   at: 1_000 * HOUR,
   status: 200,
   error: Option.none(),
+  errorMessage: Option.none(),
   streamEnd: Option.none(),
   keyId: Option.some("key-1"),
   keyName: Option.some("laptop"),
@@ -41,6 +42,22 @@ describe("UsageHistory", () => {
         const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
         expect(page.requests).toEqual([entry()]);
         expect(page.next).toEqual(Option.none());
+      }),
+    ),
+  );
+
+  it.effect("gives back why a request failed, in a code and in words", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const failed = entry({
+          status: 400,
+          error: Option.some("ModelProtocolUnsupported"),
+          errorMessage: Option.some("Model does not support this protocol."),
+        });
+
+        yield* usage.record(failed);
+        const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
+        expect(page.requests).toEqual([failed]);
       }),
     ),
   );
@@ -250,6 +267,7 @@ describe("UsageHistory.breakdown", () => {
             requests: 5,
             errors: 2,
             measured: 5,
+            unmeasured: 0,
             inputTokens: 500,
             cachedTokens: 200,
             outputTokens: 100,
@@ -265,6 +283,26 @@ describe("UsageHistory.breakdown", () => {
             ],
           },
         ]);
+      }),
+    ),
+  );
+
+  it.effect("counts the answered requests that reported no usage, not the failed ones", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const none = {
+          inputTokens: Option.none(),
+          cachedTokens: Option.none(),
+          outputTokens: Option.none(),
+        };
+
+        yield* usage.record(entry({ requestId: "answered", ...none }));
+        yield* usage.record(entry({ requestId: "refused", status: 400, ...none }));
+        yield* usage.record(entry({ requestId: "measured" }));
+
+        const { groups } = yield* usage.breakdown({ from: 0, to: 2_000 * HOUR, groupBy: "model" });
+
+        expect(groups[0]).toMatchObject({ requests: 3, errors: 1, measured: 1, unmeasured: 1 });
       }),
     ),
   );
@@ -290,6 +328,22 @@ describe("UsageHistory.breakdown", () => {
             unbilled: { inputTokens: 100, cachedTokens: 40, outputTokens: 20 },
           },
         ]);
+      }),
+    ),
+  );
+
+  it.effect("times the first chunk of answered requests only, not of errors", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(entry({ requestId: "ok", firstChunkMs: Option.some(2_000) }));
+
+        yield* usage.record(
+          entry({ requestId: "refused", status: 400, firstChunkMs: Option.some(250) }),
+        );
+
+        const result = yield* usage.breakdown({ from: 0, to: 2_000 * HOUR, groupBy: "model" });
+
+        expect(result.firstChunkMs).toEqual({ p50: Option.some(2_000), p95: Option.some(2_000) });
       }),
     ),
   );
@@ -410,6 +464,22 @@ describe("UsageHistory totals", () => {
 });
 
 const DAY = 24 * HOUR;
+
+describe("UsageHistory.clear", () => {
+  it.effect("forgets every request, and says how many", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(entry({ requestId: "a" }));
+        yield* usage.record(entry({ requestId: "b" }));
+
+        expect(yield* usage.clear).toBe(2);
+        expect((yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 })).requests).toEqual(
+          [],
+        );
+      }),
+    ),
+  );
+});
 
 describe("UsageHistory retention", () => {
   it.effect("forgets requests older than 90 days, and only those", () =>
