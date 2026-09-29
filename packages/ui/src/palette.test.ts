@@ -168,6 +168,22 @@ describe.each([
     }
   });
 
+  it("draw every chart series at 3:1 on the page and a surface", () => {
+    for (const series of [
+      scheme.chart1,
+      scheme.chart2,
+      scheme.chart3,
+      scheme.chart4,
+      scheme.chart5,
+      scheme.chart6,
+      scheme.chartOther,
+    ]) {
+      for (const ground of grounds) {
+        expect(contrast(over(series, scheme.surface3), ground)).toBeGreaterThanOrEqual(3);
+      }
+    }
+  });
+
   it("draw a switch's track, on or off, and the focus ring at 3:1 on the page and a surface", () => {
     for (const mark of [scheme.success, scheme.borderStrong, scheme.focusRing]) {
       for (const ground of grounds) {

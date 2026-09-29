@@ -51,6 +51,16 @@ export const lightScheme = {
   successSubtle: "rgb(21 160 69 / 0.12)",
   warningSubtle: "rgb(208 112 5 / 0.12)",
   infoSubtle: "rgb(59 130 246 / 0.12)",
+  // Chart series, in the order a chart hands them out: hues spaced around the
+  // wheel so neighbours differ in hue and lightness, each a mark at 3:1 on the
+  // page and a surface. `chartOther` is the grey of the rest, lumped together.
+  chart1: "#2563EB",
+  chart2: "#C2410C",
+  chart3: "#047857",
+  chart4: "#9333EA",
+  chart5: "#DB2777",
+  chart6: "#0E7490",
+  chartOther: "#8A8A8A",
   // The logo's strokes, back to front: cool greys stepped by lightness, each
   // at 3:1 on every surface. The front stroke anchors the mark, so it sits
   // nearest the text colour in either scheme.
@@ -94,6 +104,13 @@ export const darkScheme: Scheme = {
   successSubtle: "rgb(34 197 94 / 0.12)",
   warningSubtle: "rgb(245 158 11 / 0.12)",
   infoSubtle: "rgb(59 130 246 / 0.12)",
+  chart1: "#60A5FA",
+  chart2: "#FB923C",
+  chart3: "#34D399",
+  chart4: "#C084FC",
+  chart5: "#F472B6",
+  chart6: "#22D3EE",
+  chartOther: "#8C8C8C",
   logoBack: "#6D7279",
   logoMiddle: "#A6ABB2",
   logoFront: "#F3F5F8",
