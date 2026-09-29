@@ -2,7 +2,7 @@ import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
-import { embed, openSignOut, renderApp } from "./app.tsx";
+import { embed, fakeClock, openSignOut, renderApp, skip } from "./app.tsx";
 import { FakeEventSource, openSource } from "./event-source.ts";
 
 const now = Date.parse("2026-09-27T12:00:00.000Z");
@@ -179,8 +179,11 @@ describe("the overview", () => {
   });
 
   it("announces that the pool is loading, on a page without the shell's state", async () => {
+    fakeClock();
     renderApp("/", {}, [http.get("*/admin/pool", () => delay("infinite"))]);
 
+    // The router shows it once loading takes a moment, 1 s.
+    await skip(1_000);
     expect((await screen.findByRole("status")).textContent).toBe("Loading accounts…");
   });
 

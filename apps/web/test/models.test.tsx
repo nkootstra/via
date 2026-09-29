@@ -1,7 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
-import { renderApp } from "./app.tsx";
+import { fakeClock, renderApp, skip } from "./app.tsx";
 
 const models = [
   { id: "gpt-5.5", object: "model", created: 0, owned_by: "openai" },
@@ -151,8 +151,11 @@ describe("the models page", () => {
   });
 
   it("announces that the models are loading", async () => {
+    fakeClock();
     renderApp("/models", { models }, [http.get("*/admin/models", () => delay("infinite"))]);
 
+    // The router shows it once loading takes a moment, 1 s.
+    await skip(1_000);
     expect((await screen.findByRole("status")).textContent).toBe("Loading models…");
   });
 });

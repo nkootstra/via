@@ -15,8 +15,10 @@ afterEach(cleanup);
 // happy-dom has no EventSource; the build's own tests run in Node, which needs none.
 if ("document" in globalThis) vi.stubGlobal("EventSource", FakeEventSource);
 
-// Each test starts from a fresh page: no state from a shell, no stream open.
+// Each test starts from a fresh page: no state from a shell, no stream open,
+// and the real clock.
 afterEach(() => {
+  vi.useRealTimers();
   sources.length = 0;
 
   if ("document" in globalThis) document.getElementById("via-state")?.remove();
