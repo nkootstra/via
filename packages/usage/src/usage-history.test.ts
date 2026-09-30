@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { describe, expect, it, layer } from "@effect/vitest";
-import { Duration, Effect, FileSystem, Option, Schema } from "effect";
+import { Duration, Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
 import type { UsageEntry } from "./entry.ts";
@@ -585,6 +585,21 @@ layer(UsageHistory.layerMemory)("UsageHistory properties", (shared) => {
 });
 
 const DAY = 24 * HOUR;
+
+describe("UsageHistory.changes", () => {
+  it.effect("signals at once, then after each request kept and each clear", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const seen = yield* usage.changes.pipe(Stream.take(3), Stream.runCollect, Effect.forkChild);
+        yield* Effect.yieldNow;
+        yield* usage.record(entry());
+        yield* usage.clear;
+
+        expect(yield* Fiber.join(seen)).toHaveLength(3);
+      }),
+    ),
+  );
+});
 
 describe("UsageHistory.clear", () => {
   it.effect("forgets every request, and says how many", () =>

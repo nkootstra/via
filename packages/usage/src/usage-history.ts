@@ -9,6 +9,8 @@ import {
   Option,
   Schedule,
   Schema,
+  Stream,
+  SubscriptionRef,
 } from "effect";
 import { dirname } from "node:path";
 import { UsageEntry } from "./entry.ts";
@@ -221,6 +223,9 @@ const migrations = Migrator.fromRecord({
 
 const make = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  // Counts the changes this process makes, so `changes` can signal each one.
+  const revision = yield* SubscriptionRef.make(0);
+  const bump = SubscriptionRef.update(revision, (n) => n + 1);
 
   /**
    * The SQL condition for a failed request, as `Outcome` defines it. `IS`, not `=`: a
@@ -489,7 +494,17 @@ const make = Effect.gen(function* () {
     return (yield* decodeCount(counted).pipe(Effect.orDie)).n;
   }).pipe(sql.withTransaction, Effect.withSpan("UsageHistory.clear"));
 
-  return { record, requests, series, breakdown, prune, clear };
+  const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
+
+  return {
+    record: (entry: UsageEntry) => Effect.tap(record(entry), bump),
+    requests,
+    series,
+    breakdown,
+    prune,
+    clear: Effect.tap(clear, bump),
+    changes,
+  };
 });
 
 /**
@@ -523,6 +538,12 @@ export class UsageHistory extends Context.Service<
     readonly prune: Effect.Effect<void, SqlError>;
     /** Forgets every request, and says how many there were. */
     readonly clear: Effect.Effect<number, SqlError>;
+    /**
+     * Signals now, then after each request kept and each clear, for a page that
+     * shows the history to fetch it again. A prune signals nothing: it only
+     * drops what a page no longer shows.
+     */
+    readonly changes: Stream.Stream<void>;
   }
 >()("via/UsageHistory") {
   /** The history in SQLite's `filename`, migrated as needed; `:memory:` lasts only as long as the layer. */
