@@ -171,6 +171,43 @@ layer(BunFileSystem.layer)("admin API, OpenRouter", (it) => {
     ),
   );
 
+  it.effect("reports the key's budget with the accounts' usage", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          openrouter(via);
+          via.provider.openrouterKey(apiKey, {
+            limit: 10,
+            limit_remaining: 6.8,
+            limit_reset: "monthly",
+          });
+          yield* via.put("/admin/openrouter/key", { apiKey }, adminKey);
+
+          const Usage = Schema.Struct({ openrouter: Schema.Json, refreshing: Schema.Boolean });
+
+          const usage = Effect.flatMap(via.get("/admin/usage", adminKey), (response) =>
+            Effect.flatMap(response.json, Schema.decodeUnknownEffect(Usage)),
+          );
+
+          const answered = yield* usage.pipe(
+            Effect.repeat({ until: ({ refreshing }) => !refreshing }),
+          );
+
+          expect(answered.openrouter).toEqual({
+            fetchedAt: expect.any(String),
+            budget: {
+              limitUsd: 10,
+              spentUsd: 3.2,
+              window: "monthly",
+              resetsAt: expect.any(String),
+            },
+          });
+        }),
+      options,
+    ),
+  );
+
   it.effect("forgets the key once removed", () =>
     withVia(
       ok,

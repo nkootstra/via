@@ -17,7 +17,7 @@ import {
   OpenrouterNotSetUpError,
   OpenrouterUnavailableError,
 } from "@via/providers/errors";
-import { ProviderState } from "@via/providers/schemas";
+import { OpenrouterBudget, ProviderState } from "@via/providers/schemas";
 import { UsageEntry } from "@via/usage/entry";
 import { Schema } from "effect";
 import {
@@ -142,9 +142,17 @@ const OpencodeGoUsage = Schema.Union([
  * The latest usage via has, without waiting for any: an account it has none for
  * yet is left out. `refreshing` says it is asking for newer usage now.
  */
+/** OpenRouter's key budget as OpenRouter last told it, null for a key without a limit, or why not. */
+const OpenrouterUsage = Schema.Union([
+  Schema.Struct({ ...fetched, budget: Schema.NullOr(OpenrouterBudget) }),
+  Schema.Struct({ ...fetched, error: Schema.String }),
+]);
+
 const Usage = Schema.Struct({
   accounts: Schema.Array(AccountUsage),
   opencodeGo: Schema.Array(OpencodeGoUsage),
+  /** None while via has no OpenRouter key. */
+  openrouter: Schema.NullOr(OpenrouterUsage),
   refreshing: Schema.Boolean,
 });
 

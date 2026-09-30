@@ -249,7 +249,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           const usage =
             spec.paths["/admin/usage"].get.responses["200"].content["application/json"].schema;
 
-          expect(usage.required).toEqual(["accounts", "opencodeGo", "refreshing"]);
+          expect(usage.required).toEqual(["accounts", "opencodeGo", "openrouter", "refreshing"]);
 
           for (const entry of [
             ...usage.properties.accounts.items.anyOf,
@@ -910,7 +910,12 @@ layer(BunFileSystem.layer)("admin API", (it) => {
         Effect.gen(function* () {
           const response = yield* via.get("/admin/usage", adminKey);
           expect(response.status).toBe(200);
-          expect(yield* response.json).toEqual({ accounts: [], opencodeGo: [], refreshing: true });
+          expect(yield* response.json).toEqual({
+            accounts: [],
+            opencodeGo: [],
+            openrouter: null,
+            refreshing: true,
+          });
           // One lookup for each account.
           yield* via.upstreamReceived(2);
           expect(usageLookups(via)).toHaveLength(2);
@@ -971,6 +976,8 @@ layer(BunFileSystem.layer)("admin API", (it) => {
                 ],
               },
             ],
+            // The harness's OpenRouter key is one the fake doesn't know.
+            openrouter: { fetchedAt: expect.any(String), error: expect.any(String) },
             refreshing: false,
           });
         }),
