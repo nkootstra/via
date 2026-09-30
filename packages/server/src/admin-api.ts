@@ -204,6 +204,19 @@ export const StateEvent = Schema.Struct({
   data: Schema.fromJsonString(AdminState),
 });
 
+/**
+ * Sent when the usage history changed, as when via kept a request, so a page
+ * showing it fetches it again. It carries nothing more: the history is far too
+ * big to send whole, and a page asks only for what it shows.
+ */
+const HistoryEvent = Schema.Struct({
+  event: Schema.Literal("history"),
+  data: Schema.String,
+});
+
+/** Every event `GET /admin/events` sends. */
+export const AdminEvent = Schema.Union([StateEvent, HistoryEvent]);
+
 /** No login with this id was started since the server did; the admin API answers it as a 404. */
 export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()(
   "LoginNotFoundError",
@@ -531,7 +544,7 @@ class PoolGroup extends HttpApiGroup.make("pool")
 class EventsGroup extends HttpApiGroup.make("events")
   .add(
     HttpApiEndpoint.get("stream", "/events", {
-      success: HttpApiSchema.StreamSse({ events: StateEvent }),
+      success: HttpApiSchema.StreamSse({ events: AdminEvent }),
     }),
   )
   .middleware(AdminAuthorization)
