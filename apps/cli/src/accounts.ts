@@ -164,8 +164,10 @@ const describeState = (state: ProviderState) => {
 };
 
 /** Each configured provider with its own key, a line saying it is available. */
-const providerSections = Effect.map(Providers, ({ names }) =>
-  names.map((name) => ({ line: `${name}  provider  available`, rows: [] })),
+const providerSections = Effect.flatMap(Providers, ({ names }) =>
+  Effect.map(names, (all) =>
+    all.map((name) => ({ line: `${name}  provider  available`, rows: [] })),
+  ),
 );
 
 /**

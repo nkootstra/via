@@ -92,7 +92,7 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
       )
       .handle("breakdown", ({ query }) =>
         Effect.gen(function* () {
-          const book = priceBook(prices, { local: (yield* Providers).local });
+          const book = priceBook(prices, { local: yield* (yield* Providers).local });
 
           const { groups, firstChunkMs } = yield* readHistory(
             Effect.flatMap(UsageHistory, (usage) => usage.breakdown(query)),

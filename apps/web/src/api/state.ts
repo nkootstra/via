@@ -15,6 +15,7 @@ import {
   accountsQuery,
   keysQuery,
   modelsQuery,
+  ollamaQuery,
   opencodeGoQuery,
   poolQuery,
   sessionQuery,
@@ -40,6 +41,7 @@ export function applyState(queryClient: QueryClient, state: typeof AdminState.Ty
   queryClient.setQueryData(opencodeGoQuery.queryKey, state.opencodeGo, at);
   queryClient.setQueryData(keysQuery.queryKey, state.keys, at);
   queryClient.setQueryData(modelsQuery.queryKey, state.models, at);
+  queryClient.setQueryData(ollamaQuery.queryKey, state.ollama, at);
 }
 
 /**

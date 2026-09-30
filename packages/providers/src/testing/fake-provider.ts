@@ -79,12 +79,14 @@ const Body = Schema.JsonObject;
 /**
  * Starts the fake for the current scope. It answers `POST /chat/completions`
  * and `POST /responses` with the `respond` handler (599 until one is set),
- * `GET /models` with the models given to `models`, and `GET /usage` with `usage`.
+ * `GET /models` with the models given to `models`, and `GET /usage` with `usage`,
+ * at its root and under `/v1`; with `ollama`, it answers `GET /api/version` too.
  */
 export const startFakeProvider = Effect.gen(function* () {
   const requests: Array<ProviderRequest> = [];
   let handler = unscripted;
   let modelList: ReadonlyArray<Schema.JsonObject> | undefined;
+  let ollamaVersion: string | undefined;
   const modelRequests: Array<ProviderRequest> = [];
   let usageAnswer = { status: 500, body: "" };
   const usageByKey = new Map<string, { status: number; body: string }>();
@@ -131,44 +133,58 @@ export const startFakeProvider = Effect.gen(function* () {
     Effect.orDie,
   );
 
+  // Ollama serves the OpenAI-compatible routes under `/v1`, next to its own `/api`.
+  const routesAt = (prefix: "" | "/v1") =>
+    [
+      HttpRouter.add("POST", `${prefix}/chat/completions`, answer),
+      HttpRouter.add("POST", `${prefix}/responses`, answer),
+      HttpRouter.add("POST", `${prefix}/messages`, answer),
+      HttpRouter.add("POST", `${prefix}/systemone`, answer),
+      HttpRouter.add(
+        "GET",
+        `${prefix}/models`,
+        Effect.gen(function* () {
+          yield* record(modelRequests, {});
+
+          for (const waiter of waiters) {
+            if (modelRequests.length >= waiter.count) {
+              yield* Deferred.succeed(waiter.deferred, undefined);
+            }
+          }
+
+          return modelList === undefined
+            ? HttpServerResponse.text("", { status: 500 })
+            : HttpServerResponse.jsonUnsafe({ object: "list", data: modelList });
+        }),
+      ),
+      HttpRouter.add(
+        "GET",
+        `${prefix}/usage`,
+        Effect.gen(function* () {
+          const request = yield* record(usageRequests, {});
+
+          for (const waiter of usageWaiters) {
+            if (usageRequests.length >= waiter.count) {
+              yield* Deferred.succeed(waiter.deferred, undefined);
+            }
+          }
+
+          const { status, body } = usageByKey.get(keyOf(request) ?? "") ?? usageAnswer;
+
+          return HttpServerResponse.text(body, { status, contentType: "application/json" });
+        }),
+      ),
+    ] as const;
+
   const routes = Layer.mergeAll(
-    HttpRouter.add("POST", "/chat/completions", answer),
-    HttpRouter.add("POST", "/responses", answer),
-    HttpRouter.add("POST", "/messages", answer),
-    HttpRouter.add("POST", "/systemone", answer),
-    HttpRouter.add(
-      "GET",
-      "/models",
-      Effect.gen(function* () {
-        yield* record(modelRequests, {});
-
-        for (const waiter of waiters) {
-          if (modelRequests.length >= waiter.count) {
-            yield* Deferred.succeed(waiter.deferred, undefined);
-          }
-        }
-
-        return modelList === undefined
-          ? HttpServerResponse.text("", { status: 500 })
-          : HttpServerResponse.jsonUnsafe({ object: "list", data: modelList });
-      }),
-    ),
-    HttpRouter.add(
-      "GET",
-      "/usage",
-      Effect.gen(function* () {
-        const request = yield* record(usageRequests, {});
-
-        for (const waiter of usageWaiters) {
-          if (usageRequests.length >= waiter.count) {
-            yield* Deferred.succeed(waiter.deferred, undefined);
-          }
-        }
-
-        const { status, body } = usageByKey.get(keyOf(request) ?? "") ?? usageAnswer;
-
-        return HttpServerResponse.text(body, { status, contentType: "application/json" });
-      }),
+    Layer.mergeAll(...routesAt("")),
+    Layer.mergeAll(...routesAt("/v1")),
+    HttpRouter.add("GET", "/api/version", () =>
+      Effect.succeed(
+        ollamaVersion === undefined
+          ? HttpServerResponse.text("", { status: 404 })
+          : HttpServerResponse.jsonUnsafe({ version: ollamaVersion }),
+      ),
     ),
   );
 
@@ -179,6 +195,8 @@ export const startFakeProvider = Effect.gen(function* () {
   return {
     /** The provider's base URL, as config.yaml's `baseUrl`. */
     url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),
+    /** Answers `GET /api/version` as Ollama `version` does; until then, it answers 404. */
+    ollama: (version: string) => void (ollamaVersion = version),
     /** Every completion request received so far, in order. */
     get requests(): ReadonlyArray<ProviderRequest> {
       return requests;

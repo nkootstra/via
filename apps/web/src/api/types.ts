@@ -10,6 +10,12 @@ export type Account = SuccessOf<Groups["accounts"]["endpoints"]["list"]>[number]
 
 export type OpencodeGoAccount = SuccessOf<Groups["opencodeGo"]["endpoints"]["list"]>[number];
 
+/** Where Ollama is, when via knows one. */
+export type Ollama = NonNullable<SuccessOf<Groups["ollama"]["endpoints"]["get"]>>;
+
+/** What via found at an address it was asked to check for Ollama. */
+export type OllamaCheck = SuccessOf<Groups["ollama"]["endpoints"]["check"]>;
+
 export type Key = SuccessOf<Groups["keys"]["endpoints"]["list"]>[number];
 
 export type StartedLogin = SuccessOf<Groups["accounts"]["endpoints"]["login"]>;

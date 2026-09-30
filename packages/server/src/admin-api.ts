@@ -6,6 +6,9 @@ import { AccountNotFoundError, AuthRequestError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
 import {
   DuplicateOpencodeGoKeyError,
+  OllamaAddressInvalidError,
+  OllamaNotEditableError,
+  OllamaUnreachableError,
   OpencodeGoAccountNotFoundError,
   OpencodeGoKeyRejectedError,
   OpencodeGoUnavailableError,
@@ -176,6 +179,12 @@ const Pool = Schema.Struct({
   providers: Schema.Array(PoolProvider),
 });
 
+/**
+ * Where Ollama is: the address the web UI saved, or the one config.yaml sets up,
+ * which only config.yaml can change.
+ */
+const AdminOllama = Schema.Struct({ address: Schema.String, fromConfig: Schema.Boolean });
+
 /** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 
@@ -196,6 +205,8 @@ export const AdminState = Schema.Struct({
   opencodeGo: Schema.Array(AdminOpencodeGoAccount),
   keys: Schema.Array(AdminKey),
   models: Schema.Array(Model),
+  /** Where Ollama is, if via knows one. */
+  ollama: Schema.NullOr(AdminOllama),
 });
 
 /** The one event `GET /admin/events` sends: the whole admin state, as JSON. */
@@ -458,6 +469,43 @@ class OpencodeGoGroup extends HttpApiGroup.make("opencodeGo")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
+/** What Ollama is given as: an address, as its app shows it or with `/v1`. */
+const OllamaAddressPayload = Schema.Struct({ address: Schema.String });
+
+class OllamaGroup extends HttpApiGroup.make("ollama")
+  .add(HttpApiEndpoint.get("get", "/ollama", { success: Schema.NullOr(AdminOllama) }))
+  .add(
+    HttpApiEndpoint.put("set", "/ollama", {
+      payload: OllamaAddressPayload,
+      success: AdminOllama,
+      error: [
+        OllamaAddressInvalidError.pipe(HttpApiSchema.status(400)),
+        OllamaNotEditableError.pipe(HttpApiSchema.status(409)),
+      ],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.delete("remove", "/ollama", {
+      error: OllamaNotEditableError.pipe(HttpApiSchema.status(409)),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.post("check", "/ollama/check", {
+      payload: OllamaAddressPayload,
+      success: Schema.Struct({
+        address: Schema.String,
+        version: Schema.String,
+        models: Schema.Array(Schema.String),
+      }),
+      error: [
+        OllamaAddressInvalidError.pipe(HttpApiSchema.status(400)),
+        OllamaUnreachableError.pipe(HttpApiSchema.status(422)),
+      ],
+    }),
+  )
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
 class KeysGroup extends HttpApiGroup.make("keys")
   .add(HttpApiEndpoint.get("list", "/keys", { success: Schema.Array(AdminKey) }))
   .add(
@@ -559,6 +607,7 @@ export class AdminApi extends HttpApi.make("via-admin")
   .add(SessionGroup)
   .add(AccountsGroup)
   .add(OpencodeGoGroup)
+  .add(OllamaGroup)
   .add(KeysGroup)
   .add(UsageGroup)
   .add(UsageHistoryGroup)

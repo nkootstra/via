@@ -164,6 +164,16 @@ export class ModelCatalog extends Context.Service<
         Effect.orElseSucceed((): ReadonlyArray<string> => []),
       );
 
+      /**
+       * What the providers' models depend on: the OpenCode Go accounts that can ask,
+       * and the providers, as an Ollama may be added or removed while via runs.
+       */
+      const providersToAsk = Effect.all([enabledOpencodeGo, providers.names]).pipe(
+        Effect.flatMap(([ids, names]) =>
+          providerModels([...ids, ...names.map((name) => `provider:${name}`)]),
+        ),
+      );
+
       const ask = (accounts: ReadonlyArray<Account>) =>
         Effect.forEach(
           accounts,
@@ -209,7 +219,7 @@ export class ModelCatalog extends Context.Service<
         Effect.map((ids) => ids.map((id) => entry(id, "openai"))),
       );
 
-      const catalog = Effect.all([codexModels, Effect.flatMap(enabledOpencodeGo, providerModels)], {
+      const catalog = Effect.all([codexModels, providersToAsk], {
         concurrency: "unbounded",
       }).pipe(
         Effect.map(([fromCodex, fromProviders]) => [

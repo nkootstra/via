@@ -21,6 +21,7 @@ import {
 import { colors, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import {
   accountsQuery,
+  ollamaQuery,
   opencodeGoQuery,
   refreshPool,
   removeAccount,
@@ -40,6 +41,7 @@ import {
   EditIcon,
   TrashIcon,
 } from "../../components/icons.tsx";
+import { OllamaSection } from "../../components/ollama.tsx";
 import { OpencodeGoAccounts } from "../../components/opencode-go-accounts.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
@@ -52,6 +54,7 @@ export const Route = createFileRoute("/_app/accounts")({
     Promise.all([
       queryClient.ensureQueryData(accountsQuery),
       queryClient.ensureQueryData(opencodeGoQuery),
+      queryClient.ensureQueryData(ollamaQuery),
     ]),
   pendingComponent: AccountsLoading,
   errorComponent: AccountsError,
@@ -86,7 +89,7 @@ const styles = stylex.create({
 const title = "Accounts";
 
 const description =
-  "The ChatGPT and OpenCode Go accounts via pools. Disable one to keep it out of rotation without losing it.";
+  "The ChatGPT and OpenCode Go accounts via pools, and the Ollama it sends local models to. Disable an account to keep it out of rotation without losing it.";
 
 /** The page while its data is on its way, which only a page without the shell's state waits for. */
 function AccountsLoading() {
@@ -202,6 +205,10 @@ function Accounts() {
 
       <Section title="OpenCode Go" icon={<ProviderLogo name="opencode-go" size={16} />}>
         <OpencodeGoAccounts />
+      </Section>
+
+      <Section title="Ollama" icon={<ProviderLogo name="ollama" size={16} />}>
+        <OllamaSection />
       </Section>
 
       {add.dialog}

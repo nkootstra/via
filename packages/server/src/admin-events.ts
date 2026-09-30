@@ -2,7 +2,7 @@ import { UsageSnapshots } from "@via/account-pool";
 import { AccountStore } from "@via/codex-auth";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
-import { OpencodeGoAccounts } from "@via/providers";
+import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { Clock, Duration, Effect, FiberHandle, Queue, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import { UsageHistory } from "@via/usage";
@@ -33,6 +33,7 @@ const signals = Effect.gen(function* () {
     (yield* AccountStore).changes,
     (yield* OpencodeGoAccounts).changes,
     (yield* KeyStore).changes,
+    (yield* Providers).ollama.changes,
     Stream.tick(RESYNC),
   ];
 

@@ -217,32 +217,36 @@ a reference page at `/admin/docs`, where you can also try the routes out. API
 keys from `via keys create` don't work on `/admin`, and the admin key doesn't
 work on `/v1`.
 
-| Route                                     | What it does                                                                                      |
-| ----------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `POST /admin/session`                     | Sign in with `{"key": "<VIA_ADMIN_KEY>"}`; sets a cookie.                                         |
-| `GET /admin/session`                      | 200 while signed in, else 401.                                                                    |
-| `DELETE /admin/session`                   | Sign out.                                                                                         |
-| `GET /admin/accounts`                     | List accounts in the order they are used, without tokens.                                         |
-| `PATCH /admin/accounts/<id>`              | Change `label` and/or `enabled`; returns the account.                                             |
-| `DELETE /admin/accounts/<id>`             | Forget an account and delete its tokens.                                                          |
-| `POST /admin/accounts/logins`             | Start a device-code login.                                                                        |
-| `GET /admin/accounts/logins/<id>`         | Check on a login: `pending`, `added`, `updated` or `failed`.                                      |
-| `GET /admin/opencode-go/accounts`         | List OpenCode Go keys, each only by its last four characters.                                     |
-| `POST /admin/opencode-go/accounts`        | Add a key from `{"apiKey": "...", "label": "..."}` (label optional), once OpenCode Go accepts it. |
-| `PATCH /admin/opencode-go/accounts/<id>`  | Change `label` and/or `enabled`; returns the key's account.                                       |
-| `DELETE /admin/opencode-go/accounts/<id>` | Forget an OpenCode Go key.                                                                        |
-| `GET /admin/usage`                        | How much of each account's limits is used.                                                        |
-| `GET /admin/history/series`               | Tokens per hour or day, by group (see [Usage history](#usage-history)).                           |
-| `GET /admin/history/breakdown`            | Requests, tokens, failures, latency and cost over a range, by group.                              |
-| `GET /admin/history/requests`             | The requests in a range, newest first, a page at a time.                                          |
-| `DELETE /admin/history`                   | Delete the whole usage history; answers `{"deleted": <count>}`.                                   |
-| `GET /admin/pool`                         | Each account's and provider's state (see below).                                                  |
-| `GET /admin/models`                       | The models `/v1/models` lists.                                                                    |
-| `GET /admin/events`                       | The admin state as server-sent events, as it changes, and when the usage history changes.         |
-| `GET /admin/keys`                         | List API keys and when each was last used, not the keys.                                          |
-| `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.                                         |
-| `PATCH /admin/keys/<id-or-name>`          | Rename a key from `{"name": "..."}`; the key stays the same.                                      |
-| `DELETE /admin/keys/<id-or-name>`         | Revoke a key.                                                                                     |
+| Route                                     | What it does                                                                                            |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `POST /admin/session`                     | Sign in with `{"key": "<VIA_ADMIN_KEY>"}`; sets a cookie.                                               |
+| `GET /admin/session`                      | 200 while signed in, else 401.                                                                          |
+| `DELETE /admin/session`                   | Sign out.                                                                                               |
+| `GET /admin/accounts`                     | List accounts in the order they are used, without tokens.                                               |
+| `PATCH /admin/accounts/<id>`              | Change `label` and/or `enabled`; returns the account.                                                   |
+| `DELETE /admin/accounts/<id>`             | Forget an account and delete its tokens.                                                                |
+| `POST /admin/accounts/logins`             | Start a device-code login.                                                                              |
+| `GET /admin/accounts/logins/<id>`         | Check on a login: `pending`, `added`, `updated` or `failed`.                                            |
+| `GET /admin/opencode-go/accounts`         | List OpenCode Go keys, each only by its last four characters.                                           |
+| `POST /admin/opencode-go/accounts`        | Add a key from `{"apiKey": "...", "label": "..."}` (label optional), once OpenCode Go accepts it.       |
+| `PATCH /admin/opencode-go/accounts/<id>`  | Change `label` and/or `enabled`; returns the key's account.                                             |
+| `DELETE /admin/opencode-go/accounts/<id>` | Forget an OpenCode Go key.                                                                              |
+| `GET /admin/ollama`                       | Where [Ollama](#ollama-and-system-one) is: `{"address", "fromConfig"}`, or `null`.                      |
+| `PUT /admin/ollama`                       | Save Ollama's address from `{"address": "..."}`; via sends to it at once. `409` if config.yaml sets it. |
+| `DELETE /admin/ollama`                    | Forget the saved address. `409` if config.yaml sets it.                                                 |
+| `POST /admin/ollama/check`                | What `{"address": "..."}` holds: `{"address", "version", "models"}`, or `422` and why not.              |
+| `GET /admin/usage`                        | How much of each account's limits is used.                                                              |
+| `GET /admin/history/series`               | Tokens per hour or day, by group (see [Usage history](#usage-history)).                                 |
+| `GET /admin/history/breakdown`            | Requests, tokens, failures, latency and cost over a range, by group.                                    |
+| `GET /admin/history/requests`             | The requests in a range, newest first, a page at a time.                                                |
+| `DELETE /admin/history`                   | Delete the whole usage history; answers `{"deleted": <count>}`.                                         |
+| `GET /admin/pool`                         | Each account's and provider's state (see below).                                                        |
+| `GET /admin/models`                       | The models `/v1/models` lists.                                                                          |
+| `GET /admin/events`                       | The admin state as server-sent events, as it changes, and when the usage history changes.               |
+| `GET /admin/keys`                         | List API keys and when each was last used, not the keys.                                                |
+| `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.                                               |
+| `PATCH /admin/keys/<id-or-name>`          | Rename a key from `{"name": "..."}`; the key stays the same.                                            |
+| `DELETE /admin/keys/<id-or-name>`         | Revoke a key.                                                                                           |
 
 Accounts are named by their `id` from `GET /admin/accounts`. Unlike the
 commands, the admin API doesn't take a label or email, which would otherwise
@@ -366,7 +370,8 @@ see the pool at a glance, add ChatGPT accounts by device-code login or OpenCode
 Go keys by pasting them, rename, disable and remove them, create, rename and revoke API
 keys, and list the models. The Accounts page lists the ChatGPT accounts under
 Codex and the OpenCode Go keys under their own heading, each key only by its
-last four characters. The Models page shows each model once: a Codex model
+last four characters. Its Ollama section adds, changes or removes the
+address of your Ollama, and shows the version and models via finds there. The Models page shows each model once: a Codex model
 with the reasoning efforts its suffixed ids pick, and a provider's models under
 its heading without their `<provider>/` prefix. Search matches every id.
 
@@ -509,6 +514,7 @@ via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set.
 | `auth/<id>.json`   | One account's OAuth tokens.                         |
 | `state.json`       | Running cooldowns; safe to delete.                  |
 | `opencode-go.json` | Your OpenCode Go API keys, as accounts.             |
+| `ollama.json`      | The address of the Ollama added in the web UI.      |
 | `usage.db`         | The [usage history](#usage-history), in SQLite.     |
 
 `config.yaml`, with the defaults:
@@ -580,9 +586,16 @@ providers:
 
 #### Ollama and System One
 
-With `ollama: {}`, via uses the Ollama on the same machine, and lists its
-local models as `ollama/<model>`, such as `ollama/llama3.2`. When Ollama runs
-somewhere else, give its address as `baseUrl`, ending in `/v1`:
+Add Ollama on the Accounts page of the [web UI](#web-ui): give its address,
+such as `http://192.168.1.20:11434`, and via sends to it at once, with no
+restart. The page shows the Ollama version there and its models, and changes
+or removes the address later. via keeps it in `ollama.json`.
+
+Or set it up in config.yaml, which then wins: the web UI shows that address
+but leaves changing it to config.yaml. With `ollama: {}`, via uses the Ollama
+on the same machine, and lists its local models as `ollama/<model>`, such as
+`ollama/llama3.2`. When Ollama runs somewhere else, give its address as
+`baseUrl`, ending in `/v1`:
 
 - on another machine: `baseUrl: http://192.168.1.20:11434/v1`, with Ollama
   listening beyond its own machine (`OLLAMA_HOST=0.0.0.0`);
@@ -743,7 +756,9 @@ each request it serves. The other standard variables work too:
   of a request the upstream refused.
 - API keys are stored only as SHA-256 hashes.
 - `VIA_ADMIN_KEY` can add, change and remove accounts and API keys. Keep it
-  out of clients; only its SHA-256 hash is compared, in constant time.
+  out of clients; only its SHA-256 hash is compared, in constant time. It can
+  also point via at an Ollama address, which via then sends requests to, so
+  whoever holds it can make via reach any address it can.
 - Admin sessions are kept in memory, each only as the SHA-256 hash of its
   cookie, and all end when via restarts.
 - The server speaks plain HTTP. Keep it on `127.0.0.1`, or put your own TLS in

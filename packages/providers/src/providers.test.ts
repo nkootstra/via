@@ -486,7 +486,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
           "opencode-go": { baseUrl: "http://127.0.0.1:1", apiKeyEnv: "KEY" },
           openrouter: { apiKeyEnv: "KEY" },
         },
-        (providers) => Effect.succeed(providers.names),
+        (providers) => providers.names,
       );
 
       expect(names).toEqual(["openrouter"]);
@@ -501,7 +501,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
           ollama: {},
           nas: { baseUrl: "http://nas:8000/v1" },
         },
-        (providers) => Effect.succeed(providers.local),
+        (providers) => providers.local,
         { openrouter: "sk-test" },
       );
 

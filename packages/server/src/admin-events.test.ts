@@ -175,6 +175,23 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     ),
   );
 
+  it.effect("sends the state again when Ollama's address is saved or removed", () =>
+    withAdmin(ok, (via) =>
+      Effect.gen(function* () {
+        const { states } = yield* listen(via);
+        expect((yield* settled(via, states)).ollama).toBeNull();
+
+        yield* via.put("/admin/ollama", { address: via.provider.url }, adminKey);
+        const saved = yield* next(via, states, (state) => state.ollama !== null);
+        expect(saved.ollama).toEqual({ address: via.provider.url, fromConfig: false });
+        expect(saved.pool.providers.map(({ name }) => name)).toContain("ollama");
+
+        yield* via.delete("/admin/ollama", adminKey);
+        expect((yield* next(via, states, (state) => state.ollama === null)).ollama).toBeNull();
+      }),
+    ),
+  );
+
   it.effect("sends the models again when accounts are disabled and enabled", () =>
     withAdmin(ok, (via) =>
       Effect.gen(function* () {
