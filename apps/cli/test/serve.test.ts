@@ -464,6 +464,30 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
+  it.effect("sends to OpenRouter with the key the web UI saved, for the models it enables", () =>
+    Effect.gen(function* () {
+      const { home, key, env } = yield* loggedIn;
+      const provider = yield* startFakeProvider;
+      provider.respond(providerReply.json({ id: "chatcmpl-or" }));
+      yield* writeConfig(home, `providers:\n  openrouter:\n    baseUrl: ${provider.url}\n`);
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(
+        `${home}/openrouter.json`,
+        JSON.stringify({ apiKey: "sk-or-saved", models: ["openai/gpt-6"] }),
+      );
+
+      const url = yield* serveVia(home, ["--port", "0"], env);
+
+      const response = yield* post(url, key, "/v1/chat/completions", {
+        model: "openrouter/openai/gpt-6",
+        messages: [],
+      });
+
+      expect(yield* response.json).toEqual({ id: "chatcmpl-or" });
+      expect(provider.requests[0]?.headers["authorization"]).toBe("Bearer sk-or-saved");
+    }),
+  );
+
   it.effect("cuts off a stream the upstream broke off without printing a stack trace", () =>
     Effect.gen(function* () {
       const { home, key, env } = yield* loggedIn;

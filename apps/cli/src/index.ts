@@ -3,7 +3,7 @@ import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { AccountStore, CodexAuth } from "@via/codex-auth";
 import { resolvePaths } from "@via/config";
 import { KeyStore } from "@via/keys";
-import { OllamaAddress, OpencodeGoAccounts } from "@via/providers";
+import { OllamaAddress, OpencodeGoAccounts, OpenrouterSettings } from "@via/providers";
 import { ui } from "@via/web/embedded";
 import { Config, Console, Effect, Layer, Option, Schema } from "effect";
 import { CliError, Command } from "effect/unstable/cli";
@@ -65,6 +65,8 @@ const main = Effect.gen(function* () {
         OpencodeGoAccounts.layer(paths.opencodeGo),
         // The Ollama the web UI saved: `via serve` sends to it, `via accounts` lists it.
         OllamaAddress.layer(paths.ollama),
+        // The OpenRouter key and models the web UI saved.
+        OpenrouterSettings.layer(paths.openrouter),
         CodexAuth.layer(Option.getOrUndefined(env.codexIssuer)),
       ).pipe(Layer.provideMerge(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer))),
     ),
