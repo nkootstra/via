@@ -913,7 +913,7 @@ function Requests({
             <div {...stylex.props(styles.more)}>
               <Button
                 variant="secondary"
-                disabled={requests.isFetchingNextPage}
+                loading={requests.isFetchingNextPage}
                 onClick={() => void requests.fetchNextPage()}
               >
                 Load more
