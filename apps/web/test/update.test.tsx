@@ -16,6 +16,7 @@ const stateOf = (version: string) =>
     opencodeGo: [],
     keys: [],
     models: [],
+    ollama: null,
   }) as const;
 
 /** The version this page was built with: the repository's, in tests. */

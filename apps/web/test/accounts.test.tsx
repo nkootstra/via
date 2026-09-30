@@ -246,6 +246,7 @@ describe("the accounts page", () => {
         opencodeGo: [],
         keys: [],
         models: [],
+        ollama: null,
       }),
     );
 

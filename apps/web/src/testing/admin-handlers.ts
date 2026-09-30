@@ -10,6 +10,9 @@ import { AccountNotFoundError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
 import {
   DuplicateOpencodeGoKeyError,
+  OllamaAddressInvalidError,
+  OllamaNotEditableError,
+  OllamaUnreachableError,
   OpencodeGoAccountNotFoundError,
   OpencodeGoKeyRejectedError,
 } from "@via/providers/errors";
@@ -21,6 +24,8 @@ import type {
   HistoryBreakdown,
   HistorySeries,
   Model,
+  Ollama,
+  OllamaCheck,
   OpencodeGoAccount,
   Pool,
   Usage,
@@ -28,7 +33,7 @@ import type {
 } from "../api/types.ts";
 import { http, HttpResponse, type JsonBodyType, type PathParams } from "msw";
 
-const { accounts, opencodeGo, keys, usage, pool, models, history } = AdminApi.groups;
+const { accounts, opencodeGo, ollama, keys, usage, pool, models, history } = AdminApi.groups;
 
 type Encodable = Schema.Top & { readonly EncodingServices: never };
 
@@ -89,6 +94,10 @@ export interface AdminState {
   historyRequests: Array<UsageRequest>;
   /** The query of every history request the fake received, in order. */
   readonly historyQueries: Array<URLSearchParams>;
+  /** Where Ollama is, if via knows one. */
+  ollama: Ollama | null;
+  /** What checking each address finds: Ollama's version and models, or why it can't be used. */
+  ollamaAt: ReadonlyMap<string, Omit<OllamaCheck, "address"> | { readonly reason: string }>;
 }
 
 export const account = (fields: Partial<Account> & Pick<Account, "id" | "label">): Account => ({
@@ -126,11 +135,15 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     historyBreakdown: new Map(),
     historyRequests: [],
     historyQueries: [],
+    ollama: null,
+    ollamaAt: new Map(),
     ...seed,
   };
 }
 
 const at = (path: string) => `*/admin${path}`;
+
+const OllamaAddressBody = Schema.Struct({ address: Schema.String });
 
 export function adminHandlers(state: AdminState) {
   // Every route but signing in needs the session.
@@ -273,6 +286,51 @@ export function adminHandlers(state: AdminState) {
     http.get(
       at("/opencode-go/accounts"),
       guarded(() => ok(opencodeGo.endpoints.list, state.opencodeGo)),
+    ),
+    http.get(
+      at("/ollama"),
+      guarded(() => ok(ollama.endpoints.get, state.ollama)),
+    ),
+    http.put(
+      at("/ollama"),
+      guarded(async ({ request }) => {
+        const { address } = Schema.decodeUnknownSync(OllamaAddressBody)(await request.json());
+
+        if (state.ollama?.fromConfig === true) {
+          return failure(OllamaNotEditableError, new OllamaNotEditableError(), 409);
+        }
+
+        if (!/^https?:\/\/./.test(address.trim())) {
+          return failure(
+            OllamaAddressInvalidError,
+            new OllamaAddressInvalidError({ address }),
+            400,
+          );
+        }
+
+        state.ollama = { address: address.trim(), fromConfig: false };
+
+        return ok(ollama.endpoints.set, state.ollama);
+      }),
+    ),
+    http.delete(
+      at("/ollama"),
+      guarded(() => {
+        state.ollama = null;
+
+        return noContent();
+      }),
+    ),
+    http.post(
+      at("/ollama/check"),
+      guarded(async ({ request }) => {
+        const { address } = Schema.decodeUnknownSync(OllamaAddressBody)(await request.json());
+        const found = state.ollamaAt.get(address) ?? { reason: "nothing answered there" };
+
+        return "reason" in found
+          ? failure(OllamaUnreachableError, new OllamaUnreachableError(found), 422)
+          : ok(ollama.endpoints.check, { address, ...found });
+      }),
     ),
     http.post(
       at("/opencode-go/accounts"),

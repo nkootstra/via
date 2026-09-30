@@ -270,6 +270,68 @@ export const opencodeGoQuery = queryOptions({
   staleTime: SENT_FRESH_MS,
 });
 
+/** Where Ollama is, if via knows one: the address the web UI saved, or config.yaml's. */
+export const ollamaQuery = queryOptions({
+  queryKey: ["ollama"],
+  queryFn: () => run((admin) => admin.ollama.get()),
+  staleTime: SENT_FRESH_MS,
+});
+
+/** What via finds at Ollama's address: its version and models, or why it can't use it. */
+export type OllamaFound =
+  | { readonly reachable: true; readonly version: string; readonly models: ReadonlyArray<string> }
+  | { readonly reachable: false; readonly reason: string };
+
+/** How long what via found at Ollama's address is shown before it looks again. */
+const OLLAMA_CHECK_FRESH_MS = 30_000;
+
+/**
+ * Checks Ollama's address with via, which asks Ollama itself: an address that
+ * can't be reached is an answer the page shows, not a failure to retry.
+ */
+export const ollamaCheckQuery = (address: string) =>
+  queryOptions({
+    queryKey: ["ollama", "check", address],
+    queryFn: () =>
+      run((admin) =>
+        admin.ollama.check({ payload: { address } }).pipe(
+          Effect.map(({ version, models }): OllamaFound => ({ reachable: true, version, models })),
+          Effect.catchTags({
+            OllamaUnreachableError: (error) =>
+              Effect.succeed<OllamaFound>({ reachable: false, reason: error.reason }),
+            OllamaAddressInvalidError: (error) =>
+              Effect.succeed<OllamaFound>({ reachable: false, reason: error.message }),
+          }),
+        ),
+      ),
+    staleTime: OLLAMA_CHECK_FRESH_MS,
+    retry: false,
+  });
+
+/** Saves Ollama's address, resolving to why via refused it, if it did. */
+export const saveOllama = (address: string) =>
+  run((admin) =>
+    admin.ollama.set({ payload: { address } }).pipe(
+      Effect.as(undefined),
+      Effect.catchTags({
+        OllamaAddressInvalidError: (error) => Effect.succeed(error.message),
+        OllamaNotEditableError: (error) => Effect.succeed(error.message),
+      }),
+    ),
+  );
+
+export const removeOllama = () => run((admin) => admin.ollama.remove());
+
+/**
+ * Fetches again what Ollama's address shows up in: the address, the pool's
+ * providers and the models. While via pushes its state, the stream brings it too.
+ */
+export function refreshOllama(queryClient: QueryClient) {
+  for (const { queryKey } of [ollamaQuery, poolQuery, modelsQuery]) {
+    void queryClient.invalidateQueries({ queryKey });
+  }
+}
+
 export type AddOpencodeGoOutcome =
   | { readonly added: true; readonly label: string }
   | { readonly added: false; readonly problem: string };
