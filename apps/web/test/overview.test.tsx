@@ -312,19 +312,30 @@ describe("the overview", () => {
       ]),
     });
 
+    /** Each of a card's figures: its value, and the line under it. */
     const figures = async (name: string) => {
       const figure = within(await card(name));
-      await figure.findByText("Last 24 hours");
+      await figure.findByText("Requests");
 
       return Object.fromEntries(
-        figure
-          .getAllByRole("term")
-          .map((term) => [term.textContent, term.nextElementSibling?.textContent]),
+        figure.getAllByRole("term").map((term) => {
+          const value = term.nextElementSibling;
+
+          return [term.textContent, [value?.textContent, value?.nextElementSibling?.textContent]];
+        }),
       );
     };
 
-    expect(await figures("Ollama")).toEqual({ Requests: "2", Tokens: "460", Cost: "Free" });
-    expect(await figures("openrouter")).toEqual({ Requests: "15", Tokens: "1.2K", Cost: "$0.42" });
+    expect(await figures("Ollama")).toEqual({
+      Requests: ["2", "Last 24 hours · 4% of via's requests"],
+      Tokens: ["460", "457 in · 3 out"],
+      Cost: ["Free", "No one billed these tokens"],
+    });
+    expect(await figures("openrouter")).toEqual({
+      Requests: ["15", "Last 24 hours · 26% of via's requests"],
+      Tokens: ["1.2K", "1K in · 200 out"],
+      Cost: ["$0.42", "Billed by openrouter"],
+    });
 
     const link = within(await card("Ollama")).getByRole("link", { name: "See its requests" });
     expect(link.getAttribute("href")).toContain("account=provider%3Aollama");

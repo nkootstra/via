@@ -169,45 +169,62 @@ const styles = stylex.create({
     flexDirection: "column",
     gap: space.s3,
   },
-  // What via counted for a provider: three figures side by side, and a way to its requests.
+  // What via counted for a provider, in the shape of the meters beside it.
   counted: {
+    margin: 0,
     display: "flex",
     flexDirection: "column",
-    gap: space.s2,
-    flexGrow: 1,
-  },
-  countedTitle: {
-    margin: 0,
-    fontSize: text.caption,
-    color: colors.mutedForeground,
-  },
-  figures: {
-    margin: 0,
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
     gap: space.s3,
   },
   figure: {
-    display: "flex",
-    flexDirection: "column",
-    gap: space.s0_5,
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    alignItems: "baseline",
+    rowGap: space.s1_5,
+    columnGap: space.s2,
     minWidth: 0,
   },
   figureLabel: {
     fontSize: text.caption,
-    color: colors.mutedForeground,
+    fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
+    color: colors.foreground,
   },
   figureValue: {
     margin: 0,
-    fontSize: text.display,
-    lineHeight: 1.2,
-    letterSpacing: "-0.01em",
+    fontSize: text.caption,
     fontVariantNumeric: "tabular-nums",
-    fontVariationSettings: weights.semibold,
-    fontWeight: fontWeights.semibold,
-    color: colors.foreground,
+    fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
+    color: colors.mutedForeground,
   },
-  // Keeps to the card's foot, so the links of a row line up.
+  figureDetail: {
+    gridColumn: "1 / -1",
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s1_5,
+    margin: 0,
+    overflowWrap: "anywhere",
+    fontSize: text.caption,
+    color: colors.mutedForeground,
+  },
+  // A meter's track, filled in a neutral tone: a share of via's traffic, not a limit.
+  shareTrack: {
+    position: "relative",
+    height: "6px",
+    overflow: "hidden",
+    borderRadius: radii.full,
+    backgroundColor: colors.muted,
+    boxShadow: `inset 0 0 0 1px ${colors.border}`,
+  },
+  shareFill: {
+    position: "absolute",
+    insetBlock: 0,
+    insetInlineStart: 0,
+    borderRadius: radii.full,
+    backgroundColor: colors.mutedForeground,
+  },
+  // Keeps to the card's foot, as the last reset line does beside it.
   requestsLink: {
     marginTop: "auto",
     alignSelf: "flex-start",
@@ -555,14 +572,64 @@ function OpencodeGoUsage({ id, usage }: { readonly id: string; readonly usage: U
   );
 }
 
-/** What a provider's requests cost: what it billed and the rest at API prices, nothing for a local one. */
-const costOf = ({ cost }: HistoryGroup) => {
-  if (cost.unpriced.length > 0) return "Unknown";
+/** A share as a whole percentage, and as under 1% rather than 0% when it isn't nothing. */
+const shareOf = (part: number, total: number) => {
+  const percent = total === 0 ? 0 : (part / total) * 100;
+
+  return { percent, text: percent > 0 && percent < 1 ? "<1%" : `${Math.round(percent)}%` };
+};
+
+/** What a provider's requests cost, and why: what it billed, the rest at API prices, or nothing. */
+const costOf = ({ cost }: HistoryGroup, name: string) => {
+  if (cost.unpriced.length > 0) {
+    return { value: "Unknown", detail: `No price known for ${cost.unpriced.join(", ")}` };
+  }
+
+  if (cost.billedUsd > 0 && cost.apiEquivalentUsd === 0) {
+    return { value: formatUsd(cost.billedUsd), detail: `Billed by ${providerName(name)}` };
+  }
 
   const total = cost.apiEquivalentUsd + cost.billedUsd;
 
-  return total === 0 ? "Free" : formatUsd(total);
+  return total === 0
+    ? { value: "Free", detail: "No one billed these tokens" }
+    : { value: formatUsd(total), detail: "At API prices" };
 };
+
+/**
+ * One of a provider's figures, laid out as the meters beside it are: its name,
+ * its value, and a line under it, with a bar for its share of via's traffic.
+ */
+function Figure({
+  label,
+  value,
+  detail,
+  share,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly detail: string;
+  /** A percentage; a share that isn't nothing still shows a sliver. */
+  readonly share?: number;
+}) {
+  return (
+    <div {...stylex.props(styles.figure)}>
+      <dt {...stylex.props(styles.figureLabel)}>{label}</dt>
+      <dd {...stylex.props(styles.figureValue)}>{value}</dd>
+      <dd {...stylex.props(styles.figureDetail)}>
+        {share !== undefined && (
+          <span aria-hidden="true" {...stylex.props(styles.shareTrack)}>
+            <span
+              {...stylex.props(styles.shareFill)}
+              style={{ width: share === 0 ? 0 : `max(4px, ${Math.min(100, share)}%)` }}
+            />
+          </span>
+        )}
+        <span>{detail}</span>
+      </dd>
+    </div>
+  );
+}
 
 /**
  * What via counted of a provider's requests over the last day, as a provider
@@ -577,39 +644,39 @@ function ProviderCounted({ name }: { readonly name: string }) {
     ...useSignalledOptions(),
   });
 
-  if (breakdown.isPending) {
-    return (
-      <output aria-label="Loading what via counted" {...stylex.props(styles.meters)}>
-        <Skeleton width="30%" height="12px" />
-        <Skeleton height="28px" />
-      </output>
-    );
-  }
+  if (breakdown.isPending) return <UsageLoading />;
 
   if (breakdown.isError) {
     return <p {...stylex.props(styles.muted)}>What via counted couldn't be loaded.</p>;
   }
 
-  const counted = breakdown.data.groups.find((group) => group.group === `provider:${name}`);
+  const { groups, totals } = breakdown.data;
+  const counted = groups.find((group) => group.group === `provider:${name}`);
 
   if (counted === undefined || counted.requests === 0) {
     return <p {...stylex.props(styles.muted)}>No requests in the last 24 hours.</p>;
   }
 
+  const requests = shareOf(counted.requests, totals.requests);
+  const tokens = shareOf(tokensOf(counted), tokensOf(totals));
+  const cost = costOf(counted, name);
+
   return (
-    <div {...stylex.props(styles.counted)}>
-      <p {...stylex.props(styles.countedTitle)}>Last 24 hours</p>
-      <dl {...stylex.props(styles.figures)}>
-        {[
-          ["Requests", formatCount(counted.requests)],
-          ["Tokens", formatTokens(tokensOf(counted))],
-          ["Cost", costOf(counted)],
-        ].map(([label, value]) => (
-          <div key={label} {...stylex.props(styles.figure)}>
-            <dt {...stylex.props(styles.figureLabel)}>{label}</dt>
-            <dd {...stylex.props(styles.figureValue)}>{value}</dd>
-          </div>
-        ))}
+    <>
+      <dl {...stylex.props(styles.counted)}>
+        <Figure
+          label="Requests"
+          value={formatCount(counted.requests)}
+          detail={`Last 24 hours · ${requests.text} of via's requests`}
+          share={requests.percent}
+        />
+        <Figure
+          label="Tokens"
+          value={formatTokens(tokensOf(counted))}
+          detail={`${formatTokens(counted.inputTokens)} in · ${formatTokens(counted.outputTokens)} out`}
+          share={tokens.percent}
+        />
+        <Figure label="Cost" value={cost.value} detail={cost.detail} />
       </dl>
       <Link
         to="/usage"
@@ -618,7 +685,7 @@ function ProviderCounted({ name }: { readonly name: string }) {
       >
         See its requests
       </Link>
-    </div>
+    </>
   );
 }
 
