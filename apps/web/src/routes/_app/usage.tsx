@@ -8,11 +8,14 @@ import {
   type ChartPoint,
   type ChartSeries,
   EmptyState,
+  FilterSelect,
+  type FilterOption,
   SegmentedControl,
   SegmentedItem,
   Skeleton,
   Stat,
   StatList,
+  Switch,
   Table,
   TableBody,
   TableCell,
@@ -22,15 +25,15 @@ import {
   TableSkeleton,
 } from "@via/ui";
 import { colors, fonts, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
-import { Option } from "effect";
-import { useState } from "react";
+import { Option, Schema } from "effect";
+import { useId } from "react";
 import {
   historyBreakdownQuery,
   historyRequestsQuery,
   historySeriesQuery,
+  type HistoryFilters,
   type HistoryGroupBy,
   type HistoryRange,
-  type RequestFilter,
 } from "../../api/admin.ts";
 import type {
   HistoryBreakdown,
@@ -53,10 +56,79 @@ import {
   formatUsd,
 } from "../../lib/usage-format.ts";
 
+/**
+ * An id a search param carries. TanStack Router reads a value that looks like a
+ * number, as in `?key=123`, as one, so an id may arrive as either.
+ */
+const SearchId = Schema.Union([Schema.String, Schema.Finite]);
+
+/**
+ * The page's state, kept in the URL so it survives a reload and can be shared:
+ * the range, what the usage is grouped by, and the filters. A default is left
+ * out, so the plain page has a plain URL.
+ */
+const UsageSearch = Schema.Struct({
+  range: Schema.optionalKey(Schema.Literals(["24h", "7d", "30d", "90d"])),
+  by: Schema.optionalKey(Schema.Literals(["model", "account", "key"])),
+  model: Schema.optionalKey(SearchId),
+  account: Schema.optionalKey(SearchId),
+  key: Schema.optionalKey(SearchId),
+  failed: Schema.optionalKey(Schema.Boolean),
+});
+
+type UsageSearch = typeof UsageSearch.Type;
+
+/** A change to the search: a field set to undefined is taken out. */
+type SearchChange = { readonly [K in keyof UsageSearch]?: UsageSearch[K] | undefined };
+
 export const Route = createFileRoute("/_app/usage")({
   head: () => ({ meta: [{ title: "Usage · via" }] }),
+  validateSearch: Schema.toStandardSchemaV1(UsageSearch),
   component: Usage,
 });
+
+/** The search with `change` made, and with its defaults and empty fields left out. */
+const changed = (search: UsageSearch, change: SearchChange): UsageSearch => {
+  const next = { ...search, ...change };
+
+  return {
+    ...(next.range !== undefined && next.range !== "24h" && { range: next.range }),
+    ...(next.by !== undefined && next.by !== "model" && { by: next.by }),
+    ...(next.model !== undefined && { model: next.model }),
+    ...(next.account !== undefined && { account: next.account }),
+    ...(next.key !== undefined && { key: next.key }),
+    ...(next.failed === true && { failed: true }),
+  };
+};
+
+/** The search param that filters by a group of `groupBy`. */
+const FACETS = { model: "model", account: "account", key: "key" } as const;
+
+/** The filters the search holds, as the admin API takes them. */
+const filtersOf = (search: UsageSearch): HistoryFilters => ({
+  ...(search.model !== undefined && { model: String(search.model) }),
+  ...(search.account !== undefined && { accountId: String(search.account) }),
+  ...(search.key !== undefined && { keyId: String(search.key) }),
+  ...(search.failed === true && { outcome: "error" as const }),
+});
+
+/** `filters` without the one on `facet`: what that facet's own options are counted under. */
+const without = (filters: HistoryFilters, facet: HistoryGroupBy): HistoryFilters => {
+  const { model, accountId, keyId, ...rest } = filters;
+
+  return {
+    ...rest,
+    ...(facet !== "model" && model !== undefined && { model }),
+    ...(facet !== "account" && accountId !== undefined && { accountId }),
+    ...(facet !== "key" && keyId !== undefined && { keyId }),
+  };
+};
+
+const hasFilters = (search: UsageSearch) =>
+  search.model !== undefined ||
+  search.account !== undefined ||
+  search.key !== undefined ||
+  search.failed === true;
 
 const HOUR = 3_600_000;
 
@@ -173,18 +245,42 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
     color: colors.foreground,
   },
-  filter: {
+  header: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s3,
+  },
+  // Wraps onto more lines as the screen narrows; each facet keeps its own width.
+  filters: {
+    // A fieldset, stripped of its frame.
+    margin: 0,
+    padding: 0,
+    borderWidth: 0,
     display: "flex",
     flexWrap: "wrap",
     alignItems: "center",
     gap: space.s2,
-    fontSize: text.caption,
-    color: colors.mutedForeground,
+    minWidth: 0,
   },
-  filterValue: {
-    fontFamily: fonts.mono,
-    color: colors.foreground,
-    overflowWrap: "anywhere",
+  // Named for assistive tech only: the facets name themselves on screen.
+  legend: {
+    position: "absolute",
+    width: "1px",
+    height: "1px",
+    padding: 0,
+    margin: "-1px",
+    overflow: "hidden",
+    clipPath: "inset(50%)",
+    whiteSpace: "nowrap",
+    borderWidth: 0,
+  },
+  toggle: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.s2,
+    paddingInline: space.s1,
+    fontSize: text.body,
+    color: colors.mutedForeground,
   },
   more: {
     display: "flex",
@@ -213,12 +309,26 @@ const rangeOf = (key: RangeKey, now: number): HistoryRange => {
 const tokensOf = (usage: { readonly inputTokens: number; readonly outputTokens: number }) =>
   usage.inputTokens + usage.outputTokens;
 
+/** Providers whose requests go through a pool of accounts, so one no account served was refused. */
+const POOLED = new Set(["codex", "opencode-go"]);
+
 /**
  * A group's name as the page shows it: a model without its provider's prefix,
- * as the Models page names it; any other group by its label.
+ * as the Models page names it. An account group of a provider's requests no
+ * account served is named for that: a pooled provider's were refused, and a
+ * plain provider's are simply that provider's.
  */
-const nameOf = (groupBy: HistoryGroupBy, group: HistoryGroup) =>
-  groupBy === "model" ? withoutPrefix(group.label) : group.label;
+const nameOf = (groupBy: HistoryGroupBy, group: HistoryGroup) => {
+  if (groupBy === "model") return withoutPrefix(group.label);
+
+  if (groupBy === "account" && group.group.startsWith("provider:")) {
+    const provider = group.group.slice("provider:".length);
+
+    return POOLED.has(provider) ? `Not served (${providerName(provider)})` : providerName(provider);
+  }
+
+  return group.label;
+};
 
 /**
  * The chart's series: the groups that spent the most tokens, then the rest
@@ -271,33 +381,33 @@ const pointsOf = (
   return [...bars].toSorted(([a], [b]) => a - b).map(([x, values]) => ({ x, values }));
 };
 
-/** What a group's requests are filtered by, if the list can show only them. */
-const filterOf = (groupBy: HistoryGroupBy, group: HistoryGroup): RequestFilter | undefined => {
-  if (groupBy === "model") return { model: group.group };
-
-  if (groupBy === "key") return { keyId: group.group };
-
-  // A plain provider has no account of its own to filter by.
-  return group.group.startsWith("provider:") ? undefined : { accountId: group.group };
-};
-
 function Usage() {
   const format = useTimeFormat();
   const now = useNow(60_000);
-  const [rangeKey, setRangeKey] = useState<RangeKey>("24h");
-  const [groupBy, setGroupBy] = useState<HistoryGroupBy>("model");
-  const [filter, setFilter] = useState<{ label: string; by: RequestFilter } | undefined>();
+  const search = Route.useSearch();
+  const navigate = Route.useNavigate();
+  const rangeKey = search.range ?? "24h";
+  const groupBy = search.by ?? "model";
+  const filters = filtersOf(search);
   const bucket = RANGES[rangeKey].bucket;
   const range = rangeOf(rangeKey, now);
   const tzOffsetMinutes = -new Date(now).getTimezoneOffset();
 
+  // Each change replaces the page's entry: Back leaves the page rather than stepping
+  // back through every filter tried on it.
+  const change = (next: SearchChange) =>
+    void navigate({ search: (current) => changed(current, next), replace: true });
+
+  const clear = () =>
+    change({ model: undefined, account: undefined, key: undefined, failed: undefined });
+
   const breakdown = useQuery({
-    ...historyBreakdownQuery(range, groupBy),
+    ...historyBreakdownQuery(range, groupBy, filters),
     placeholderData: keepPreviousData,
   });
 
   const series = useQuery({
-    ...historySeriesQuery(range, bucket, tzOffsetMinutes, groupBy),
+    ...historySeriesQuery(range, bucket, tzOffsetMinutes, groupBy, filters),
     placeholderData: keepPreviousData,
   });
 
@@ -306,7 +416,7 @@ function Usage() {
       <SegmentedControl
         aria-label="Range"
         value={rangeKey}
-        onValueChange={(value) => isRange(value) && setRangeKey(value)}
+        onValueChange={(value) => isRange(value) && change({ range: value })}
       >
         {Object.entries(RANGES).map(([key, { label }]) => (
           <SegmentedItem key={key} value={key} label={label} />
@@ -315,7 +425,7 @@ function Usage() {
       <SegmentedControl
         aria-label="Group by"
         value={groupBy}
-        onValueChange={(value) => isGrouping(value) && setGroupBy(value)}
+        onValueChange={(value) => isGrouping(value) && change({ by: value })}
       >
         {Object.entries(GROUPINGS).map(([key, label]) => (
           <SegmentedItem key={key} value={key} label={label} />
@@ -330,7 +440,16 @@ function Usage() {
       description="Every request via served in the last 90 days: who sent it, which account answered, and the tokens it took."
     >
       <div {...stylex.props(styles.content)}>
-        {controls}
+        <div {...stylex.props(styles.header)}>
+          {controls}
+          <FilterBar
+            range={range}
+            search={search}
+            filters={filters}
+            change={change}
+            clear={clear}
+          />
+        </div>
         {breakdown.isError ? (
           <QueryError
             what="usage"
@@ -340,12 +459,26 @@ function Usage() {
         ) : breakdown.data === undefined ? (
           <UsageLoading />
         ) : breakdown.data.totals.requests === 0 ? (
-          <EmptyState
-            icon={<UsageIcon size={18} />}
-            title={`No requests in the last ${RANGES[rangeKey].label.toLowerCase()}`}
-            description="Requests your clients send through via show up here, with their tokens and what they would cost."
-            headingLevel={2}
-          />
+          hasFilters(search) ? (
+            <EmptyState
+              icon={<UsageIcon size={18} />}
+              title="No requests match these filters"
+              description={`None in the last ${RANGES[rangeKey].label.toLowerCase()}. Try a longer range, or clear the filters.`}
+              action={
+                <Button variant="secondary" onClick={clear}>
+                  Clear filters
+                </Button>
+              }
+              headingLevel={2}
+            />
+          ) : (
+            <EmptyState
+              icon={<UsageIcon size={18} />}
+              title={`No requests in the last ${RANGES[rangeKey].label.toLowerCase()}`}
+              description="Requests your clients send through via show up here, with their tokens and what they would cost."
+              headingLevel={2}
+            />
+          )
         ) : (
           <>
             <Totals breakdown={breakdown.data} />
@@ -371,25 +504,106 @@ function Usage() {
               <Breakdown
                 breakdown={breakdown.data}
                 groupBy={groupBy}
-                onPick={(group) => {
-                  const by = filterOf(groupBy, group);
-
-                  if (by !== undefined) setFilter({ label: nameOf(groupBy, group), by });
-                }}
+                onPick={(group) => change({ [FACETS[groupBy]]: group.group })}
               />
             </Section>
             <Section title="Requests">
-              <Requests
-                range={range}
-                filter={filter}
-                onClear={() => setFilter(undefined)}
-                format={format}
-              />
+              <Requests range={range} filters={filters} format={format} />
             </Section>
           </>
         )}
       </div>
     </Page>
+  );
+}
+
+/** A search param's value as a facet's choice: an id, or null for none. */
+const chosen = (value: string | number | undefined) => (value === undefined ? null : String(value));
+
+/** A facet's options: each group the other filters leave, with its request count. */
+const optionsOf = (
+  facet: HistoryGroupBy,
+  groups: ReadonlyArray<HistoryGroup>,
+): ReadonlyArray<FilterOption> => {
+  const names = groups.map((group) => nameOf(facet, group));
+
+  return groups.map((group, index) => {
+    const name = names[index] ?? group.label;
+    const shared = facet === "model" && names.filter((other) => other === name).length > 1;
+
+    return {
+      value: group.group,
+      label: shared ? `${name} · ${providerName(ownerOf(group.group))}` : name,
+      detail: formatCount(group.requests),
+    };
+  });
+};
+
+/**
+ * The filters: a facet each for the model, the account and the key, whose
+ * options are what the other filters leave, and failed requests only.
+ */
+function FilterBar({
+  range,
+  search,
+  filters,
+  change,
+  clear,
+}: {
+  readonly range: HistoryRange;
+  readonly search: UsageSearch;
+  readonly filters: HistoryFilters;
+  readonly change: (next: SearchChange) => void;
+  readonly clear: () => void;
+}) {
+  const failed = useId();
+
+  const facet = (by: HistoryGroupBy) => ({
+    ...historyBreakdownQuery(range, by, without(filters, by)),
+    placeholderData: keepPreviousData,
+  });
+
+  const models = useQuery(facet("model"));
+  const accounts = useQuery(facet("account"));
+  const keys = useQuery(facet("key"));
+
+  return (
+    <fieldset {...stylex.props(styles.filters)}>
+      <legend {...stylex.props(styles.legend)}>Filters</legend>
+      <FilterSelect
+        label="Model"
+        options={optionsOf("model", models.data?.groups ?? [])}
+        value={chosen(search.model)}
+        onValueChange={(value) => change({ model: value ?? undefined })}
+        fallbackLabel={withoutPrefix}
+      />
+      <FilterSelect
+        label="Account"
+        options={optionsOf("account", accounts.data?.groups ?? [])}
+        value={chosen(search.account)}
+        onValueChange={(value) => change({ account: value ?? undefined })}
+      />
+      <FilterSelect
+        label="Key"
+        options={optionsOf("key", keys.data?.groups ?? [])}
+        value={chosen(search.key)}
+        onValueChange={(value) => change({ key: value ?? undefined })}
+      />
+      {/* A label, so its words toggle the switch as well. */}
+      <label htmlFor={failed} {...stylex.props(styles.toggle)}>
+        <Switch
+          id={failed}
+          checked={search.failed === true}
+          onCheckedChange={(checked) => change({ failed: checked || undefined })}
+        />
+        Failed only
+      </label>
+      {hasFilters(search) && (
+        <Button variant="ghost" size="compact" onClick={clear}>
+          Clear filters
+        </Button>
+      )}
+    </fieldset>
   );
 }
 
@@ -517,22 +731,16 @@ function Breakdown({
             {breakdown.groups.map((group, index) => (
               <TableRow key={group.group} index={index}>
                 <TableCell>
-                  {filterOf(groupBy, group) === undefined ? (
-                    <span title={group.label} {...stylex.props(styles.name)}>
-                      {group.label}
-                    </span>
-                  ) : (
-                    <button
-                      type="button"
-                      aria-label={`Show requests for ${group.label}`}
-                      // A model names its full id itself.
-                      title={groupBy === "model" ? undefined : group.label}
-                      onClick={() => onPick(group)}
-                      {...stylex.props(styles.name, styles.pick)}
-                    >
-                      {groupBy === "model" ? <ModelName id={group.group} /> : group.label}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    aria-label={`Filter by ${nameOf(groupBy, group)}`}
+                    // A model names its full id itself.
+                    title={groupBy === "model" ? undefined : nameOf(groupBy, group)}
+                    onClick={() => onPick(group)}
+                    {...stylex.props(styles.name, styles.pick)}
+                  >
+                    {groupBy === "model" ? <ModelName id={group.group} /> : nameOf(groupBy, group)}
+                  </button>
                 </TableCell>
                 <TableCell secondary>
                   <span {...stylex.props(styles.number)}>{formatCount(group.requests)}</span>
@@ -609,32 +817,19 @@ const requestColumns = [
 
 function Requests({
   range,
-  filter,
-  onClear,
+  filters,
   format,
 }: {
   readonly range: HistoryRange;
-  readonly filter: { readonly label: string; readonly by: RequestFilter } | undefined;
-  readonly onClear: () => void;
+  readonly filters: HistoryFilters;
   readonly format: ReturnType<typeof useTimeFormat>;
 }) {
-  const requests = useInfiniteQuery(historyRequestsQuery(range, filter?.by ?? {}));
+  const requests = useInfiniteQuery(historyRequestsQuery(range, filters));
 
   const rows = requests.data?.pages.flatMap((page) => page.requests) ?? [];
 
   return (
     <>
-      {filter !== undefined && (
-        <div {...stylex.props(styles.filter)}>
-          Only requests for
-          <span data-filter {...stylex.props(styles.filterValue)}>
-            {filter.label}
-          </span>
-          <Button variant="ghost" size="compact" onClick={onClear}>
-            Show all requests
-          </Button>
-        </div>
-      )}
       {requests.isError ? (
         <QueryError
           what="requests"

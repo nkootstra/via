@@ -56,6 +56,8 @@ const byModel = breakdown([
 const byAccount = breakdown([
   group({ group: "acc-1", label: "work@example.com", requests: 25 }),
   group({ group: "provider:openrouter", label: "openrouter", requests: 15 }),
+  // Refused before any account served it, so it has only the provider's name.
+  group({ group: "provider:codex", label: "codex", requests: 2 }),
 ]);
 
 const request = (
@@ -136,6 +138,12 @@ const stat = (label: string) => {
   return { value: all.slice(0, all.length - detail.length), detail };
 };
 
+/** The last history query the page sent with the `has` param, as its search params. */
+const lastQuery = (
+  state: { readonly historyQueries: ReadonlyArray<URLSearchParams> },
+  has: string,
+) => state.historyQueries.filter((query) => query.has(has)).at(-1);
+
 describe("the usage page", () => {
   it("is in the navigation", async () => {
     renderApp("/usage", seed);
@@ -179,7 +187,7 @@ describe("the usage page", () => {
         .getAllByRole("row")
         .slice(1)
         .map((row) => row.querySelector("td")?.textContent),
-    ).toEqual(["work@example.com", "openrouter"]);
+    ).toEqual(["work@example.com", "openrouter", "Not served (Codex)"]);
   });
 
   it("tells apart a model two providers serve by naming the provider in the legend", async () => {
@@ -249,20 +257,98 @@ describe("the usage page", () => {
     expect(row?.textContent).toContain("Model does not support this protocol.");
   });
 
-  it("shows only a model's requests once its row is picked", async () => {
-    const { user } = renderApp("/usage", seed);
+  it("narrows the whole page to a row picked in the breakdown, and keeps it in the URL", async () => {
+    const { state, router, user } = renderApp("/usage", seed);
 
     const table = await screen.findByRole("table", { name: "Usage by model" });
-    await user.click(
-      within(table).getByRole("button", { name: "Show requests for opencode-go/kimi-k3" }),
+    await user.click(within(table).getByRole("button", { name: "Filter by kimi-k3" }));
+
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ model: "opencode-go/kimi-k3" }),
     );
 
-    const log = screen.getByRole("table", { name: "Requests" });
-    await waitFor(() => expect(within(log).getAllByRole("row")).toHaveLength(2));
-    expect(screen.getByText("kimi-k3", { selector: "[data-filter]" })).toBeDefined();
+    await waitFor(() =>
+      expect(
+        state.historyQueries.filter((query) => query.get("model") === "opencode-go/kimi-k3").length,
+      ).toBeGreaterThanOrEqual(3),
+    );
 
-    await user.click(screen.getByRole("button", { name: "Show all requests" }));
-    await waitFor(() => expect(within(log).getAllByRole("row")).toHaveLength(3));
+    expect(screen.getByRole("combobox", { name: "Model: kimi-k3" })).toBeDefined();
+    expect(
+      within(screen.getByRole("table", { name: "Requests" })).getAllByRole("row"),
+    ).toHaveLength(2);
+  });
+
+  it("reads its filters from the URL, so they survive a reload", async () => {
+    const { state } = renderApp(
+      "/usage?range=7d&by=account&model=opencode-go/kimi-k3&failed=true",
+      seed,
+    );
+
+    expect(await screen.findByRole("combobox", { name: "Model: kimi-k3" })).toBeDefined();
+    expect(screen.getByRole("radio", { name: "Week" }).getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByRole("radio", { name: "Account" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    expect(screen.getByRole("switch", { name: "Failed only" }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+
+    await waitFor(() => {
+      const asked = lastQuery(state, "groupBy");
+      expect(asked?.get("model")).toBe("opencode-go/kimi-k3");
+      expect(asked?.get("outcome")).toBe("error");
+    });
+  });
+
+  it("filters by a model chosen in its facet, searching by name", async () => {
+    const { router, user } = renderApp("/usage", seed);
+
+    await user.click(await screen.findByRole("combobox", { name: "Model" }));
+    await user.keyboard("kimi");
+    await user.click(await screen.findByRole("option", { name: /kimi-k3/ }));
+
+    await waitFor(() =>
+      expect(router.state.location.search).toMatchObject({ model: "opencode-go/kimi-k3" }),
+    );
+  });
+
+  it("toggles failed requests only from the words beside the switch too", async () => {
+    const { router, user } = renderApp("/usage", seed);
+
+    await user.click(await screen.findByText("Failed only"));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ failed: true }));
+  });
+
+  it("clears every filter at once", async () => {
+    const { router, user } = renderApp("/usage?model=opencode-go/kimi-k3&failed=true", seed);
+
+    await user.click(await screen.findByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+    expect(screen.getByRole("combobox", { name: "Model" })).toBeDefined();
+    expect(screen.getByRole("switch", { name: "Failed only" }).getAttribute("aria-checked")).toBe(
+      "false",
+    );
+  });
+
+  it("says when nothing matches the filters, and offers to clear them", async () => {
+    const { router, user } = renderApp("/usage?failed=true", {
+      ...seed,
+      historyBreakdown: new Map(),
+    });
+
+    expect(
+      await screen.findByRole("heading", { name: "No requests match these filters" }),
+    ).toBeDefined();
+
+    // The empty state's own, after the filter bar's.
+    await user.click(
+      screen.getAllByRole("button", { name: "Clear filters" }).at(-1) ?? document.body,
+    );
+
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
   });
 
   it("loads more requests on request", async () => {

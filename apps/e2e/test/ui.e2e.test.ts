@@ -173,6 +173,32 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
       }),
   );
 
+  it.effect.runIf(withBinary)("keeps the usage page's filters through a reload", () =>
+    Effect.gen(function* () {
+      const { via, codex } = yield* viaAndCodex;
+      codex.respond(() => reply.text("hi"));
+      yield* post(via, "/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+
+      const { page, problems } = yield* openPage("usage-filters");
+      yield* signIn(page, via.url);
+      yield* Effect.promise(() => page.goto(`${via.url}/ui/usage`));
+      yield* visible(page, "Usage");
+
+      yield* Effect.promise(() => page.getByRole("combobox", { name: "Model" }).click());
+      yield* Effect.promise(() => page.keyboard.type("codex"));
+      yield* Effect.promise(() => page.getByRole("option", { name: /gpt-5\.1-codex/ }).click());
+      yield* Effect.promise(() => page.waitForURL(/model=gpt-5\.1-codex/));
+
+      yield* Effect.promise(() => page.reload());
+
+      yield* Effect.promise(() =>
+        page.getByRole("combobox", { name: "Model: gpt-5.1-codex" }).waitFor({ timeout: 10_000 }),
+      );
+
+      expect(problems).toEqual([]);
+    }),
+  );
+
   it.effect.runIf(withBinary)("shows a request it served on the usage page", () =>
     Effect.gen(function* () {
       const { via, codex } = yield* viaAndCodex;

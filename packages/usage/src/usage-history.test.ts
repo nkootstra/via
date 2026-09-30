@@ -254,6 +254,79 @@ describe("UsageHistory.series", () => {
   );
 });
 
+/** Requests across two models, two keys, a failure, and a provider no account served. */
+const filterTraffic = (usage: UsageHistory["Service"]) =>
+  Effect.forEach(
+    [
+      entry({ requestId: "a", model: "m1", keyId: Option.some("k1") }),
+      entry({ requestId: "b", model: "m2", keyId: Option.some("k1"), status: 429 }),
+      entry({ requestId: "c", model: "m1", keyId: Option.some("k2") }),
+      entry({
+        requestId: "d",
+        model: "m1",
+        keyId: Option.some("k1"),
+        provider: "openrouter",
+        accountId: Option.none(),
+        accountLabel: Option.none(),
+      }),
+    ],
+    usage.record,
+    { discard: true },
+  );
+
+describe("UsageHistory filters", () => {
+  const range = { from: 0, to: 2_000 * HOUR };
+
+  it.effect("narrow the series and the breakdown as they narrow the request list", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* filterTraffic(usage);
+        const filters = { model: "m1", keyId: "k1" };
+
+        const points = yield* usage.series({
+          ...range,
+          ...filters,
+          bucket: "day",
+          tzOffsetMinutes: 0,
+          groupBy: "model",
+        });
+
+        const { groups } = yield* usage.breakdown({ ...range, ...filters, groupBy: "key" });
+        const page = yield* usage.requests({ ...range, ...filters, limit: 10 });
+
+        expect(points.map((p) => [p.group, p.requests])).toEqual([["m1", 2]]);
+        expect(groups.map((g) => [g.group, g.requests])).toEqual([["k1", 2]]);
+        expect(page.requests.map((r) => r.requestId).toSorted()).toEqual(["a", "d"]);
+      }),
+    ),
+  );
+
+  it.effect("keep only failed requests when asked", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* filterTraffic(usage);
+        const { groups } = yield* usage.breakdown({ ...range, outcome: "error", groupBy: "model" });
+
+        expect(groups.map((g) => [g.group, g.requests, g.errors])).toEqual([["m2", 1, 1]]);
+      }),
+    ),
+  );
+
+  it.effect("take a provider's group as an account, as the breakdown names it", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* filterTraffic(usage);
+        const accountId = "provider:openrouter";
+        const page = yield* usage.requests({ ...range, accountId, limit: 10 });
+        const { groups } = yield* usage.breakdown({ ...range, accountId, groupBy: "account" });
+
+        expect(page.requests.map((r) => r.requestId)).toEqual(["d"]);
+        expect(groups.map((g) => g.group)).toEqual(["provider:openrouter"]);
+      }),
+    ),
+  );
+});
+
 describe("UsageHistory.breakdown", () => {
   it.effect("totals each group, labelled as its latest request was", () =>
     history((usage) =>

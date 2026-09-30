@@ -376,8 +376,13 @@ tokens, cache hit rate, API-equivalent cost and time to first token (of
 streamed answers that didn't fail) over the
 last day, week, 30 or 90 days; tokens per hour or day, stacked by model,
 account or key; a table of each; and the requests themselves, newest first.
-Pick a model, account or key in its table to list only its requests. The page
-asks again every 15 seconds while it's open.
+Filter the whole page to one model, account or key, and to failed requests
+only: pick them from the filter bar, where each one's search lists what the
+other filters leave with its request count, or pick a row of the table. The
+range, grouping and filters are in the page's address, as in
+`/ui/usage?range=7d&model=opencode-go/kimi-k3&failed=true`, so a reload keeps
+them and a link shares them. The page asks again every 15 seconds while it's
+open.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
@@ -651,7 +656,9 @@ milliseconds; `series` and `breakdown` also take `groupBy` (`model`,
 `account`, `key` or `provider`), and `series` takes a `bucket` (`hour` or
 `day`) and `tzOffsetMinutes`, so days start at your midnight. A request no
 account served, such as one to a plain provider, counts under
-`provider:<name>` when grouped by account.
+`provider:<name>` when grouped by account. All three also take filters:
+`model`, `accountId` (an account's id, or `provider:<name>`), `keyId`, and
+`outcome` (`error` for failed requests only, `ok` for the rest).
 
 Cost is worked out when you ask, from the tokens and the [model prices](#model-prices),
 so a price change applies to old requests too:

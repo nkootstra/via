@@ -75,6 +75,8 @@ export interface SwitchProps {
   readonly onCheckedChange: (checked: boolean) => void;
   /** The switch's accessible name, when no visible label names it. */
   readonly "aria-label"?: string;
+  /** For a `<label htmlFor>` that names it with visible words. */
+  readonly id?: string;
   readonly disabled?: boolean;
   /** Its change is still saving: announced, without dimming the switch as `disabled` would. */
   readonly "aria-busy"?: boolean;

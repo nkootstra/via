@@ -123,6 +123,45 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
     ),
   );
 
+  it.effect("narrows the totals and the series to one model, as it narrows the requests", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* traffic(via);
+          const model = "model=openrouter/minimax-m3";
+          const breakdown = yield* history(via, `breakdown?${range}&groupBy=provider&${model}`);
+
+          const series = yield* history(
+            via,
+            `series?${range}&bucket=hour&tzOffsetMinutes=0&groupBy=model&${model}`,
+          );
+
+          expect(breakdown).toMatchObject({
+            groups: [{ group: "openrouter", requests: 1 }],
+            totals: { requests: 1 },
+          });
+
+          expect(series).toMatchObject({ points: [{ group: "openrouter/minimax-m3" }] });
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("keeps only failed requests when asked, everywhere", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* traffic(via);
+          const breakdown = yield* history(via, `breakdown?${range}&groupBy=model&outcome=error`);
+
+          expect(breakdown).toMatchObject({ groups: [], totals: { requests: 0 } });
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("names a key as it is called now", () =>
     withVia(
       ok,
