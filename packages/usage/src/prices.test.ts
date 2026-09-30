@@ -13,7 +13,10 @@ const snapshot = new Map<string, ModelPrice>([
   ["deepseek-v4.1-flash", { input: 0.3, output: 1.2 }],
 ]);
 
-const book = priceBook({ "opencode-go/kimi-k3": { input: 1, output: 4 } }, snapshot);
+const book = priceBook(
+  { "opencode-go/kimi-k3": { input: 1, output: 4 }, "ollama/qwen4": { input: 0.1, output: 0.2 } },
+  { snapshot, local: ["ollama"] },
+);
 
 describe("priceBook", () => {
   it("finds a model by its name", () => {
@@ -55,6 +58,15 @@ describe("priceBook", () => {
     expect(book("openrouter/kimi-k3")).toEqual(
       Option.some({ input: 3, cachedInput: 0.3, output: 15 }),
     );
+  });
+
+  it("prices a local provider's model at nothing, even one the snapshot lists", () => {
+    expect(book("ollama/kimi-k3")).toEqual(Option.some({ input: 0, output: 0 }));
+    expect(book("ollama/nimble")).toEqual(Option.some({ input: 0, output: 0 }));
+  });
+
+  it("prefers a price from config.yaml for a local provider's model", () => {
+    expect(book("ollama/qwen4")).toEqual(Option.some({ input: 0.1, output: 0.2 }));
   });
 
   it("knows no price for a model neither lists", () => {

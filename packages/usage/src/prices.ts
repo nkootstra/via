@@ -17,13 +17,23 @@ const namesOf = (model: string) => {
   return [...new Set([model, bare, resolveAlias(bare).model].map((name) => name.toLowerCase()))];
 };
 
+/** What a model on your own hardware costs: its tokens aren't billed by anyone. */
+const FREE: ModelPrice = { input: 0, output: 0 };
+
 /**
- * Prices from config.yaml's `prices`, which win, else from the snapshot of
- * LiteLLM's table via ships with. Names are matched without case.
+ * Prices from config.yaml's `prices`, which win, else nothing for a model of a
+ * `local` provider, else from the snapshot of LiteLLM's table via ships with.
+ * Names are matched without case.
  */
 export const priceBook = (
   overrides: Readonly<Record<string, ModelPrice>>,
-  snapshot: ReadonlyMap<string, ModelPrice> = priceSnapshot,
+  {
+    snapshot = priceSnapshot,
+    local = [],
+  }: {
+    readonly snapshot?: ReadonlyMap<string, ModelPrice>;
+    readonly local?: ReadonlyArray<string>;
+  } = {},
 ): PriceBook => {
   const configured = new Map(
     Object.entries(overrides).map(([model, price]) => [model.toLowerCase(), price]),
@@ -35,6 +45,7 @@ export const priceBook = (
     return Option.firstSomeOf(
       [
         ...names.map((name) => configured.get(name)),
+        local.includes(model.split("/")[0] ?? "") ? FREE : undefined,
         ...names.map((name) => snapshot.get(name)),
       ].map(Option.fromUndefinedOr),
     );
