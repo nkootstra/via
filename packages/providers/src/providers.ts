@@ -23,16 +23,27 @@ import {
   OllamaUnreachableError,
   OpencodeGoKeyRejectedError,
   OpencodeGoUnavailableError,
+  OpenrouterKeyRejectedError,
+  OpenrouterNotEditableError,
+  OpenrouterNotSetUpError,
+  OpenrouterUnavailableError,
 } from "./errors.ts";
 import { OllamaAddress, parseOllamaAddress } from "./ollama-address.ts";
-import { OpencodeGoAccounts } from "./opencode-go-accounts.ts";
+import { maskKey, OpencodeGoAccounts } from "./opencode-go-accounts.ts";
+import { type OpenrouterSaved, OpenrouterSettings } from "./openrouter-settings.ts";
 import type { ProviderUsage } from "./schemas.ts";
 
 /**
  * Where a request goes: a provider and the model id it knows. A `pooled`
  * provider, OpenCode Go, is sent each request with one of its accounts' keys.
  */
-export type Route = { provider: string; model: string; pooled: boolean };
+export type Route = {
+  provider: string;
+  model: string;
+  pooled: boolean;
+  /** A model of OpenRouter's the web UI hasn't enabled: via refuses it rather than send it. */
+  disabled?: true;
+};
 
 /**
  * The paths via forwards to an OpenAI-compatible provider, Anthropic's
@@ -255,6 +266,77 @@ const usageOf = ({ name, client }: Provider, path: string, apiKey: Redacted.Reda
     ),
   );
 
+/** The provider an OpenRouter key added in the web UI goes by. */
+const OPENROUTER = "openrouter";
+
+/** A model OpenRouter lists, with what it costs per token and how much it reads. */
+const OpenrouterModel = Schema.Struct({
+  id: Schema.String,
+  name: Schema.optionalKey(Schema.String),
+  pricing: Schema.optionalKey(
+    Schema.Struct({
+      prompt: Schema.optionalKey(Schema.String),
+      completion: Schema.optionalKey(Schema.String),
+    }),
+  ),
+  context_length: Schema.optionalKey(Schema.NullOr(Schema.Finite)),
+});
+
+const OpenrouterModels = Schema.Struct({ data: Schema.Array(OpenrouterModel) });
+
+/** A price per token, as OpenRouter writes it, per million tokens; none when it gives none. */
+const perMillion = (perToken: string | undefined) => {
+  const value = Number(perToken);
+
+  return perToken === undefined || !Number.isFinite(value) ? null : value * 1_000_000;
+};
+
+/** The unavailable error for `reason`. */
+const openrouterDown = (reason: string) => new OpenrouterUnavailableError({ reason });
+
+/** Checks `apiKey` with OpenRouter, by asking what it knows of the key. */
+const verifyOpenrouter = (provider: Provider, apiKey: Redacted.Redacted<string>) =>
+  keyed(provider.client, apiKey)
+    .get("/key")
+    .pipe(
+      Effect.catchTag("HttpClientError", () =>
+        Effect.fail(openrouterDown("it could not be reached")),
+      ),
+      Effect.timeoutOrElse({
+        duration: LOOKUP_TIMEOUT,
+        orElse: () => Effect.fail(openrouterDown(`it gave ${unansweredWithin(LOOKUP_TIMEOUT)}`)),
+      }),
+      Effect.flatMap(({ status }) =>
+        Effect.gen(function* () {
+          if (status === 401 || status === 403) {
+            return yield* new OpenrouterKeyRejectedError({ status });
+          }
+
+          if (status !== 200) return yield* openrouterDown(`HTTP ${status}`);
+        }),
+      ),
+    );
+
+/** Every model OpenRouter lists, to pick which via offers. */
+const catalogOf = (provider: Provider) =>
+  keyed(provider.client, provider.apiKey)
+    .get("/models")
+    .pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(OpenrouterModels)),
+      Effect.timeout(LOOKUP_TIMEOUT),
+      Effect.map(({ data }) =>
+        data.map((model) => ({
+          id: model.id,
+          name: model.name ?? model.id,
+          inputPerMillion: perMillion(model.pricing?.prompt),
+          outputPerMillion: perMillion(model.pricing?.completion),
+          contextLength: model.context_length ?? null,
+        })),
+      ),
+      Effect.mapError(() => openrouterDown("it didn't list its models")),
+    );
+
 /** The provider an Ollama added in the web UI goes by. */
 const OLLAMA = "ollama";
 
@@ -312,9 +394,70 @@ const make = (
     const accounts = yield* OpencodeGoAccounts;
     const providers = new Map<string, Provider>();
 
+    const openrouterStore = yield* Effect.serviceOption(OpenrouterSettings);
+    const openrouterConfig = configs[OPENROUTER];
+    // OpenRouter's key comes from the web UI unless config.yaml names the variable holding it.
+
+    const openrouterFromUi =
+      Option.isSome(openrouterStore) && openrouterConfig?.apiKeyEnv === undefined;
+
     for (const [name, config] of Object.entries(configs)) {
+      if (name === OPENROUTER && openrouterFromUi) continue;
       providers.set(name, yield* resolve(http, version, name, config, apiKeys[name]));
     }
+
+    /** The OpenRouter models the web UI enabled; every one, when config.yaml sets it up. */
+    let enabledOpenrouter: ReadonlySet<string> | undefined = undefined;
+
+    /** OpenRouter with `apiKey`, where config.yaml says or at its usual address. */
+    const openrouterWith = (apiKey: Redacted.Redacted<string>) =>
+      resolve(
+        http,
+        version,
+        OPENROUTER,
+        {
+          ...(openrouterConfig?.baseUrl === undefined ? {} : { baseUrl: openrouterConfig.baseUrl }),
+          ...(openrouterConfig?.sessionHeader === undefined
+            ? {}
+            : { sessionHeader: openrouterConfig.sessionHeader }),
+        },
+        apiKey,
+      ).pipe(
+        // OpenRouter's preset has an address, and this gives it a key: resolving it can't fail.
+        Effect.orDie,
+      );
+
+    /** Sends `openrouter/…` requests with the saved key, for the models it enables. */
+    const connectOpenrouter = (saved: OpenrouterSaved) =>
+      Effect.map(openrouterWith(saved.apiKey), (provider) => {
+        providers.set(OPENROUTER, provider);
+        enabledOpenrouter = new Set(saved.models);
+      });
+
+    // The settings file is via's own; failing to use it is a defect, as with its other files.
+    const savedOpenrouter = Option.match(openrouterStore, {
+      onNone: () => Effect.succeedNone,
+      onSome: (settings) => Effect.orDie(settings.get),
+    });
+
+    if (openrouterFromUi) {
+      yield* Effect.flatMap(
+        savedOpenrouter,
+        Option.match({ onNone: () => Effect.void, onSome: connectOpenrouter }),
+      );
+    }
+
+    const editableOpenrouter: Effect.Effect<
+      OpenrouterSettings["Service"],
+      OpenrouterNotEditableError
+    > =
+      Option.isSome(openrouterStore) && openrouterFromUi
+        ? Effect.succeed(openrouterStore.value)
+        : Effect.fail(new OpenrouterNotEditableError());
+
+    /** Whether `id`, a model of `provider`'s without its prefix, is one via offers. */
+    const offered = (provider: string, id: string) =>
+      provider !== OPENROUTER || enabledOpenrouter === undefined || enabledOpenrouter.has(id);
 
     const store = yield* Effect.serviceOption(OllamaAddress);
     const configured = configs[OLLAMA];
@@ -440,18 +583,89 @@ const make = (
             ),
           { concurrency: "unbounded" },
         ),
-      ).pipe(Effect.map((lists) => lists.flat())),
+      ).pipe(
+        Effect.map((lists) =>
+          lists
+            .flat()
+            .filter(({ provider, model }) =>
+              offered(provider, model.id.slice(provider.length + 1)),
+            ),
+        ),
+      ),
       route: (model) => {
         const slash = model.indexOf("/");
         const provider = providers.get(model.slice(0, slash));
 
-        return slash > 0 && provider !== undefined
-          ? Option.some({
-              provider: provider.name,
-              model: model.slice(slash + 1),
-              pooled: provider.pooled,
-            })
-          : Option.none();
+        if (slash <= 0 || provider === undefined) return Option.none();
+        const id = model.slice(slash + 1);
+
+        return Option.some({
+          provider: provider.name,
+          model: id,
+          pooled: provider.pooled,
+          ...(offered(provider.name, id) ? {} : { disabled: true as const }),
+        });
+      },
+      openrouter: {
+        get: openrouterFromUi
+          ? Effect.map(
+              savedOpenrouter,
+              Option.map(({ apiKey, models }) => ({
+                key: maskKey(apiKey),
+                models,
+                fromConfig: false,
+              })),
+            )
+          : Effect.succeed(
+              Option.map(Option.fromUndefinedOr(apiKeys[OPENROUTER]), (apiKey) => ({
+                key: maskKey(apiKey),
+                models: [],
+                fromConfig: true,
+              })),
+            ),
+        setKey: (apiKey) =>
+          Effect.gen(function* () {
+            const settings = yield* editableOpenrouter;
+            yield* verifyOpenrouter(yield* openrouterWith(apiKey), apiKey);
+
+            // A new key keeps the models the old one enabled.
+            const models = Option.match(yield* savedOpenrouter, {
+              onNone: (): ReadonlyArray<string> => [],
+              onSome: (before) => before.models,
+            });
+
+            const next = { apiKey, models };
+            // The routes change before the file, whose change signals the admin state.
+            yield* connectOpenrouter(next);
+            yield* Effect.orDie(settings.set(next));
+          }),
+        setModels: (models) =>
+          Effect.gen(function* () {
+            const settings = yield* editableOpenrouter;
+            const current = yield* savedOpenrouter;
+
+            if (Option.isNone(current)) return yield* new OpenrouterNotSetUpError();
+            const next = { apiKey: current.value.apiKey, models };
+            yield* connectOpenrouter(next);
+            yield* Effect.orDie(settings.set(next));
+          }),
+        remove: Effect.gen(function* () {
+          const settings = yield* editableOpenrouter;
+          providers.delete(OPENROUTER);
+          enabledOpenrouter = undefined;
+          yield* Effect.orDie(settings.remove);
+        }),
+        catalog: Effect.gen(function* () {
+          const provider = providers.get(OPENROUTER);
+
+          if (provider === undefined) return yield* new OpenrouterNotSetUpError();
+
+          return yield* catalogOf(provider);
+        }),
+        changes: Option.match(openrouterStore, {
+          onNone: () => Stream.make(undefined),
+          onSome: (settings) => settings.changes,
+        }),
       },
       send: Effect.fn("Providers.send")(function* (route, path, body, session, accountKey) {
         // `route` comes from `route`, so its provider is configured.
@@ -539,6 +753,45 @@ export class Providers extends Context.Service<
         OllamaUnreachableError
       >;
       /** Signals now, then after each change to the saved address. */
+      readonly changes: Stream.Stream<void>;
+    };
+    /**
+     * OpenRouter, with the key the web UI saved and the models it enables, or
+     * the key config.yaml names, with every model. One in config.yaml can't be
+     * changed here.
+     */
+    readonly openrouter: {
+      readonly get: Effect.Effect<
+        Option.Option<{
+          readonly key: string;
+          readonly models: ReadonlyArray<string>;
+          readonly fromConfig: boolean;
+        }>
+      >;
+      /** Saves `apiKey` once OpenRouter accepts it, keeping the models enabled before. */
+      readonly setKey: (
+        apiKey: Redacted.Redacted<string>,
+      ) => Effect.Effect<
+        void,
+        OpenrouterNotEditableError | OpenrouterKeyRejectedError | OpenrouterUnavailableError
+      >;
+      /** Offers exactly `models` of OpenRouter's, by their ids without `openrouter/`. */
+      readonly setModels: (
+        models: ReadonlyArray<string>,
+      ) => Effect.Effect<void, OpenrouterNotEditableError | OpenrouterNotSetUpError>;
+      readonly remove: Effect.Effect<void, OpenrouterNotEditableError>;
+      /** Every model OpenRouter lists, with its prices per million tokens. */
+      readonly catalog: Effect.Effect<
+        ReadonlyArray<{
+          readonly id: string;
+          readonly name: string;
+          readonly inputPerMillion: number | null;
+          readonly outputPerMillion: number | null;
+          readonly contextLength: number | null;
+        }>,
+        OpenrouterNotSetUpError | OpenrouterUnavailableError
+      >;
+      /** Signals now, then after each change to the saved key or models. */
       readonly changes: Stream.Stream<void>;
     };
     /** The provider a `<provider>/<model>` id names, if it is configured or pooled. */
