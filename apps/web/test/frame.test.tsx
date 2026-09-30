@@ -59,7 +59,8 @@ describe("the document", () => {
 
     await user.click(userMenu());
     await user.click(await screen.findByRole("menuitem", { name: "Settings" }));
-    await user.click(await screen.findByRole("radio", { name: "System" }));
+    const theme = await screen.findByRole("radiogroup", { name: "Theme" });
+    await user.click(within(theme).getByRole("radio", { name: "System" }));
 
     expect(chrome("light")).toBe("#FAFAFA");
     expect(chrome("dark")).toBe("#171717");

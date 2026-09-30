@@ -6,6 +6,7 @@ import { renderApp } from "./app.tsx";
 afterEach(() => {
   localStorage.clear();
   delete document.documentElement.dataset["theme"];
+  delete document.documentElement.dataset["motion"];
   document.documentElement.removeAttribute("style");
 });
 
@@ -25,6 +26,45 @@ describe("the settings", () => {
 
     expect(document.documentElement.dataset["theme"]).toBe("dark");
     expect(localStorage.getItem("via.theme")).toBe("dark");
+  });
+
+  it("offer privacy mode, off until turned on", async () => {
+    const { user } = renderApp("/settings");
+
+    const privacy = await screen.findByRole("switch", { name: "Privacy mode" });
+    expect(privacy.getAttribute("aria-checked")).toBe("false");
+
+    await user.click(privacy);
+
+    expect(privacy.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem("via.privacy")).toBe("on");
+  });
+
+  it("offer to reduce motion, following the system until chosen", async () => {
+    const { user } = renderApp("/settings");
+
+    const motion = await choice("Motion");
+    expect(checked(motion, "System")).toBe(true);
+
+    await user.click(within(motion).getByRole("radio", { name: "Reduced" }));
+
+    expect(localStorage.getItem("via.motion")).toBe("reduced");
+    expect(document.documentElement.dataset["motion"]).toBe("reduced");
+
+    await user.click(within(motion).getByRole("radio", { name: "System" }));
+    expect(localStorage.getItem("via.motion")).toBeNull();
+    expect(document.documentElement.dataset["motion"]).toBeUndefined();
+  });
+
+  it("offer the start page, Overview until chosen", async () => {
+    const { user } = renderApp("/settings");
+
+    const start = await choice("Start page");
+    expect(checked(start, "Overview")).toBe(true);
+
+    await user.click(within(start).getByRole("radio", { name: "Usage" }));
+
+    expect(localStorage.getItem("via.start-page")).toBe("usage");
   });
 
   it("offer the time format, Automatic until chosen, and show how times will read", async () => {
