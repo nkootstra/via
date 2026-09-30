@@ -14,5 +14,12 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     setupFiles: ["./test/setup.ts"],
+    // A file that starts on modules of its own starts cold: its first test
+    // runs React, Base UI and happy-dom's code for the first time, and takes
+    // three times the CPU of the next, which under load ran past its time.
+    // The files share a worker's modules instead, so only a worker's first
+    // test starts cold. Each file still gets a page of its own, and nothing
+    // in the components keeps state at module level.
+    isolate: false,
   },
 });
