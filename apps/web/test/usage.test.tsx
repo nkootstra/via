@@ -1,8 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HistoryBreakdown, HistoryGroup, UsageRequest } from "../src/api/types.ts";
 import { renderApp } from "./app.tsx";
+import { openSource } from "./event-source.ts";
 
 const HOUR = 3_600_000;
 
@@ -416,5 +417,33 @@ describe("the usage page", () => {
       await screen.findByRole("heading", { name: "No requests in the last day" }),
     ).toBeDefined();
     expect(screen.queryByRole("table")).toBeNull();
+  });
+});
+
+describe("the usage page, live", () => {
+  it("fetches the usage again as soon as via says it changed", async () => {
+    const { state } = renderApp("/usage", seed);
+    await screen.findByRole("table", { name: "Requests" });
+    const asked = state.historyQueries.length;
+
+    act(() => openSource().history());
+
+    await waitFor(() => expect(state.historyQueries.length).toBeGreaterThan(asked));
+  });
+
+  it("asks nothing on a timer while via pushes, and every 15 s once the stream drops", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now });
+    const { state } = renderApp("/usage", seed);
+    await screen.findByRole("table", { name: "Requests" });
+    act(() => openSource().history());
+    await waitFor(() => expect(state.historyQueries.length).toBeGreaterThan(0));
+    const settled = state.historyQueries.length;
+
+    await act(() => vi.advanceTimersByTimeAsync(40_000));
+    expect(state.historyQueries).toHaveLength(settled);
+
+    act(() => openSource().fail());
+    await act(() => vi.advanceTimersByTimeAsync(16_000));
+    expect(state.historyQueries.length).toBeGreaterThan(settled);
   });
 });

@@ -50,6 +50,24 @@ export function createLiveUpdates(queryClient: QueryClient) {
         });
       });
 
+      // The usage history is too big to push, so via only says it changed. Its queries
+      // fetch again, but not a request list with more pages loaded: that fetches every
+      // page it holds, and a list read further holds still.
+      source.addEventListener("history", () => {
+        setOpen(true);
+
+        void queryClient.invalidateQueries({
+          queryKey: ["history"],
+          predicate: (query) =>
+            !(
+              query.queryKey[1] === "requests" &&
+              Predicate.hasProperty(query.state.data, "pages") &&
+              Array.isArray(query.state.data.pages) &&
+              query.state.data.pages.length > 1
+            ),
+        });
+      });
+
       source.addEventListener("error", () => setOpen(false));
 
       return () => {
@@ -90,6 +108,19 @@ export function useLiveOptions() {
   const { live } = useRouteContext({ from: "__root__" });
 
   return useSyncExternalStore(live.subscribe, live.isOpen) ? pushed : {};
+}
+
+/** A query via says has changed, while the stream is open: a `history` event fetches it again. */
+const signalled = { refetchInterval: false } as const;
+
+/**
+ * Options to spread over a query that via says has changed, the usage page's:
+ * no polling while the stream is open, else none.
+ */
+export function useSignalledOptions() {
+  const { live } = useRouteContext({ from: "__root__" });
+
+  return useSyncExternalStore(live.subscribe, live.isOpen) ? signalled : {};
 }
 
 /** Whether via runs another version than this page was built with, so the page is out of date. */

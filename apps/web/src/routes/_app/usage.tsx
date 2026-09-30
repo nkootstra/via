@@ -44,6 +44,7 @@ import type {
 import { CodexIcon, ProviderLogo, UsageIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
+import { useSignalledOptions } from "../../api/live.ts";
 import { formatDay, formatHour, formatMoment, useNow } from "../../lib/time.ts";
 import { useTimeFormat } from "../../lib/time-format.ts";
 import { ownerOf, withoutPrefix } from "../../lib/model-entries.ts";
@@ -401,13 +402,17 @@ function Usage() {
   const clear = () =>
     change({ model: undefined, account: undefined, key: undefined, failed: undefined });
 
+  const live = useSignalledOptions();
+
   const breakdown = useQuery({
     ...historyBreakdownQuery(range, groupBy, filters),
+    ...live,
     placeholderData: keepPreviousData,
   });
 
   const series = useQuery({
     ...historySeriesQuery(range, bucket, tzOffsetMinutes, groupBy, filters),
+    ...live,
     placeholderData: keepPreviousData,
   });
 
@@ -558,8 +563,11 @@ function FilterBar({
 }) {
   const failed = useId();
 
+  const live = useSignalledOptions();
+
   const facet = (by: HistoryGroupBy) => ({
     ...historyBreakdownQuery(range, by, without(filters, by)),
+    ...live,
     placeholderData: keepPreviousData,
   });
 
@@ -824,7 +832,10 @@ function Requests({
   readonly filters: HistoryFilters;
   readonly format: ReturnType<typeof useTimeFormat>;
 }) {
-  const requests = useInfiniteQuery(historyRequestsQuery(range, filters));
+  const requests = useInfiniteQuery({
+    ...historyRequestsQuery(range, filters),
+    ...useSignalledOptions(),
+  });
 
   const rows = requests.data?.pages.flatMap((page) => page.requests) ?? [];
 
