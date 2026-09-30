@@ -247,6 +247,7 @@ describe("the accounts page", () => {
         keys: [],
         models: [],
         ollama: null,
+        openrouter: null,
       }),
     );
 

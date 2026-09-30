@@ -11,6 +11,7 @@ describe("resolvePaths", () => {
       state: "/tmp/via-test/state.json",
       opencodeGo: "/tmp/via-test/opencode-go.json",
       ollama: "/tmp/via-test/ollama.json",
+      openrouter: "/tmp/via-test/openrouter.json",
       usageDb: "/tmp/via-test/usage.db",
     });
   });

@@ -17,6 +17,7 @@ import {
   modelsQuery,
   ollamaQuery,
   opencodeGoQuery,
+  openrouterQuery,
   poolQuery,
   sessionQuery,
   usageQuery,
@@ -42,6 +43,7 @@ export function applyState(queryClient: QueryClient, state: typeof AdminState.Ty
   queryClient.setQueryData(keysQuery.queryKey, state.keys, at);
   queryClient.setQueryData(modelsQuery.queryKey, state.models, at);
   queryClient.setQueryData(ollamaQuery.queryKey, state.ollama, at);
+  queryClient.setQueryData(openrouterQuery.queryKey, state.openrouter, at);
 }
 
 /**

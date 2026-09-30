@@ -235,6 +235,11 @@ work on `/v1`.
 | `PUT /admin/ollama`                       | Save Ollama's address from `{"address": "..."}`; via sends to it at once. `409` if config.yaml sets it. |
 | `DELETE /admin/ollama`                    | Forget the saved address. `409` if config.yaml sets it.                                                 |
 | `POST /admin/ollama/check`                | What `{"address": "..."}` holds: `{"address", "version", "models"}`, or `422` and why not.              |
+| `GET /admin/openrouter`                   | OpenRouter's key, masked, and the models it enables: `{"key", "models", "fromConfig"}`, or `null`.      |
+| `PUT /admin/openrouter/key`               | Save `{"apiKey": "..."}` once OpenRouter accepts it; `422` if it refuses. `409` if config.yaml sets it. |
+| `PUT /admin/openrouter/models`            | Offer exactly `{"models": [...]}` of OpenRouter's, by id.                                               |
+| `DELETE /admin/openrouter`                | Forget the key and its models. `409` if config.yaml sets it.                                            |
+| `GET /admin/openrouter/catalog`           | Every model OpenRouter lists, with its prices per million tokens and context length.                    |
 | `GET /admin/usage`                        | How much of each account's limits is used.                                                              |
 | `GET /admin/history/series`               | Tokens per hour or day, by group (see [Usage history](#usage-history)).                                 |
 | `GET /admin/history/breakdown`            | Requests, tokens, failures, latency and cost over a range, by group.                                    |
@@ -371,7 +376,9 @@ Go keys by pasting them, rename, disable and remove them, create, rename and rev
 keys, and list the models. The Accounts page lists the ChatGPT accounts under
 Codex and the OpenCode Go keys under their own heading, each key only by its
 last four characters. Its Ollama section adds, changes or removes the
-address of your Ollama, and shows the version and models via finds there. The Models page shows each model once: a Codex model
+address of your Ollama, and shows the version and models via finds there.
+Its OpenRouter section takes your OpenRouter key and chooses which of its
+models via offers. The Models page shows each model once: a Codex model
 with the reasoning efforts its suffixed ids pick, and a provider's models under
 its heading without their `<provider>/` prefix. Search matches every id.
 
@@ -515,6 +522,7 @@ via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set.
 | `state.json`       | Running cooldowns; safe to delete.                  |
 | `opencode-go.json` | Your OpenCode Go API keys, as accounts.             |
 | `ollama.json`      | The address of the Ollama added in the web UI.      |
+| `openrouter.json`  | Your OpenRouter API key and the models it enables.  |
 | `usage.db`         | The [usage history](#usage-history), in SQLite.     |
 
 `config.yaml`, with the defaults:
@@ -557,7 +565,8 @@ in `config.yaml` wins over the snapshot at each step.
 Add OpenAI-compatible providers under `providers`. Each one reads its API key
 from the environment variable `apiKeyEnv` names; `via serve` won't start while
 that variable is unset. A provider without `apiKeyEnv`, such as a model server
-on your own machine, is sent no key; OpenRouter still needs one.
+on your own machine, is sent no key. OpenRouter still needs one: from
+`apiKeyEnv`, or from the web UI (see [OpenRouter](#openrouter)).
 
 OpenCode Go is the exception: it needs no entry at all. Add its keys as
 accounts with `via accounts add --provider opencode-go`, and via pools them
@@ -583,6 +592,21 @@ providers:
     # Optional: the header the provider reads a session id from.
     sessionHeader: x-session-id
 ```
+
+#### OpenRouter
+
+Add your OpenRouter API key on the Accounts page of the [web UI](#web-ui). via
+checks it with OpenRouter first, then keeps it in `openrouter.json`, and shows
+it only by its last four characters. OpenRouter lists hundreds of models, so
+none is offered until you choose some: **Choose models…** in its row lists
+them all, with OpenRouter's prices, to search and switch on. Only those show
+in `/v1/models`; a request for another answers `404` (`model_not_found`),
+saying to enable it. Replacing the key keeps the models chosen. It all takes
+effect at once, with no restart.
+
+An `openrouter` entry in config.yaml with `apiKeyEnv` wins: the web UI shows
+its key, and via offers every model OpenRouter lists. One without `apiKeyEnv`
+only moves where the web UI's key is sent, with `baseUrl` or `sessionHeader`.
 
 #### Ollama and System One
 
@@ -749,7 +773,8 @@ each request it serves. The other standard variables work too:
   `0600`, directory `0700`). Anyone who can read them can use your ChatGPT
   accounts.
 - OpenCode Go API keys are stored the same way, in plaintext in
-  `opencode-go.json`, readable only by you.
+  `opencode-go.json`, readable only by you, and an OpenRouter key added in the
+  web UI in `openrouter.json`.
 - The usage history, `usage.db`, holds API key names, account labels and
   models, never prompts or answers, and is readable only by you. It does keep
   an upstream's error message, cut to 500 characters, which could quote part

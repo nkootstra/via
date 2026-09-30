@@ -15,6 +15,8 @@ import {
   OllamaUnreachableError,
   OpencodeGoAccountNotFoundError,
   OpencodeGoKeyRejectedError,
+  OpenrouterKeyRejectedError,
+  OpenrouterNotSetUpError,
 } from "@via/providers/errors";
 import { Option, Schema } from "effect";
 import type {
@@ -27,13 +29,16 @@ import type {
   Ollama,
   OllamaCheck,
   OpencodeGoAccount,
+  Openrouter,
+  OpenrouterModel,
   Pool,
   Usage,
   UsageRequest,
 } from "../api/types.ts";
 import { http, HttpResponse, type JsonBodyType, type PathParams } from "msw";
 
-const { accounts, opencodeGo, ollama, keys, usage, pool, models, history } = AdminApi.groups;
+const { accounts, opencodeGo, ollama, openrouter, keys, usage, pool, models, history } =
+  AdminApi.groups;
 
 type Encodable = Schema.Top & { readonly EncodingServices: never };
 
@@ -98,6 +103,12 @@ export interface AdminState {
   ollama: Ollama | null;
   /** What checking each address finds: Ollama's version and models, or why it can't be used. */
   ollamaAt: ReadonlyMap<string, Omit<OllamaCheck, "address"> | { readonly reason: string }>;
+  /** OpenRouter's key, masked, and the models it enables, if via has one. */
+  openrouter: Openrouter | null;
+  /** The keys OpenRouter takes; any other it refuses. */
+  openrouterKeys: ReadonlyArray<string>;
+  /** Every model OpenRouter lists. */
+  openrouterCatalog: ReadonlyArray<OpenrouterModel>;
 }
 
 export const account = (fields: Partial<Account> & Pick<Account, "id" | "label">): Account => ({
@@ -137,6 +148,9 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     historyQueries: [],
     ollama: null,
     ollamaAt: new Map(),
+    openrouter: null,
+    openrouterKeys: [],
+    openrouterCatalog: [],
     ...seed,
   };
 }
@@ -331,6 +345,62 @@ export function adminHandlers(state: AdminState) {
           ? failure(OllamaUnreachableError, new OllamaUnreachableError(found), 422)
           : ok(ollama.endpoints.check, { address, ...found });
       }),
+    ),
+    http.get(
+      at("/openrouter"),
+      guarded(() => ok(openrouter.endpoints.get, state.openrouter)),
+    ),
+    http.put(
+      at("/openrouter/key"),
+      guarded(async ({ request }) => {
+        const { apiKey } = Schema.decodeUnknownSync(Schema.Struct({ apiKey: Schema.String }))(
+          await request.json(),
+        );
+
+        if (!state.openrouterKeys.includes(apiKey)) {
+          return failure(
+            OpenrouterKeyRejectedError,
+            new OpenrouterKeyRejectedError({ status: 401 }),
+            422,
+          );
+        }
+
+        state.openrouter = {
+          key: `…${apiKey.slice(-4)}`,
+          models: state.openrouter?.models ?? [],
+          fromConfig: false,
+        };
+
+        return ok(openrouter.endpoints.setKey, state.openrouter);
+      }),
+    ),
+    http.put(
+      at("/openrouter/models"),
+      guarded(async ({ request }) => {
+        const { models: enabled } = Schema.decodeUnknownSync(
+          Schema.Struct({ models: Schema.Array(Schema.String) }),
+        )(await request.json());
+
+        if (state.openrouter === null) {
+          return failure(OpenrouterNotSetUpError, new OpenrouterNotSetUpError(), 409);
+        }
+
+        state.openrouter = { ...state.openrouter, models: enabled };
+
+        return ok(openrouter.endpoints.setModels, state.openrouter);
+      }),
+    ),
+    http.delete(
+      at("/openrouter"),
+      guarded(() => {
+        state.openrouter = null;
+
+        return noContent();
+      }),
+    ),
+    http.get(
+      at("/openrouter/catalog"),
+      guarded(() => ok(openrouter.endpoints.catalog, state.openrouterCatalog)),
     ),
     http.post(
       at("/opencode-go/accounts"),

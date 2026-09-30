@@ -12,6 +12,10 @@ import {
   OpencodeGoAccountNotFoundError,
   OpencodeGoKeyRejectedError,
   OpencodeGoUnavailableError,
+  OpenrouterKeyRejectedError,
+  OpenrouterNotEditableError,
+  OpenrouterNotSetUpError,
+  OpenrouterUnavailableError,
 } from "@via/providers/errors";
 import { ProviderState } from "@via/providers/schemas";
 import { UsageEntry } from "@via/usage/entry";
@@ -185,6 +189,25 @@ const Pool = Schema.Struct({
  */
 const AdminOllama = Schema.Struct({ address: Schema.String, fromConfig: Schema.Boolean });
 
+/**
+ * OpenRouter: its key by its last four characters, and the models via offers
+ * of it. One config.yaml sets up offers every model, and only config.yaml changes.
+ */
+const AdminOpenrouter = Schema.Struct({
+  key: Schema.String,
+  models: Schema.Array(Schema.String),
+  fromConfig: Schema.Boolean,
+});
+
+/** A model OpenRouter lists, to enable or not: its prices are per million tokens. */
+const OpenrouterCatalogModel = Schema.Struct({
+  id: Schema.String,
+  name: Schema.String,
+  inputPerMillion: Schema.NullOr(Schema.Finite),
+  outputPerMillion: Schema.NullOr(Schema.Finite),
+  contextLength: Schema.NullOr(Schema.Finite),
+});
+
 /** A model as `/v1/models` lists it: an id, plus whatever else via or its provider tells. */
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 
@@ -207,6 +230,8 @@ export const AdminState = Schema.Struct({
   models: Schema.Array(Model),
   /** Where Ollama is, if via knows one. */
   ollama: Schema.NullOr(AdminOllama),
+  /** OpenRouter's key and the models it enables, if via has one. */
+  openrouter: Schema.NullOr(AdminOpenrouter),
 });
 
 /** The one event `GET /admin/events` sends: the whole admin state, as JSON. */
@@ -506,6 +531,46 @@ class OllamaGroup extends HttpApiGroup.make("ollama")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
+class OpenrouterGroup extends HttpApiGroup.make("openrouter")
+  .add(HttpApiEndpoint.get("get", "/openrouter", { success: Schema.NullOr(AdminOpenrouter) }))
+  .add(
+    HttpApiEndpoint.put("setKey", "/openrouter/key", {
+      payload: Schema.Struct({ apiKey: Key }),
+      success: AdminOpenrouter,
+      error: [
+        OpenrouterNotEditableError.pipe(HttpApiSchema.status(409)),
+        OpenrouterKeyRejectedError.pipe(HttpApiSchema.status(422)),
+        OpenrouterUnavailableError.pipe(HttpApiSchema.status(502)),
+      ],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.put("setModels", "/openrouter/models", {
+      payload: Schema.Struct({ models: Schema.Array(Schema.String) }),
+      success: AdminOpenrouter,
+      error: [
+        OpenrouterNotEditableError.pipe(HttpApiSchema.status(409)),
+        OpenrouterNotSetUpError.pipe(HttpApiSchema.status(409)),
+      ],
+    }),
+  )
+  .add(
+    HttpApiEndpoint.delete("remove", "/openrouter", {
+      error: OpenrouterNotEditableError.pipe(HttpApiSchema.status(409)),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("catalog", "/openrouter/catalog", {
+      success: Schema.Array(OpenrouterCatalogModel),
+      error: [
+        OpenrouterNotSetUpError.pipe(HttpApiSchema.status(409)),
+        OpenrouterUnavailableError.pipe(HttpApiSchema.status(502)),
+      ],
+    }),
+  )
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
 class KeysGroup extends HttpApiGroup.make("keys")
   .add(HttpApiEndpoint.get("list", "/keys", { success: Schema.Array(AdminKey) }))
   .add(
@@ -608,6 +673,7 @@ export class AdminApi extends HttpApi.make("via-admin")
   .add(AccountsGroup)
   .add(OpencodeGoGroup)
   .add(OllamaGroup)
+  .add(OpenrouterGroup)
   .add(KeysGroup)
   .add(UsageGroup)
   .add(UsageHistoryGroup)

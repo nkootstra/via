@@ -30,6 +30,7 @@ import {
   adminAccounts,
   adminOllama,
   adminOpencodeGo,
+  adminOpenrouter,
   adminPool,
   adminUsage,
   type OpencodeGoEnvironment,
@@ -214,6 +215,14 @@ const opencodeGoById = Effect.fn("admin.opencodeGoById")(function* (id: string) 
 });
 
 // The account file is via's own; one it can't read or write is a bug, not a request error.
+/** OpenRouter as just saved: there is one, as saving it succeeded. */
+const savedOpenrouter = Effect.flatMap(adminOpenrouter, (saved) =>
+  saved === null
+    ? // Saving went through, so the settings are there; not finding them is a defect.
+      Effect.die("OpenRouter's settings are gone just after saving them")
+    : Effect.succeed(saved),
+);
+
 /** `address` as via keeps Ollama's, or why it isn't one. */
 const ollamaAddress = (address: string) =>
   Option.match(parseOllamaAddress(address), {
@@ -240,6 +249,25 @@ const ollama = HttpApiBuilder.group(AdminApi, "ollama", (handlers) =>
 
         return { address, ...found };
       }),
+    ),
+);
+
+const openrouter = HttpApiBuilder.group(AdminApi, "openrouter", (handlers) =>
+  handlers
+    .handle("get", () => adminOpenrouter)
+    .handle("setKey", ({ payload }) =>
+      Effect.flatMap(Providers, (providers) =>
+        providers.openrouter.setKey(payload.apiKey).pipe(Effect.andThen(savedOpenrouter)),
+      ),
+    )
+    .handle("setModels", ({ payload }) =>
+      Effect.flatMap(Providers, (providers) =>
+        providers.openrouter.setModels(payload.models).pipe(Effect.andThen(savedOpenrouter)),
+      ),
+    )
+    .handle("remove", () => Effect.flatMap(Providers, (providers) => providers.openrouter.remove))
+    .handle("catalog", () =>
+      Effect.flatMap(Providers, (providers) => providers.openrouter.catalog),
     ),
 );
 
@@ -423,6 +451,7 @@ export const adminRoutes = ({
             accounts,
             opencodeGo(opencodeGoEnvironment),
             ollama,
+            openrouter,
             keys,
             usage,
             history(prices),

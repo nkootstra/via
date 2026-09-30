@@ -4,6 +4,8 @@ export { maskKey, type OpencodeGoAccount, OpencodeGoAccounts } from "./opencode-
 
 export { OllamaAddress, parseOllamaAddress } from "./ollama-address.ts";
 
+export { OpenrouterSettings } from "./openrouter-settings.ts";
+
 export { OpencodeGoPool } from "./opencode-go-pool.ts";
 
 export { type ProviderModel, type ProviderPath, Providers, type Route } from "./providers.ts";

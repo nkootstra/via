@@ -17,6 +17,7 @@ const stateOf = (version: string) =>
     keys: [],
     models: [],
     ollama: null,
+    openrouter: null,
   }) as const;
 
 /** The version this page was built with: the repository's, in tests. */

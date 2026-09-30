@@ -87,6 +87,7 @@ export const startFakeProvider = Effect.gen(function* () {
   let handler = unscripted;
   let modelList: ReadonlyArray<Schema.JsonObject> | undefined;
   let ollamaVersion: string | undefined;
+  const keyInfo = new Map<string, Schema.JsonObject>();
   const modelRequests: Array<ProviderRequest> = [];
   let usageAnswer = { status: 500, body: "" };
   const usageByKey = new Map<string, { status: number; body: string }>();
@@ -179,6 +180,19 @@ export const startFakeProvider = Effect.gen(function* () {
   const routes = Layer.mergeAll(
     Layer.mergeAll(...routesAt("")),
     Layer.mergeAll(...routesAt("/v1")),
+    // OpenRouter's key info, for a key it knows; any other key it refuses.
+    HttpRouter.add(
+      "GET",
+      "/key",
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const known = keyInfo.get(request.headers["authorization"]?.replace(/^Bearer /, "") ?? "");
+
+        return known === undefined
+          ? HttpServerResponse.jsonUnsafe({ error: { code: 401 } }, { status: 401 })
+          : HttpServerResponse.jsonUnsafe({ data: known });
+      }),
+    ),
     HttpRouter.add("GET", "/api/version", () =>
       Effect.succeed(
         ollamaVersion === undefined
@@ -195,6 +209,8 @@ export const startFakeProvider = Effect.gen(function* () {
   return {
     /** The provider's base URL, as config.yaml's `baseUrl`. */
     url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),
+    /** Answers `GET /key` sent with `apiKey` with `info`, as OpenRouter does; any other key gets 401. */
+    openrouterKey: (apiKey: string, info: Schema.JsonObject) => void keyInfo.set(apiKey, info),
     /** Answers `GET /api/version` as Ollama `version` does; until then, it answers 404. */
     ollama: (version: string) => void (ollamaVersion = version),
     /** Every completion request received so far, in order. */
