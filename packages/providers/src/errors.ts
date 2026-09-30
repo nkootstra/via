@@ -39,3 +39,33 @@ export class OpencodeGoUnavailableError extends Schema.TaggedError<OpencodeGoUna
     return `Could not check the key with OpenCode Go: ${this.reason}`;
   }
 }
+
+/** Ollama is set up in config.yaml, so the web UI can't change or remove it. */
+export class OllamaNotEditableError extends Schema.TaggedError<OllamaNotEditableError>()(
+  "OllamaNotEditableError",
+  {},
+) {
+  override get message() {
+    return "Ollama is set up in config.yaml: change its address there";
+  }
+}
+
+/** An address given for Ollama isn't one via can use, and why. */
+export class OllamaUnreachableError extends Schema.TaggedError<OllamaUnreachableError>()(
+  "OllamaUnreachableError",
+  { reason: Schema.String },
+) {
+  override get message() {
+    return `Could not reach Ollama: ${this.reason}`;
+  }
+}
+
+/** What was given as Ollama's address isn't an http or https address. */
+export class OllamaAddressInvalidError extends Schema.TaggedError<OllamaAddressInvalidError>()(
+  "OllamaAddressInvalidError",
+  { address: Schema.String },
+) {
+  override get message() {
+    return `"${this.address}" isn't an address: give Ollama's, such as http://192.168.1.20:11434`;
+  }
+}

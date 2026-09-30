@@ -9,6 +9,7 @@ import {
   Predicate,
   Redacted,
   Schema,
+  Stream,
 } from "effect";
 import {
   HttpBody,
@@ -17,7 +18,13 @@ import {
   HttpClientRequest,
   HttpClientResponse,
 } from "effect/unstable/http";
-import { OpencodeGoKeyRejectedError, OpencodeGoUnavailableError } from "./errors.ts";
+import {
+  OllamaNotEditableError,
+  OllamaUnreachableError,
+  OpencodeGoKeyRejectedError,
+  OpencodeGoUnavailableError,
+} from "./errors.ts";
+import { OllamaAddress, parseOllamaAddress } from "./ollama-address.ts";
 import { OpencodeGoAccounts } from "./opencode-go-accounts.ts";
 import type { ProviderUsage } from "./schemas.ts";
 
@@ -248,6 +255,53 @@ const usageOf = ({ name, client }: Provider, path: string, apiKey: Redacted.Reda
     ),
   );
 
+/** The provider an Ollama added in the web UI goes by. */
+const OLLAMA = "ollama";
+
+/** Where Ollama listens unless told otherwise. */
+const OLLAMA_DEFAULT = "http://localhost:11434";
+
+const OllamaVersion = Schema.Struct({ version: Schema.String });
+
+const unreachable = (reason: string) => new OllamaUnreachableError({ reason });
+
+/** Asks the Ollama at `address` for `path`: nothing there, or something that isn't Ollama, says so. */
+const askOllama = <S extends Schema.Codec<unknown, unknown>>(
+  http: HttpClient.HttpClient,
+  address: string,
+  path: string,
+  schema: S,
+) =>
+  http.get(`${address}${path}`).pipe(
+    Effect.catchTag("HttpClientError", () => Effect.fail(unreachable("nothing answered there"))),
+    Effect.flatMap((response) =>
+      HttpClientResponse.filterStatusOk(response).pipe(
+        Effect.flatMap(HttpClientResponse.schemaBodyJson(schema)),
+        Effect.mapError(() => unreachable("what answered there isn't Ollama")),
+      ),
+    ),
+  );
+
+/**
+ * The Ollama version at `address`, from Ollama's own API, and the models its
+ * OpenAI-compatible one lists: what via will send to.
+ */
+const checkOllama = (http: HttpClient.HttpClient, address: string) =>
+  Effect.gen(function* () {
+    const { version } = yield* askOllama(http, address, "/api/version", OllamaVersion);
+    const { data } = yield* askOllama(http, address, "/v1/models", ModelList);
+
+    return { version, models: data.map(({ id }) => id) };
+  }).pipe(
+    Effect.timeoutOrElse({
+      duration: LOOKUP_TIMEOUT,
+      orElse: () =>
+        Effect.fail(
+          new OllamaUnreachableError({ reason: `it gave ${unansweredWithin(LOOKUP_TIMEOUT)}` }),
+        ),
+    }),
+  );
+
 const make = (
   configs: Record<string, ProviderConfig>,
   apiKeys: Readonly<Record<string, Redacted.Redacted<string>>>,
@@ -261,6 +315,33 @@ const make = (
     for (const [name, config] of Object.entries(configs)) {
       providers.set(name, yield* resolve(http, version, name, config, apiKeys[name]));
     }
+
+    const store = yield* Effect.serviceOption(OllamaAddress);
+    const configured = configs[OLLAMA];
+
+    /** Sends `ollama/…` requests to the Ollama at `address`. */
+    const connect = (address: string) =>
+      resolve(http, version, OLLAMA, { baseUrl: `${address}/v1` }, undefined).pipe(
+        // Ollama's preset takes no key, and this gives its address: resolving it can't fail.
+        Effect.orDie,
+        Effect.map((provider) => void providers.set(OLLAMA, provider)),
+      );
+
+    // The address file is via's own; failing to use it is a defect, as with its other files.
+    const saved = Option.match(store, {
+      onNone: () => Effect.succeedNone,
+      onSome: (address) => Effect.orDie(address.get),
+    });
+
+    if (configured === undefined) {
+      yield* Effect.flatMap(saved, Option.match({ onNone: () => Effect.void, onSome: connect }));
+    }
+
+    /** The store the web UI changes Ollama's address in, unless config.yaml sets it up. */
+    const editable: Effect.Effect<OllamaAddress["Service"], OllamaNotEditableError> =
+      Option.isSome(store) && configured === undefined
+        ? Effect.succeed(store.value)
+        : Effect.fail(new OllamaNotEditableError());
 
     // The pooled provider needs no config: its keys are the accounts via stores.
     const pooled = providers.get(POOLED) ?? (yield* resolve(http, version, POOLED, {}, undefined));
@@ -280,12 +361,43 @@ const make = (
       provider.pooled ? anyAccountKey : Effect.succeedSome(provider.apiKey);
 
     return Providers.of({
-      names: [...providers.values()].flatMap(({ name, pooled: isPooled }) =>
-        isPooled ? [] : [name],
+      names: Effect.sync(() =>
+        [...providers.values()].flatMap(({ name, pooled: isPooled }) => (isPooled ? [] : [name])),
       ),
-      local: [...providers.values()].flatMap(({ name, pooled: isPooled, apiKey }) =>
-        isPooled || apiKey !== undefined ? [] : [name],
+      local: Effect.sync(() =>
+        [...providers.values()].flatMap(({ name, pooled: isPooled, apiKey }) =>
+          isPooled || apiKey !== undefined ? [] : [name],
+        ),
       ),
+      ollama: {
+        get:
+          configured === undefined
+            ? Effect.map(
+                saved,
+                Option.map((address) => ({ address, fromConfig: false })),
+              )
+            : Effect.succeedSome({
+                address: Option.getOrElse(
+                  parseOllamaAddress(configured.baseUrl ?? OLLAMA_DEFAULT),
+                  () => configured.baseUrl ?? OLLAMA_DEFAULT,
+                ),
+                fromConfig: true,
+              }),
+        set: (address) =>
+          editable.pipe(
+            Effect.flatMap((address_) => Effect.orDie(address_.set(address))),
+            Effect.andThen(connect(address)),
+          ),
+        remove: editable.pipe(
+          Effect.flatMap((address) => Effect.orDie(address.remove)),
+          Effect.andThen(Effect.sync(() => void providers.delete(OLLAMA))),
+        ),
+        check: (address) => checkOllama(http, address),
+        changes: Option.match(store, {
+          onNone: () => Stream.make(undefined),
+          onSome: (address) => address.changes,
+        }),
+      },
       usage: (apiKey) => usageOf(pooled, pooled.usagePath ?? "/usage", apiKey),
       verify: Effect.fn("Providers.verify")(function* (apiKey) {
         const { status } = yield* keyed(pooled.client, apiKey)
@@ -312,17 +424,20 @@ const make = (
         if (status !== 200)
           return yield* new OpencodeGoUnavailableError({ reason: `HTTP ${status}` });
       }),
-      models: Effect.forEach(
-        [...providers.values()],
-        (provider) =>
-          Effect.flatMap(
-            keyOf(provider),
-            Option.match({
-              onNone: () => Effect.succeed([]),
-              onSome: (apiKey) => modelsOf(provider, apiKey),
-            }),
-          ),
-        { concurrency: "unbounded" },
+      // Read when asked: an Ollama may have been added or removed since.
+      models: Effect.suspend(() =>
+        Effect.forEach(
+          [...providers.values()],
+          (provider) =>
+            Effect.flatMap(
+              keyOf(provider),
+              Option.match({
+                onNone: () => Effect.succeed([]),
+                onSome: (apiKey) => modelsOf(provider, apiKey),
+              }),
+            ),
+          { concurrency: "unbounded" },
+        ),
       ).pipe(Effect.map((lists) => lists.flat())),
       route: (model) => {
         const slash = model.indexOf("/");
@@ -400,10 +515,30 @@ const make = (
 export class Providers extends Context.Service<
   Providers,
   {
-    /** Every provider with its own API key, in config.yaml's order. */
-    readonly names: ReadonlyArray<string>;
+    /** Every provider with its own API key, in config.yaml's order, then an Ollama added later. */
+    readonly names: Effect.Effect<ReadonlyArray<string>>;
     /** Every provider sent no key, such as Ollama, taken to run on your own hardware. */
-    readonly local: ReadonlyArray<string>;
+    readonly local: Effect.Effect<ReadonlyArray<string>>;
+    /**
+     * Ollama, as config.yaml sets it up or the web UI saved it: where it is,
+     * changed at once. One in config.yaml can't be changed here.
+     */
+    readonly ollama: {
+      readonly get: Effect.Effect<
+        Option.Option<{ readonly address: string; readonly fromConfig: boolean }>
+      >;
+      readonly set: (address: string) => Effect.Effect<void, OllamaNotEditableError>;
+      readonly remove: Effect.Effect<void, OllamaNotEditableError>;
+      /** The Ollama version at `address` and the models it has, or why it can't be used. */
+      readonly check: (
+        address: string,
+      ) => Effect.Effect<
+        { readonly version: string; readonly models: ReadonlyArray<string> },
+        OllamaUnreachableError
+      >;
+      /** Signals now, then after each change to the saved address. */
+      readonly changes: Stream.Stream<void>;
+    };
     /** The provider a `<provider>/<model>` id names, if it is configured or pooled. */
     readonly route: (model: string) => Option.Option<Route>;
     /**
