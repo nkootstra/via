@@ -48,6 +48,12 @@ of ten packages at once, and on a busy machine tests timed out. Running one
 package's tests with `bun --bun vitest run` in its directory still uses every
 core.
 
+A test on a `TestClock` never pauses on the real clock for other work to catch
+up: on a busy machine the pause runs out first, or the work does. It waits for
+the event that matters instead, such as a fake's `received`, a `Deferred`, or,
+in `@via/server`'s harness, `via.timer(duration)`, which waits until via starts
+a timer of that length, so the test can move the clock past it.
+
 ### The web UI
 
 `apps/web` is the admin UI, which via serves at `/ui`. For a quick loop, run

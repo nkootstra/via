@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, type Reply, reply } from "@via/codex-upstream/testing";
-import { Clock, Effect, Exit, Option, Queue, Scope, Stream } from "effect";
+import { Clock, Effect, Exit, Fiber, Option, Queue, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { Sse } from "effect/unstable/encoding";
 import { type AdminState, StateEvent } from "./admin-api.ts";
@@ -35,30 +35,37 @@ const listen = (via: Via, headers: Record<string, string> = {}) =>
     return { response, states };
   });
 
-/**
- * The next state that `matches`, moving the test clock on 50 ms at a time, a
- * few real milliseconds apart, so a change waiting for others goes out.
- */
-const next = (states: Queue.Queue<State>, matches: (state: State) => boolean = () => true) => {
-  const loop: Effect.Effect<State> = Effect.flatMap(Queue.poll(states), (taken) =>
-    Option.match(taken, {
-      onSome: (state) => (matches(state) ? Effect.succeed(state) : loop),
-      onNone: () =>
-        TestClock.withLive(Effect.sleep("2 millis")).pipe(
-          Effect.andThen(TestClock.adjust("50 millis")),
-          Effect.andThen(loop),
-        ),
-    }),
-  );
+/** How long via holds a change back for the ones that come with it. */
+const COALESCE = "200 millis";
 
-  return loop;
-};
+/**
+ * The next state that `matches`. A change goes out once via has held it back
+ * for {@link COALESCE}, so whenever via starts to, the test clock moves past it.
+ */
+const next = (
+  via: Via,
+  states: Queue.Queue<State>,
+  matches: (state: State) => boolean = () => true,
+) =>
+  Effect.gen(function* () {
+    // Taken by a fiber of its own, so a state that arrives as the clock moves isn't lost.
+    let taking = yield* Effect.forkChild(Queue.take(states));
+
+    for (;;) {
+      const state = yield* Effect.raceFirst(
+        Effect.map(Fiber.join(taking), Option.some),
+        Effect.as(via.timer(COALESCE), Option.none<State>()),
+      );
+
+      if (Option.isNone(state)) yield* TestClock.adjust(COALESCE);
+      else if (matches(state.value)) return state.value;
+      else taking = yield* Effect.forkChild(Queue.take(states));
+    }
+  });
 
 /** The first state with no usage refresh running, once the one a page starts has ended. */
-const settled = (states: Queue.Queue<State>) => next(states, (state) => !state.usage.refreshing);
-
-/** A few real milliseconds, for via to act on a request that has already been answered. */
-const moment = TestClock.withLive(Effect.sleep("30 millis"));
+const settled = (via: Via, states: Queue.Queue<State>) =>
+  next(via, states, (state) => !state.usage.refreshing);
 
 const labels = (state: State) => state.accounts.map(({ label }) => label);
 
@@ -126,28 +133,31 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     withAdmin(ok, (via) =>
       Effect.gen(function* () {
         const { states } = yield* listen(via);
-        const first = yield* settled(states);
+        const first = yield* settled(via, states);
         const since = yield* Clock.currentTimeMillis;
 
         yield* via.patch(`/admin/accounts/${idOf(first, "a")}`, { label: "work" }, adminKey);
-        expect(labels(yield* next(states))).toEqual(["work", "b@example.com"]);
+        expect(labels(yield* next(via, states))).toEqual(["work", "b@example.com"]);
 
         yield* via.post("/admin/keys", { name: "laptop" }, adminKey);
-        expect((yield* next(states)).keys.map(({ name }) => name)).toEqual(["test", "laptop"]);
+        expect((yield* next(via, states)).keys.map(({ name }) => name)).toEqual(["test", "laptop"]);
 
         yield* via.patch("/admin/keys/laptop", { name: "desktop" }, adminKey);
-        expect((yield* next(states)).keys.map(({ name }) => name)).toEqual(["test", "desktop"]);
+        expect((yield* next(via, states)).keys.map(({ name }) => name)).toEqual([
+          "test",
+          "desktop",
+        ]);
 
         // OpenCode Go takes the key: it reports its usage.
         via.provider.usageFor("sk-go-5678", { usage: {} });
         yield* via.post("/admin/opencode-go/accounts", { apiKey: "sk-go-5678" }, adminKey);
-        const added = yield* next(states, (state) => state.opencodeGo.length === 2);
+        const added = yield* next(via, states, (state) => state.opencodeGo.length === 2);
         expect(added.opencodeGo.map(({ key }) => key)).toEqual(["…ider", "…5678"]);
         expect(added.pool.opencodeGo).toHaveLength(2);
 
         // A key's first use is written down, so the page can say when it was used.
         yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
-        yield* next(states, (state) =>
+        yield* next(via, states, (state) =>
           state.keys.some(({ name, lastUsedAt }) => name === "test" && lastUsedAt !== null),
         );
         // Sent as they happened, well before the next resync (15 s) would have.
@@ -160,20 +170,20 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     withAdmin(ok, (via) =>
       Effect.gen(function* () {
         const { states } = yield* listen(via);
-        const first = yield* settled(states);
+        const first = yield* settled(via, states);
         expect(codexModels(first)).toContain("gpt-6-astra");
 
         yield* via.patch(`/admin/accounts/${idOf(first, "a")}`, { enabled: false }, adminKey);
         yield* via.patch(`/admin/accounts/${idOf(first, "b")}`, { enabled: false }, adminKey);
 
-        const disabled = yield* next(states, (state) =>
+        const disabled = yield* next(via, states, (state) =>
           state.accounts.every(({ enabled }) => !enabled),
         );
 
         expect(codexModels(disabled)).toEqual([]);
 
         yield* via.patch(`/admin/accounts/${idOf(first, "b")}`, { enabled: true }, adminKey);
-        const enabled = yield* next(states, (state) => state.accounts.some((a) => a.enabled));
+        const enabled = yield* next(via, states, (state) => state.accounts.some((a) => a.enabled));
         expect(codexModels(enabled)).toContain("gpt-6-astra");
       }),
     ),
@@ -183,20 +193,22 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     withAdmin(ok, (via) =>
       Effect.gen(function* () {
         const { states } = yield* listen(via);
-        const first = yield* settled(states);
+        const first = yield* settled(via, states);
 
         yield* via.patch(`/admin/accounts/${idOf(first, "a")}`, { label: "work" }, adminKey);
         yield* via.patch(`/admin/accounts/${idOf(first, "b")}`, { label: "home" }, adminKey);
         yield* via.post("/admin/keys", { name: "laptop" }, adminKey);
-        yield* moment;
+        yield* via.timer(COALESCE);
         expect(yield* Queue.size(states)).toBe(0);
 
-        yield* TestClock.adjust("200 millis");
+        yield* TestClock.adjust(COALESCE);
         const burst = yield* Queue.take(states);
         expect(labels(burst)).toEqual(["work", "home"]);
         expect(burst.keys).toHaveLength(2);
-        yield* moment;
-        expect(yield* Queue.size(states)).toBe(0);
+
+        // Nothing follows the burst: the next state is the next change's.
+        yield* via.patch(`/admin/accounts/${idOf(first, "a")}`, { label: "office" }, adminKey);
+        expect(labels(yield* next(via, states))).toEqual(["office", "home"]);
       }),
     ),
   );
@@ -205,14 +217,18 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     withAdmin(ok, (via) =>
       Effect.gen(function* () {
         const { states } = yield* listen(via);
-        yield* settled(states);
+        yield* settled(via, states);
 
-        for (let second = 0; second < 30; second++) {
-          yield* TestClock.adjust("1 second");
-          yield* TestClock.withLive(Effect.sleep("1 millis"));
+        // Two resyncs look at the state again, and find nothing new to send.
+        for (let resync = 0; resync < 2; resync++) {
+          yield* TestClock.adjust("15 seconds");
+          yield* via.timer(COALESCE);
+          yield* TestClock.adjust(COALESCE);
         }
 
-        expect(yield* Queue.size(states)).toBe(0);
+        // Had either sent a state, it would come before this change's.
+        yield* via.post("/admin/keys", { name: "laptop" }, adminKey);
+        expect((yield* next(via, states)).keys.map(({ name }) => name)).toEqual(["test", "laptop"]);
       }),
     ),
   );
@@ -221,11 +237,11 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     withAdmin(coolingA, (via) =>
       Effect.gen(function* () {
         const { states } = yield* listen(via);
-        yield* settled(states);
+        yield* settled(via, states);
 
         yield* via.post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
 
-        const cooling = yield* next(states, (state) =>
+        const cooling = yield* next(via, states, (state) =>
           state.pool.accounts.some(({ state: { status } }) => status === "cooling"),
         );
 
@@ -236,11 +252,12 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         const [end = 0] = until;
         expect(until).toHaveLength(1);
 
-        yield* moment;
+        // via sets itself a timer for when the cooldown ends.
+        yield* via.timer(end - (yield* Clock.currentTimeMillis));
 
         // Up to when the cooldown ends, before any resync: nothing else would send it.
         yield* TestClock.adjust(end - (yield* Clock.currentTimeMillis));
-        yield* next(states, (state) =>
+        yield* next(via, states, (state) =>
           state.pool.accounts.every(({ state: { status } }) => status === "available"),
         );
         expect((yield* Clock.currentTimeMillis) - end).toBeLessThan(1_000);
@@ -253,23 +270,20 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
       Effect.gen(function* () {
         const page = yield* Scope.make();
         const { states } = yield* listen(via).pipe(Scope.provide(page));
-        yield* settled(states);
+        yield* settled(via, states);
         const before = usageLookups(via);
 
         // A snapshot a minute old is refreshed, as it was when the page asked every few seconds.
         yield* TestClock.adjust("75 seconds");
-        yield* settled(states);
+        yield* settled(via, states);
         expect(usageLookups(via)).toBeGreaterThan(before);
 
         yield* Scope.close(page, Exit.void);
         yield* via.logged("client_aborted");
         const after = usageLookups(via);
-
-        for (let minute = 0; minute < 5; minute++) {
-          yield* TestClock.adjust("1 minute");
-          yield* moment;
-        }
-
+        // Its resync is let go, so nothing looks at the usage any more.
+        yield* via.noTimer("15 seconds");
+        yield* TestClock.adjust("5 minutes");
         expect(usageLookups(via)).toBe(after);
       }),
     ),
