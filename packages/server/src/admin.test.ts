@@ -4,7 +4,7 @@ import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply } from "@via/codex-upstream/testing";
 import { DuplicateKeyNameError } from "@via/keys";
 import { providerReply } from "@via/providers/testing";
-import { Clock, Effect, Fiber, Schema } from "effect";
+import { Clock, Deferred, Effect, Fiber, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import type { HttpClientResponse } from "effect/unstable/http";
 import { type Via, ok, withVia } from "./testing/harness.ts";
@@ -1016,6 +1016,40 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       { adminKey },
     ),
   );
+
+  it.effect("times a cooldown from when Codex answered, not from when via asked", () => {
+    // Codex takes 100 seconds to rate-limit account "a" for two minutes.
+    const answered = Deferred.makeUnsafe<void>();
+
+    return withVia(
+      (request) =>
+        request.headers["chatgpt-account-id"] === "acc-a"
+          ? reply.held(answered, reply.error(429, "", { "retry-after": "120" }))
+          : ok(),
+      (via) =>
+        Effect.gen(function* () {
+          const pending = yield* via
+            .post("/v1/responses", { model: "gpt-5.1-codex", input: "hi" })
+            .pipe(Effect.forkChild);
+
+          yield* via.upstreamReceived(1);
+          yield* TestClock.adjust("100 seconds");
+          const now = yield* Clock.currentTimeMillis;
+          yield* Deferred.succeed(answered, undefined);
+          expect((yield* Fiber.join(pending)).status).toBe(200);
+          expect((yield* poolOf(yield* via.get("/admin/pool", adminKey))).accounts).toContainEqual(
+            expect.objectContaining({
+              label: "a@example.com",
+              state: expect.objectContaining({
+                status: "cooling",
+                until: new Date(now + 120_000).toISOString(),
+              }),
+            }),
+          );
+        }),
+      { adminKey },
+    );
+  });
 
   it.effect("shows an account whose cooldown has run out as available", () =>
     withVia(

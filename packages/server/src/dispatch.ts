@@ -66,7 +66,6 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
 
   while (true) {
     const next = yield* pool.next(allowed, preferred);
-    const now = yield* Clock.currentTimeMillis;
 
     if (Option.isNone(next)) {
       return yield* noAccountLeft(yield* pool.waitFor(allowed));
@@ -93,7 +92,8 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     }
 
     const rejected = sent.failure;
-    const verdict = classify(rejected.rejection, now);
+    // Read after the send, which can take minutes: a cooldown runs from Codex's answer.
+    const verdict = classify(rejected.rejection, yield* Clock.currentTimeMillis);
 
     if (Verdict.$is("Cooldown")(verdict)) {
       yield* pool.coolDown(account, verdict.until, verdict.reason);
