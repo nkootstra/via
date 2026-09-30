@@ -106,16 +106,4 @@ export {
   type SidebarUserMenuProps,
 } from "./sidebar.tsx";
 
-export {
-  BarChart,
-  ChartTooltipContent,
-  Stat,
-  StatList,
-  type BarChartProps,
-  type ChartPoint,
-  type ChartSeries,
-  type ChartTooltipContentProps,
-  type StatProps,
-} from "./chart.tsx";
-
 export { FilterSelect, type FilterOption, type FilterSelectProps } from "./filter-select.tsx";

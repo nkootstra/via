@@ -90,7 +90,8 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   ported from Fluid Functionalism. No network or API code; screens and data
   live in the app. It is browser React, so the Effect conventions don't apply
   there; every other rule does. Tests use plain `vitest` with happy-dom and
-  Testing Library.
+  Testing Library. The charts (Recharts) are imported from `@via/ui/chart`,
+  not `@via/ui`, so only the pages that draw one load the library.
 - `docs/`: user-facing docs; `docs/README.md` is the repo's landing page.
 - `tools/oxlint/anti-slop`: vendored Oxlint rules, enabled in `.oxlintrc.json`.
   Changes to them are recorded in its `UPSTREAM.md`.

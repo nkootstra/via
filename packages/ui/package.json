@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./chart": "./src/chart.tsx",
     "./tokens.stylex": "./src/tokens.stylex.ts",
     "./stylex-plugin": "./stylex-plugin.ts",
     "./theme-plugin": "./theme-plugin.ts"
