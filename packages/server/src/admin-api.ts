@@ -271,6 +271,17 @@ const GroupBy = Schema.Literals(["model", "account", "key", "provider"]);
 /** The span of time a history query covers: from `from` up to, not including, `to`. */
 const HistoryRange = { from: IntParam, to: IntParam };
 
+/**
+ * What narrows a history query: a model, an account (or `provider:<name>`, a
+ * provider's requests no account served), a key, and failed requests only.
+ */
+const HistoryFilters = {
+  model: Schema.optionalKey(Name),
+  accountId: Schema.optionalKey(Name),
+  keyId: Schema.optionalKey(Name),
+  outcome: Schema.optionalKey(Schema.Literals(["ok", "error"])),
+};
+
 /** Request and token counts; a sum is 0 where no request reported its usage. */
 const Totals = {
   requests: Schema.Finite,
@@ -479,13 +490,14 @@ class UsageHistoryGroup extends HttpApiGroup.make("history")
         /** Minutes the viewer's clock is ahead of UTC, so their days start at midnight. */
         tzOffsetMinutes: IntParam.check(Schema.isBetween({ minimum: -840, maximum: 840 })),
         groupBy: GroupBy,
+        ...HistoryFilters,
       },
       success: Schema.Struct({ points: Schema.Array(HistoryPoint) }),
     }),
   )
   .add(
     HttpApiEndpoint.get("breakdown", "/history/breakdown", {
-      query: { ...HistoryRange, groupBy: GroupBy },
+      query: { ...HistoryRange, groupBy: GroupBy, ...HistoryFilters },
       success: HistoryBreakdown,
     }),
   )
@@ -497,10 +509,7 @@ class UsageHistoryGroup extends HttpApiGroup.make("history")
         /** The `next` of the page before: the list goes on after that request. */
         afterAt: Schema.optionalKey(IntParam),
         afterId: Schema.optionalKey(Name),
-        model: Schema.optionalKey(Name),
-        accountId: Schema.optionalKey(Name),
-        keyId: Schema.optionalKey(Name),
-        outcome: Schema.optionalKey(Schema.Literals(["ok", "error"])),
+        ...HistoryFilters,
       },
       success: RequestPage,
     }),
