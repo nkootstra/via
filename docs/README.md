@@ -31,7 +31,8 @@ models.
 
 ## Platforms
 
-macOS and Linux, on arm64 and x64. There is no Windows build.
+macOS and Linux, on arm64 and x64. The x64 builds use Bun's baseline target,
+so they run on CPUs without AVX2 too. There is no Windows build.
 
 ## Install
 
