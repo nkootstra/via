@@ -110,36 +110,46 @@ export interface HistoryRange {
  */
 const HISTORY_REFRESH_MS = 15_000;
 
+/**
+ * What narrows the usage page: one model, one account (or `provider:<name>`,
+ * a provider's requests no account served), one key, and failed requests only.
+ */
+export interface HistoryFilters {
+  readonly model?: string;
+  readonly accountId?: string;
+  readonly keyId?: string;
+  readonly outcome?: "error";
+}
+
 /** Each group's tokens per hour or day, in the viewer's time zone. */
 export const historySeriesQuery = (
   range: HistoryRange,
   bucket: "hour" | "day",
   tzOffsetMinutes: number,
   groupBy: HistoryGroupBy,
+  filters: HistoryFilters,
 ) =>
   queryOptions({
-    queryKey: ["history", "series", range, bucket, tzOffsetMinutes, groupBy],
+    queryKey: ["history", "series", range, bucket, tzOffsetMinutes, groupBy, filters],
     queryFn: () =>
       run((admin) =>
-        admin.history.series({ query: { ...range, bucket, tzOffsetMinutes, groupBy } }),
+        admin.history.series({ query: { ...range, bucket, tzOffsetMinutes, groupBy, ...filters } }),
       ),
     refetchInterval: HISTORY_REFRESH_MS,
   });
 
 /** Each group's usage over the range, with the totals. */
-export const historyBreakdownQuery = (range: HistoryRange, groupBy: HistoryGroupBy) =>
+export const historyBreakdownQuery = (
+  range: HistoryRange,
+  groupBy: HistoryGroupBy,
+  filters: HistoryFilters,
+) =>
   queryOptions({
-    queryKey: ["history", "breakdown", range, groupBy],
-    queryFn: () => run((admin) => admin.history.breakdown({ query: { ...range, groupBy } })),
+    queryKey: ["history", "breakdown", range, groupBy, filters],
+    queryFn: () =>
+      run((admin) => admin.history.breakdown({ query: { ...range, groupBy, ...filters } })),
     refetchInterval: HISTORY_REFRESH_MS,
   });
-
-/** What the request list shows only: one model's, account's or key's requests. */
-export interface RequestFilter {
-  readonly model?: string;
-  readonly accountId?: string;
-  readonly keyId?: string;
-}
 
 /** Where a page of requests starts: after the last request of the page before. */
 type RequestCursor = Option.Option.Value<RequestPage["next"]>;
@@ -148,7 +158,7 @@ type RequestCursor = Option.Option.Value<RequestPage["next"]>;
 const newest: Option.Option<RequestCursor> = Option.none();
 
 /** The requests in the range, newest first, a page at a time. */
-export const historyRequestsQuery = (range: HistoryRange, filter: RequestFilter) =>
+export const historyRequestsQuery = (range: HistoryRange, filter: HistoryFilters) =>
   infiniteQueryOptions({
     queryKey: ["history", "requests", range, filter],
     queryFn: ({ pageParam }) =>
