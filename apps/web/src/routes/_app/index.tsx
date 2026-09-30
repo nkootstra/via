@@ -1,11 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, type ErrorComponentProps, Link, useRouter } from "@tanstack/react-router";
 import { Badge, Button, Callout, EmptyState, Meter, Skeleton, VisuallyHidden } from "@via/ui";
 import { colors, durations, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { useId, type ReactNode } from "react";
-import { accountsQuery, poolQuery, usageQuery } from "../../api/admin.ts";
-import { useLiveOptions } from "../../api/live.ts";
+import { accountsQuery, historyBreakdownQuery, poolQuery, usageQuery } from "../../api/admin.ts";
+import { useLiveOptions, useSignalledOptions } from "../../api/live.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
 import { AccountsIcon, CodexIcon, PlusIcon, ProviderLogo } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -20,7 +20,9 @@ import {
 } from "../../lib/time.ts";
 import { useTimeFormat } from "../../lib/time-format.ts";
 import { providerName } from "../../lib/provider-name.ts";
-import type { PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
+import { historyRange } from "../../lib/history-range.ts";
+import { formatCount, formatTokens, formatUsd, tokensOf } from "../../lib/usage-format.ts";
+import type { HistoryGroup, PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({ meta: [{ title: "Overview · via" }] }),
@@ -166,6 +168,55 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: space.s3,
+  },
+  // What via counted for a provider: three figures side by side, and a way to its requests.
+  counted: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s2,
+    flexGrow: 1,
+  },
+  countedTitle: {
+    margin: 0,
+    fontSize: text.caption,
+    color: colors.mutedForeground,
+  },
+  figures: {
+    margin: 0,
+    display: "grid",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+    gap: space.s3,
+  },
+  figure: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s0_5,
+    minWidth: 0,
+  },
+  figureLabel: {
+    fontSize: text.caption,
+    color: colors.mutedForeground,
+  },
+  figureValue: {
+    margin: 0,
+    fontSize: text.display,
+    lineHeight: 1.2,
+    letterSpacing: "-0.01em",
+    fontVariantNumeric: "tabular-nums",
+    fontVariationSettings: weights.semibold,
+    fontWeight: fontWeights.semibold,
+    color: colors.foreground,
+  },
+  // Keeps to the card's foot, so the links of a row line up.
+  requestsLink: {
+    marginTop: "auto",
+    alignSelf: "flex-start",
+    fontSize: text.caption,
+    color: colors.mutedForeground,
+    textDecorationLine: { default: "none", ":hover": "underline" },
+    textUnderlineOffset: "3px",
+    borderRadius: radii.item,
+    outlineOffset: "2px",
   },
   muted: {
     margin: 0,
@@ -504,6 +555,73 @@ function OpencodeGoUsage({ id, usage }: { readonly id: string; readonly usage: U
   );
 }
 
+/** What a provider's requests cost: what it billed and the rest at API prices, nothing for a local one. */
+const costOf = ({ cost }: HistoryGroup) => {
+  if (cost.unpriced.length > 0) return "Unknown";
+
+  const total = cost.apiEquivalentUsd + cost.billedUsd;
+
+  return total === 0 ? "Free" : formatUsd(total);
+};
+
+/**
+ * What via counted of a provider's requests over the last day, as a provider
+ * reports no usage of its own: the page's one ask of via beyond what the shell
+ * carries, made once the cards are up.
+ */
+function ProviderCounted({ name }: { readonly name: string }) {
+  const now = useNow(60_000);
+
+  const breakdown = useQuery({
+    ...historyBreakdownQuery(historyRange(1, "hour", now), "account", {}),
+    ...useSignalledOptions(),
+  });
+
+  if (breakdown.isPending) {
+    return (
+      <output aria-label="Loading what via counted" {...stylex.props(styles.meters)}>
+        <Skeleton width="30%" height="12px" />
+        <Skeleton height="28px" />
+      </output>
+    );
+  }
+
+  if (breakdown.isError) {
+    return <p {...stylex.props(styles.muted)}>What via counted couldn't be loaded.</p>;
+  }
+
+  const counted = breakdown.data.groups.find((group) => group.group === `provider:${name}`);
+
+  if (counted === undefined || counted.requests === 0) {
+    return <p {...stylex.props(styles.muted)}>No requests in the last 24 hours.</p>;
+  }
+
+  return (
+    <div {...stylex.props(styles.counted)}>
+      <p {...stylex.props(styles.countedTitle)}>Last 24 hours</p>
+      <dl {...stylex.props(styles.figures)}>
+        {[
+          ["Requests", formatCount(counted.requests)],
+          ["Tokens", formatTokens(tokensOf(counted))],
+          ["Cost", costOf(counted)],
+        ].map(([label, value]) => (
+          <div key={label} {...stylex.props(styles.figure)}>
+            <dt {...stylex.props(styles.figureLabel)}>{label}</dt>
+            <dd {...stylex.props(styles.figureValue)}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      <Link
+        to="/usage"
+        search={{ account: `provider:${name}` }}
+        {...stylex.props(styles.requestsLink)}
+      >
+        See its requests
+      </Link>
+    </div>
+  );
+}
+
 /**
  * One account or provider: who it is, its state, and its usage windows. Its name
  * is a heading, so heading navigation reaches each; both lines are cut short to
@@ -762,7 +880,7 @@ function Overview() {
                     badge={<ProviderBadge provider={provider} />}
                   >
                     <ProviderDetail provider={provider} />
-                    <p {...stylex.props(styles.muted)}>This provider doesn't report usage.</p>
+                    <ProviderCounted name={provider.name} />
                   </PoolCard>
                 ))}
               </div>

@@ -1,53 +1,14 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { HistoryBreakdown, HistoryGroup, UsageRequest } from "../src/api/types.ts";
+import type { UsageRequest } from "../src/api/types.ts";
+import { breakdown, cost, group } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
 import { openSource } from "./event-source.ts";
 
 const HOUR = 3_600_000;
 
 const now = new Date("2026-09-27T12:30:00.000Z");
-
-const cost = (apiEquivalentUsd: number, billedUsd = 0, unpriced: ReadonlyArray<string> = []) => ({
-  apiEquivalentUsd,
-  billedUsd,
-  unpriced,
-});
-
-const group = (fields: Partial<HistoryGroup> & Pick<HistoryGroup, "group">): HistoryGroup => ({
-  label: fields.group,
-  requests: 10,
-  errors: 0,
-  measured: 10,
-  unmeasured: 0,
-  inputTokens: 1_000,
-  cachedTokens: 400,
-  outputTokens: 200,
-  reasoningTokens: 0,
-  firstChunkMs: { p50: Option.some(400), p95: Option.some(1_200) },
-  cost: cost(0.5),
-  ...fields,
-});
-
-const breakdown = (groups: ReadonlyArray<HistoryGroup>): HistoryBreakdown => ({
-  groups,
-  totals: {
-    requests: groups.reduce((sum, g) => sum + g.requests, 0),
-    errors: groups.reduce((sum, g) => sum + g.errors, 0),
-    measured: groups.reduce((sum, g) => sum + g.measured, 0),
-    unmeasured: groups.reduce((sum, g) => sum + g.unmeasured, 0),
-    inputTokens: groups.reduce((sum, g) => sum + g.inputTokens, 0),
-    cachedTokens: groups.reduce((sum, g) => sum + g.cachedTokens, 0),
-    outputTokens: groups.reduce((sum, g) => sum + g.outputTokens, 0),
-    reasoningTokens: 0,
-    firstChunkMs: { p50: Option.some(400), p95: Option.some(1_200) },
-    cost: cost(
-      groups.reduce((sum, g) => sum + g.cost.apiEquivalentUsd, 0),
-      groups.reduce((sum, g) => sum + g.cost.billedUsd, 0),
-    ),
-  },
-});
 
 const byModel = breakdown([
   group({ group: "gpt-6-astra", requests: 30, errors: 3, inputTokens: 3_000, cachedTokens: 1_500 }),

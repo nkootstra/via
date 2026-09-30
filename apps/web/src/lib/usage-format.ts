@@ -28,3 +28,7 @@ export const formatMs = (ms: number) =>
 /** A share as a whole percentage, or a dash when there is nothing to share. */
 export const formatShare = (part: number, total: number) =>
   total === 0 ? "–" : `${Math.round((part / total) * 100)}%`;
+
+/** Tokens a group or a point spent: what it sent and what it got back. */
+export const tokensOf = (usage: { readonly inputTokens: number; readonly outputTokens: number }) =>
+  usage.inputTokens + usage.outputTokens;

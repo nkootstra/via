@@ -2,6 +2,7 @@ import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
+import { breakdown, cost, group } from "../src/testing/history.ts";
 import { embed, fakeClock, openSignOut, renderApp, skip } from "./app.tsx";
 import { FakeEventSource, openSource } from "./event-source.ts";
 
@@ -243,7 +244,7 @@ describe("the overview", () => {
     const openrouter = await card("openrouter");
     expect(within(openrouter).getByText("Provider")).toBeDefined();
     expect(within(openrouter).getByText("Available")).toBeDefined();
-    expect(await within(openrouter).findByText(/doesn't report usage/)).toBeDefined();
+    expect(await within(openrouter).findByText("No requests in the last 24 hours.")).toBeDefined();
   });
 
   it("counts a used-up OpenCode Go account down to its window's reset", async () => {
@@ -284,6 +285,61 @@ describe("the overview", () => {
 
     expect(await screen.findByRole("region", { name: "No accounts yet" })).toBeDefined();
     expect(await card("openrouter")).toBeDefined();
+  });
+
+  it("shows what via counted for each provider over the last day, as they report no usage", async () => {
+    const { state } = renderApp("/", {
+      pool: {
+        ...pool,
+        providers: [...providers, { name: "ollama", state: { status: "available" } }],
+      },
+      usage,
+      historyBreakdown: new Map([
+        [
+          "account",
+          breakdown([
+            group({ group: "acc-1", requests: 40 }),
+            group({
+              group: "provider:ollama",
+              requests: 2,
+              inputTokens: 457,
+              outputTokens: 3,
+              cost: cost(0),
+            }),
+            group({ group: "provider:openrouter", requests: 15, cost: cost(0, 0.42) }),
+          ]),
+        ],
+      ]),
+    });
+
+    const figures = async (name: string) => {
+      const figure = within(await card(name));
+      await figure.findByText("Last 24 hours");
+
+      return Object.fromEntries(
+        figure
+          .getAllByRole("term")
+          .map((term) => [term.textContent, term.nextElementSibling?.textContent]),
+      );
+    };
+
+    expect(await figures("Ollama")).toEqual({ Requests: "2", Tokens: "460", Cost: "Free" });
+    expect(await figures("openrouter")).toEqual({ Requests: "15", Tokens: "1.2K", Cost: "$0.42" });
+
+    const link = within(await card("Ollama")).getByRole("link", { name: "See its requests" });
+    expect(link.getAttribute("href")).toContain("account=provider%3Aollama");
+
+    const query = state.historyQueries.at(-1);
+    expect(query?.get("groupBy")).toBe("account");
+    expect(Number(query?.get("to")) - Number(query?.get("from"))).toBe(86_400_000);
+  });
+
+  it("says when a provider served nothing over the last day", async () => {
+    renderApp("/", { pool, usage });
+
+    expect(
+      await within(await card("openrouter")).findByText("No requests in the last 24 hours."),
+    ).toBeDefined();
   });
 
   it("invites the viewer to add an account when the pool is empty, right there", async () => {
@@ -442,7 +498,8 @@ describe("the overview, live", () => {
       "42",
     );
     expect(within(await card("home")).getByText("home@example.com")).toBeDefined();
-    expect(state.requests).toEqual([]);
+    // Only what via counted for the providers, which the shell doesn't carry, is asked for.
+    expect(state.requests).toEqual(["GET /admin/history/breakdown"]);
     expect(document.getElementById("via-state")).toBeNull();
   });
 
@@ -472,7 +529,8 @@ describe("the overview, live", () => {
 
     expect(await within(work).findByText("Cooling down")).toBeDefined();
     await act(() => vi.advanceTimersByTimeAsync(20_000));
-    expect(state.requests).toEqual([]);
+    // What via counted for the providers is asked for once, and not again while the stream is open.
+    expect(state.requests).toEqual(["GET /admin/history/breakdown"]);
   });
 
   it("asks via every few seconds while the stream is down, and stops once it is back", async () => {

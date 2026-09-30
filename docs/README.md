@@ -395,7 +395,11 @@ page fetches its usage again when via says the history changed, and asks every
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
-old, and says how long ago that was.
+old, and says how long ago that was. A provider reports no usage of its own, so
+its card shows what via counted of its requests over the last 24 hours:
+requests, tokens and cost (Free for a local one such as Ollama), with a link
+to them on the Usage page. The overview fetches those figures once it has
+painted.
 
 The page shows the pool as it is right now, without reloading or polling. When
 a signed-in browser opens or reloads it, via puts the current state in the
