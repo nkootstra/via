@@ -1,5 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
+import { delay, http } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { breakdown, cost, group, request } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
@@ -301,6 +302,29 @@ describe("the usage page", () => {
     await user.click(screen.getByRole("button", { name: "Load more" }));
     await waitFor(() => expect(within(log).getAllByRole("row")).toHaveLength(61));
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  it("keeps focus on Load more while the next page loads", async () => {
+    const many = Array.from({ length: 60 }, (_, i) =>
+      request({ requestId: `r${i}`, at: now.getTime() - i * 1_000 }),
+    );
+
+    // The first page answers; the next one never does.
+    const nextPageHangs = http.get("*/admin/history/requests", async ({ request: sent }) => {
+      if (new URL(sent.url).searchParams.has("afterId")) await delay("infinite");
+    });
+
+    const { user } = renderApp("/usage", { ...seed, historyRequests: many }, [nextPageHangs]);
+
+    await screen.findByRole("table", { name: "Requests" });
+    const more = screen.getByRole("button", { name: "Load more" });
+    more.focus();
+    await user.keyboard("{Enter}");
+
+    await waitFor(() => expect(more.hasAttribute("data-disabled")).toBe(true));
+    // A browser moves focus off a natively disabled button; happy-dom doesn't, so check both.
+    expect(more.matches(":disabled")).toBe(false);
+    expect(document.activeElement).toBe(more);
   });
 
   it("says the token totals leave out requests that reported none", async () => {
