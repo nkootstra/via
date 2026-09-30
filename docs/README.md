@@ -24,6 +24,11 @@ its rate limit, via moves on to the next (see
 
 > **Status:** early (`0.x`). Commands and file formats may still change before 1.0.
 
+![The web UI's Overview page: four accounts and providers, all available, with each one's limits](assets/screenshots/overview.png)
+
+A [web UI](#web-ui) at `/ui` shows the pool and manages accounts, keys and
+models.
+
 ## Platforms
 
 macOS and Linux, on arm64 and x64. There is no Windows build.
@@ -371,6 +376,58 @@ With `VIA_ADMIN_KEY` set, `via serve` also serves a web UI for the admin API
 at `/ui/`, such as `http://127.0.0.1:8317/ui/`. Without the key it answers 404,
 as `/admin` does. It's built into the binary and the Docker image, so there is
 nothing else to run or download, and it loads nothing from other sites.
+
+#### Pages
+
+**Overview** shows how the pool stands right now: how many accounts and
+providers are available, cooling down, locked out or disabled, and how much of
+each one's limits is used.
+
+![Overview page](assets/screenshots/overview.png)
+
+<details>
+<summary><b>Sign in</b>: enter the admin key once; via keeps the session in a cookie.</summary>
+
+![Sign-in page](assets/screenshots/sign-in.png)
+
+</details>
+
+<details>
+<summary><b>Usage</b>: requests, tokens, cache hit rate, cost and time to first token, charted and broken down by model, account or key.</summary>
+
+![Usage page](assets/screenshots/usage.png)
+
+</details>
+
+<details>
+<summary><b>Accounts</b>: the ChatGPT and OpenCode Go accounts in the pool, your Ollama and your OpenRouter key; add, disable or remove them.</summary>
+
+![Accounts page](assets/screenshots/accounts.png)
+
+</details>
+
+<details>
+<summary><b>Keys</b>: the API keys your clients use to call via; create, rename and revoke them.</summary>
+
+![Keys page](assets/screenshots/keys.png)
+
+</details>
+
+<details>
+<summary><b>Models</b>: every model clients can ask for at <code>/v1/models</code>, grouped by upstream and searchable.</summary>
+
+![Models page](assets/screenshots/models.png)
+
+</details>
+
+<details>
+<summary><b>Settings</b>: privacy mode, theme, motion, start page and time format, and deleting the usage history.</summary>
+
+![Settings page](assets/screenshots/settings.png)
+
+</details>
+
+#### Using it
 
 Open it and sign in with the admin key. The page [signs in](#signing-in-from-a-browser)
 as above: it keeps only the session cookie, never the key, and a reload or a
