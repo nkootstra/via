@@ -125,6 +125,43 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
     }),
   );
 
+  it.effect("rejects an unknown top-level key, naming it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = yield* tempFile("config.yaml");
+      yield* fs.writeFileString(file, "prot: 9000\n");
+      const error = yield* Effect.flip(loadConfig(file));
+      expect(error).toBeInstanceOf(InvalidConfigError);
+      expect(error.message).toMatch(/prot/);
+    }),
+  );
+
+  it.effect("rejects an unknown key in a provider, naming it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = yield* tempFile("config.yaml");
+      yield* fs.writeFileString(file, "providers:\n  openrouter:\n    apiKeyENV: KEY\n");
+      const error = yield* Effect.flip(loadConfig(file));
+      expect(error).toBeInstanceOf(InvalidConfigError);
+      expect(error.message).toMatch(/apiKeyENV/);
+    }),
+  );
+
+  it.effect("rejects an unknown key under codex or in a price", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const codex = yield* tempFile("codex.yaml");
+      yield* fs.writeFileString(codex, "codex:\n  cloack: false\n");
+      expect((yield* Effect.flip(loadConfig(codex))).message).toMatch(/cloack/);
+      const price = yield* tempFile("price.yaml");
+      yield* fs.writeFileString(
+        price,
+        "prices:\n  m:\n    input: 1\n    output: 1\n    cached: 1\n",
+      );
+      expect((yield* Effect.flip(loadConfig(price))).message).toMatch(/cached/);
+    }),
+  );
+
   it.effect("rejects a port outside 1-65535", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
