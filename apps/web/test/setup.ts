@@ -6,8 +6,9 @@ import { FakeEventSource, sources } from "./event-source.ts";
 // Tests assert behaviour, not motion: every animation completes at once.
 MotionGlobalConfig.skipAnimations = true;
 
-// A route's code compiles the first time a test reaches it, which on a slow CI
-// runner can take longer than Testing Library's default second to find a screen.
+// A screen waits on the fake /admin and then renders. On a loaded machine, such
+// as while the whole repo's tests run at once, that took up to 3.4 s, where
+// Testing Library gives a wait one second by default.
 configure({ asyncUtilTimeout: 5000 });
 
 afterEach(cleanup);
