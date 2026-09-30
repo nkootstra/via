@@ -103,13 +103,14 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
     }),
   );
 
-  it.effect("rejects a provider without apiKeyEnv", () =>
+  it.effect("reads a provider without apiKeyEnv, as one on your own machine needs no key", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const file = yield* tempFile("config.yaml");
-      yield* fs.writeFileString(file, "providers:\n  openrouter: {}\n");
-      const error = yield* Effect.flip(loadConfig(file));
-      expect(error.message).toMatch(/apiKeyEnv/);
+      yield* fs.writeFileString(file, "providers:\n  ollama:\n    baseUrl: http://nas:11434/v1\n");
+      expect((yield* loadConfig(file)).providers).toEqual({
+        ollama: { baseUrl: "http://nas:11434/v1" },
+      });
     }),
   );
 

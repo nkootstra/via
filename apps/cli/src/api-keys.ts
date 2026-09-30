@@ -9,7 +9,12 @@ import { Config, Effect, Option, Record, type Redacted } from "effect";
  */
 export const apiKeys = (providers: Record<string, ProviderConfig>) =>
   Config.all(
-    Record.map(providers, ({ apiKeyEnv }) => Config.option(Config.Redacted(apiKeyEnv))),
+    Record.map(providers, ({ apiKeyEnv }) =>
+      // A provider without a variable, such as a local one, has no key to read.
+      apiKeyEnv === undefined
+        ? Config.succeed(Option.none<Redacted.Redacted<string>>())
+        : Config.option(Config.Redacted(apiKeyEnv)),
+    ),
   ).pipe(Config.map(Record.getSomes));
 
 /**
