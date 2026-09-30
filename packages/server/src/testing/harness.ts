@@ -229,7 +229,8 @@ const watchTimers = Effect.gen(function* () {
  * go to the fake issuer, with its `pendingPolls` and `interval`. With
  * `maxResponseBytes`, via reads that much of a Codex stream at most, not 128 MiB.
  * Requests are kept in an in-memory usage history, or in `history`'s, and
- * priced with `prices` over those via ships with.
+ * priced with `prices` over those via ships with. With `ollama`, the fake
+ * provider also answers as `ollama`, a provider sent no key.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -255,6 +256,7 @@ export const withVia = <A, E>(
     maxResponseBytes,
     history = UsageHistory.layerMemory,
     prices,
+    ollama = false,
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
     opencodeGoKeys?: ReadonlyArray<string>;
@@ -266,6 +268,7 @@ export const withVia = <A, E>(
     maxResponseBytes?: number;
     history?: Layer.Layer<UsageHistory, unknown>;
     prices?: Readonly<Record<string, ModelPrice>>;
+    ollama?: boolean;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -297,7 +300,11 @@ export const withVia = <A, E>(
         version: "0.0.0",
       }),
       Providers.layer({
-        providers: { openrouter: providerConfig, "opencode-go": providerConfig },
+        providers: {
+          openrouter: providerConfig,
+          "opencode-go": providerConfig,
+          ...(ollama ? { ollama: { baseUrl: providerConfig.baseUrl } } : {}),
+        },
         apiKeys: { openrouter: providerKey },
         version: "0.0.0",
       }).pipe(Layer.provideMerge(stores)),

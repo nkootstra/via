@@ -18,7 +18,12 @@ const question = {
 const answer = {
   model: "nimble",
   answers: {
-    label: { answer: "bug", probabilities: { billing: 0.02, bug: 0.98 }, confidence: 0.96 },
+    label: {
+      type: "choice",
+      choice: "bug",
+      probabilities: { billing: 0.02, bug: 0.98 },
+      confidence: 0.96,
+    },
   },
   usage: { input_tokens: 41, output_tokens: 2 },
 };

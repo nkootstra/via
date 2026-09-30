@@ -123,6 +123,35 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
     ),
   );
 
+  it.effect("counts a local provider's tokens as free, not as unpriced", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(
+            providerReply.json({ choices: [], usage: { prompt_tokens: 7, completion_tokens: 3 } }),
+          );
+
+          yield* (yield* via.post("/v1/chat/completions", {
+            model: "ollama/minimax-m3",
+            messages: [],
+          })).text;
+          const breakdown = yield* history(via, `breakdown?${range}&groupBy=provider`);
+
+          expect(breakdown).toMatchObject({
+            groups: [
+              {
+                group: "ollama",
+                inputTokens: 7,
+                cost: { apiEquivalentUsd: 0, billedUsd: 0, unpriced: [] },
+              },
+            ],
+          });
+        }),
+      { adminKey, ollama: true },
+    ),
+  );
+
   it.effect("narrows the totals and the series to one model, as it narrows the requests", () =>
     withVia(
       ok,
