@@ -3,7 +3,18 @@ import { expect, layer } from "@effect/vitest";
 import { type FakeCodex, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { type FakeProvider, providerReply, startFakeProvider } from "@via/providers/testing";
 import { KeyStore } from "@via/keys";
-import { Clock, Context, Deferred, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
+import {
+  Clock,
+  Context,
+  Deferred,
+  Effect,
+  Exit,
+  FileSystem,
+  Layer,
+  Option,
+  Schema,
+  Stream,
+} from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -430,6 +441,27 @@ layer(BunFileSystem.layer)("via serve", (it) => {
         expect(yield* response.json).toEqual({ id: "chatcmpl-local" });
         expect(provider.requests[0]?.headers["authorization"]).toBe("Bearer sk-local");
       }),
+  );
+
+  it.effect("sends to the Ollama whose address the web UI saved, with no key", () =>
+    Effect.gen(function* () {
+      const { home, key, env } = yield* loggedIn;
+      const provider = yield* startFakeProvider;
+      provider.respond(providerReply.json({ id: "chatcmpl-ollama" }));
+      const fs = yield* FileSystem.FileSystem;
+      yield* fs.writeFileString(`${home}/ollama.json`, JSON.stringify({ address: provider.url }));
+
+      const url = yield* serveVia(home, ["--port", "0"], env);
+
+      const response = yield* post(url, key, "/v1/chat/completions", {
+        model: "ollama/nimble",
+        messages: [],
+      });
+
+      expect(yield* response.json).toEqual({ id: "chatcmpl-ollama" });
+      expect(provider.requests[0]?.path).toBe("/v1/chat/completions");
+      expect(provider.requests[0]?.headers).not.toHaveProperty("authorization");
+    }),
   );
 
   it.effect("cuts off a stream the upstream broke off without printing a stack trace", () =>
