@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { useMask } from "../lib/privacy.ts";
 import { useRouter, type ErrorComponentProps } from "@tanstack/react-router";
 import { Button } from "@via/ui";
 import { colors, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
@@ -25,6 +26,7 @@ const styles = stylex.create({
 /** What a route shows when loading it failed, most often because via is unreachable. */
 export function ErrorScreen({ error, reset }: ErrorComponentProps) {
   const router = useRouter();
+  const mask = useMask();
 
   return (
     <Centered>
@@ -32,7 +34,7 @@ export function ErrorScreen({ error, reset }: ErrorComponentProps) {
         <h1 {...stylex.props(styles.title)}>Couldn't load this page</h1>
         <p {...stylex.props(styles.body)}>
           {Predicate.isError(error)
-            ? error.message
+            ? mask.key(error.message)
             : "Loading this page failed. Check that via is running, then try again."}
         </p>
       </div>

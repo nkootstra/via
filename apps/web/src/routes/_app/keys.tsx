@@ -30,6 +30,7 @@ import {
 import { colors, fonts, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { type RefObject, useRef, useState } from "react";
 import { createKey, keysQuery, renameKey, revokeKey } from "../../api/admin.ts";
+import { useMask } from "../../lib/privacy.ts";
 import { useLiveOptions } from "../../api/live.ts";
 import type { Key } from "../../api/types.ts";
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
@@ -120,6 +121,7 @@ function CreateKeyDialog({
   readonly onClose: () => void;
   readonly opener: RefObject<HTMLElement | null>;
 }) {
+  const mask = useMask();
   const queryClient = useQueryClient();
   const heading = usePageHeading();
   const [name, setName] = useState("");
@@ -212,7 +214,7 @@ function CreateKeyDialog({
               </DialogDescription>
             </DialogHeader>
             <div ref={focusButton}>
-              <CopyField label="API key" value={created.key} />
+              <CopyField label="API key" value={created.key} concealed={mask.on} />
             </div>
             <div {...stylex.props(styles.callout)}>
               <Callout tone="warning">

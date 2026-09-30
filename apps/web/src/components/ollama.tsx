@@ -40,6 +40,7 @@ import { ConfirmDialog } from "./confirm-dialog.tsx";
 import { EditIcon, PlusIcon, ProviderLogo, TrashIcon } from "./icons.tsx";
 import { Panel } from "./page.tsx";
 import { type RowDialogProps, useRowDialog } from "./row-dialog.ts";
+import { useMask } from "../lib/privacy.ts";
 
 const styles = stylex.create({
   scroll: { overflowX: "auto" },
@@ -91,6 +92,7 @@ const USUAL_ADDRESS = "http://localhost:11434";
 /** What via finds at Ollama's address, checked as it shows: its version and models, or why not. */
 function OllamaStatus({ address }: { readonly address: string }) {
   const found = useQuery(ollamaCheckQuery(address));
+  const mask = useMask();
 
   if (found.isPending) {
     return (
@@ -102,11 +104,17 @@ function OllamaStatus({ address }: { readonly address: string }) {
   }
 
   if (found.isError) {
-    return <span {...stylex.props(styles.caption)}>Can't reach it: {found.error.message}</span>;
+    return (
+      <span {...stylex.props(styles.caption)}>
+        Can't reach it: {mask.address(found.error.message)}
+      </span>
+    );
   }
 
   if (!found.data.reachable) {
-    return <span {...stylex.props(styles.caption)}>Can't reach it: {found.data.reason}</span>;
+    return (
+      <span {...stylex.props(styles.caption)}>Can't reach it: {mask.text(found.data.reason)}</span>
+    );
   }
 
   const { version, models } = found.data;
@@ -128,6 +136,7 @@ function OllamaStatus({ address }: { readonly address: string }) {
 function AddressDialog({ open, onClose, onClosed, row: current }: RowDialogProps<Ollama | null>) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const mask = useMask();
   const [value, setValue] = useState(current?.address ?? USUAL_ADDRESS);
   const [problem, setProblem] = useState<string | undefined>(undefined);
   const address = value.trim();
@@ -140,7 +149,7 @@ function AddressDialog({ open, onClose, onClosed, row: current }: RowDialogProps
       refreshOllama(queryClient);
       toast.add({
         title: current === null ? "Ollama added" : "Ollama's address changed",
-        description: `via sends ollama/… models to ${address}.`,
+        description: `via sends ollama/… models to ${mask.address(address)}.`,
       });
       onClose();
     },
@@ -182,7 +191,7 @@ function AddressDialog({ open, onClose, onClosed, row: current }: RowDialogProps
                 mutation.reset();
               }}
               name="address"
-              type="url"
+              type={mask.on ? "password" : "url"}
               inputMode="url"
               autoComplete="off"
               spellCheck={false}
@@ -208,6 +217,7 @@ function AddressDialog({ open, onClose, onClosed, row: current }: RowDialogProps
 export function OllamaSection() {
   const queryClient = useQueryClient();
   const ollama = useSuspenseQuery({ ...ollamaQuery, ...useLiveOptions() });
+  const mask = useMask();
   const dialogs = useRowDialog<Ollama | null, "address" | "remove">();
   const address = dialogs.propsFor("address");
   const remove = dialogs.propsFor("remove");
@@ -242,8 +252,8 @@ export function OllamaSection() {
               <TableRow index={0}>
                 <TableCell>
                   <div {...stylex.props(styles.stack)}>
-                    <span title={saved.address} {...stylex.props(styles.address)}>
-                      {saved.address}
+                    <span title={mask.address(saved.address)} {...stylex.props(styles.address)}>
+                      {mask.address(saved.address)}
                     </span>
                     {saved.fromConfig && (
                       <span {...stylex.props(styles.caption)}>Set in config.yaml</span>

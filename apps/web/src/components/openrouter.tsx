@@ -43,6 +43,7 @@ import { ConfirmDialog } from "./confirm-dialog.tsx";
 import { EditIcon, KeyIcon, PlusIcon, ProviderLogo, TrashIcon } from "./icons.tsx";
 import { Panel } from "./page.tsx";
 import { type RowDialogProps, useRowDialog } from "./row-dialog.ts";
+import { useMask } from "../lib/privacy.ts";
 
 const styles = stylex.create({
   scroll: { overflowX: "auto" },
@@ -354,6 +355,7 @@ function ModelsDialog({ open, onClose, onClosed, row: current }: RowDialogProps<
  * shown, with every model, as config.yaml is where it changes.
  */
 export function OpenrouterSection() {
+  const mask = useMask();
   const queryClient = useQueryClient();
   const openrouter = useSuspenseQuery({ ...openrouterQuery, ...useLiveOptions() });
   const dialogs = useRowDialog<Openrouter | null, "key" | "models" | "remove">();
@@ -391,7 +393,7 @@ export function OpenrouterSection() {
               <TableRow index={0}>
                 <TableCell>
                   <div {...stylex.props(styles.stack)}>
-                    <span {...stylex.props(styles.key)}>{saved.key}</span>
+                    <span {...stylex.props(styles.key)}>{mask.key(saved.key)}</span>
                     {saved.fromConfig && (
                       <span {...stylex.props(styles.caption)}>Set in config.yaml</span>
                     )}

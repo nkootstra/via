@@ -1,8 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { UsageRequest } from "../src/api/types.ts";
-import { breakdown, cost, group } from "../src/testing/history.ts";
+import { breakdown, cost, group, request } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
 import { openSource } from "./event-source.ts";
 
@@ -21,30 +20,6 @@ const byAccount = breakdown([
   // Refused before any account served it, so it has only the provider's name.
   group({ group: "provider:codex", label: "codex", requests: 2 }),
 ]);
-
-const request = (
-  fields: Partial<UsageRequest> & Pick<UsageRequest, "requestId">,
-): UsageRequest => ({
-  at: now.getTime() - HOUR,
-  status: 200,
-  error: Option.none(),
-  errorMessage: Option.none(),
-  streamEnd: Option.some("completed"),
-  keyId: Option.some("key-1"),
-  keyName: Option.some("laptop"),
-  model: "gpt-6-astra",
-  provider: "codex",
-  accountId: Option.some("acc-1"),
-  accountLabel: Option.some("work@example.com"),
-  inputTokens: Option.some(1_200),
-  cachedTokens: Option.some(800),
-  outputTokens: Option.some(300),
-  reasoningTokens: Option.none(),
-  costUsd: Option.none(),
-  durationMs: 2_400,
-  firstChunkMs: Option.some(600),
-  ...fields,
-});
 
 const seed = {
   historySeries: {

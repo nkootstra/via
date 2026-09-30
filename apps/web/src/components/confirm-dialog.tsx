@@ -11,6 +11,7 @@ import {
   useToast,
 } from "@via/ui";
 import { type ReactNode, useRef } from "react";
+import { useMask } from "../lib/privacy.ts";
 import { TrashIcon } from "./icons.tsx";
 import { usePageHeading } from "./page.tsx";
 
@@ -47,6 +48,7 @@ export function ConfirmDialog({
   readonly failed: string;
 }) {
   const toast = useToast();
+  const mask = useMask();
   const heading = usePageHeading();
   // Read as the dialog closes, which can be before the success renders.
   const confirmed = useRef(false);
@@ -59,7 +61,8 @@ export function ConfirmDialog({
       toast.add(done);
       onClose();
     },
-    onError: (error) => toast.add({ type: "error", title: failed, description: error.message }),
+    onError: (error) =>
+      toast.add({ type: "error", title: failed, description: mask.key(error.message) }),
   });
 
   return (

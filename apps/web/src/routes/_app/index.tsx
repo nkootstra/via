@@ -19,6 +19,7 @@ import {
   windowName,
 } from "../../lib/time.ts";
 import { useTimeFormat } from "../../lib/time-format.ts";
+import { useMask } from "../../lib/privacy.ts";
 import { providerName } from "../../lib/provider-name.ts";
 import { historyRange } from "../../lib/history-range.ts";
 import { formatCount, formatTokens, formatUsd, tokensOf } from "../../lib/usage-format.ts";
@@ -390,6 +391,7 @@ function Resting({
   readonly ends: string;
 }) {
   const format = useTimeFormat();
+  const mask = useMask();
 
   return (
     <Callout tone="warning">
@@ -397,7 +399,7 @@ function Resting({
         <span {...stylex.props(styles.stateTitle)}>
           <BackIn until={until} />
         </span>
-        <span {...stylex.props(styles.reason)}>{reason}</span>
+        <span {...stylex.props(styles.reason)}>{mask.text(reason)}</span>
         <span {...stylex.props(styles.reason)}>
           {ends} {formatTime(until, format)}
         </span>
@@ -417,11 +419,13 @@ function Blocked({
   /** A button that fixes it, where the app can. */
   readonly action?: ReactNode;
 }) {
+  const mask = useMask();
+
   return (
     <Callout tone="danger">
       <div {...stylex.props(styles.state)}>
-        <span {...stylex.props(styles.stateTitle)}>{title}</span>
-        <span {...stylex.props(styles.reason)}>{reason}</span>
+        <span {...stylex.props(styles.stateTitle)}>{mask.text(title)}</span>
+        <span {...stylex.props(styles.reason)}>{mask.text(reason)}</span>
         {action !== undefined && <div {...stylex.props(styles.fix)}>{action}</div>}
       </div>
     </Callout>
@@ -527,7 +531,8 @@ function UsageMissing({ usage }: { readonly usage: Usage }) {
  * reason may open with a provider's id and close with a full stop of its own.
  */
 function UsageFailed({ error }: { readonly error: string }) {
-  const reason = error.replace(/^[\w-]+/, providerName).replace(/\.$/, "");
+  const mask = useMask();
+  const reason = mask.key(error.replace(/^[\w-]+/, providerName).replace(/\.$/, ""));
 
   return (
     <p {...stylex.props(styles.muted)}>
@@ -697,6 +702,7 @@ const BUDGET_LABELS = { daily: "Daily budget", weekly: "Weekly budget", monthly:
  */
 function OpenrouterBudget({ usage }: { readonly usage: Usage }) {
   const format = useTimeFormat();
+  const mask = useMask();
   const entry = usage.openrouter;
 
   if (entry === null) return null;
@@ -704,7 +710,8 @@ function OpenrouterBudget({ usage }: { readonly usage: Usage }) {
   if ("error" in entry) {
     return (
       <p {...stylex.props(styles.muted)}>
-        Budget unavailable: {entry.error.replace(/\.$/, "")}. via asks again on its next refresh.
+        Budget unavailable: {mask.text(entry.error.replace(/\.$/, ""))}. via asks again on its next
+        refresh.
       </p>
     );
   }
@@ -749,6 +756,9 @@ function PoolCard({
   readonly children: ReactNode;
 }) {
   const id = useId();
+  const mask = useMask();
+  const shownName = mask.key(name);
+  const shownSubtitle = subtitle === undefined ? undefined : mask.key(subtitle);
 
   return (
     <Panel xstyle={styles.card}>
@@ -759,11 +769,11 @@ function PoolCard({
               {icon}
             </span>
             <div {...stylex.props(styles.who)}>
-              <h3 id={id} title={name} {...stylex.props(styles.name)}>
-                {name}
+              <h3 id={id} title={shownName} {...stylex.props(styles.name)}>
+                {shownName}
               </h3>
-              <span title={subtitle} {...stylex.props(styles.email)}>
-                {subtitle ?? " "}
+              <span title={shownSubtitle} {...stylex.props(styles.email)}>
+                {shownSubtitle ?? " "}
               </span>
             </div>
           </div>

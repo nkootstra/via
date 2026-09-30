@@ -26,6 +26,7 @@ import { colors, durations, radii, space, text, fontWeights, weights } from "@vi
 import { AnimatePresence, motion } from "motion/react";
 import { type ReactNode, useState } from "react";
 import { addOpencodeGo, loginStatusQuery, refreshPool, startLogin } from "../api/admin.ts";
+import { useMask } from "../lib/privacy.ts";
 import type { Account, StartedLogin } from "../api/types.ts";
 import { CodexIcon, ExternalIcon, ProviderLogo } from "./icons.tsx";
 
@@ -149,6 +150,7 @@ function CodexStep({
   readonly start: UseMutationResult<StartedLogin, Error, void>;
   readonly onClose: () => void;
 }) {
+  const mask = useMask();
   const queryClient = useQueryClient();
   const toast = useToast();
   const login = start.data;
@@ -159,8 +161,11 @@ function CodexStep({
     refreshPool(queryClient);
     toast.add(
       added
-        ? { title: "Account added", description: `${account.label} is in the pool.` }
-        : { title: "Signed in again", description: `via has fresh tokens for ${account.label}.` },
+        ? { title: "Account added", description: `${mask.key(account.label)} is in the pool.` }
+        : {
+            title: "Signed in again",
+            description: `via has fresh tokens for ${mask.key(account.label)}.`,
+          },
     );
     onClose();
   };
@@ -200,7 +205,7 @@ function CodexStep({
       ) : (
         <>
           <div {...stylex.props(styles.code)}>
-            <CopyField label="Your code" value={login.userCode} size="large" />
+            <CopyField label="Your code" value={login.userCode} size="large" concealed={mask.on} />
           </div>
           <ol {...stylex.props(styles.steps)}>
             <li>Open the sign-in page and sign in to the ChatGPT account you want to add.</li>
@@ -284,6 +289,7 @@ function ChooseStep({
 
 /** Pasting an OpenCode Go API key, which via checks with OpenCode Go before it keeps it. */
 function OpencodeGoStep({ onClose }: { readonly onClose: () => void }) {
+  const mask = useMask();
   const queryClient = useQueryClient();
   const toast = useToast();
   const [apiKey, setApiKey] = useState("");
@@ -294,7 +300,10 @@ function OpencodeGoStep({ onClose }: { readonly onClose: () => void }) {
     onSuccess: (outcome) => {
       if (!outcome.added) return;
       refreshPool(queryClient);
-      toast.add({ title: "Account added", description: `${outcome.label} is in the pool.` });
+      toast.add({
+        title: "Account added",
+        description: `${mask.key(outcome.label)} is in the pool.`,
+      });
       onClose();
     },
   });

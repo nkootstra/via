@@ -49,6 +49,7 @@ import { Page, Panel, Section } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
 import { RenameDialog } from "../../components/rename-dialog.tsx";
 import { useRowDialog } from "../../components/row-dialog.ts";
+import { useMask } from "../../lib/privacy.ts";
 
 export const Route = createFileRoute("/_app/accounts")({
   head: () => ({ meta: [{ title: "Accounts · via" }] }),
@@ -108,6 +109,7 @@ function AccountsLoading() {
 }
 
 function Accounts() {
+  const mask = useMask();
   const queryClient = useQueryClient();
   const accounts = useSuspenseQuery({ ...accountsQuery, ...useLiveOptions() });
   const dialogs = useRowDialog<Account, "rename" | "remove">();
@@ -154,25 +156,25 @@ function Accounts() {
                       <TableCell>
                         <div {...stylex.props(styles.who)}>
                           <span
-                            title={account.label}
+                            title={mask.key(account.label)}
                             {...stylex.props(styles.label, styles.truncate)}
                           >
-                            {account.label}
+                            {mask.key(account.label)}
                           </span>
                           <span
-                            title={account.email}
+                            title={mask.text(account.email)}
                             {...stylex.props(styles.email, styles.truncate)}
                           >
-                            {account.email}
+                            {mask.text(account.email)}
                           </span>
                         </div>
                       </TableCell>
                       <TableCell secondary>
-                        <Badge>{account.plan}</Badge>
+                        <Badge>{mask.plan(account.plan)}</Badge>
                       </TableCell>
                       <TableCell>
                         <Switch
-                          aria-label={`${account.label} enabled`}
+                          aria-label={`${mask.key(account.label)} enabled`}
                           checked={enabled.isOn(account)}
                           aria-busy={enabled.busy(account.id)}
                           onCheckedChange={() => enabled.toggle(account)}
@@ -182,7 +184,7 @@ function Accounts() {
                         <Day at={account.createdAt} />
                       </TableCell>
                       <TableCell actions>
-                        <RowActions label={`Actions for ${account.label}`}>
+                        <RowActions label={`Actions for ${mask.key(account.label)}`}>
                           <MenuItem
                             label="Rename…"
                             icon={<EditIcon size={15} />}
@@ -224,7 +226,7 @@ function Accounts() {
           key={rename.row.id}
           {...rename}
           thing="Account"
-          name={rename.row.label}
+          name={mask.key(rename.row.label)}
           field="Label"
           description="The label shows in usage, in the pool and in logs."
           rename={async (label) => {
@@ -237,16 +239,16 @@ function Accounts() {
         <ConfirmDialog
           key={remove.row.id}
           {...remove}
-          title={`Remove ${remove.row.label}?`}
+          title={`Remove ${mask.key(remove.row.label)}?`}
           description="via stops handing it out and forgets its tokens. You can add it again by signing in."
           confirmLabel="Remove account"
           confirm={() => removeAccount(remove.row.id)}
           onConfirmed={() => refreshPool(queryClient)}
           done={{
             title: "Account removed",
-            description: `via no longer uses ${remove.row.label}.`,
+            description: `via no longer uses ${mask.key(remove.row.label)}.`,
           }}
-          failed={`Couldn't remove ${remove.row.label}`}
+          failed={`Couldn't remove ${mask.key(remove.row.label)}`}
         />
       )}
     </Page>
