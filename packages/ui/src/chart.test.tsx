@@ -94,6 +94,13 @@ describe("BarChart", () => {
               ["kimi-k3", 400],
             ]),
           },
+          {
+            x: 7_200_000,
+            values: new Map([
+              ["kimi-k3", 389],
+              ["other", 71],
+            ]),
+          },
           { x: 3_600_000, values: new Map([["gpt-6-astra", 900_000]]) },
         ]}
         series={series}
@@ -105,13 +112,22 @@ describe("BarChart", () => {
       expect(container.querySelectorAll(".recharts-rectangle").length).toBeGreaterThan(0),
     );
 
-    const heights = [...container.querySelectorAll(".recharts-rectangle")].map((bar) =>
-      Number(bar.getAttribute("height")),
-    );
+    const bars = [...container.querySelectorAll(".recharts-rectangle")].map((bar) => ({
+      x: Number(bar.getAttribute("x")),
+      y: Number(bar.getAttribute("y")),
+      height: Number(bar.getAttribute("height")),
+    }));
 
-    // Three segments with tokens, none of them too thin to see; the empty ones aren't drawn.
-    expect(heights).toHaveLength(3);
-    expect(Math.min(...heights)).toBeGreaterThanOrEqual(3);
+    // Five segments with tokens, none of them too thin to see; the empty ones aren't drawn.
+    expect(bars).toHaveLength(5);
+    expect(Math.min(...bars.map(({ height }) => height))).toBeGreaterThanOrEqual(3);
+
+    // The last point's two small segments sit on each other, rather than one over the other.
+    const [lower, upper] = bars
+      .filter(({ x }) => bars.every((bar) => bar.x !== x || bar.height < 10))
+      .toSorted((a, b) => b.y - a.y);
+
+    expect(upper?.y).toBeCloseTo((lower?.y ?? 0) - (upper?.height ?? 0));
 
     size.mockRestore();
   });
