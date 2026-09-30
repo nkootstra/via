@@ -7,7 +7,7 @@
  * hands it over to select and copy by hand, so a secret shown once isn't lost.
  */
 import * as stylex from "@stylexjs/stylex";
-import { motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotionConfig } from "motion/react";
 import { useCallback, useId, useRef, useState, type ReactNode } from "react";
 import { CheckIcon, CopyIcon, XIcon } from "./icons.tsx";
 import { spring } from "./springs.ts";
@@ -21,6 +21,7 @@ import {
   fontWeights,
   weights,
 } from "./tokens.stylex.ts";
+import { Button } from "./button.tsx";
 import { Input } from "./field.tsx";
 import { visuallyHidden } from "./visually-hidden.tsx";
 
@@ -130,7 +131,7 @@ const enter = { type: "spring", duration: 0.2, bounce: 0 } as const;
 const leave = { type: "tween", ...spring.fast.exit, ease: "easeOut" } as const;
 
 function Swap({ shown, children }: { readonly shown: boolean; readonly children: ReactNode }) {
-  const still = useReducedMotion() ?? false;
+  const still = useReducedMotionConfig() ?? false;
 
   return (
     <motion.span
@@ -152,6 +153,9 @@ const announcements = {
   failed: "Couldn't copy. Select it and copy it by hand.",
 } as const;
 
+/** How many dots stand for a concealed value, however long it is. */
+const CONCEALED_LENGTH = 24;
+
 export interface CopyFieldProps {
   readonly value: string;
   /** Shown above the value, and names the button: "Copy <label>". */
@@ -160,10 +164,24 @@ export interface CopyFieldProps {
   readonly onCopy?: () => void;
   /** `large` shows the value big and centred, for a code to read off and type. */
   readonly size?: "default" | "large";
+  /**
+   * Shows the value as dots until the viewer asks to see it, as for a screen
+   * others may see; copying it copies the value all the same.
+   */
+  readonly concealed?: boolean;
 }
 
-export function CopyField({ value, label, onCopy, size = "default" }: CopyFieldProps) {
+export function CopyField({
+  value,
+  label,
+  onCopy,
+  size = "default",
+  concealed = false,
+}: CopyFieldProps) {
   const large = size === "large";
+  const [revealed, setRevealed] = useState(false);
+  const hidden = concealed && !revealed;
+  const shown = hidden ? "•".repeat(Math.min(value.length, CONCEALED_LENGTH)) : value;
   const [status, setStatus] = useState<Status>("idle");
   // Once the clipboard has failed, the value stays on hand until a copy works.
   const [byHand, setByHand] = useState(false);
@@ -221,10 +239,10 @@ export function CopyField({ value, label, onCopy, size = "default" }: CopyFieldP
       >
         <span
           id={`${id}-value`}
-          title={large ? undefined : value}
+          title={large ? undefined : shown}
           {...stylex.props(styles.value, large && styles.largeValue)}
         >
-          <mark {...stylex.props(styles.mark)}>{value}</mark>
+          <mark {...stylex.props(styles.mark)}>{shown}</mark>
         </span>
         <span {...stylex.props(styles.action, status === "failed" && styles.failed)}>
           <span aria-hidden="true" {...stylex.props(styles.cell)}>
@@ -247,11 +265,22 @@ export function CopyField({ value, label, onCopy, size = "default" }: CopyFieldP
           </span>
         </span>
       </button>
+      {hidden && (
+        <Button
+          variant="tertiary"
+          size="compact"
+          aria-label={label === undefined ? "Show" : `Show ${label}`}
+          onClick={() => setRevealed(true)}
+        >
+          Show
+        </Button>
+      )}
       {byHand && (
         <div {...stylex.props(styles.manual)}>
           <Input
             readOnly
             value={value}
+            type={hidden ? "password" : "text"}
             aria-label={
               label === undefined ? "Value, to copy by hand" : `${label}, to copy by hand`
             }

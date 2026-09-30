@@ -28,6 +28,21 @@ describe("CopyField", () => {
     expect(onCopy).toHaveBeenCalledOnce();
   });
 
+  it("conceals the value until shown, and copies it all the same", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+    render(<CopyField label="API key" value="via_secret123" concealed />);
+
+    expect(document.body.innerHTML).not.toContain("via_secret123");
+    await user.click(screen.getByRole("button", { name: "Copy API key" }));
+    expect(writeText).toHaveBeenCalledWith("via_secret123");
+    expect(document.body.innerHTML).not.toContain("via_secret123");
+
+    await user.click(screen.getByRole("button", { name: "Show API key" }));
+    expect(screen.getByText("via_secret123")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Show API key" })).toBeNull();
+  });
+
   it("says so when the copy fails", async () => {
     const user = userEvent.setup();
     const onCopy = vi.fn();

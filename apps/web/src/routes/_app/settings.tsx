@@ -1,13 +1,16 @@
 import * as stylex from "@stylexjs/stylex";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
-import { Button, SegmentedControl, SegmentedItem, ThemeControl } from "@via/ui";
+import { Button, SegmentedControl, SegmentedItem, Switch, ThemeControl } from "@via/ui";
 import { colors, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { useId, useState, type ReactNode } from "react";
 import { clearHistory, refreshHistory } from "../../api/admin.ts";
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
+import { setMotion, useMotion } from "../../lib/motion.ts";
+import { setPrivacy, usePrivacy } from "../../lib/privacy.ts";
+import { setStartPage, useStartPage } from "../../lib/start-page.ts";
 import { formatTime } from "../../lib/time.ts";
 import { setTimeFormat, useTimeFormat, type TimeFormat } from "../../lib/time-format.ts";
 
@@ -25,6 +28,12 @@ const styles = stylex.create({
     justifyContent: "space-between",
     columnGap: space.s6,
     rowGap: space.s3,
+    // Settings sharing a panel are set apart by a hairline, as a list's rows are.
+    paddingTop: { default: 0, ":not(:first-child)": space.s4 },
+    marginTop: { default: 0, ":not(:first-child)": space.s4 },
+    borderTopWidth: { default: 0, ":not(:first-child)": 1 },
+    borderTopStyle: "solid",
+    borderTopColor: colors.border,
   },
   about: {
     display: "flex",
@@ -88,14 +97,32 @@ const sample = new Date(2026, 0, 5, 15, 30).toISOString();
 
 function Settings() {
   const format = useTimeFormat();
+  const privacy = usePrivacy();
+  const motion = useMotion();
+  const start = useStartPage();
+  const privacyLabel = useId();
   const themeLabel = useId();
+  const motionLabel = useId();
   const formatLabel = useId();
+  const startLabel = useId();
 
   return (
     <Page
       title="Settings"
       description="How the dashboard looks in this browser, and the usage history via keeps."
     >
+      <Section title="Privacy">
+        <Panel>
+          <Setting
+            id={privacyLabel}
+            label="Privacy mode"
+            description="Hides emails, key endings, addresses and codes on screen, for streaming or sharing your screen."
+          >
+            <Switch aria-label="Privacy mode" checked={privacy} onCheckedChange={setPrivacy} />
+          </Setting>
+        </Panel>
+      </Section>
+
       <Section title="Appearance">
         <Panel>
           <Setting
@@ -104,6 +131,39 @@ function Settings() {
             description="System follows your device's light or dark mode."
           >
             <ThemeControl aria-labelledby={themeLabel} />
+          </Setting>
+          <Setting
+            id={motionLabel}
+            label="Motion"
+            description="System follows your device's reduced motion setting. Reduced holds animations still here whatever it says."
+          >
+            <SegmentedControl
+              aria-labelledby={motionLabel}
+              value={motion}
+              onValueChange={(value) => setMotion(value === "reduced" ? "reduced" : "system")}
+            >
+              <SegmentedItem value="system" label="System" />
+              <SegmentedItem value="reduced" label="Reduced" />
+            </SegmentedControl>
+          </Setting>
+        </Panel>
+      </Section>
+
+      <Section title="Navigation">
+        <Panel>
+          <Setting
+            id={startLabel}
+            label="Start page"
+            description="The page via opens on when you visit it or sign in."
+          >
+            <SegmentedControl
+              aria-labelledby={startLabel}
+              value={start}
+              onValueChange={(value) => setStartPage(value === "usage" ? "usage" : "overview")}
+            >
+              <SegmentedItem value="overview" label="Overview" />
+              <SegmentedItem value="usage" label="Usage" />
+            </SegmentedControl>
           </Setting>
         </Panel>
       </Section>

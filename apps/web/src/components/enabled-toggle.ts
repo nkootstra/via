@@ -2,6 +2,7 @@ import { type DataTag, type QueryKey, useMutation, useQueryClient } from "@tanst
 import { useToast } from "@via/ui";
 import { useRef, useState } from "react";
 import { refreshPool } from "../api/admin.ts";
+import { useMask } from "../lib/privacy.ts";
 
 interface Toggled {
   readonly id: string;
@@ -25,6 +26,7 @@ export function useEnabledToggle<Row extends Toggled>(
 ) {
   const queryClient = useQueryClient();
   const toast = useToast();
+  const mask = useMask();
   // The ref guards against a second flip at once, before a render; the state
   // renders each row on its way as what it's turning into.
   const pending = useRef(new Map<string, boolean>());
@@ -42,8 +44,8 @@ export function useEnabledToggle<Row extends Toggled>(
     onError: (error, row) =>
       toast.add({
         type: "error",
-        title: `${row.enabled ? "Couldn't disable" : "Couldn't enable"} ${row.label}`,
-        description: error.message,
+        title: `${row.enabled ? "Couldn't disable" : "Couldn't enable"} ${mask.key(row.label)}`,
+        description: mask.key(error.message),
       }),
     onSettled: (_updated, _error, row) => {
       pending.current.delete(row.id);

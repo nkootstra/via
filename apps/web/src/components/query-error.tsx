@@ -1,4 +1,5 @@
 import * as stylex from "@stylexjs/stylex";
+import { useMask } from "../lib/privacy.ts";
 import { Button, Callout } from "@via/ui";
 import { space, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { Predicate } from "effect";
@@ -31,12 +32,16 @@ export function QueryError({
   readonly error: unknown;
   readonly onRetry: () => void;
 }) {
+  const mask = useMask();
+
   return (
     <Callout tone="danger" role="alert">
       <div {...stylex.props(styles.row)}>
         <p {...stylex.props(styles.text)}>
           <span {...stylex.props(styles.title)}>Couldn't load {what}.</span>{" "}
-          {Predicate.isError(error) ? error.message : "Check that via is running, then try again."}
+          {Predicate.isError(error)
+            ? mask.key(error.message)
+            : "Check that via is running, then try again."}
         </p>
         <Button variant="secondary" size="compact" onClick={onRetry}>
           Try again

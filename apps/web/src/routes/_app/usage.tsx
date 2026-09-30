@@ -49,6 +49,7 @@ import { formatDay, formatHour, formatMoment, useNow } from "../../lib/time.ts";
 import { useTimeFormat } from "../../lib/time-format.ts";
 import { ownerOf, withoutPrefix } from "../../lib/model-entries.ts";
 import { providerName } from "../../lib/provider-name.ts";
+import { useMask } from "../../lib/privacy.ts";
 import {
   formatCount,
   formatMs,
@@ -305,7 +306,7 @@ const POOLED = new Set(["codex", "opencode-go"]);
  * account served is named for that: a pooled provider's were refused, and a
  * plain provider's are simply that provider's.
  */
-const nameOf = (groupBy: HistoryGroupBy, group: HistoryGroup) => {
+const nameOf = (groupBy: HistoryGroupBy, group: HistoryGroup, hide: (name: string) => string) => {
   if (groupBy === "model") return withoutPrefix(group.label);
 
   if (groupBy === "account" && group.group.startsWith("provider:")) {
@@ -314,7 +315,7 @@ const nameOf = (groupBy: HistoryGroupBy, group: HistoryGroup) => {
     return POOLED.has(provider) ? `Not served (${providerName(provider)})` : providerName(provider);
   }
 
-  return group.label;
+  return hide(group.label);
 };
 
 /**
@@ -325,10 +326,11 @@ const nameOf = (groupBy: HistoryGroupBy, group: HistoryGroup) => {
 const seriesOf = (
   groupBy: HistoryGroupBy,
   groups: ReadonlyArray<HistoryGroup>,
+  hide: (name: string) => string,
 ): ReadonlyArray<ChartSeries> => {
   const ranked = groups.toSorted((a, b) => tokensOf(b) - tokensOf(a));
   const top = ranked.slice(0, CHART_SERIES);
-  const names = top.map((g) => nameOf(groupBy, g));
+  const names = top.map((g) => nameOf(groupBy, g, hide));
 
   const shown = top.map((g, index) => {
     const name = names[index] ?? g.label;
@@ -369,6 +371,7 @@ const pointsOf = (
 };
 
 function Usage() {
+  const mask = useMask();
   const format = useTimeFormat();
   const now = useNow(60_000);
   const search = Route.useSearch();
@@ -481,11 +484,11 @@ function Usage() {
                   label={bucket === "hour" ? "Tokens per hour" : "Tokens per day"}
                   points={pointsOf(
                     series.data,
-                    seriesOf(groupBy, breakdown.data.groups),
+                    seriesOf(groupBy, breakdown.data.groups, mask.key),
                     range,
                     bucket,
                   )}
-                  series={seriesOf(groupBy, breakdown.data.groups)}
+                  series={seriesOf(groupBy, breakdown.data.groups, mask.key)}
                   formatX={(x) => (bucket === "hour" ? formatHour(x, format) : formatDay(x))}
                   formatValue={formatTokens}
                 />
@@ -515,8 +518,9 @@ const chosen = (value: string | number | undefined) => (value === undefined ? nu
 const optionsOf = (
   facet: HistoryGroupBy,
   groups: ReadonlyArray<HistoryGroup>,
+  hide: (name: string) => string,
 ): ReadonlyArray<FilterOption> => {
-  const names = groups.map((group) => nameOf(facet, group));
+  const names = groups.map((group) => nameOf(facet, group, hide));
 
   return groups.map((group, index) => {
     const name = names[index] ?? group.label;
@@ -547,6 +551,7 @@ function FilterBar({
   readonly change: (next: SearchChange) => void;
   readonly clear: () => void;
 }) {
+  const mask = useMask();
   const failed = useId();
 
   const live = useSignalledOptions();
@@ -566,20 +571,20 @@ function FilterBar({
       <legend {...stylex.props(styles.legend)}>Filters</legend>
       <FilterSelect
         label="Model"
-        options={optionsOf("model", models.data?.groups ?? [])}
+        options={optionsOf("model", models.data?.groups ?? [], mask.key)}
         value={chosen(search.model)}
         onValueChange={(value) => change({ model: value ?? undefined })}
         fallbackLabel={withoutPrefix}
       />
       <FilterSelect
         label="Account"
-        options={optionsOf("account", accounts.data?.groups ?? [])}
+        options={optionsOf("account", accounts.data?.groups ?? [], mask.key)}
         value={chosen(search.account)}
         onValueChange={(value) => change({ account: value ?? undefined })}
       />
       <FilterSelect
         label="Key"
-        options={optionsOf("key", keys.data?.groups ?? [])}
+        options={optionsOf("key", keys.data?.groups ?? [], mask.key)}
         value={chosen(search.key)}
         onValueChange={(value) => change({ key: value ?? undefined })}
       />
@@ -702,6 +707,7 @@ function Breakdown({
   readonly groupBy: HistoryGroupBy;
   readonly onPick: (group: HistoryGroup) => void;
 }) {
+  const mask = useMask();
   const total = tokensOf(breakdown.totals);
 
   return (
@@ -727,13 +733,17 @@ function Breakdown({
                 <TableCell>
                   <button
                     type="button"
-                    aria-label={`Filter by ${nameOf(groupBy, group)}`}
+                    aria-label={`Filter by ${nameOf(groupBy, group, mask.key)}`}
                     // A model names its full id itself.
-                    title={groupBy === "model" ? undefined : nameOf(groupBy, group)}
+                    title={groupBy === "model" ? undefined : nameOf(groupBy, group, mask.key)}
                     onClick={() => onPick(group)}
                     {...stylex.props(styles.name, styles.pick)}
                   >
-                    {groupBy === "model" ? <ModelName id={group.group} /> : nameOf(groupBy, group)}
+                    {groupBy === "model" ? (
+                      <ModelName id={group.group} />
+                    ) : (
+                      nameOf(groupBy, group, mask.key)
+                    )}
                   </button>
                 </TableCell>
                 <TableCell secondary>
@@ -818,6 +828,8 @@ function Requests({
   readonly filters: HistoryFilters;
   readonly format: ReturnType<typeof useTimeFormat>;
 }) {
+  const mask = useMask();
+
   const requests = useInfiniteQuery({
     ...historyRequestsQuery(range, filters),
     ...useSignalledOptions(),
@@ -857,10 +869,14 @@ function Requests({
                       </span>
                       <span {...stylex.props(styles.when)}>{formatMoment(request.at, format)}</span>
                     </TableCell>
-                    <TableCell secondary>{Option.getOrElse(request.keyName, () => "–")}</TableCell>
                     <TableCell secondary>
-                      {Option.getOrElse(request.accountLabel, () =>
-                        request.provider === "codex" ? "–" : request.provider,
+                      {mask.key(Option.getOrElse(request.keyName, () => "–"))}
+                    </TableCell>
+                    <TableCell secondary>
+                      {mask.key(
+                        Option.getOrElse(request.accountLabel, () =>
+                          request.provider === "codex" ? "–" : request.provider,
+                        ),
                       )}
                     </TableCell>
                     <TableCell>
@@ -880,8 +896,11 @@ function Requests({
                         {outcomeOf(request)}
                       </span>
                       {Option.isSome(request.errorMessage) && (
-                        <span title={request.errorMessage.value} {...stylex.props(styles.cause)}>
-                          {request.errorMessage.value}
+                        <span
+                          title={mask.key(request.errorMessage.value)}
+                          {...stylex.props(styles.cause)}
+                        >
+                          {mask.key(request.errorMessage.value)}
                         </span>
                       )}
                     </TableCell>

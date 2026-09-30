@@ -1,6 +1,6 @@
 /** Usage history answers for tests: a group's figures, and a breakdown of groups with their totals. */
 import { Option } from "effect";
-import type { HistoryBreakdown, HistoryGroup } from "../api/types.ts";
+import type { HistoryBreakdown, HistoryGroup, UsageRequest } from "../api/types.ts";
 
 export const cost = (
   apiEquivalentUsd: number,
@@ -46,4 +46,29 @@ export const breakdown = (groups: ReadonlyArray<HistoryGroup>): HistoryBreakdown
       groups.reduce((sum, g) => sum + g.cost.billedUsd, 0),
     ),
   },
+});
+
+/** A request the usage history kept: an hour before the usage tests' clock, with `fields` over the rest. */
+export const request = (
+  fields: Partial<UsageRequest> & Pick<UsageRequest, "requestId">,
+): UsageRequest => ({
+  at: Date.parse("2026-09-27T11:30:00.000Z"),
+  status: 200,
+  error: Option.none(),
+  errorMessage: Option.none(),
+  streamEnd: Option.some("completed"),
+  keyId: Option.some("key-1"),
+  keyName: Option.some("laptop"),
+  model: "gpt-6-astra",
+  provider: "codex",
+  accountId: Option.some("acc-1"),
+  accountLabel: Option.some("work@example.com"),
+  inputTokens: Option.some(1_200),
+  cachedTokens: Option.some(800),
+  outputTokens: Option.some(300),
+  reasoningTokens: Option.none(),
+  costUsd: Option.none(),
+  durationMs: 2_400,
+  firstChunkMs: Option.some(600),
+  ...fields,
 });

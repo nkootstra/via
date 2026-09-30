@@ -7,7 +7,7 @@
  */
 import { Dialog } from "@base-ui/react/dialog";
 import * as stylex from "@stylexjs/stylex";
-import { motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotionConfig } from "motion/react";
 import {
   createContext,
   use,
@@ -399,7 +399,7 @@ export function Sidebar({ children }: SidebarProps) {
 
 function Column({ children }: { readonly children?: ReactNode }) {
   const { open, toggle, panelId } = useSidebar();
-  const reduceMotion = useReducedMotion() ?? false;
+  const reduceMotion = useReducedMotionConfig() ?? false;
 
   // Collapsing takes the sidebar away at once while the column springs shut;
   // expanding shows it whole, and the widening column's clip wipes it in.
@@ -434,7 +434,7 @@ interface TransitionState {
 
 function Drawer({ children }: { readonly children?: ReactNode }) {
   const { drawerOpen, setDrawerOpen, panelId } = useSidebar();
-  const reduceMotion = useReducedMotion() ?? false;
+  const reduceMotion = useReducedMotionConfig() ?? false;
 
   // Following a link in the drawer leaves for another page: the drawer goes.
   const onClick = (event: MouseEvent) => {

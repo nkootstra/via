@@ -25,6 +25,7 @@ import { ProviderLogo, EditIcon, TrashIcon } from "./icons.tsx";
 import { Panel } from "./page.tsx";
 import { RenameDialog } from "./rename-dialog.tsx";
 import { useRowDialog } from "./row-dialog.ts";
+import { useMask } from "../lib/privacy.ts";
 
 const styles = stylex.create({
   scroll: { overflowX: "auto" },
@@ -63,6 +64,7 @@ const styles = stylex.create({
  * renaming and removing it.
  */
 export function OpencodeGoAccounts() {
+  const mask = useMask();
   const queryClient = useQueryClient();
   const accounts = useSuspenseQuery({ ...opencodeGoQuery, ...useLiveOptions() });
   const dialogs = useRowDialog<OpencodeGoAccount, "rename" | "remove">();
@@ -98,8 +100,8 @@ export function OpencodeGoAccounts() {
                 <TableRow key={account.id} index={index}>
                   <TableCell>
                     <div {...stylex.props(styles.who)}>
-                      <span title={account.label} {...stylex.props(styles.label)}>
-                        {account.label}
+                      <span title={mask.key(account.label)} {...stylex.props(styles.label)}>
+                        {mask.key(account.label)}
                       </span>
                       {account.environmentVariable !== undefined && (
                         <span {...stylex.props(styles.note)}>
@@ -110,11 +112,11 @@ export function OpencodeGoAccounts() {
                     </div>
                   </TableCell>
                   <TableCell secondary>
-                    <span {...stylex.props(styles.key)}>{account.key}</span>
+                    <span {...stylex.props(styles.key)}>{mask.key(account.key)}</span>
                   </TableCell>
                   <TableCell>
                     <Switch
-                      aria-label={`${account.label} enabled`}
+                      aria-label={`${mask.key(account.label)} enabled`}
                       checked={enabled.isOn(account)}
                       aria-busy={enabled.busy(account.id)}
                       onCheckedChange={() => enabled.toggle(account)}
@@ -124,7 +126,7 @@ export function OpencodeGoAccounts() {
                     <Day at={account.createdAt} />
                   </TableCell>
                   <TableCell actions>
-                    <RowActions label={`Actions for ${account.label}`}>
+                    <RowActions label={`Actions for ${mask.key(account.label)}`}>
                       <MenuItem
                         label="Rename…"
                         icon={<EditIcon size={15} />}
@@ -155,7 +157,7 @@ export function OpencodeGoAccounts() {
           key={rename.row.id}
           {...rename}
           thing="Account"
-          name={rename.row.label}
+          name={mask.key(rename.row.label)}
           field="Label"
           description="The label shows in usage, in the pool and in logs."
           rename={async (label) => {
@@ -168,7 +170,7 @@ export function OpencodeGoAccounts() {
         <ConfirmDialog
           key={remove.row.id}
           {...remove}
-          title={`Remove ${remove.row.label}?`}
+          title={`Remove ${mask.key(remove.row.label)}?`}
           description={
             <>
               via stops handing it out and forgets its key. You can add it again by pasting the key.
@@ -181,9 +183,9 @@ export function OpencodeGoAccounts() {
           onConfirmed={() => refreshPool(queryClient)}
           done={{
             title: "Account removed",
-            description: `via no longer uses ${remove.row.label}.`,
+            description: `via no longer uses ${mask.key(remove.row.label)}.`,
           }}
-          failed={`Couldn't remove ${remove.row.label}`}
+          failed={`Couldn't remove ${mask.key(remove.row.label)}`}
         />
       )}
     </>
