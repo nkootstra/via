@@ -600,7 +600,8 @@ curl http://127.0.0.1:8317/v1/systemone \
 ```
 
 It goes to the provider the model names, as it is, and is kept in the
-[usage history](#usage-history) like any other request. A model with no
+[usage history](#usage-history) like any other request. A local model's tokens
+are counted there, but cost nothing. A model with no
 provider prefix, which would go to Codex, is refused with `400`.
 
 Prefix a model with the provider's name to use it, as in
@@ -708,7 +709,10 @@ so a price change applies to old requests too:
 - Every other request counts at API prices, as the **API-equivalent cost**:
   what its tokens would have cost pay-as-you-go. For a ChatGPT or OpenCode Go
   subscription that's what the plan saved, not money spent.
-- A model with no known price is named rather than counted as free.
+- A model of a provider sent no key, such as Ollama, runs on your own
+  hardware, so its tokens cost nothing. A price for it under
+  [`prices`](#model-prices) still counts.
+- Any other model with no known price is named rather than counted as free.
 
 Token totals leave out answered requests whose upstream reported no usage, and
 the page says how many. A failed request has no tokens to report, so it isn't
