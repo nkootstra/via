@@ -4,6 +4,7 @@ import { CorruptFileError } from "@via/config";
 import {
   Clock,
   Context,
+  Deferred,
   Duration,
   Effect,
   FileSystem,
@@ -93,6 +94,59 @@ const withKeyStoreInMemory = <A, E>(
 /** A store on `file` of its own, as another process (`via keys`, a restarted `via serve`) has. */
 const storeAt = (file: string) =>
   Layer.build(KeyStore.layer(file)).pipe(Effect.map(Context.get(KeyStore)));
+
+/**
+ * Two stores on `file`, as `via keys create` and a running `via serve` are:
+ * each with its own in-process lock, and both taking the file's real lock
+ * file. `contend` runs `effect` with a clock for them to wait on each other
+ * with: a store that finds the lock file taken waits until the other removes
+ * it, where it would poll for it on the real clock.
+ */
+const contendingStoresAt = (file: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const clock = yield* Clock.clockWith(Effect.succeed);
+    const lock = `${file}.lock`;
+    let released = Deferred.makeUnsafe<void>();
+
+    const watched = FileSystem.FileSystem.of({
+      ...fs,
+      remove: (path, options) =>
+        fs.remove(path, options).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              if (path !== lock) return;
+              Deferred.doneUnsafe(released, Effect.void);
+              released = Deferred.makeUnsafe();
+            }),
+          ),
+        ),
+    });
+
+    // Taken before the lock file is looked at, so a release in between isn't missed. A lock
+    // file that can't be looked at is tried for again at once.
+    const untilReleased = Effect.suspend(() => {
+      const next = released;
+
+      return fs.exists(lock).pipe(
+        Effect.orElseSucceed(() => false),
+        Effect.flatMap((held) => (held ? Deferred.await(next) : Effect.void)),
+      );
+    });
+
+    const waitingOnTheLock: Clock.Clock = { ...clock, sleep: () => untilReleased };
+
+    const [cli, serve] = yield* Effect.all([storeAt(file), storeAt(file)]).pipe(
+      Effect.provideService(FileSystem.FileSystem, watched),
+    );
+
+    return {
+      cli,
+      serve,
+      contend: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        Effect.provideService(effect, Clock.Clock, waitingOnTheLock),
+    };
+  });
 
 const StoredLastUse = Schema.fromJsonString(
   Schema.Array(Schema.Struct({ name: Schema.String, lastUsedAt: Schema.optional(Schema.String) })),
@@ -296,17 +350,13 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const file = `${yield* fs.makeTempDirectoryScoped()}/keys.json`;
-      // Two layers are two stores, each with its own in-process lock, as `via keys create`
-      // and a running `via serve` are.
-      const cli = yield* storeAt(file);
-      const serve = yield* storeAt(file);
+      const { cli, serve, contend } = yield* contendingStoresAt(file);
       const revoked = yield* serve.create("old");
       const renamed = yield* cli.create("before");
 
       const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
-      // Live time: a store waiting on the other's lock file polls for it in real time.
-      yield* TestClock.withLive(
+      yield* contend(
         Effect.all(
           [
             Effect.forEach(names.slice(0, 4), cli.create, { concurrency: "unbounded" }),
@@ -408,14 +458,14 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const file = `${yield* fs.makeTempDirectoryScoped()}/keys.json`;
-      const cli = yield* storeAt(file);
-      const serve = yield* storeAt(file);
+      const { cli, serve, contend } = yield* contendingStoresAt(file);
       const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
       const created = yield* Effect.forEach(names, serve.create);
+      // A minute on, every verify finds its key's last use stale, and so writes it, while the
+      // other store revokes the key.
+      yield* TestClock.adjust("1 minute");
 
-      // Live time: every verify finds its key's last use stale, and so writes it, while the
-      // other store revokes the key; and a store waiting on the other's lock polls in real time.
-      yield* TestClock.withLive(
+      yield* contend(
         Effect.forEach(
           created,
           ({ id, key }) =>
