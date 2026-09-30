@@ -170,6 +170,10 @@ export const adminOpenrouter = Effect.flatMap(Providers, ({ openrouter }) =>
 /** The admin state now: what the routes above answer, the keys and the models, all at once. */
 export const adminState = ({ environment, version }: StateOptions) =>
   Effect.gen(function* () {
+    // Read before the pool: a provider is set up before its settings are saved, so a
+    // save landing while this runs shows in the pool if these already show it.
+    const ollama = yield* adminOllama;
+    const openrouter = yield* adminOpenrouter;
     const listed = yield* accounts;
     const listedGo = yield* goAccounts;
 
@@ -182,7 +186,7 @@ export const adminState = ({ environment, version }: StateOptions) =>
       opencodeGo: listedGo.map((account) => opencodeGoAccount(account, environment)),
       keys: yield* keys,
       models: yield* (yield* ModelCatalog).list,
-      ollama: yield* adminOllama,
-      openrouter: yield* adminOpenrouter,
+      ollama,
+      openrouter,
     } satisfies typeof AdminState.Type;
   });
