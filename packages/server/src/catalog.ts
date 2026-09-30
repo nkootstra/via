@@ -164,13 +164,30 @@ export class ModelCatalog extends Context.Service<
         Effect.orElseSucceed((): ReadonlyArray<string> => []),
       );
 
+      /** The OpenRouter models the web UI enabled; none when config.yaml sets it up. */
+      const enabledOpenrouter = Effect.map(providers.openrouter.get, (saved) =>
+        Option.match(saved, {
+          onNone: (): ReadonlyArray<string> => [],
+          onSome: ({ models }) => models,
+        }),
+      );
+
       /**
        * What the providers' models depend on: the OpenCode Go accounts that can ask,
-       * and the providers, as an Ollama may be added or removed while via runs.
+       * the providers, as an Ollama may be added or removed while via runs, and the
+       * OpenRouter models enabled, which change there too.
        */
-      const providersToAsk = Effect.all([enabledOpencodeGo, providers.names]).pipe(
-        Effect.flatMap(([ids, names]) =>
-          providerModels([...ids, ...names.map((name) => `provider:${name}`)]),
+      const providersToAsk = Effect.all([
+        enabledOpencodeGo,
+        providers.names,
+        enabledOpenrouter,
+      ]).pipe(
+        Effect.flatMap(([ids, names, openrouter]) =>
+          providerModels([
+            ...ids,
+            ...names.map((name) => `provider:${name}`),
+            ...openrouter.map((model) => `openrouter:${model}`),
+          ]),
         ),
       );
 

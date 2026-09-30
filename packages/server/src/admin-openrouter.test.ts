@@ -151,6 +151,26 @@ layer(BunFileSystem.layer)("admin API, OpenRouter", (it) => {
     ),
   );
 
+  it.effect("lists a change to the models enabled at once, not once the list is old", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          openrouter(via);
+          yield* via.put("/admin/openrouter/key", { apiKey }, adminKey);
+          yield* via.put("/admin/openrouter/models", { models: ["openai/gpt-6"] }, adminKey);
+          expect(yield* modelIds(via)).toContain("openrouter/openai/gpt-6");
+
+          yield* via.put("/admin/openrouter/models", { models: ["google/gemini-4"] }, adminKey);
+
+          const ids = yield* modelIds(via);
+          expect(ids).toContain("openrouter/google/gemini-4");
+          expect(ids).not.toContain("openrouter/openai/gpt-6");
+        }),
+      options,
+    ),
+  );
+
   it.effect("forgets the key once removed", () =>
     withVia(
       ok,
