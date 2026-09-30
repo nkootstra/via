@@ -10,7 +10,12 @@ const drawn = (name: string) =>
 
 describe("ProviderLogo", () => {
   it("draws Ollama's own mark, not the generic glyph", () => {
-    expect(drawn("ollama")).not.toEqual(drawn("openrouter"));
+    expect(drawn("ollama")).not.toEqual(drawn("vllm"));
     expect(drawn("ollama")).not.toEqual(drawn("opencode-go"));
+  });
+
+  it("draws OpenRouter's own mark, not the generic glyph", () => {
+    expect(drawn("openrouter")).not.toEqual(drawn("vllm"));
+    expect(drawn("openrouter")).not.toEqual(drawn("ollama"));
   });
 });
