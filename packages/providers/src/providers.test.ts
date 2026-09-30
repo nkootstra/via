@@ -493,6 +493,22 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
+  it.effect("names the providers sent no key as local, as they run on your own hardware", () =>
+    Effect.gen(function* () {
+      const local = yield* withProviders(
+        {
+          openrouter: { apiKeyEnv: "KEY" },
+          ollama: {},
+          nas: { baseUrl: "http://nas:8000/v1" },
+        },
+        (providers) => Effect.succeed(providers.local),
+        { openrouter: "sk-test" },
+      );
+
+      expect(local).toEqual(["ollama", "nas"]);
+    }),
+  );
+
   it.effect("reports what OpenCode Go says an account's key has used", () =>
     Effect.gen(function* () {
       const fake = yield* startFakeProvider;

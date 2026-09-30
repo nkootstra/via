@@ -283,6 +283,9 @@ const make = (
       names: [...providers.values()].flatMap(({ name, pooled: isPooled }) =>
         isPooled ? [] : [name],
       ),
+      local: [...providers.values()].flatMap(({ name, pooled: isPooled, apiKey }) =>
+        isPooled || apiKey !== undefined ? [] : [name],
+      ),
       usage: (apiKey) => usageOf(pooled, pooled.usagePath ?? "/usage", apiKey),
       verify: Effect.fn("Providers.verify")(function* (apiKey) {
         const { status } = yield* keyed(pooled.client, apiKey)
@@ -399,6 +402,8 @@ export class Providers extends Context.Service<
   {
     /** Every provider with its own API key, in config.yaml's order. */
     readonly names: ReadonlyArray<string>;
+    /** Every provider sent no key, such as Ollama, taken to run on your own hardware. */
+    readonly local: ReadonlyArray<string>;
     /** The provider a `<provider>/<model>` id names, if it is configured or pooled. */
     readonly route: (model: string) => Option.Option<Route>;
     /**
