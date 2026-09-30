@@ -332,6 +332,52 @@ export function refreshOllama(queryClient: QueryClient) {
   }
 }
 
+/** OpenRouter's key, masked, and the models it enables, if via has one. */
+export const openrouterQuery = queryOptions({
+  queryKey: ["openrouter"],
+  queryFn: () => run((admin) => admin.openrouter.get()),
+  staleTime: SENT_FRESH_MS,
+});
+
+/** How long OpenRouter's list of models is kept: it changes over days, not minutes. */
+const OPENROUTER_CATALOG_FRESH_MS = 10 * 60_000;
+
+/** Every model OpenRouter lists, to pick which via offers. */
+export const openrouterCatalogQuery = queryOptions({
+  queryKey: ["openrouter", "catalog"],
+  queryFn: () => run((admin) => admin.openrouter.catalog()),
+  staleTime: OPENROUTER_CATALOG_FRESH_MS,
+});
+
+/** Saves an OpenRouter key, which via checks with OpenRouter first, resolving to why not. */
+export const saveOpenrouterKey = (apiKey: string) =>
+  run((admin) =>
+    admin.openrouter.setKey({ payload: { apiKey: Redacted.make(apiKey) } }).pipe(
+      Effect.as(undefined),
+      Effect.catchTags({
+        OpenrouterKeyRejectedError: (error) => Effect.succeed(error.message),
+        OpenrouterUnavailableError: (error) => Effect.succeed(error.message),
+        OpenrouterNotEditableError: (error) => Effect.succeed(error.message),
+      }),
+    ),
+  );
+
+/** Offers exactly `models` of OpenRouter's, by their ids. */
+export const saveOpenrouterModels = (models: ReadonlyArray<string>) =>
+  run((admin) => admin.openrouter.setModels({ payload: { models } }));
+
+export const removeOpenrouter = () => run((admin) => admin.openrouter.remove());
+
+/**
+ * Fetches again what OpenRouter's key and models show up in: the key, the
+ * pool's providers and the models. While via pushes its state, the stream brings it too.
+ */
+export function refreshOpenrouter(queryClient: QueryClient) {
+  for (const { queryKey } of [openrouterQuery, poolQuery, modelsQuery]) {
+    void queryClient.invalidateQueries({ queryKey, exact: true });
+  }
+}
+
 export type AddOpencodeGoOutcome =
   | { readonly added: true; readonly label: string }
   | { readonly added: false; readonly problem: string };

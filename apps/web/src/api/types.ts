@@ -16,6 +16,12 @@ export type Ollama = NonNullable<SuccessOf<Groups["ollama"]["endpoints"]["get"]>
 /** What via found at an address it was asked to check for Ollama. */
 export type OllamaCheck = SuccessOf<Groups["ollama"]["endpoints"]["check"]>;
 
+/** OpenRouter's key, masked, and the models via offers of it. */
+export type Openrouter = NonNullable<SuccessOf<Groups["openrouter"]["endpoints"]["get"]>>;
+
+/** A model OpenRouter lists, to enable or not. */
+export type OpenrouterModel = SuccessOf<Groups["openrouter"]["endpoints"]["catalog"]>[number];
+
 export type Key = SuccessOf<Groups["keys"]["endpoints"]["list"]>[number];
 
 export type StartedLogin = SuccessOf<Groups["accounts"]["endpoints"]["login"]>;

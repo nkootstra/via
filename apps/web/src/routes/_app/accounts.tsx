@@ -23,6 +23,7 @@ import {
   accountsQuery,
   ollamaQuery,
   opencodeGoQuery,
+  openrouterQuery,
   refreshPool,
   removeAccount,
   updateAccount,
@@ -43,6 +44,7 @@ import {
 } from "../../components/icons.tsx";
 import { OllamaSection } from "../../components/ollama.tsx";
 import { OpencodeGoAccounts } from "../../components/opencode-go-accounts.tsx";
+import { OpenrouterSection } from "../../components/openrouter.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
 import { RenameDialog } from "../../components/rename-dialog.tsx";
@@ -55,6 +57,7 @@ export const Route = createFileRoute("/_app/accounts")({
       queryClient.ensureQueryData(accountsQuery),
       queryClient.ensureQueryData(opencodeGoQuery),
       queryClient.ensureQueryData(ollamaQuery),
+      queryClient.ensureQueryData(openrouterQuery),
     ]),
   pendingComponent: AccountsLoading,
   errorComponent: AccountsError,
@@ -89,7 +92,7 @@ const styles = stylex.create({
 const title = "Accounts";
 
 const description =
-  "The ChatGPT and OpenCode Go accounts via pools, and the Ollama it sends local models to. Disable an account to keep it out of rotation without losing it.";
+  "The ChatGPT and OpenCode Go accounts via pools, the Ollama it sends local models to, and your OpenRouter key. Disable an account to keep it out of rotation without losing it.";
 
 /** The page while its data is on its way, which only a page without the shell's state waits for. */
 function AccountsLoading() {
@@ -209,6 +212,10 @@ function Accounts() {
 
       <Section title="Ollama" icon={<ProviderLogo name="ollama" size={16} />}>
         <OllamaSection />
+      </Section>
+
+      <Section title="OpenRouter" icon={<ProviderLogo name="openrouter" size={16} />}>
+        <OpenrouterSection />
       </Section>
 
       {add.dialog}

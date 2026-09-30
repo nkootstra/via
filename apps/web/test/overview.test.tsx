@@ -479,6 +479,7 @@ const viaState = {
   keys: [{ id: "key-1", name: "laptop", createdAt: fetchedAt, lastUsedAt: fetchedAt }],
   models: [{ id: "gpt-5.5", object: "model", created: 0, owned_by: "openai" }],
   ollama: null,
+  openrouter: null,
 } as const;
 
 /** `viaState`, with "work" cooling down for a minute. */
