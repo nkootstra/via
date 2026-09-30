@@ -1,6 +1,7 @@
 // Chat Completions to and from Anthropic's Messages API, for a model a provider
 // serves only in Messages: the request going out, and the answer coming back,
 // whole or streamed.
+import { streamIncomplete } from "@via/codex-upstream";
 import { Effect, Option, Predicate, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import type { ChatRequest } from "./chat-request.ts";
@@ -332,7 +333,7 @@ const failure = (type: string, message: string): Out => ({
   text: `data: ${JSON.stringify({ error: { message, type: "server_error", code: type } })}\n\n`,
 });
 
-const incomplete = failure("stream_incomplete", "The Messages stream broke off before it ended");
+const incomplete = failure(streamIncomplete.code, "The Messages stream broke off before it ended");
 
 /**
  * Rewrites a Messages SSE stream into a Chat Completions SSE stream, `created`

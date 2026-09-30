@@ -305,4 +305,19 @@ describe("toChatStreamFromMessages", () => {
       expect(failed).not.toContain("[DONE]");
     }),
   );
+
+  it.effect("ends a stream cut off before completing with an upstream_incomplete error", () =>
+    Effect.gen(function* () {
+      const text = yield* toChatStreamFromMessages(events(streamed.slice(0, 6)), {
+        includeUsage: false,
+        created: 1,
+        onUsage: () => Effect.void,
+      }).pipe(Stream.decodeText, Stream.mkString);
+
+      expect(text).not.toContain("[DONE]");
+      expect(chunks(text).at(-1)).toMatchObject({
+        error: { type: "server_error", code: "upstream_incomplete" },
+      });
+    }),
+  );
 });
