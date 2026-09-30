@@ -7,9 +7,10 @@ on:
 
 permissions: {}
 
+# Cancel superseded PR runs only: release.yml needs a finished CI run for each main commit.
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   lint:
