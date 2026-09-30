@@ -387,8 +387,21 @@ with the reasoning efforts its suffixed ids pick, and a provider's models under
 its heading without their `<provider>/` prefix. Search matches every id.
 
 **Settings**, in the menu under **Admin** at the foot of the sidebar, holds the
-page's preferences: the theme (System, Light or Dark) and the time format
-(Automatic, 12-hour or 24-hour). It also deletes the whole
+page's preferences:
+
+- **Privacy mode**, for streaming or sharing your screen: it hides emails
+  (in labels and error messages too), key endings, the OpenRouter key, the
+  Ollama address and the ChatGPT plan, and shows a new API key or a sign-in
+  code as dots until you choose **Show** (**Copy** copies it either way). It
+  changes only what the page shows; the admin API answers as always.
+- The theme (System, Light or Dark), and **Motion**: System follows the
+  device's reduced motion setting, Reduced holds animations still whatever it
+  says.
+- The time format (Automatic, 12-hour or 24-hour).
+- The **Start page**: Overview or Usage, which the page opens on when you
+  visit it or sign in.
+
+It also deletes the whole
 [usage history](#usage-history), after asking; that one isn't a preference of
 the browser, so it's gone for every viewer. Automatic writes times as the browser's
 language does. Each choice applies at once, to every open tab, and is kept in
