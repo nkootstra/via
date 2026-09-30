@@ -117,3 +117,5 @@ export {
   type ChartTooltipContentProps,
   type StatProps,
 } from "./chart.tsx";
+
+export { FilterSelect, type FilterOption, type FilterSelectProps } from "./filter-select.tsx";
