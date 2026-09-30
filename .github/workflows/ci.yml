@@ -8,8 +8,9 @@ on:
 permissions: {}
 
 # Cancel superseded PR runs only: release.yml needs a finished CI run for each main commit.
+# Pushes get a group per commit, since GitHub replaces a queued run in the same group.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
