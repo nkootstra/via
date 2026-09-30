@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMutation } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { startPath } from "../lib/start-page.ts";
 import { Button, Callout, Field, Input, VisuallyHidden } from "@via/ui";
 import { colors, fonts, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { Schema } from "effect";
@@ -189,7 +190,7 @@ function SignIn() {
       setProblem(null);
       setKey("");
       queryClient.setQueryData(sessionQuery.queryKey, true);
-      void navigate({ to: back ?? "/" });
+      void navigate({ to: back ?? startPath() });
     },
     onError: (error) => setProblem({ kind: "unreachable", message: error.message }),
   });

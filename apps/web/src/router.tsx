@@ -3,6 +3,7 @@ import { createRouter, type RouterHistory } from "@tanstack/react-router";
 import { onSignedOut } from "./api/client.ts";
 import { createLiveUpdates } from "./api/live.ts";
 import { applyEmbeddedState } from "./api/state.ts";
+import { startPath } from "./lib/start-page.ts";
 import { routeTree } from "./routeTree.gen.ts";
 
 /** The app's router; tests pass a memory history. */
@@ -24,6 +25,16 @@ export function createAppRouter(history?: RouterHistory) {
     defaultPreloadStaleTime: 0,
     ...(history === undefined ? {} : { history }),
   });
+
+  // Opened at its root, the app starts on the page the viewer chose. The prerender
+  // that builds the shell has no viewer, and no history to go by.
+  if (
+    !router.isServer &&
+    router.history.location.pathname.replace(/\/$/, "") === "/ui" &&
+    startPath() !== "/"
+  ) {
+    router.history.replace(`/ui${startPath()}`);
+  }
 
   // A 401 anywhere means the session ended: forget what it showed, and sign in, told why.
   onSignedOut(() => {
