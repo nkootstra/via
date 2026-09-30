@@ -2,7 +2,8 @@ import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type FakeCodex, reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { type FakeProvider, providerReply, startFakeProvider } from "@via/providers/testing";
-import { Deferred, Effect, Exit, Layer, Schema, Stream } from "effect";
+import { KeyStore } from "@via/keys";
+import { Clock, Context, Deferred, Effect, Exit, Layer, Option, Schema, Stream } from "effect";
 import {
   FetchHttpClient,
   HttpClient,
@@ -17,6 +18,7 @@ import {
   freePort,
   realTime,
   runVia,
+  seedAccounts,
   serveVia,
   startVia,
   tempHome,
@@ -40,6 +42,32 @@ const loggedIn = Effect.gen(function* () {
 
   return { home, env, codex, key: yield* createKey(home, "test") };
 });
+
+/**
+ * A home like `loggedIn`'s, its account and key written straight into it
+ * rather than by `via` commands, each of which is a process to start.
+ */
+const seeded = Effect.gen(function* () {
+  const codex = yield* startFakeCodex;
+  codex.respond(() => reply.text("hello"));
+  const { home, env } = yield* viaHome({ upstream: codex.url });
+  yield* seedAccounts(home, [{ name: "a" }]);
+
+  const { key } = yield* Layer.build(KeyStore.layer(`${home}/keys.json`)).pipe(
+    Effect.flatMap((built) => Context.get(built, KeyStore).create("test")),
+  );
+
+  return { home, env, codex, key };
+});
+
+/** The comment via sends on a quiet stream. */
+const KEEPALIVE = ": keepalive\n\n";
+
+/**
+ * When Bun has closed a connection that sent nothing for its 10-second idle
+ * timeout: it looks at idle connections every four seconds, so by 14 seconds.
+ */
+const IDLE_CLOSE_MS = 14_000;
 
 /** POSTs `body` to `path` on the via at `url`, with API key `key`. */
 const post = (url: string, key: string, path: string, body: Schema.Json) =>
@@ -262,27 +290,46 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
-  it.effect("keeps a stream open through a pause longer than Bun's 10s idle timeout", () =>
-    Effect.gen(function* () {
-      const { home, key, env, codex } = yield* loggedIn;
-      // A few events, then silence, as while the model reasons.
-      codex.script(reply.stalled(reply.text("hello"), 3));
-      const url = yield* serveVia(home, ["--port", "0"], env);
+  it.effect(
+    "keeps a stream open through a pause longer than Bun's 10s idle timeout",
+    () =>
+      Effect.gen(function* () {
+        const { home, key, env, codex } = yield* seeded;
+        // A few events, then silence, as while the model reasons.
+        codex.script(reply.stalled(reply.text("hello"), 3));
+        const url = yield* serveVia(home, ["--port", "0"], env);
 
-      const response = yield* post(url, key, "/v1/chat/completions", {
-        model: "gpt-6-astra",
-        messages: [{ role: "user", content: "hi" }],
-        stream: true,
-      });
+        const response = yield* post(url, key, "/v1/chat/completions", {
+          model: "gpt-6-astra",
+          messages: [{ role: "user", content: "hi" }],
+          stream: true,
+        });
 
-      const received = yield* response.stream.pipe(
-        Stream.decodeText,
-        Stream.interruptWhen(realTime(Effect.sleep("12 seconds"))),
-        Stream.mkString,
-      );
+        // What the client got, and how long after Codex's last event.
+        const last = yield* response.stream.pipe(
+          Stream.decodeText,
+          Stream.mapEffect((text) => Effect.map(Clock.currentTimeMillis, (at) => ({ text, at }))),
+          Stream.mapAccum(
+            () => 0,
+            (lastEvent, { text, at }) => {
+              const since = text === KEEPALIVE ? lastEvent : at;
 
-      expect(received).toContain(": keepalive");
-    }),
+              return [since, [{ text, quietFor: at - since }]];
+            },
+          ),
+          Stream.takeUntil(({ text, quietFor }) => text === KEEPALIVE && quietFor >= IDLE_CLOSE_MS),
+          Stream.runLast,
+          realTime,
+        );
+
+        // A comment, still coming after the time Bun closes a connection that sends nothing.
+        expect(Option.getOrUndefined(last)).toEqual({
+          text: KEEPALIVE,
+          quietFor: expect.toSatisfy((ms: number) => ms >= IDLE_CLOSE_MS),
+        });
+      }),
+    // Codex is quiet for 15 real seconds, on top of the 30 seconds the other tests get.
+    45_000,
   );
 
   it.effect("keeps an account cooling down across a restart", () =>
