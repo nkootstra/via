@@ -36,6 +36,12 @@ export class FakeEventSource extends EventTarget {
     );
   }
 
+  /** via says the usage history changed, as `/admin/events` does. */
+  history() {
+    this.readyState = FakeEventSource.OPEN;
+    this.dispatchEvent(new MessageEvent("history", { data: "changed" }));
+  }
+
   /** The connection drops; a browser tries again on its own. */
   fail() {
     this.readyState = FakeEventSource.CONNECTING;

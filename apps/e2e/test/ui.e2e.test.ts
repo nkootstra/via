@@ -173,6 +173,26 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
       }),
   );
 
+  it.effect.runIf(withBinary)("shows a new request on an open usage page within seconds", () =>
+    Effect.gen(function* () {
+      const { via, codex } = yield* viaAndCodex;
+      codex.respond(() => reply.text("hi"));
+      yield* post(via, "/v1/responses", { model: "gpt-5.1-codex", input: "hi" });
+
+      const { page, problems } = yield* openPage("usage-live");
+      yield* signIn(page, via.url);
+      yield* Effect.promise(() => page.goto(`${via.url}/ui/usage`));
+      const requests = page.getByRole("table", { name: "Requests" });
+      yield* Effect.promise(() => requests.getByText("gpt-5.1-codex").waitFor({ timeout: 10_000 }));
+
+      // Sooner than the 15 s the page would poll in: only via's event brings it this fast.
+      yield* post(via, "/v1/responses", { model: "gpt-5.5", input: "hi" });
+      yield* Effect.promise(() => requests.getByText("gpt-5.5").waitFor({ timeout: 5_000 }));
+
+      expect(problems).toEqual([]);
+    }),
+  );
+
   it.effect.runIf(withBinary)("keeps the usage page's filters through a reload", () =>
     Effect.gen(function* () {
       const { via, codex } = yield* viaAndCodex;

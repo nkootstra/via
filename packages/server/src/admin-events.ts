@@ -5,11 +5,18 @@ import { PoolStates } from "@via/pool";
 import { OpencodeGoAccounts } from "@via/providers";
 import { Clock, Duration, Effect, FiberHandle, Queue, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
+import { UsageHistory } from "@via/usage";
 import { type AdminState, StateEvent } from "./admin-api.ts";
 import { adminState, type StateOptions } from "./admin-state.ts";
 
 /** How long a change waits for the ones that come with it, so a burst goes out as one state. */
 const COALESCE = Duration.millis(200);
+
+/**
+ * How long a change to the usage history waits for the ones that come with it:
+ * while requests stream in, a page fetches the history at most once a second.
+ */
+const HISTORY_COALESCE = Duration.seconds(1);
 
 /**
  * How often the state is looked at again without a signal. A change another
@@ -52,7 +59,7 @@ const encoder = new TextEncoder();
  * a state the same as the last isn't sent again. Everything it listens to is
  * let go when the stream ends, as it does when the page goes away.
  */
-export const adminEvents = (options: StateOptions) =>
+const stateEvents = (options: StateOptions) =>
   Stream.unwrap(
     Effect.gen(function* () {
       // Holds one signal at most: however many come while a state is built, one more follows.
@@ -89,3 +96,40 @@ export const adminEvents = (options: StateOptions) =>
       encoder.encode(Sse.encoder.write(Sse.Event.make({ event, id: undefined, data }))),
     ),
   );
+
+/** An event as the stream sends it, in its SSE framing. */
+const frame = (event: string, data: string) =>
+  encoder.encode(Sse.encoder.write(Sse.Event.make({ event, id: undefined, data })));
+
+/**
+ * A `history` event whenever the usage history changes, a burst of changes as
+ * one, {@link HISTORY_COALESCE} after the first. Nothing is sent at once: the
+ * page fetched the history as it opened.
+ */
+const historyEvents = Stream.unwrap(
+  Effect.gen(function* () {
+    const history = yield* UsageHistory;
+    // Holds one signal at most: however many come in the meantime, one more event follows.
+    const wake = yield* Queue.sliding<void>(1);
+
+    yield* Effect.forkScoped(
+      Stream.runForEach(Stream.drop(history.changes, 1), () => Queue.offer(wake, undefined)),
+    );
+
+    return Stream.fromEffectRepeat(
+      Queue.take(wake).pipe(
+        Effect.andThen(Effect.sleep(HISTORY_COALESCE)),
+        Effect.andThen(Queue.clear(wake)),
+        Effect.as(frame("history", "changed")),
+      ),
+    );
+  }),
+);
+
+/**
+ * The admin UI's live updates: the admin state as `state` events (see
+ * {@link stateEvents}), and a `history` event whenever the usage history
+ * changes (see {@link historyEvents}).
+ */
+export const adminEvents = (options: StateOptions) =>
+  Stream.merge(stateEvents(options), historyEvents);

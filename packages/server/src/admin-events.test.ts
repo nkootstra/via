@@ -4,7 +4,7 @@ import { type CodexRequest, type Reply, reply } from "@via/codex-upstream/testin
 import { Clock, Effect, Exit, Fiber, Option, Queue, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { Sse } from "effect/unstable/encoding";
-import { type AdminState, StateEvent } from "./admin-api.ts";
+import { type AdminState, AdminEvent } from "./admin-api.ts";
 import { ok, type Via, withVia } from "./testing/harness.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";
@@ -13,7 +13,8 @@ type State = typeof AdminState.Type;
 
 /**
  * Listens to `/admin/events` for as long as the scope, with the admin key unless
- * `headers` sign in another way, and answers the states it gets, in a queue.
+ * `headers` sign in another way, and answers the states it gets in one queue,
+ * and each `history` event in another.
  */
 const listen = (via: Via, headers: Record<string, string> = {}) =>
   Effect.gen(function* () {
@@ -24,19 +25,27 @@ const listen = (via: Via, headers: Record<string, string> = {}) =>
     );
 
     const states = yield* Queue.unbounded<State>();
+    const histories = yield* Queue.unbounded<void>();
 
     yield* response.stream.pipe(
       Stream.decodeText(),
-      Stream.pipeThroughChannel(Sse.decodeSchema(StateEvent)),
-      Stream.runForEach(({ data }) => Queue.offer(states, data)),
+      Stream.pipeThroughChannel(Sse.decodeSchema(AdminEvent)),
+      Stream.runForEach((event) =>
+        event.event === "state"
+          ? Queue.offer(states, event.data)
+          : Queue.offer(histories, undefined),
+      ),
       Effect.forkScoped,
     );
 
-    return { response, states };
+    return { response, states, histories };
   });
 
 /** How long via holds a change back for the ones that come with it. */
 const COALESCE = "200 millis";
+
+/** How long via holds a usage history change back for the requests that come with it. */
+const HISTORY_COALESCE = "1 second";
 
 /**
  * The next state that `matches`. A change goes out once via has held it back
@@ -209,6 +218,27 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         // Nothing follows the burst: the next state is the next change's.
         yield* via.patch(`/admin/accounts/${idOf(first, "a")}`, { label: "office" }, adminKey);
         expect(labels(yield* next(via, states))).toEqual(["office", "home"]);
+      }),
+    ),
+  );
+
+  it.effect("says the usage history changed once a request is kept, a burst of them as one", () =>
+    withAdmin(ok, (via) =>
+      Effect.gen(function* () {
+        const { histories } = yield* listen(via);
+
+        for (let request = 0; request < 3; request++) {
+          yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
+        }
+
+        // Held back a second for the rest of the burst, then sent once.
+        yield* via.timer(HISTORY_COALESCE);
+        expect(yield* Queue.size(histories)).toBe(0);
+        yield* TestClock.adjust(HISTORY_COALESCE);
+        yield* Queue.take(histories);
+
+        yield* TestClock.adjust("5 seconds");
+        expect(yield* Queue.size(histories)).toBe(0);
       }),
     ),
   );

@@ -236,7 +236,7 @@ work on `/v1`.
 | `DELETE /admin/history`                   | Delete the whole usage history; answers `{"deleted": <count>}`.                                   |
 | `GET /admin/pool`                         | Each account's and provider's state (see below).                                                  |
 | `GET /admin/models`                       | The models `/v1/models` lists.                                                                    |
-| `GET /admin/events`                       | The admin state as server-sent events, as it changes.                                             |
+| `GET /admin/events`                       | The admin state as server-sent events, as it changes, and when the usage history changes.         |
 | `GET /admin/keys`                         | List API keys and when each was last used, not the keys.                                          |
 | `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.                                         |
 | `PATCH /admin/keys/<id-or-name>`          | Rename a key from `{"name": "..."}`; the key stays the same.                                      |
@@ -317,6 +317,12 @@ stream open. Changes another process makes, such as `via accounts label`,
 show within 15 seconds, and while a stream is open via keeps usage from
 getting more than about a minute old, as it does for a page that polls.
 
+The stream also says when the [usage history](#usage-history) changes, as when
+via keeps a request or the history is deleted, with an event named `history`
+and nothing more in it: the history is too big to send, so you fetch what you
+show from `/admin/history`. Changes within a second of each other arrive as one
+event.
+
 #### Signing in from a browser
 
 A browser signs in once with the admin key, and from then on sends a session
@@ -381,8 +387,9 @@ only: pick them from the filter bar, where each one's search lists what the
 other filters leave with its request count, or pick a row of the table. The
 range, grouping and filters are in the page's address, as in
 `/ui/usage?range=7d&model=opencode-go/kimi-k3&failed=true`, so a reload keeps
-them and a link shares them. The page asks again every 15 seconds while it's
-open.
+them and a link shares them. A request shows up within about a second: the
+page fetches its usage again when via says the history changed, and asks every
+15 seconds only while that stream is down.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
