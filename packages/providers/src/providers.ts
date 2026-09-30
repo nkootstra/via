@@ -383,14 +383,16 @@ const make = (
                 ),
                 fromConfig: true,
               }),
+        // The routes change before the store, whose change signals the admin state: a
+        // state made on that signal then has the routes it names.
         set: (address) =>
           editable.pipe(
-            Effect.flatMap((address_) => Effect.orDie(address_.set(address))),
-            Effect.andThen(connect(address)),
+            Effect.tap(() => connect(address)),
+            Effect.flatMap((store_) => Effect.orDie(store_.set(address))),
           ),
         remove: editable.pipe(
-          Effect.flatMap((address) => Effect.orDie(address.remove)),
-          Effect.andThen(Effect.sync(() => void providers.delete(OLLAMA))),
+          Effect.tap(() => Effect.sync(() => void providers.delete(OLLAMA))),
+          Effect.flatMap((store_) => Effect.orDie(store_.remove)),
         ),
         check: (address) => checkOllama(http, address),
         changes: Option.match(store, {
