@@ -20,7 +20,7 @@ import {
 } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
-import { OpencodeGoAccounts, OpencodeGoPool, Providers } from "@via/providers";
+import { OllamaAddress, OpencodeGoAccounts, OpencodeGoPool, Providers } from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import {
   Clock,
@@ -64,6 +64,13 @@ export type Via = {
   ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
   /** PATCHes JSON to the via server, with a valid API key unless `key` says otherwise. */
   readonly patch: (
+    path: string,
+    body: Schema.Json,
+    key?: string | null,
+    headers?: Record<string, string>,
+  ) => Effect.Effect<HttpClientResponse.HttpClientResponse, unknown>;
+  /** PUTs JSON to the via server, with a valid API key unless `key` says otherwise. */
+  readonly put: (
     path: string,
     body: Schema.Json,
     key?: string | null,
@@ -280,6 +287,7 @@ export const withVia = <A, E>(
       KeyStore.layer(`${dir}/keys.json`),
       AccountStore.layer(`${dir}/auth`),
       OpencodeGoAccounts.layer(`${dir}/opencode-go.json`),
+      OllamaAddress.layer(`${dir}/ollama.json`),
     ).pipe(Layer.provide(BunFileSystem.layer));
 
     const codex = yield* startFakeCodex;
@@ -393,6 +401,14 @@ export const withVia = <A, E>(
           http.execute,
         );
 
+      const put: Via["put"] = (path, json, override, headers = {}) =>
+        HttpClientRequest.put(`${base}${path}`).pipe(
+          authorize(override),
+          HttpClientRequest.setHeaders(headers),
+          HttpClientRequest.bodyJsonUnsafe(json),
+          http.execute,
+        );
+
       const del: Via["delete"] = (path, override, headers = {}) =>
         HttpClientRequest.delete(`${base}${path}`).pipe(
           authorize(override),
@@ -404,6 +420,7 @@ export const withVia = <A, E>(
         post,
         get,
         patch,
+        put,
         delete: del,
         baseUrl: base,
         key,

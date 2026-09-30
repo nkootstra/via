@@ -12,7 +12,7 @@ import {
   Providers,
   providerState,
 } from "@via/providers";
-import { Clock, Effect, Redacted } from "effect";
+import { Clock, Effect, Option, Redacted } from "effect";
 import type { AdminState } from "./admin-api.ts";
 import { ModelCatalog } from "./catalog.ts";
 
@@ -114,7 +114,7 @@ const poolOf = Effect.fn("admin.pool")(function* (
   listed: ReadonlyArray<InPool>,
   listedGo: ReadonlyArray<InPool>,
 ) {
-  const names = (yield* Providers).names;
+  const names = yield* (yield* Providers).names;
   const state = yield* (yield* PoolStates).get;
   const now = yield* Clock.currentTimeMillis;
 
@@ -157,6 +157,11 @@ export type StateOptions = {
   readonly version: string;
 };
 
+/** Where Ollama is, as `GET /admin/ollama` answers it. */
+export const adminOllama = Effect.flatMap(Providers, ({ ollama }) =>
+  Effect.map(ollama.get, Option.getOrNull),
+);
+
 /** The admin state now: what the routes above answer, the keys and the models, all at once. */
 export const adminState = ({ environment, version }: StateOptions) =>
   Effect.gen(function* () {
@@ -172,5 +177,6 @@ export const adminState = ({ environment, version }: StateOptions) =>
       opencodeGo: listedGo.map((account) => opencodeGoAccount(account, environment)),
       keys: yield* keys,
       models: yield* (yield* ModelCatalog).list,
+      ollama: yield* adminOllama,
     } satisfies typeof AdminState.Type;
   });

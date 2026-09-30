@@ -1,7 +1,13 @@
 import { AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import type { ModelPrice } from "@via/config";
 import { KeyStore } from "@via/keys";
-import { OpencodeGoAccountNotFoundError, OpencodeGoAccounts, Providers } from "@via/providers";
+import {
+  OpencodeGoAccountNotFoundError,
+  OpencodeGoAccounts,
+  parseOllamaAddress,
+  Providers,
+} from "@via/providers";
+import { OllamaAddressInvalidError } from "@via/providers/errors";
 import { createHash } from "node:crypto";
 import {
   type Duration,
@@ -22,6 +28,7 @@ import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
 import { hasLiveSession, signOutAll, staleSessionCookies } from "./session-cookie.ts";
 import {
   adminAccounts,
+  adminOllama,
   adminOpencodeGo,
   adminPool,
   adminUsage,
@@ -207,6 +214,35 @@ const opencodeGoById = Effect.fn("admin.opencodeGoById")(function* (id: string) 
 });
 
 // The account file is via's own; one it can't read or write is a bug, not a request error.
+/** `address` as via keeps Ollama's, or why it isn't one. */
+const ollamaAddress = (address: string) =>
+  Option.match(parseOllamaAddress(address), {
+    onNone: () => Effect.fail(new OllamaAddressInvalidError({ address })),
+    onSome: Effect.succeed,
+  });
+
+const ollama = HttpApiBuilder.group(AdminApi, "ollama", (handlers) =>
+  handlers
+    .handle("get", () => adminOllama)
+    .handle("set", ({ payload }) =>
+      Effect.gen(function* () {
+        const address = yield* ollamaAddress(payload.address);
+        yield* (yield* Providers).ollama.set(address);
+
+        return { address, fromConfig: false };
+      }),
+    )
+    .handle("remove", () => Effect.flatMap(Providers, (providers) => providers.ollama.remove))
+    .handle("check", ({ payload }) =>
+      Effect.gen(function* () {
+        const address = yield* ollamaAddress(payload.address);
+        const found = yield* (yield* Providers).ollama.check(address);
+
+        return { address, ...found };
+      }),
+    ),
+);
+
 const opencodeGo = (environment: OpencodeGoEnvironment | undefined) =>
   HttpApiBuilder.group(AdminApi, "opencodeGo", (handlers) =>
     handlers
@@ -386,6 +422,7 @@ export const adminRoutes = ({
             sessions,
             accounts,
             opencodeGo(opencodeGoEnvironment),
+            ollama,
             keys,
             usage,
             history(prices),
