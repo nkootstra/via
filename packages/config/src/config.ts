@@ -65,7 +65,8 @@ export const loadConfig = Effect.fn("loadConfig")(function* (path: string) {
     catch: (cause) => new InvalidConfigError({ path, reason: String(cause) }),
   });
 
-  return yield* Schema.decodeUnknownEffect(Config)(raw).pipe(
+  // A misspelt key would otherwise be dropped without a word, so reject it.
+  return yield* Schema.decodeUnknownEffect(Config)(raw, { onExcessProperty: "error" }).pipe(
     Effect.mapError((error) => new InvalidConfigError({ path, reason: error.message })),
   );
 });

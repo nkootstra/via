@@ -611,7 +611,8 @@ codex:
   cloak: true
 ```
 
-`via serve --host` and `--port` override the file.
+`via serve --host` and `--port` override the file. via refuses a key it doesn't
+know, at any level, such as a misspelt `prot:` or `apiKeyENV:`, and names it.
 
 ### Model prices
 
