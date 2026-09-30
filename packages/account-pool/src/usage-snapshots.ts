@@ -1,7 +1,7 @@
 import { type Account, AccountStore } from "@via/codex-auth";
 import type { UsageWindow } from "@via/pool";
 import { type OpencodeGoAccount, OpencodeGoAccounts, Providers } from "@via/providers";
-import type { ProviderUsage } from "@via/providers/schemas";
+import type { OpenrouterBudget, ProviderUsage } from "@via/providers/schemas";
 import {
   Clock,
   Context,
@@ -40,10 +40,18 @@ export type OpencodeGoUsageSnapshot = {
   | { readonly error: string }
 );
 
-/** The latest known usage of every ChatGPT and OpenCode Go account. */
+/** What OpenRouter last said of its key's budget, or why it could not say, and when. */
+type OpenrouterBudgetSnapshot = {
+  /** Epoch milliseconds. */
+  readonly fetchedAt: number;
+} & ({ readonly budget: OpenrouterBudget | null } | { readonly error: string });
+
+/** The latest known usage of every ChatGPT and OpenCode Go account, and OpenRouter's budget. */
 type UsageSnapshot = {
   readonly accounts: ReadonlyArray<AccountUsageSnapshot>;
   readonly opencodeGo: ReadonlyArray<OpencodeGoUsageSnapshot>;
+  /** None while via has no OpenRouter key. */
+  readonly openrouter: OpenrouterBudgetSnapshot | null;
 };
 
 const make = Effect.gen(function* () {
@@ -54,7 +62,7 @@ const make = Effect.gen(function* () {
   // short for the others, and a background refresh outlives the request that started it.
   const scope = yield* Scope.Scope;
   const context = yield* Effect.context<Effect.Services<ReturnType<typeof accountUsage>>>();
-  const stored = yield* Ref.make<UsageSnapshot>({ accounts: [], opencodeGo: [] });
+  const stored = yield* Ref.make<UsageSnapshot>({ accounts: [], opencodeGo: [], openrouter: null });
 
   /** One account's usage, now; a failure, for whatever reason, is kept as why. */
   const fetchAccount = (account: Account) =>
@@ -78,19 +86,31 @@ const make = Effect.gen(function* () {
         : { account, fetchedAt, windows: report.windows };
     });
 
+  /** OpenRouter's budget, now, or why it could not say; none without a key. */
+  const fetchOpenrouter = Effect.gen(function* () {
+    const report = yield* providers.openrouter.budget;
+    const fetchedAt = yield* Clock.currentTimeMillis;
+
+    return Option.match(report, {
+      onNone: () => null,
+      onSome: (known): OpenrouterBudgetSnapshot => ({ fetchedAt, ...known }),
+    });
+  });
+
   const fetchAll = Effect.gen(function* () {
     const listed = yield* store.list;
     const listedGo = yield* opencodeGoStore.list;
 
-    const [accounts, opencodeGo] = yield* Effect.all(
+    const [accounts, opencodeGo, openrouter] = yield* Effect.all(
       [
         Effect.forEach(listed, fetchAccount, { concurrency: CONCURRENCY }),
         Effect.forEach(listedGo, fetchOpencodeGo, { concurrency: CONCURRENCY }),
+        fetchOpenrouter,
       ],
       { concurrency: "unbounded" },
     );
 
-    const snapshot: UsageSnapshot = { accounts, opencodeGo };
+    const snapshot: UsageSnapshot = { accounts, opencodeGo, openrouter };
 
     yield* Ref.set(stored, snapshot);
 
@@ -131,15 +151,22 @@ const make = Effect.gen(function* () {
   const latest = Effect.gen(function* () {
     const listed = yield* store.list;
     const listedGo = yield* opencodeGoStore.list;
-    const shown = current(listed, listedGo, yield* get);
+    const hasOpenrouter = Option.isSome(yield* providers.openrouter.get);
+    const shown = current(listed, listedGo, hasOpenrouter, yield* get);
     const now = yield* Clock.currentTimeMillis;
 
     const oldest = Math.min(
-      ...[...shown.accounts, ...shown.opencodeGo].map(({ fetchedAt }) => fetchedAt),
+      ...[
+        ...shown.accounts,
+        ...shown.opencodeGo,
+        ...(shown.openrouter === null ? [] : [shown.openrouter]),
+      ].map(({ fetchedAt }) => fetchedAt),
     );
 
     const missing =
-      shown.accounts.length < listed.length || shown.opencodeGo.length < listedGo.length;
+      shown.accounts.length < listed.length ||
+      shown.opencodeGo.length < listedGo.length ||
+      (hasOpenrouter && shown.openrouter === null);
 
     if (missing || now - oldest >= Duration.toMillis(MAX_AGE)) {
       yield* start;
@@ -185,14 +212,19 @@ const kept = <A extends { readonly id: string }, E extends { readonly account: A
   });
 };
 
-/** `snapshot`'s entries for the accounts `listed` and `listedGo`, in their order, with their labels. */
+/**
+ * `snapshot`'s entries for the accounts `listed` and `listedGo`, in their order,
+ * with their labels, and OpenRouter's budget while via has its key.
+ */
 const current = (
   listed: ReadonlyArray<Account>,
   listedGo: ReadonlyArray<OpencodeGoAccount>,
+  hasOpenrouter: boolean,
   snapshot: UsageSnapshot,
 ): UsageSnapshot => ({
   accounts: kept(listed, snapshot.accounts),
   opencodeGo: kept(listedGo, snapshot.opencodeGo),
+  openrouter: hasOpenrouter ? snapshot.openrouter : null,
 });
 
 /**

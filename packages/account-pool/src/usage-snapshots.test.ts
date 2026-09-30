@@ -13,7 +13,8 @@ import { UsageSnapshots } from "./usage-snapshots.ts";
 
 /**
  * Runs `body` with `UsageSnapshots` over accounts "a" and "b" (in that order), a
- * fake Codex and a fake OpenCode Go with one account, `go-1`. Nothing refreshes on its own.
+ * fake Codex, a fake OpenCode Go with one account, `go-1`, and OpenRouter with the key
+ * `sk-or`, played by the same fake. Nothing refreshes on its own.
  */
 const withSnapshots = <A, E>(
   body: (args: {
@@ -35,8 +36,11 @@ const withSnapshots = <A, E>(
       ),
       CodexUpstream.layer({ baseUrl: codex.url, cloak: true, version: "0.0.0" }),
       Providers.layer({
-        providers: { "opencode-go": { baseUrl: provider.url, apiKeyEnv: "PROVIDER_KEY" } },
-        apiKeys: {},
+        providers: {
+          "opencode-go": { baseUrl: provider.url, apiKeyEnv: "PROVIDER_KEY" },
+          openrouter: { baseUrl: provider.url, apiKeyEnv: "OPENROUTER_KEY" },
+        },
+        apiKeys: { openrouter: Redacted.make("sk-or") },
         version: "0.0.0",
       }).pipe(Layer.provideMerge(OpencodeGoAccounts.layer(`${dir}/opencode-go.json`))),
     ).pipe(Layer.provide(FetchHttpClient.layer), Layer.provide(BunFileSystem.layer));
@@ -68,7 +72,7 @@ describe("UsageSnapshots", () => {
   it.effect("holds nothing before the first refresh, without waiting for one", () =>
     withSnapshots(({ snapshots, codex }) =>
       Effect.gen(function* () {
-        expect(yield* snapshots.get).toEqual({ accounts: [], opencodeGo: [] });
+        expect(yield* snapshots.get).toEqual({ accounts: [], opencodeGo: [], openrouter: null });
         expect(codex.requests).toHaveLength(0);
       }),
     ),
@@ -102,6 +106,29 @@ describe("UsageSnapshots", () => {
         expect(
           stored.opencodeGo.map(({ account, ...rest }) => ({ label: account.label, ...rest })),
         ).toEqual([{ label: "go-1", fetchedAt: now, windows: [] }]);
+      }),
+    ),
+  );
+
+  it.effect("keeps OpenRouter's budget, or why it couldn't be read, and when", () =>
+    withSnapshots(({ snapshots, codex, provider }) =>
+      Effect.gen(function* () {
+        codex.usage("acc-b", {}, 403);
+        provider.usage({ usage: {} });
+        const now = yield* Clock.currentTimeMillis;
+
+        yield* snapshots.refresh;
+        expect((yield* snapshots.get).openrouter).toEqual({
+          fetchedAt: now,
+          error: expect.stringContaining("OpenRouter didn't tell the key's budget"),
+        });
+
+        provider.openrouterKey("sk-or", { limit: 10, limit_remaining: 4, limit_reset: null });
+        yield* snapshots.refresh;
+        expect((yield* snapshots.get).openrouter).toEqual({
+          fetchedAt: now,
+          budget: { limitUsd: 10, spentUsd: 6, window: null, resetsAt: null },
+        });
       }),
     ),
   );
@@ -160,6 +187,7 @@ describe("UsageSnapshots", () => {
           expect(yield* snapshots.latest).toEqual({
             accounts: [],
             opencodeGo: [],
+            openrouter: null,
             refreshing: true,
           });
           const done = yield* snapshots.refresh;

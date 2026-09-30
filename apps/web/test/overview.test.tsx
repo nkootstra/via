@@ -91,6 +91,7 @@ const usage = {
       error: "opencode-go did not report usage (HTTP 401)",
     },
   ],
+  openrouter: null,
   refreshing: false,
 };
 
@@ -203,6 +204,7 @@ describe("the overview", () => {
           },
         ],
         opencodeGo: [],
+        openrouter: null,
         refreshing: false,
       },
     });
@@ -241,7 +243,7 @@ describe("the overview", () => {
     );
     expect(within(go).getByRole("meter", { name: "Monthly" })).toBeDefined();
 
-    const openrouter = await card("openrouter");
+    const openrouter = await card("OpenRouter");
     expect(within(openrouter).getByText("Provider")).toBeDefined();
     expect(within(openrouter).getByText("Available")).toBeDefined();
     expect(await within(openrouter).findByText("No requests in the last 24 hours.")).toBeDefined();
@@ -284,7 +286,7 @@ describe("the overview", () => {
     renderApp("/", { pool: { accounts: [], opencodeGo: [], providers: [...providers] }, usage });
 
     expect(await screen.findByRole("region", { name: "No accounts yet" })).toBeDefined();
-    expect(await card("openrouter")).toBeDefined();
+    expect(await card("OpenRouter")).toBeDefined();
   });
 
   it("shows what via counted for each provider over the last day, as they report no usage", async () => {
@@ -331,10 +333,10 @@ describe("the overview", () => {
       Tokens: ["460", "457 in · 3 out"],
       Cost: ["Free", "No one billed these tokens"],
     });
-    expect(await figures("openrouter")).toEqual({
+    expect(await figures("OpenRouter")).toEqual({
       Requests: ["15", "Last 24 hours · 26% of via's requests"],
       Tokens: ["1.2K", "1K in · 200 out"],
-      Cost: ["$0.42", "Billed by openrouter"],
+      Cost: ["$0.42", "Billed by OpenRouter"],
     });
 
     const link = within(await card("Ollama")).getByRole("link", { name: "See its requests" });
@@ -345,11 +347,68 @@ describe("the overview", () => {
     expect(Number(query?.get("to")) - Number(query?.get("from"))).toBe(86_400_000);
   });
 
+  it("shows an OpenRouter key's budget as a meter, as the accounts' limits are", async () => {
+    renderApp("/", {
+      pool,
+      usage: {
+        ...usage,
+        openrouter: {
+          fetchedAt,
+          budget: {
+            limitUsd: 10,
+            spentUsd: 3.2,
+            window: "monthly",
+            resetsAt: "2026-10-01T00:00:00.000Z",
+          },
+        },
+      },
+    });
+
+    const openrouter = within(await card("OpenRouter"));
+    const meter = openrouter.getByRole("meter", { name: "Monthly budget" });
+    expect(meter.getAttribute("aria-valuenow")).toBe("32");
+    expect(openrouter.getByText(/^\$3\.20 of \$10\.00 · Resets /)).toBeDefined();
+  });
+
+  it("says a budget that never resets doesn't, and shows none for a key without one", async () => {
+    renderApp("/", {
+      pool,
+      usage: {
+        ...usage,
+        openrouter: {
+          fetchedAt,
+          budget: { limitUsd: 5, spentUsd: 5, window: null, resetsAt: null },
+        },
+      },
+    });
+
+    const openrouter = within(await card("OpenRouter"));
+    expect(openrouter.getByRole("meter", { name: "Budget" }).getAttribute("aria-valuenow")).toBe(
+      "100",
+    );
+    expect(openrouter.getByText("$5.00 of $5.00, never resets")).toBeDefined();
+
+    cleanup();
+    renderApp("/", { pool, usage: { ...usage, openrouter: { fetchedAt, budget: null } } });
+    const unlimited = within(await screen.findByRole("article", { name: "OpenRouter" }));
+    expect(unlimited.queryByRole("meter")).toBeNull();
+  });
+
+  it("says why OpenRouter's budget couldn't be read", async () => {
+    renderApp("/", {
+      pool,
+      usage: { ...usage, openrouter: { fetchedAt, error: "OpenRouter didn't answer" } },
+    });
+
+    const openrouter = within(await card("OpenRouter"));
+    expect(openrouter.getByText(/Budget unavailable: OpenRouter didn't answer/)).toBeDefined();
+  });
+
   it("says when a provider served nothing over the last day", async () => {
     renderApp("/", { pool, usage });
 
     expect(
-      await within(await card("openrouter")).findByText("No requests in the last 24 hours."),
+      await within(await card("OpenRouter")).findByText("No requests in the last 24 hours."),
     ).toBeDefined();
   });
 
@@ -618,7 +677,12 @@ describe("the overview's usage", () => {
 
     const { state } = renderApp("/", {
       pool,
-      usage: { accounts: usage.accounts.slice(0, 1), opencodeGo: [], refreshing: true },
+      usage: {
+        accounts: usage.accounts.slice(0, 1),
+        opencodeGo: [],
+        openrouter: null,
+        refreshing: true,
+      },
     });
 
     const work = await card("work");

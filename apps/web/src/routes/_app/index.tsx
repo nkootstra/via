@@ -689,6 +689,46 @@ function ProviderCounted({ name }: { readonly name: string }) {
   );
 }
 
+const BUDGET_LABELS = { daily: "Daily budget", weekly: "Weekly budget", monthly: "Monthly budget" };
+
+/**
+ * OpenRouter's key budget, as a meter like an account's limit: what it has spent
+ * of it, and when it resets. A key without a limit shows none.
+ */
+function OpenrouterBudget({ usage }: { readonly usage: Usage }) {
+  const format = useTimeFormat();
+  const entry = usage.openrouter;
+
+  if (entry === null) return null;
+
+  if ("error" in entry) {
+    return (
+      <p {...stylex.props(styles.muted)}>
+        Budget unavailable: {entry.error.replace(/\.$/, "")}. via asks again on its next refresh.
+      </p>
+    );
+  }
+
+  const { budget } = entry;
+
+  if (budget === null) return null;
+  const spent = `${formatUsd(budget.spentUsd)} of ${formatUsd(budget.limitUsd)}`;
+
+  return (
+    <div {...stylex.props(styles.meters)}>
+      <Meter
+        label={budget.window === null ? "Budget" : BUDGET_LABELS[budget.window]}
+        value={budget.limitUsd === 0 ? 100 : (budget.spentUsd / budget.limitUsd) * 100}
+        detail={
+          budget.resetsAt === null
+            ? `${spent}, never resets`
+            : `${spent} · Resets ${formatTime(budget.resetsAt, format)}`
+        }
+      />
+    </div>
+  );
+}
+
 /**
  * One account or provider: who it is, its state, and its usage windows. Its name
  * is a heading, so heading navigation reaches each; both lines are cut short to
@@ -767,9 +807,11 @@ function Loading() {
 function Updated({ usage, fetching }: { readonly usage: Usage; readonly fetching: boolean }) {
   const now = useNow();
 
-  const fetched = [...usage.accounts, ...usage.opencodeGo].map(({ fetchedAt }) =>
-    Date.parse(fetchedAt),
-  );
+  const fetched = [
+    ...usage.accounts,
+    ...usage.opencodeGo,
+    ...(usage.openrouter === null ? [] : [usage.openrouter]),
+  ].map(({ fetchedAt }) => Date.parse(fetchedAt));
 
   return (
     <span {...stylex.props(styles.updated)}>
@@ -947,6 +989,7 @@ function Overview() {
                     badge={<ProviderBadge provider={provider} />}
                   >
                     <ProviderDetail provider={provider} />
+                    {provider.name === "openrouter" && <OpenrouterBudget usage={usage.data} />}
                     <ProviderCounted name={provider.name} />
                   </PoolCard>
                 ))}

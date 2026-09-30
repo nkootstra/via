@@ -301,10 +301,14 @@ Next to the accounts it lists every configured provider with its own key, such
 as OpenRouter, with its `name` and `{"status":"available"}`: requests for
 `<provider>/<model>` go straight to it.
 
-`GET /admin/usage` answers `{"accounts": [...], "opencodeGo": [...], "refreshing": ...}`
+`GET /admin/usage` answers `{"accounts": [...], "opencodeGo": [...], "openrouter": ..., "refreshing": ...}`
 at once from the usage via last fetched, never waiting on ChatGPT or OpenCode
 Go. An OpenCode Go account's windows are named as OpenCode Go names them, such
-as `rolling`, `weekly` and `monthly`. via fetches every account's usage in the
+as `rolling`, `weekly` and `monthly`. `openrouter` is the OpenRouter key's
+budget, as OpenRouter tells it: `{"budget": {"limitUsd", "spentUsd", "window",
+"resetsAt"}}`, with `budget` `null` for a key without a limit, or `{"error"}`;
+it is `null` while via has no OpenRouter key. A budget resets daily, weekly
+(Monday) or monthly at midnight UTC, or never (`window` and `resetsAt` `null`). via fetches every account's usage in the
 background: when it starts, every 15 minutes after that, and whenever an answer
 would be a minute old or more, or would miss an account. So what you see is at
 most about a minute old, and via asks for each account's usage at most once a
@@ -407,8 +411,10 @@ page fetches its usage again when via says the history changed, and asks every
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
-old, and says how long ago that was. A provider reports no usage of its own, so
-its card shows what via counted of its requests over the last 24 hours:
+old, and says how long ago that was. OpenRouter's card shows its key's budget
+as a meter, like an account's limits, when the key has a limit. A provider
+reports no usage of its own, so its card shows what via counted of its
+requests over the last 24 hours:
 requests, tokens and cost (Free for a local one such as Ollama), with a link
 to them on the Usage page. The overview fetches those figures once it has
 painted.

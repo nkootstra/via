@@ -10,7 +10,11 @@ describe("providerName", () => {
     expect(providerName("ollama")).toBe("Ollama");
   });
 
+  it("names OpenRouter as OpenRouter does", () => {
+    expect(providerName("openrouter")).toBe("OpenRouter");
+  });
+
   it("names any other provider by its id", () => {
-    expect(providerName("openrouter")).toBe("openrouter");
+    expect(providerName("vllm")).toBe("vllm");
   });
 });

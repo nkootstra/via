@@ -1,5 +1,6 @@
 import type { ProviderConfig } from "@via/config";
 import {
+  Clock,
   Context,
   Duration,
   Effect,
@@ -31,7 +32,8 @@ import {
 import { OllamaAddress, parseOllamaAddress } from "./ollama-address.ts";
 import { maskKey, OpencodeGoAccounts } from "./opencode-go-accounts.ts";
 import { type OpenrouterSaved, OpenrouterSettings } from "./openrouter-settings.ts";
-import type { ProviderUsage } from "./schemas.ts";
+import { budgetOf } from "./openrouter-budget.ts";
+import type { OpenrouterBudget, ProviderUsage } from "./schemas.ts";
 
 /**
  * Where a request goes: a provider and the model id it knows. A `pooled`
@@ -314,6 +316,36 @@ const verifyOpenrouter = (provider: Provider, apiKey: Redacted.Redacted<string>)
 
           if (status !== 200) return yield* openrouterDown(`HTTP ${status}`);
         }),
+      ),
+    );
+
+/** What OpenRouter tells of a key: its limit, what's left of it, and how often it resets. */
+const OpenrouterKeyInfo = Schema.Struct({
+  data: Schema.Struct({
+    limit: Schema.NullOr(Schema.Finite),
+    limit_remaining: Schema.NullOr(Schema.Finite),
+    limit_reset: Schema.NullOr(Schema.Literals(["daily", "weekly", "monthly"])),
+  }),
+});
+
+/** The budget of `provider`'s key, as OpenRouter tells it, or why it couldn't be read. */
+const budgetFrom = (provider: Provider) =>
+  keyed(provider.client, provider.apiKey)
+    .get("/key")
+    .pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap(HttpClientResponse.schemaBodyJson(OpenrouterKeyInfo)),
+      Effect.timeout(LOOKUP_TIMEOUT),
+      Effect.flatMap(({ data }) =>
+        Effect.map(Clock.currentTimeMillis, (now) => ({ budget: budgetOf(data, now) })),
+      ),
+      // A budget that can't be read is reported, not a failure: the card says why.
+      Effect.catchTags({
+        SchemaError: () =>
+          Effect.succeed({ error: "OpenRouter answered with a key budget via can't read" }),
+      }),
+      Effect.catch((error) =>
+        Effect.succeed({ error: `OpenRouter didn't tell the key's budget: ${error.message}` }),
       ),
     );
 
@@ -662,6 +694,11 @@ const make = (
 
           return yield* catalogOf(provider);
         }),
+        budget: Effect.suspend(() => {
+          const provider = providers.get(OPENROUTER);
+
+          return provider === undefined ? Effect.succeedNone : Effect.asSome(budgetFrom(provider));
+        }),
         changes: Option.match(openrouterStore, {
           onNone: () => Stream.make(undefined),
           onSome: (settings) => settings.changes,
@@ -790,6 +827,13 @@ export class Providers extends Context.Service<
           readonly contextLength: number | null;
         }>,
         OpenrouterNotSetUpError | OpenrouterUnavailableError
+      >;
+      /**
+       * The key's budget as OpenRouter tells it: none without a key, null for a
+       * key without a limit, or why it couldn't be read. It never fails.
+       */
+      readonly budget: Effect.Effect<
+        Option.Option<{ readonly budget: OpenrouterBudget | null } | { readonly error: string }>
       >;
       /** Signals now, then after each change to the saved key or models. */
       readonly changes: Stream.Stream<void>;

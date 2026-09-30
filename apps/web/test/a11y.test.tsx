@@ -94,6 +94,7 @@ const populated = {
         ],
       },
     ],
+    openrouter: null,
     refreshing: false,
   },
   models: [

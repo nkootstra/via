@@ -131,6 +131,56 @@ layer(BunFileSystem.layer)("Providers' OpenRouter", (it) => {
     }),
   );
 
+  it.effect("reads the key's budget from OpenRouter, and has none without a key", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      const configs = openrouter(fake);
+      fake.openrouterKey(Redacted.value(key), {
+        limit: 10,
+        limit_remaining: 6.8,
+        limit_reset: "monthly",
+      });
+
+      yield* withOpenrouter(configs, (providers) =>
+        Effect.gen(function* () {
+          expect(yield* providers.openrouter.budget).toEqual(Option.none());
+
+          yield* providers.openrouter.setKey(key);
+
+          // The test clock starts at the epoch: the next month starts on 1 February 1970.
+          expect(yield* providers.openrouter.budget).toEqual(
+            Option.some({
+              budget: {
+                limitUsd: 10,
+                spentUsd: 3.2,
+                window: "monthly",
+                resetsAt: "1970-02-01T00:00:00.000Z",
+              },
+            }),
+          );
+        }),
+      );
+    }),
+  );
+
+  it.effect("says why the budget couldn't be read, rather than fail", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      const configs = openrouter(fake);
+
+      yield* withOpenrouter(configs, (providers) =>
+        Effect.gen(function* () {
+          yield* providers.openrouter.setKey(key);
+          fake.openrouterKey(Redacted.value(key), { limit: "lots" });
+
+          expect(yield* providers.openrouter.budget).toEqual(
+            Option.some({ error: "OpenRouter answered with a key budget via can't read" }),
+          );
+        }),
+      );
+    }),
+  );
+
   it.effect("forgets the key and its models once removed", () =>
     Effect.gen(function* () {
       const fake = yield* startFakeProvider;

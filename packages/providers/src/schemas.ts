@@ -39,3 +39,16 @@ export const ProviderState = Schema.Union([
 ]);
 
 export type ProviderState = typeof ProviderState.Type;
+
+/**
+ * An OpenRouter key's budget: its limit in dollars, what it has spent of it,
+ * and when it resets, if ever: daily, weekly (Monday) or monthly, at midnight UTC.
+ */
+export const OpenrouterBudget = Schema.Struct({
+  limitUsd: Schema.Finite,
+  spentUsd: Schema.Finite,
+  window: Schema.NullOr(Schema.Literals(["daily", "weekly", "monthly"])),
+  resetsAt: Schema.NullOr(Schema.String),
+});
+
+export type OpenrouterBudget = typeof OpenrouterBudget.Type;

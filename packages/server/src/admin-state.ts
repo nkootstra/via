@@ -93,6 +93,10 @@ const usageOf = (latest: LatestUsage) => ({
       ? { id, label, fetchedAt, error: entry.error }
       : { id, label, fetchedAt, windows: entry.windows };
   }),
+  openrouter:
+    latest.openrouter === null
+      ? null
+      : { ...latest.openrouter, fetchedAt: iso(latest.openrouter.fetchedAt) },
   refreshing: latest.refreshing,
 });
 

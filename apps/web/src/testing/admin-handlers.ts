@@ -139,7 +139,7 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     logins: new Map(),
     nextLogin: [{ status: "pending" }],
     pool: { accounts: [], opencodeGo: [], providers: [] },
-    usage: { accounts: [], opencodeGo: [], refreshing: false },
+    usage: { accounts: [], opencodeGo: [], openrouter: null, refreshing: false },
     models: [],
     requests: [],
     historySeries: { points: [] },
