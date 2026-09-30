@@ -57,6 +57,13 @@ const kill = (proc: ReturnType<typeof spawnVia>) =>
   Effect.promise(() => (proc.kill(), proc.exited));
 
 /**
+ * How long a `via` gets to start listening, or a command to finish: well within
+ * a test's time, so one that hangs, or starts too slowly on a busy machine,
+ * fails with what it was doing rather than as the test running out of time.
+ */
+const PROCESS_LIMIT = "15 seconds";
+
+/**
  * Runs one `via` command to completion, with `input` on its standard input. It
  * runs asynchronously so fake servers in the test process can answer it.
  */
@@ -68,14 +75,31 @@ export const runVia = (
 ) =>
   Effect.suspend(() => {
     const proc = spawnVia(home, args, env, input);
+    // Read from the start, so a command that runs out of time still shows what it wrote.
+    const written = new Response(proc.stderr).text();
+    const stderr = Effect.promise(() => written);
 
     return Effect.all(
       {
         exitCode: Effect.promise(() => proc.exited),
         stdout: readAll(proc.stdout),
-        stderr: readAll(proc.stderr),
+        stderr,
       },
       { concurrency: "unbounded" },
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: PROCESS_LIMIT,
+        orElse: () =>
+          kill(proc).pipe(
+            Effect.andThen(stderr),
+            Effect.flatMap((text) =>
+              Effect.die(
+                new Error(`via ${args.join(" ")} did not finish in ${PROCESS_LIMIT}:\n${text}`),
+              ),
+            ),
+          ),
+      }),
+      realTime,
     );
   });
 
@@ -122,8 +146,9 @@ export const startVia = (
       ),
       // Fail a via that never starts listening here, not at the test timeout.
       Effect.timeoutOrElse({
-        duration: "15 seconds",
-        orElse: () => Effect.die(new Error("via serve did not start listening in 15 seconds")),
+        duration: PROCESS_LIMIT,
+        orElse: () =>
+          Effect.die(new Error(`via serve did not start listening in ${PROCESS_LIMIT}`)),
       }),
       realTime,
     );
