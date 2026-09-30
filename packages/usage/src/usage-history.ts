@@ -27,15 +27,23 @@ interface RequestCursor {
  */
 type Outcome = "ok" | "error";
 
-export interface RequestQuery {
-  readonly from: number;
-  readonly to: number;
-  readonly limit: number;
-  readonly cursor?: RequestCursor | undefined;
+/**
+ * What narrows a query to some requests: a model, an account, a key and an
+ * outcome. An account is named as the breakdown names it, so `provider:<name>`
+ * is the requests of that provider no account served.
+ */
+interface Filters {
   readonly model?: string | undefined;
   readonly accountId?: string | undefined;
   readonly keyId?: string | undefined;
   readonly outcome?: Outcome | undefined;
+}
+
+export interface RequestQuery extends Filters {
+  readonly from: number;
+  readonly to: number;
+  readonly limit: number;
+  readonly cursor?: RequestCursor | undefined;
 }
 
 export interface RequestPage {
@@ -51,7 +59,7 @@ export interface RequestPage {
  */
 export type GroupBy = "model" | "account" | "key" | "provider";
 
-export interface SeriesQuery {
+export interface SeriesQuery extends Filters {
   readonly from: number;
   readonly to: number;
   readonly bucket: "hour" | "day";
@@ -81,7 +89,7 @@ const SeriesPoint = Schema.Struct({
 
 export type SeriesPoint = typeof SeriesPoint.Type;
 
-export interface BreakdownQuery {
+export interface BreakdownQuery extends Filters {
   readonly from: number;
   readonly to: number;
   readonly groupBy: GroupBy;
@@ -220,6 +228,29 @@ const make = Effect.gen(function* () {
    */
   const failed = sql`((status >= 400 AND status <> 499) OR stream_end IS 'failed')`;
 
+  /** The provider an account filter names instead of an account, as `provider:<name>`. */
+  const PROVIDER_GROUP = "provider:";
+
+  /** The SQL condition for the requests in `[from, to)` that `filters` keep. */
+  const matching = (query: Filters & { readonly from: number; readonly to: number }) =>
+    sql.and([
+      sql`at >= ${query.from}`,
+      sql`at < ${query.to}`,
+      ...(query.model === undefined ? [] : [sql`model = ${query.model}`]),
+      ...(query.accountId === undefined
+        ? []
+        : query.accountId.startsWith(PROVIDER_GROUP)
+          ? [
+              sql`account_id IS NULL`,
+              sql`provider = ${query.accountId.slice(PROVIDER_GROUP.length)}`,
+            ]
+          : [sql`account_id = ${query.accountId}`]),
+      ...(query.keyId === undefined ? [] : [sql`key_id = ${query.keyId}`]),
+      ...(query.outcome === undefined
+        ? []
+        : [query.outcome === "error" ? failed : sql`NOT ${failed}`]),
+    ]);
+
   const columns = sql`
     request_id AS "requestId", at, status, error, error_message AS "errorMessage",
     stream_end AS "streamEnd",
@@ -259,19 +290,12 @@ const make = Effect.gen(function* () {
 
   const requests = Effect.fn("UsageHistory.requests")(function* (query: RequestQuery) {
     const where = sql.and([
-      sql`at >= ${query.from}`,
-      sql`at < ${query.to}`,
+      matching(query),
       ...(query.cursor === undefined
         ? []
         : [
             sql`(at < ${query.cursor.at} OR (at = ${query.cursor.at} AND request_id < ${query.cursor.requestId}))`,
           ]),
-      ...(query.model === undefined ? [] : [sql`model = ${query.model}`]),
-      ...(query.accountId === undefined ? [] : [sql`account_id = ${query.accountId}`]),
-      ...(query.keyId === undefined ? [] : [sql`key_id = ${query.keyId}`]),
-      ...(query.outcome === undefined
-        ? []
-        : [query.outcome === "error" ? failed : sql`NOT ${failed}`]),
     ]);
 
     // One more than a page, to tell whether another page follows.
@@ -331,7 +355,7 @@ const make = Effect.gen(function* () {
         COALESCE(SUM(output_tokens), 0) AS "outputTokens",
         COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens"
       FROM requests
-      WHERE at >= ${query.from} AND at < ${query.to}
+      WHERE ${matching(query)}
       GROUP BY bucket, "group"
       ORDER BY bucket, "group"
     `;
@@ -352,7 +376,7 @@ const make = Effect.gen(function* () {
             COUNT(*) OVER (PARTITION BY ${key}) AS n
           FROM requests
           -- An error that answers at once says nothing of how soon a model starts answering.
-          WHERE at >= ${query.from} AND at < ${query.to} AND first_chunk_ms IS NOT NULL
+          WHERE ${matching(query)} AND first_chunk_ms IS NOT NULL
             AND NOT ${failed}
         )
         SELECT
@@ -391,7 +415,7 @@ const make = Effect.gen(function* () {
         COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN cached_tokens END), 0) AS "unbilledCached",
         COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN output_tokens END), 0) AS "unbilledOutput"
       FROM requests
-      WHERE at >= ${query.from} AND at < ${query.to}
+      WHERE ${matching(query)}
       GROUP BY "group", model
     `.pipe(
       // Rows only ever come from this query, so they always decode.
