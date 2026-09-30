@@ -5,7 +5,8 @@ import type { LiveUpdates } from "../api/live.ts";
 import { createRootRouteWithContext, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { ThemeColor, themeScript, ToastProvider } from "@via/ui";
 import { MotionConfig } from "motion/react";
-import type { ReactNode } from "react";
+import { useMotion } from "../lib/motion.ts";
+import { type ReactNode, useEffect } from "react";
 import { ErrorScreen } from "../components/error-screen.tsx";
 
 export const Route = createRootRouteWithContext<{
@@ -58,11 +59,18 @@ function DevStyleXInject() {
 
 function Root() {
   const { queryClient } = Route.useRouteContext();
+  const reduced = useMotion() === "reduced";
+
+  // The stylesheet holds every CSS transition and animation still under this.
+  useEffect(() => {
+    if (reduced) document.documentElement.dataset["motion"] = "reduced";
+    else delete document.documentElement.dataset["motion"];
+  }, [reduced]);
 
   return (
     <QueryClientProvider client={queryClient}>
-      {/* Every spring and fade holds still for a viewer who asks for less motion. */}
-      <MotionConfig reducedMotion="user">
+      {/* Every spring and fade holds still for a viewer who asks for less motion, here or in their system. */}
+      <MotionConfig reducedMotion={reduced ? "always" : "user"}>
         <ToastProvider>
           <Outlet />
         </ToastProvider>

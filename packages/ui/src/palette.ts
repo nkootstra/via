@@ -150,4 +150,6 @@ export const themeStylesheet = () =>
     // While the theme switches, colours snap rather than every surface
     // animating its own transition.
     `[data-theme-switching] *,[data-theme-switching] *::before,[data-theme-switching] *::after{transition:none !important;}`,
+    // A viewer who chose reduced motion in via's settings, whatever the OS says.
+    `[data-motion="reduced"] *,[data-motion="reduced"] *::before,[data-motion="reduced"] *::after{transition-duration:0s !important;animation:none !important;}`,
   ].join("\n");

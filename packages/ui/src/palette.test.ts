@@ -48,6 +48,12 @@ describe("themeStylesheet", () => {
     expect(css).toContain("transition:none !important;");
   });
 
+  it("holds everything still for a viewer who chose reduced motion", () => {
+    expect(css).toContain(
+      '[data-motion="reduced"] *,[data-motion="reduced"] *::before,[data-motion="reduced"] *::after{transition-duration:0s !important;animation:none !important;}',
+    );
+  });
+
   it("sets every variable the colour and shadow tokens read", () => {
     const tokens = [...Object.values(colors), ...Object.values(shadows)].filter((value) =>
       value.startsWith("var(--via-"),

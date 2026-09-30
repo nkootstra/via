@@ -7,7 +7,7 @@
  */
 import { Menu as BaseMenu } from "@base-ui/react/menu";
 import * as stylex from "@stylexjs/stylex";
-import { motion, useReducedMotion } from "motion/react";
+import { motion, useReducedMotionConfig } from "motion/react";
 import {
   createContext,
   use,
@@ -206,7 +206,7 @@ export function MenuContent({
     ItemKey
   >("y");
 
-  const still = useReducedMotion() ?? false;
+  const still = useReducedMotionConfig() ?? false;
 
   return (
     <BaseMenu.Portal>
