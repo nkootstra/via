@@ -178,6 +178,14 @@ export const forward = Effect.fn("forward")(function* (
   const log = yield* RequestLog;
   yield* log.asked(`${route.provider}/${route.model}`, streams(body));
 
+  if (route.disabled === true) {
+    return yield* openAiError(
+      404,
+      "model_not_found",
+      `${route.provider}/${route.model} isn't enabled: enable it under OpenRouter on via's Accounts page`,
+    );
+  }
+
   if (route.pooled) return yield* forwardPooled(route, path, body, session);
   yield* log.served(route.provider);
 

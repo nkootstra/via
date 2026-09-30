@@ -96,7 +96,8 @@ const coolingA = (request: CodexRequest) =>
 const withAdmin = <A, E>(
   answer: (request: CodexRequest) => Reply,
   body: (via: Via) => Effect.Effect<A, E, Scope.Scope>,
-) => withVia(answer, (via) => Effect.scoped(body(via)), { adminKey });
+  options: { readonly openrouterFromUi?: boolean } = {},
+) => withVia(answer, (via) => Effect.scoped(body(via)), { adminKey, ...options });
 
 /** The id of account `name` in `state`. */
 const idOf = (state: State, name: string) =>
@@ -189,6 +190,33 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         yield* via.delete("/admin/ollama", adminKey);
         expect((yield* next(via, states, (state) => state.ollama === null)).ollama).toBeNull();
       }),
+    ),
+  );
+
+  it.effect("sends the state again when OpenRouter's key or models change", () =>
+    withAdmin(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.openrouterKey("sk-or-v1-abcd", { usage: 0, limit: null });
+          const { states } = yield* listen(via);
+          expect((yield* settled(via, states)).openrouter).toBeNull();
+
+          yield* via.put("/admin/openrouter/key", { apiKey: "sk-or-v1-abcd" }, adminKey);
+          const saved = yield* next(via, states, (state) => state.openrouter !== null);
+          expect(saved.openrouter).toEqual({ key: "…abcd", models: [], fromConfig: false });
+
+          yield* via.put("/admin/openrouter/models", { models: ["openai/gpt-6"] }, adminKey);
+
+          const enabled = yield* next(
+            via,
+            states,
+            (state) => (state.openrouter?.models.length ?? 0) > 0,
+          );
+
+          expect(enabled.openrouter?.models).toEqual(["openai/gpt-6"]);
+        }),
+      { openrouterFromUi: true },
     ),
   );
 

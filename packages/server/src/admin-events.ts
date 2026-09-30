@@ -34,6 +34,7 @@ const signals = Effect.gen(function* () {
     (yield* OpencodeGoAccounts).changes,
     (yield* KeyStore).changes,
     (yield* Providers).ollama.changes,
+    (yield* Providers).openrouter.changes,
     Stream.tick(RESYNC),
   ];
 

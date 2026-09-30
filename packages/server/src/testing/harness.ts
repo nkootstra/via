@@ -20,7 +20,13 @@ import {
 } from "@via/codex-upstream/testing";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
-import { OllamaAddress, OpencodeGoAccounts, OpencodeGoPool, Providers } from "@via/providers";
+import {
+  OllamaAddress,
+  OpencodeGoAccounts,
+  OpencodeGoPool,
+  OpenrouterSettings,
+  Providers,
+} from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import {
   Clock,
@@ -237,7 +243,8 @@ const watchTimers = Effect.gen(function* () {
  * `maxResponseBytes`, via reads that much of a Codex stream at most, not 128 MiB.
  * Requests are kept in an in-memory usage history, or in `history`'s, and
  * priced with `prices` over those via ships with. With `ollama`, the fake
- * provider also answers as `ollama`, a provider sent no key.
+ * provider also answers as `ollama`, a provider sent no key. With
+ * `openrouterFromUi`, OpenRouter takes its key from the web UI.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -264,6 +271,7 @@ export const withVia = <A, E>(
     history = UsageHistory.layerMemory,
     prices,
     ollama = false,
+    openrouterFromUi = false,
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
     opencodeGoKeys?: ReadonlyArray<string>;
@@ -276,6 +284,7 @@ export const withVia = <A, E>(
     history?: Layer.Layer<UsageHistory, unknown>;
     prices?: Readonly<Record<string, ModelPrice>>;
     ollama?: boolean;
+    openrouterFromUi?: boolean;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -288,6 +297,7 @@ export const withVia = <A, E>(
       AccountStore.layer(`${dir}/auth`),
       OpencodeGoAccounts.layer(`${dir}/opencode-go.json`),
       OllamaAddress.layer(`${dir}/ollama.json`),
+      OpenrouterSettings.layer(`${dir}/openrouter.json`),
     ).pipe(Layer.provide(BunFileSystem.layer));
 
     const codex = yield* startFakeCodex;
@@ -309,7 +319,8 @@ export const withVia = <A, E>(
       }),
       Providers.layer({
         providers: {
-          openrouter: providerConfig,
+          // Without a key variable, OpenRouter's key comes from the web UI.
+          openrouter: openrouterFromUi ? { baseUrl: providerConfig.baseUrl } : providerConfig,
           "opencode-go": providerConfig,
           ...(ollama ? { ollama: { baseUrl: providerConfig.baseUrl } } : {}),
         },

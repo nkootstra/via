@@ -162,6 +162,11 @@ export const adminOllama = Effect.flatMap(Providers, ({ ollama }) =>
   Effect.map(ollama.get, Option.getOrNull),
 );
 
+/** OpenRouter's key, masked, and the models it enables, as `GET /admin/openrouter` answers it. */
+export const adminOpenrouter = Effect.flatMap(Providers, ({ openrouter }) =>
+  Effect.map(openrouter.get, Option.getOrNull),
+);
+
 /** The admin state now: what the routes above answer, the keys and the models, all at once. */
 export const adminState = ({ environment, version }: StateOptions) =>
   Effect.gen(function* () {
@@ -178,5 +183,6 @@ export const adminState = ({ environment, version }: StateOptions) =>
       keys: yield* keys,
       models: yield* (yield* ModelCatalog).list,
       ollama: yield* adminOllama,
+      openrouter: yield* adminOpenrouter,
     } satisfies typeof AdminState.Type;
   });
