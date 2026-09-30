@@ -2,11 +2,12 @@ import { Effect, FileSystem, Schema } from "effect";
 
 /**
  * An OpenAI-compatible provider. `baseUrl` may be left out for a provider via
- * knows, and the API key is read from the environment variable `apiKeyEnv`.
+ * knows, and the API key is read from the environment variable `apiKeyEnv`. A
+ * provider without one, such as Ollama on your own machine, is sent no key.
  */
 export const ProviderConfig = Schema.Struct({
   baseUrl: Schema.optionalKey(Schema.String),
-  apiKeyEnv: Schema.String,
+  apiKeyEnv: Schema.optionalKey(Schema.String),
   sessionHeader: Schema.optionalKey(Schema.String),
 });
 

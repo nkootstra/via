@@ -9,6 +9,7 @@ import { models } from "./models.ts";
 import { logRequest } from "./request-log.ts";
 import { responses } from "./responses.ts";
 import { SessionBindings } from "./session-bindings.ts";
+import { systemOne } from "./system-one.ts";
 import type { EmbeddedUi } from "./ui.ts";
 
 export type { OpencodeGoEnvironment } from "./admin.ts";
@@ -37,6 +38,7 @@ export const ViaServer = {
         HttpRouter.add("POST", "/v1/responses", responses),
         HttpRouter.add("POST", "/v1/chat/completions", chatCompletions),
         HttpRouter.add("GET", "/v1/models", models),
+        HttpRouter.add("POST", "/v1/systemone", systemOne),
         // For a host's health checks: needs no key, and isn't logged.
         HttpRouter.add("GET", "/healthz", Effect.succeed(HttpServerResponse.text("ok"))),
         // Like the admin API, the page for it is only there with the key.

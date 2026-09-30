@@ -55,7 +55,9 @@ import {
   formatShare,
   formatTokens,
   formatUsd,
+  tokensOf,
 } from "../../lib/usage-format.ts";
+import { historyRange } from "../../lib/history-range.ts";
 
 /**
  * An id a search param carries. TanStack Router reads a value that looks like a
@@ -290,25 +292,9 @@ const styles = stylex.create({
   },
 });
 
-/** Where the range ends: the end of the current hour, or of today on the viewer's clock. */
-const rangeOf = (key: RangeKey, now: number): HistoryRange => {
-  const range = RANGES[key];
-  const end = new Date(now);
-
-  if (range.bucket === "hour") {
-    end.setMinutes(60, 0, 0);
-  } else {
-    end.setHours(24, 0, 0, 0);
-  }
-
-  const to = end.getTime();
-
-  return { from: to - range.days * DAY, to };
-};
-
-/** Tokens a group or a point spent: what it sent and what it got back. */
-const tokensOf = (usage: { readonly inputTokens: number; readonly outputTokens: number }) =>
-  usage.inputTokens + usage.outputTokens;
+/** The range `key` names, ending with the current hour or today on the viewer's clock. */
+const rangeOf = (key: RangeKey, now: number): HistoryRange =>
+  historyRange(RANGES[key].days, RANGES[key].bucket, now);
 
 /** Providers whose requests go through a pool of accounts, so one no account served was refused. */
 const POOLED = new Set(["codex", "opencode-go"]);

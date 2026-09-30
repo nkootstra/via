@@ -249,6 +249,27 @@ export interface BarChartProps {
 const axisTick = { fontSize: 11, fill: colors.mutedForeground };
 
 /** A stacked bar chart, one bar per point, one stack segment per series. */
+/** The least a segment with any value is drawn at, in pixels. */
+const LEAST_SEGMENT = 3;
+
+/** How much of the chart's height its axes and margins take, in pixels. */
+const CHROME = 34;
+
+/** How far the value axis may round its top up past the tallest bar, at most. */
+const AXIS_ROUNDING = 1.5;
+
+/**
+ * The value `id`'s segment of `point` is drawn at: its own, or when that is
+ * too small to see next to the tallest bar, the value `height` pixels stand
+ * for, so a small share still shows. Stacking these, rather than widening the
+ * drawn segments, keeps two small ones apart. The tooltip tells the real size.
+ */
+const drawnValue = (point: ChartPoint, id: string, least: number) => {
+  const value = point.values.get(id) ?? 0;
+
+  return value === 0 ? 0 : Math.max(value, least);
+};
+
 export function BarChart({
   label,
   points,
@@ -259,10 +280,17 @@ export function BarChart({
 }: BarChartProps) {
   const colours = coloursOf(series);
 
+  const tallest = Math.max(
+    0,
+    ...points.map((point) => [...point.values.values()].reduce((sum, value) => sum + value, 0)),
+  );
+
+  const least = (tallest * AXIS_ROUNDING * LEAST_SEGMENT) / Math.max(1, height - CHROME);
+
   const data = points.map((point) => ({
     x: point.x,
     ...Object.fromEntries(
-      series.map((one, index) => [keyOf(index), point.values.get(one.id) ?? 0]),
+      series.map((one, index) => [keyOf(index), drawnValue(point, one.id, least)]),
     ),
   }));
 

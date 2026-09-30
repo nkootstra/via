@@ -1,7 +1,7 @@
 import { AccountStore } from "@via/codex-auth";
 import type { ModelPrice } from "@via/config";
 import { KeyStore } from "@via/keys";
-import { OpencodeGoAccounts } from "@via/providers";
+import { OpencodeGoAccounts, Providers } from "@via/providers";
 import {
   costOf,
   type GroupBy,
@@ -77,11 +77,12 @@ const totals = (groups: ReadonlyArray<GroupUsage>, firstChunkMs: Percentiles, bo
   ),
 });
 
-/** The usage history, priced with config.yaml's `prices` over the prices via ships with. */
-export const history = (prices: Readonly<Record<string, ModelPrice>>) => {
-  const book = priceBook(prices);
-
-  return HttpApiBuilder.group(AdminApi, "history", (handlers) =>
+/**
+ * The usage history, priced with config.yaml's `prices` over the prices via
+ * ships with, and a local provider's models at nothing.
+ */
+export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
+  HttpApiBuilder.group(AdminApi, "history", (handlers) =>
     handlers
       .handle("series", ({ query }) =>
         Effect.flatMap(UsageHistory, (usage) => usage.series(query)).pipe(
@@ -91,6 +92,8 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) => {
       )
       .handle("breakdown", ({ query }) =>
         Effect.gen(function* () {
+          const book = priceBook(prices, { local: (yield* Providers).local });
+
           const { groups, firstChunkMs } = yield* readHistory(
             Effect.flatMap(UsageHistory, (usage) => usage.breakdown(query)),
           );
@@ -131,4 +134,3 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) => {
         ).pipe(readHistory),
       ),
   );
-};

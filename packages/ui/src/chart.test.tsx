@@ -77,6 +77,60 @@ describe("BarChart", () => {
 
     size.mockRestore();
   });
+
+  it("keeps a series' small share visible next to a large one", async () => {
+    const size = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(DOMRect.fromRect({ width: 600, height: 200 }));
+
+    const { container } = render(
+      <BarChart
+        label="Tokens"
+        points={[
+          {
+            x: 0,
+            values: new Map([
+              ["gpt-6-astra", 1_200_000],
+              ["kimi-k3", 400],
+            ]),
+          },
+          {
+            x: 7_200_000,
+            values: new Map([
+              ["kimi-k3", 389],
+              ["other", 71],
+            ]),
+          },
+          { x: 3_600_000, values: new Map([["gpt-6-astra", 900_000]]) },
+        ]}
+        series={series}
+        height={200}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelectorAll(".recharts-rectangle").length).toBeGreaterThan(0),
+    );
+
+    const bars = [...container.querySelectorAll(".recharts-rectangle")].map((bar) => ({
+      x: Number(bar.getAttribute("x")),
+      y: Number(bar.getAttribute("y")),
+      height: Number(bar.getAttribute("height")),
+    }));
+
+    // Five segments with tokens, none of them too thin to see; the empty ones aren't drawn.
+    expect(bars).toHaveLength(5);
+    expect(Math.min(...bars.map(({ height }) => height))).toBeGreaterThanOrEqual(3);
+
+    // The last point's two small segments sit on each other, rather than one over the other.
+    const [lower, upper] = bars
+      .filter(({ x }) => bars.every((bar) => bar.x !== x || bar.height < 10))
+      .toSorted((a, b) => b.y - a.y);
+
+    expect(upper?.y).toBeCloseTo((lower?.y ?? 0) - (upper?.height ?? 0));
+
+    size.mockRestore();
+  });
 });
 
 describe("ChartTooltipContent", () => {

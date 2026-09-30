@@ -8,7 +8,8 @@ One OpenAI-compatible endpoint on your machine for your ChatGPT/Codex
 subscriptions, OpenCode Go keys and other providers such as OpenRouter.
 
 via hands out its own API keys and serves `/v1/responses`,
-`/v1/chat/completions` and `/v1/models` on `127.0.0.1:8317`. Behind that it
+`/v1/chat/completions`, `/v1/models` and Ollama's `/v1/systemone` on
+`127.0.0.1:8317`. Behind that it
 talks to:
 
 | Upstream                                         | How you add it                                          | Models                     | When one runs out                                    |
@@ -153,6 +154,7 @@ Every `/v1` route needs `Authorization: Bearer <key>` with a key from `via keys 
 | `POST /v1/responses`        | Passed through to Codex, or to the provider the model names.                                             |
 | `POST /v1/chat/completions` | For Codex, translated to and from the Responses API, streaming included; for a provider, passed through. |
 | `GET /v1/models`            | Lists the models Codex offers your accounts, then providers'.                                            |
+| `POST /v1/systemone`        | Ollama's [System One](#ollama-and-system-one), passed through to the provider the model names.           |
 | `GET /healthz`              | Answers `200 ok`, for health checks. Needs no key.                                                       |
 
 A model named `<provider>/<model>`, such as `opencode-go/kimi-k3` or
@@ -393,7 +395,11 @@ page fetches its usage again when via says the history changed, and asks every
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
-old, and says how long ago that was.
+old, and says how long ago that was. A provider reports no usage of its own, so
+its card shows what via counted of its requests over the last 24 hours:
+requests, tokens and cost (Free for a local one such as Ollama), with a link
+to them on the Usage page. The overview fetches those figures once it has
+painted.
 
 The page shows the pool as it is right now, without reloading or polling. When
 a signed-in browser opens or reloads it, via puts the current state in the
@@ -544,7 +550,8 @@ in `config.yaml` wins over the snapshot at each step.
 
 Add OpenAI-compatible providers under `providers`. Each one reads its API key
 from the environment variable `apiKeyEnv` names; `via serve` won't start while
-that variable is unset.
+that variable is unset. A provider without `apiKeyEnv`, such as a model server
+on your own machine, is sent no key; OpenRouter still needs one.
 
 OpenCode Go is the exception: it needs no entry at all. Add its keys as
 accounts with `via accounts add --provider opencode-go`, and via pools them
@@ -561,13 +568,45 @@ like ChatGPT accounts (see [How the pool picks an account](#how-the-pool-picks-a
 providers:
   openrouter:
     apiKeyEnv: OPENROUTER_API_KEY
+  # Ollama needs no key, and is looked for at http://localhost:11434/v1.
+  ollama: {}
   # Any other OpenAI-compatible endpoint needs its baseUrl.
-  local:
-    baseUrl: http://localhost:11434/v1
-    apiKeyEnv: LOCAL_KEY
+  vllm:
+    baseUrl: http://gpu-box:8000/v1
+    apiKeyEnv: VLLM_KEY
     # Optional: the header the provider reads a session id from.
     sessionHeader: x-session-id
 ```
+
+#### Ollama and System One
+
+With `ollama: {}`, via uses the Ollama on the same machine, and lists its
+local models as `ollama/<model>`, such as `ollama/llama3.2`. When Ollama runs
+somewhere else, give its address as `baseUrl`, ending in `/v1`:
+
+- on another machine: `baseUrl: http://192.168.1.20:11434/v1`, with Ollama
+  listening beyond its own machine (`OLLAMA_HOST=0.0.0.0`);
+- when via runs in Docker and Ollama on the host:
+  `baseUrl: http://host.docker.internal:11434/v1` (Docker Desktop), as
+  `localhost` in the container is the container itself.
+
+Ollama's [System One](https://docs.ollama.com/api/systemone) answers choice,
+yes/no and scoring questions about a state with a local model such as
+`nimble`, and needs Ollama 0.35.0 or later. via serves it at
+`POST /v1/systemone` with the same body, the model prefixed:
+
+```sh
+curl http://127.0.0.1:8317/v1/systemone \
+  -H "Authorization: Bearer $VIA_KEY" \
+  -d '{"model": "ollama/nimble", "state": "Checkout has returned 500s since 9am.",
+       "questions": {"label": {"type": "choice", "instructions": "Which label fits?",
+       "criteria": {"billing": "Payments", "bug": "Software errors"}}}}'
+```
+
+It goes to the provider the model names, as it is, and is kept in the
+[usage history](#usage-history) like any other request. A local model's tokens
+are counted there, but cost nothing. A model with no
+provider prefix, which would go to Codex, is refused with `400`.
 
 Prefix a model with the provider's name to use it, as in
 `openrouter/qwen/qwen3-coder` or `opencode-go/kimi-k3`. via passes
@@ -674,7 +713,10 @@ so a price change applies to old requests too:
 - Every other request counts at API prices, as the **API-equivalent cost**:
   what its tokens would have cost pay-as-you-go. For a ChatGPT or OpenCode Go
   subscription that's what the plan saved, not money spent.
-- A model with no known price is named rather than counted as free.
+- A model of a provider sent no key, such as Ollama, runs on your own
+  hardware, so its tokens cost nothing. A price for it under
+  [`prices`](#model-prices) still counts.
+- Any other model with no known price is named rather than counted as free.
 
 Token totals leave out answered requests whose upstream reported no usage, and
 the page says how many. A failed request has no tokens to report, so it isn't

@@ -6,6 +6,10 @@ describe("providerName", () => {
     expect(providerName("opencode-go")).toBe("OpenCode Go");
   });
 
+  it("names Ollama as Ollama does", () => {
+    expect(providerName("ollama")).toBe("Ollama");
+  });
+
   it("names any other provider by its id", () => {
     expect(providerName("openrouter")).toBe("openrouter");
   });

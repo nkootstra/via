@@ -1,11 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import { useSuspenseQuery } from "@tanstack/react-query";
-import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
+import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
+import { createFileRoute, type ErrorComponentProps, Link, useRouter } from "@tanstack/react-router";
 import { Badge, Button, Callout, EmptyState, Meter, Skeleton, VisuallyHidden } from "@via/ui";
 import { colors, durations, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { useId, type ReactNode } from "react";
-import { accountsQuery, poolQuery, usageQuery } from "../../api/admin.ts";
-import { useLiveOptions } from "../../api/live.ts";
+import { accountsQuery, historyBreakdownQuery, poolQuery, usageQuery } from "../../api/admin.ts";
+import { useLiveOptions, useSignalledOptions } from "../../api/live.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
 import { AccountsIcon, CodexIcon, PlusIcon, ProviderLogo } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -20,7 +20,9 @@ import {
 } from "../../lib/time.ts";
 import { useTimeFormat } from "../../lib/time-format.ts";
 import { providerName } from "../../lib/provider-name.ts";
-import type { PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
+import { historyRange } from "../../lib/history-range.ts";
+import { formatCount, formatTokens, formatUsd, tokensOf } from "../../lib/usage-format.ts";
+import type { HistoryGroup, PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({ meta: [{ title: "Overview · via" }] }),
@@ -166,6 +168,72 @@ const styles = stylex.create({
     display: "flex",
     flexDirection: "column",
     gap: space.s3,
+  },
+  // What via counted for a provider, in the shape of the meters beside it.
+  counted: {
+    margin: 0,
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s3,
+  },
+  figure: {
+    display: "grid",
+    gridTemplateColumns: "1fr auto",
+    alignItems: "baseline",
+    rowGap: space.s1_5,
+    columnGap: space.s2,
+    minWidth: 0,
+  },
+  figureLabel: {
+    fontSize: text.caption,
+    fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
+    color: colors.foreground,
+  },
+  figureValue: {
+    margin: 0,
+    fontSize: text.caption,
+    fontVariantNumeric: "tabular-nums",
+    fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
+    color: colors.mutedForeground,
+  },
+  figureDetail: {
+    gridColumn: "1 / -1",
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s1_5,
+    margin: 0,
+    overflowWrap: "anywhere",
+    fontSize: text.caption,
+    color: colors.mutedForeground,
+  },
+  // A meter's track, filled in a neutral tone: a share of via's traffic, not a limit.
+  shareTrack: {
+    position: "relative",
+    height: "6px",
+    overflow: "hidden",
+    borderRadius: radii.full,
+    backgroundColor: colors.muted,
+    boxShadow: `inset 0 0 0 1px ${colors.border}`,
+  },
+  shareFill: {
+    position: "absolute",
+    insetBlock: 0,
+    insetInlineStart: 0,
+    borderRadius: radii.full,
+    backgroundColor: colors.mutedForeground,
+  },
+  // Keeps to the card's foot, as the last reset line does beside it.
+  requestsLink: {
+    marginTop: "auto",
+    alignSelf: "flex-start",
+    fontSize: text.caption,
+    color: colors.mutedForeground,
+    textDecorationLine: { default: "none", ":hover": "underline" },
+    textUnderlineOffset: "3px",
+    borderRadius: radii.item,
+    outlineOffset: "2px",
   },
   muted: {
     margin: 0,
@@ -504,6 +572,123 @@ function OpencodeGoUsage({ id, usage }: { readonly id: string; readonly usage: U
   );
 }
 
+/** A share as a whole percentage, and as under 1% rather than 0% when it isn't nothing. */
+const shareOf = (part: number, total: number) => {
+  const percent = total === 0 ? 0 : (part / total) * 100;
+
+  return { percent, text: percent > 0 && percent < 1 ? "<1%" : `${Math.round(percent)}%` };
+};
+
+/** What a provider's requests cost, and why: what it billed, the rest at API prices, or nothing. */
+const costOf = ({ cost }: HistoryGroup, name: string) => {
+  if (cost.unpriced.length > 0) {
+    return { value: "Unknown", detail: `No price known for ${cost.unpriced.join(", ")}` };
+  }
+
+  if (cost.billedUsd > 0 && cost.apiEquivalentUsd === 0) {
+    return { value: formatUsd(cost.billedUsd), detail: `Billed by ${providerName(name)}` };
+  }
+
+  const total = cost.apiEquivalentUsd + cost.billedUsd;
+
+  return total === 0
+    ? { value: "Free", detail: "No one billed these tokens" }
+    : { value: formatUsd(total), detail: "At API prices" };
+};
+
+/**
+ * One of a provider's figures, laid out as the meters beside it are: its name,
+ * its value, and a line under it, with a bar for its share of via's traffic.
+ */
+function Figure({
+  label,
+  value,
+  detail,
+  share,
+}: {
+  readonly label: string;
+  readonly value: string;
+  readonly detail: string;
+  /** A percentage; a share that isn't nothing still shows a sliver. */
+  readonly share?: number;
+}) {
+  return (
+    <div {...stylex.props(styles.figure)}>
+      <dt {...stylex.props(styles.figureLabel)}>{label}</dt>
+      <dd {...stylex.props(styles.figureValue)}>{value}</dd>
+      <dd {...stylex.props(styles.figureDetail)}>
+        {share !== undefined && (
+          <span aria-hidden="true" {...stylex.props(styles.shareTrack)}>
+            <span
+              {...stylex.props(styles.shareFill)}
+              style={{ width: share === 0 ? 0 : `max(4px, ${Math.min(100, share)}%)` }}
+            />
+          </span>
+        )}
+        <span>{detail}</span>
+      </dd>
+    </div>
+  );
+}
+
+/**
+ * What via counted of a provider's requests over the last day, as a provider
+ * reports no usage of its own: the page's one ask of via beyond what the shell
+ * carries, made once the cards are up.
+ */
+function ProviderCounted({ name }: { readonly name: string }) {
+  const now = useNow(60_000);
+
+  const breakdown = useQuery({
+    ...historyBreakdownQuery(historyRange(1, "hour", now), "account", {}),
+    ...useSignalledOptions(),
+  });
+
+  if (breakdown.isPending) return <UsageLoading />;
+
+  if (breakdown.isError) {
+    return <p {...stylex.props(styles.muted)}>What via counted couldn't be loaded.</p>;
+  }
+
+  const { groups, totals } = breakdown.data;
+  const counted = groups.find((group) => group.group === `provider:${name}`);
+
+  if (counted === undefined || counted.requests === 0) {
+    return <p {...stylex.props(styles.muted)}>No requests in the last 24 hours.</p>;
+  }
+
+  const requests = shareOf(counted.requests, totals.requests);
+  const tokens = shareOf(tokensOf(counted), tokensOf(totals));
+  const cost = costOf(counted, name);
+
+  return (
+    <>
+      <dl {...stylex.props(styles.counted)}>
+        <Figure
+          label="Requests"
+          value={formatCount(counted.requests)}
+          detail={`Last 24 hours · ${requests.text} of via's requests`}
+          share={requests.percent}
+        />
+        <Figure
+          label="Tokens"
+          value={formatTokens(tokensOf(counted))}
+          detail={`${formatTokens(counted.inputTokens)} in · ${formatTokens(counted.outputTokens)} out`}
+          share={tokens.percent}
+        />
+        <Figure label="Cost" value={cost.value} detail={cost.detail} />
+      </dl>
+      <Link
+        to="/usage"
+        search={{ account: `provider:${name}` }}
+        {...stylex.props(styles.requestsLink)}
+      >
+        See its requests
+      </Link>
+    </>
+  );
+}
+
 /**
  * One account or provider: who it is, its state, and its usage windows. Its name
  * is a heading, so heading navigation reaches each; both lines are cut short to
@@ -762,7 +947,7 @@ function Overview() {
                     badge={<ProviderBadge provider={provider} />}
                   >
                     <ProviderDetail provider={provider} />
-                    <p {...stylex.props(styles.muted)}>This provider doesn't report usage.</p>
+                    <ProviderCounted name={provider.name} />
                   </PoolCard>
                 ))}
               </div>
