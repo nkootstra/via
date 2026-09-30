@@ -77,6 +77,44 @@ describe("BarChart", () => {
 
     size.mockRestore();
   });
+
+  it("keeps a series' small share visible next to a large one", async () => {
+    const size = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue(DOMRect.fromRect({ width: 600, height: 200 }));
+
+    const { container } = render(
+      <BarChart
+        label="Tokens"
+        points={[
+          {
+            x: 0,
+            values: new Map([
+              ["gpt-6-astra", 1_200_000],
+              ["kimi-k3", 400],
+            ]),
+          },
+          { x: 3_600_000, values: new Map([["gpt-6-astra", 900_000]]) },
+        ]}
+        series={series}
+        height={200}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(container.querySelectorAll(".recharts-rectangle").length).toBeGreaterThan(0),
+    );
+
+    const heights = [...container.querySelectorAll(".recharts-rectangle")].map((bar) =>
+      Number(bar.getAttribute("height")),
+    );
+
+    // Three segments with tokens, none of them too thin to see; the empty ones aren't drawn.
+    expect(heights).toHaveLength(3);
+    expect(Math.min(...heights)).toBeGreaterThanOrEqual(3);
+
+    size.mockRestore();
+  });
 });
 
 describe("ChartTooltipContent", () => {

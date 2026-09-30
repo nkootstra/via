@@ -249,6 +249,17 @@ export interface BarChartProps {
 const axisTick = { fontSize: 11, fill: colors.mutedForeground };
 
 /** A stacked bar chart, one bar per point, one stack segment per series. */
+/**
+ * The least `id`'s segment of each point is drawn at, in pixels, when it has a
+ * value: a small share next to a large one would round to nothing. The tooltip
+ * tells its size. Recharts hands over where the stack reaches, not the
+ * segment's own value, so it is looked up by the point's index.
+ */
+const visibleSize =
+  (points: ReadonlyArray<ChartPoint>, id: string) =>
+  (_top: number | undefined | null, index: number) =>
+    (points[index]?.values.get(id) ?? 0) === 0 ? 0 : 3;
+
 export function BarChart({
   label,
   points,
@@ -311,6 +322,7 @@ export function BarChart({
               // A hairline of the surface between segments tells neighbours apart.
               stroke={colors.surface3}
               strokeWidth={1}
+              minPointSize={visibleSize(points, one.id)}
               isAnimationActive={false}
             />
           ))}
