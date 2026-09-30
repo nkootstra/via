@@ -1,20 +1,16 @@
 import * as stylex from "@stylexjs/stylex";
 import { keepPreviousData, useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
+import { BarChart, type ChartPoint, type ChartSeries, Stat, StatList } from "@via/ui/chart";
 import {
-  BarChart,
   Button,
   Callout,
-  type ChartPoint,
-  type ChartSeries,
   EmptyState,
   FilterSelect,
   type FilterOption,
   SegmentedControl,
   SegmentedItem,
   Skeleton,
-  Stat,
-  StatList,
   Switch,
   Table,
   TableBody,

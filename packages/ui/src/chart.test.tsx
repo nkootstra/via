@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { BarChart, ChartTooltipContent, Stat, StatList } from "./index.ts";
+import { BarChart, ChartTooltipContent, Stat, StatList } from "./chart.tsx";
 
 const series = [
   { id: "gpt-6-astra", label: "gpt-6-astra" },
