@@ -11,7 +11,7 @@ const stateOf = (version: string) =>
     session: true,
     version,
     pool: { accounts: [], opencodeGo: [], providers: [] },
-    usage: { accounts: [], opencodeGo: [], refreshing: false },
+    usage: { accounts: [], opencodeGo: [], openrouter: null, refreshing: false },
     accounts: [],
     opencodeGo: [],
     keys: [],

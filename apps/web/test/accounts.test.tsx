@@ -241,7 +241,7 @@ describe("the accounts page", () => {
         session: true,
         version: "0.0.0",
         pool: { accounts: [], opencodeGo: [], providers: [] },
-        usage: { accounts: [], opencodeGo: [], refreshing: false },
+        usage: { accounts: [], opencodeGo: [], openrouter: null, refreshing: false },
         accounts: [work],
         opencodeGo: [],
         keys: [],

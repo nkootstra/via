@@ -149,7 +149,7 @@ describe("the usage page", () => {
         .getAllByRole("row")
         .slice(1)
         .map((row) => row.querySelector("td")?.textContent),
-    ).toEqual(["work@example.com", "openrouter", "Not served (Codex)"]);
+    ).toEqual(["work@example.com", "OpenRouter", "Not served (Codex)"]);
   });
 
   it("tells apart a model two providers serve by naming the provider in the legend", async () => {
