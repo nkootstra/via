@@ -224,6 +224,80 @@ layer(BunFileSystem.layer)("Providers", (it) => {
     }),
   );
 
+  it.effect("sends a provider configured without an API key its requests with none", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.respond(providerReply.json({}));
+
+      const routed = yield* withProviders(
+        { local: { baseUrl: fake.url } },
+        (providers) =>
+          Effect.gen(function* () {
+            yield* providers.send(route("local"), "/chat/completions", {}, "conv-1");
+
+            return providers.route("local/llama");
+          }),
+        {},
+      );
+
+      expect(fake.requests[0]?.headers["authorization"]).toBeUndefined();
+      expect(routed).toEqual(Option.some(route("local", "llama")));
+    }),
+  );
+
+  it.effect("lists a keyless provider's models, asking without a key", () =>
+    Effect.gen(function* () {
+      const fake = yield* startFakeProvider;
+      fake.models([{ id: "llama", object: "model" }]);
+
+      const models = yield* withProviders(
+        { local: { baseUrl: fake.url } },
+        (providers) => providers.models,
+        {},
+      );
+
+      expect(models.map(({ model }) => model.id)).toEqual(["local/llama"]);
+      expect(fake.modelRequests[0]?.headers["authorization"]).toBeUndefined();
+    }),
+  );
+
+  it.effect("knows Ollama's local address and needs no key for it, unless told otherwise", () =>
+    Effect.gen(function* () {
+      const { urls, client } = offline();
+
+      yield* withProviders(
+        { ollama: {} },
+        (providers) =>
+          Effect.ignore(providers.send(route("ollama"), "/chat/completions", {}, "conv-1")),
+        {},
+        client,
+      );
+
+      yield* withProviders(
+        { ollama: { baseUrl: "http://192.168.1.20:11434/v1" } },
+        (providers) =>
+          Effect.ignore(providers.send(route("ollama"), "/chat/completions", {}, "conv-1")),
+        {},
+        client,
+      );
+
+      expect(urls).toEqual([
+        "http://localhost:11434/v1/chat/completions",
+        "http://192.168.1.20:11434/v1/chat/completions",
+      ]);
+    }),
+  );
+
+  it.effect("still needs OpenRouter's key, and says which setting it goes in", () =>
+    Effect.gen(function* () {
+      const error = yield* Effect.flip(withProviders({ openrouter: {} }, () => Effect.void, {}));
+
+      expect(error.message).toBe(
+        `Provider "openrouter" needs an API key: set apiKeyEnv to the environment variable that holds it`,
+      );
+    }),
+  );
+
   it.effect("fails naming the environment variable when its API key is not given", () =>
     Effect.gen(function* () {
       const error = yield* Effect.flip(

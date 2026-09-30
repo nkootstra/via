@@ -135,6 +135,7 @@ export const startFakeProvider = Effect.gen(function* () {
     HttpRouter.add("POST", "/chat/completions", answer),
     HttpRouter.add("POST", "/responses", answer),
     HttpRouter.add("POST", "/messages", answer),
+    HttpRouter.add("POST", "/systemone", answer),
     HttpRouter.add(
       "GET",
       "/models",

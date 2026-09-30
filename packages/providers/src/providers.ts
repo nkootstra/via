@@ -28,10 +28,11 @@ import type { ProviderUsage } from "./schemas.ts";
 export type Route = { provider: string; model: string; pooled: boolean };
 
 /**
- * The paths via forwards to an OpenAI-compatible provider, and Anthropic's
- * Messages, which OpenCode Go serves some of its models in.
+ * The paths via forwards to an OpenAI-compatible provider, Anthropic's
+ * Messages, which OpenCode Go serves some of its models in, and Ollama's
+ * System One.
  */
-export type ProviderPath = "/chat/completions" | "/responses" | "/messages";
+export type ProviderPath = "/chat/completions" | "/responses" | "/messages" | "/systemone";
 
 /** The Messages API version via speaks. */
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -48,6 +49,8 @@ type Preset = {
   usagePath?: string;
   /** Its keys are the accounts via stores, so it is there without any config. */
   pooled?: true;
+  /** It takes no API key, as a model server on your own machine doesn't. */
+  keyless?: true;
 };
 
 /** The pooled provider: OpenCode Go, whose API keys via stores as accounts. */
@@ -67,6 +70,8 @@ const PRESETS = new Map<string, Preset>([
       pooled: true,
     },
   ],
+  // https://docs.ollama.com/openai: on this machine by default; `baseUrl` points elsewhere.
+  ["ollama", { baseUrl: "http://localhost:11434/v1", session: undefined, keyless: true }],
 ]);
 
 class UnknownProviderError extends Schema.TaggedError<UnknownProviderError>()(
@@ -83,7 +88,9 @@ class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()("Missi
   variable: Schema.String,
 }) {
   override get message() {
-    return `Provider "${this.provider}" reads its API key from ${this.variable}, which is not set`;
+    return this.variable === ""
+      ? `Provider "${this.provider}" needs an API key: set apiKeyEnv to the environment variable that holds it`
+      : `Provider "${this.provider}" reads its API key from ${this.variable}, which is not set`;
   }
 }
 
@@ -139,16 +146,20 @@ type Provider = {
   name: string;
   /** Sends requests under the provider's base URL, as via, with no API key yet. */
   client: HttpClient.HttpClient;
-  /** Its one API key; none for the pooled provider, whose accounts each have one. */
+  /** Its one API key; none for the pooled provider, whose accounts each have one, or a keyless one. */
   apiKey: Redacted.Redacted<string> | undefined;
+  /** OpenCode Go: each request is sent with the key of the account serving it. */
+  pooled: boolean;
   session: SessionTarget;
   /** The path of its usage endpoint, for a provider that reports usage. */
   usagePath: string | undefined;
 };
 
-/** `client`, sending each request with `apiKey`. */
-const keyed = (client: HttpClient.HttpClient, apiKey: Redacted.Redacted<string>) =>
-  HttpClient.mapRequest(client, HttpClientRequest.bearerToken(apiKey));
+/** `client`, sending each request with `apiKey`, or with no key for a provider that takes none. */
+const keyed = (client: HttpClient.HttpClient, apiKey: Redacted.Redacted<string> | undefined) =>
+  apiKey === undefined
+    ? client
+    : HttpClient.mapRequest(client, HttpClientRequest.bearerToken(apiKey));
 
 /** The provider `name` as its config describes it, filled in from its preset. */
 const resolve = (
@@ -165,7 +176,12 @@ const resolve = (
     if (baseUrl === undefined) return yield* new UnknownProviderError({ name });
     const pooled = preset?.pooled === true;
 
-    if (apiKey === undefined && !pooled) {
+    // A key its variable should hold, or a known provider that needs one, is missing. Any
+    // other provider without a variable takes no key.
+    const needsKey =
+      config.apiKeyEnv !== undefined || (preset !== undefined && preset.keyless !== true);
+
+    if (apiKey === undefined && !pooled && needsKey) {
       return yield* new MissingApiKeyError({ provider: name, variable: config.apiKeyEnv ?? "" });
     }
 
@@ -179,14 +195,15 @@ const resolve = (
       ),
       // The pooled provider's key is the one of the account each request is sent as.
       apiKey: pooled ? undefined : apiKey,
+      pooled,
       session:
         config.sessionHeader === undefined ? preset?.session : { header: config.sessionHeader },
       usagePath: preset?.usagePath,
     } satisfies Provider;
   });
 
-/** The provider's models, asked with `apiKey`, with `<provider>/<model>` ids. */
-const modelsOf = ({ name, client }: Provider, apiKey: Redacted.Redacted<string>) =>
+/** The provider's models, asked with `apiKey` if it takes one, with `<provider>/<model>` ids. */
+const modelsOf = ({ name, client }: Provider, apiKey: Redacted.Redacted<string> | undefined) =>
   keyed(client, apiKey)
     .get("/models")
     .pipe(
@@ -256,12 +273,15 @@ const make = (
       Effect.orElseSucceed(Option.none),
     );
 
-    const keyOf = (provider: Provider) =>
-      provider.apiKey === undefined ? anyAccountKey : Effect.succeedSome(provider.apiKey);
+    /** The key to ask `provider` with: its own, none for a keyless one, or an account's if pooled. */
+    const keyOf = (
+      provider: Provider,
+    ): Effect.Effect<Option.Option<Redacted.Redacted<string> | undefined>> =>
+      provider.pooled ? anyAccountKey : Effect.succeedSome(provider.apiKey);
 
     return Providers.of({
-      names: [...providers.values()].flatMap(({ name, apiKey }) =>
-        apiKey === undefined ? [] : [name],
+      names: [...providers.values()].flatMap(({ name, pooled: isPooled }) =>
+        isPooled ? [] : [name],
       ),
       usage: (apiKey) => usageOf(pooled, pooled.usagePath ?? "/usage", apiKey),
       verify: Effect.fn("Providers.verify")(function* (apiKey) {
@@ -309,7 +329,7 @@ const make = (
           ? Option.some({
               provider: provider.name,
               model: model.slice(slash + 1),
-              pooled: provider.apiKey === undefined,
+              pooled: provider.pooled,
             })
           : Option.none();
       },
@@ -321,11 +341,13 @@ const make = (
         const apiKey = accountKey ?? provider.apiKey;
 
         // The pooled provider's routes are only ever sent with an account's key.
-        if (apiKey === undefined) return yield* Effect.die(`no API key for ${route.provider}`);
+        if (apiKey === undefined && provider.pooled) {
+          return yield* Effect.die(`no API key for ${route.provider}`);
+        }
 
         const request = HttpClientRequest.post(path).pipe(
           // Anthropic's SDK sends the key as `x-api-key`, and names the version it speaks.
-          path === "/messages"
+          path === "/messages" && apiKey !== undefined
             ? HttpClientRequest.setHeaders({
                 "x-api-key": Redacted.value(apiKey),
                 "anthropic-version": ANTHROPIC_VERSION,
