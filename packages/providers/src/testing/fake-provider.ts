@@ -90,6 +90,7 @@ export const startFakeProvider = Effect.gen(function* () {
   const usageByKey = new Map<string, { status: number; body: string }>();
   const usageRequests: Array<ProviderRequest> = [];
   const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
+  const usageWaiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
 
   const record = (list: Array<ProviderRequest>, body: Schema.JsonObject) =>
     Effect.gen(function* () {
@@ -154,7 +155,15 @@ export const startFakeProvider = Effect.gen(function* () {
     HttpRouter.add(
       "GET",
       "/usage",
-      Effect.map(record(usageRequests, {}), (request) => {
+      Effect.gen(function* () {
+        const request = yield* record(usageRequests, {});
+
+        for (const waiter of usageWaiters) {
+          if (usageRequests.length >= waiter.count) {
+            yield* Deferred.succeed(waiter.deferred, undefined);
+          }
+        }
+
         const { status, body } = usageByKey.get(keyOf(request) ?? "") ?? usageAnswer;
 
         return HttpServerResponse.text(body, { status, contentType: "application/json" });
@@ -193,6 +202,14 @@ export const startFakeProvider = Effect.gen(function* () {
         if (modelRequests.length >= count) return;
         const deferred = yield* Deferred.make<void>();
         waiters.push({ count, deferred });
+        yield* Deferred.await(deferred);
+      }),
+    /** Waits until at least `count` `GET /usage` requests have arrived. */
+    usageReceived: (count: number) =>
+      Effect.gen(function* () {
+        if (usageRequests.length >= count) return;
+        const deferred = yield* Deferred.make<void>();
+        usageWaiters.push({ count, deferred });
         yield* Deferred.await(deferred);
       }),
     /** Answers every completion request. */

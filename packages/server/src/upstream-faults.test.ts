@@ -1,29 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply, sse, sseFrames } from "@via/codex-upstream/testing";
-import { Clock, Effect, Fiber, Stream } from "effect";
+import { Clock, Deferred, Effect, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { withVia } from "./testing/harness.ts";
-
-/** A pause on the real clock, for via to act on what a socket brought; a TestClock can't freeze it. */
-const realPause = Effect.sleep("5 millis").pipe(
-  Effect.provideService(Clock.Clock, Clock.Clock.defaultValue()),
-);
-
-/**
- * Moves test time on a minute at a time until `fiber` is done, and answers its
- * result. Each step waits on the real clock first, for Codex's headers to reach
- * via before the two minutes via gives them run out.
- */
-const advanceUntilDone = <A, E>(fiber: Fiber.Fiber<A, E>) =>
-  Effect.gen(function* () {
-    while (fiber.pollUnsafe() === undefined) {
-      yield* realPause;
-      yield* TestClock.adjust("1 minute");
-    }
-
-    return yield* Fiber.join(fiber);
-  });
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
 const response = {
@@ -148,9 +128,11 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
         (via) =>
           Effect.gen(function* () {
             const pending = yield* via.post(path, bodies[path]).pipe(Effect.forkChild);
-            yield* via.upstreamReceived(1);
             const start = yield* Clock.currentTimeMillis;
-            const answer = yield* advanceUntilDone(pending);
+            // Codex's headers reached via, which now gives the rest of the response 30 minutes.
+            yield* via.timer("30 minutes");
+            yield* TestClock.adjust("30 minutes");
+            const answer = yield* Fiber.join(pending);
             expect(answer.status).toBe(504);
             expect((yield* Clock.currentTimeMillis) - start).toBeGreaterThanOrEqual(30 * 60_000);
             expect(yield* answer.json).toMatchObject({
@@ -223,10 +205,17 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
         (via) =>
           Effect.gen(function* () {
             const answer = yield* via.post(path, { ...bodies[path], stream: true });
-            const reading = yield* answer.stream.pipe(Stream.runDrain, Effect.forkChild);
+            const relayed = yield* Deferred.make<void>();
+
+            const reading = yield* answer.stream.pipe(
+              Stream.runForEach(() => Deferred.succeed(relayed, undefined)),
+              Effect.forkChild,
+            );
+
             const hungUp = yield* via.upstreamHungUp(1).pipe(Effect.forkChild);
-            yield* realPause.pipe(Effect.repeat({ times: 40 }));
-            // While the client reads, via keeps reading from Codex.
+
+            // While the client reads what Codex sent, via keeps reading from Codex.
+            yield* Deferred.await(relayed);
             expect(hungUp.pollUnsafe()).toBeUndefined();
             yield* Fiber.interrupt(reading);
             yield* Fiber.join(hungUp);

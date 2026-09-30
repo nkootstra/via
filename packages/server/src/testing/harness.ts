@@ -23,7 +23,9 @@ import { PoolStates } from "@via/pool";
 import { OpencodeGoAccounts, OpencodeGoPool, Providers } from "@via/providers";
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import {
+  Clock,
   Deferred,
+  Duration,
   Effect,
   FileSystem,
   Layer,
@@ -96,6 +98,13 @@ export type Via = {
   readonly logs: ReadonlyArray<LogLine>;
   /** The usage history via keeps its requests in. */
   readonly usage: UsageHistory["Service"];
+  /**
+   * Waits until via is waiting out a timer of `duration` on the test clock,
+   * one it started and that hasn't run out yet.
+   */
+  readonly timer: (duration: Duration.Input) => Effect.Effect<void>;
+  /** Waits until via has no timer of `duration` running: it let go of every one it started. */
+  readonly noTimer: (duration: Duration.Input) => Effect.Effect<void>;
 };
 
 /** A line via logged, with the labels of its log spans. */
@@ -142,6 +151,69 @@ const collectLogs = () => {
 
   return { logger, logged, lines };
 };
+
+/**
+ * The test clock, keeping the timers started on it that are still running,
+ * and `timer(duration)`, which waits for one of `duration`. A test moves the
+ * clock on once via is waiting for it, not after a pause on the real clock,
+ * which a busy machine can outlast before via gets that far.
+ */
+const watchTimers = Effect.gen(function* () {
+  const clock = yield* TestClock.testClockWith(Effect.succeed);
+  const running = new Set<{ readonly millis: number; readonly end: number }>();
+
+  let waiters: Array<{ readonly ready: () => boolean; readonly done: Deferred.Deferred<void> }> =
+    [];
+
+  const wake = () => {
+    const due = waiters.filter(({ ready }) => ready());
+    waiters = waiters.filter((waiter) => !due.includes(waiter));
+
+    for (const { done } of due) Deferred.doneUnsafe(done, Effect.void);
+  };
+
+  const sleep = (duration: Duration.Duration) =>
+    Effect.suspend(() => {
+      const millis = Duration.toMillis(duration);
+      const timer = { millis, end: clock.currentTimeMillisUnsafe() + millis };
+      running.add(timer);
+      wake();
+
+      return clock.sleep(duration).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            running.delete(timer);
+            wake();
+          }),
+        ),
+      );
+    });
+
+  /** Whether a timer of `millis` is running and hasn't yet run out on the clock. */
+  const pending = (millis: number) =>
+    [...running].some(
+      (timer) => timer.millis === millis && timer.end > clock.currentTimeMillisUnsafe(),
+    );
+
+  const until = (ready: () => boolean) =>
+    Effect.suspend(() => {
+      if (ready()) return Effect.void;
+      const done = Deferred.makeUnsafe<void>();
+      waiters.push({ ready, done });
+
+      return Deferred.await(done);
+    });
+
+  const tracked: TestClock.TestClock = { ...clock, sleep };
+
+  return {
+    clock: tracked,
+    timer: (duration: Duration.Input) =>
+      until(() => pending(Duration.toMillis(Duration.fromInputUnsafe(duration)))),
+    noTimer: (duration: Duration.Input) =>
+      until(() => !pending(Duration.toMillis(Duration.fromInputUnsafe(duration)))),
+  };
+});
 
 /**
  * Starts via with accounts "a" and "b" (in that order) and a fresh API key.
@@ -197,6 +269,7 @@ export const withVia = <A, E>(
   } = {},
 ) =>
   Effect.gen(function* () {
+    const { clock, timer, noTimer } = yield* watchTimers;
     const fs = yield* FileSystem.FileSystem;
     const dir = yield* fs.makeTempDirectoryScoped();
 
@@ -278,7 +351,7 @@ export const withVia = <A, E>(
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(Layer.succeedContext(built)),
       ),
-    );
+    ).pipe(Effect.provideService(Clock.Clock, clock));
 
     return yield* Effect.gen(function* () {
       const { key } = yield* (yield* KeyStore).create("test");
@@ -335,6 +408,12 @@ export const withVia = <A, E>(
         logged: logs.logged,
         logs: logs.lines,
         usage: yield* UsageHistory,
+        timer,
+        noTimer,
       });
-    }).pipe(Effect.provide(server), Effect.provide(FetchHttpClient.layer));
+    }).pipe(
+      Effect.provide(server),
+      Effect.provide(FetchHttpClient.layer),
+      Effect.provideService(Clock.Clock, clock),
+    );
   });

@@ -4,7 +4,7 @@ import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply } from "@via/codex-upstream/testing";
 import { DuplicateKeyNameError } from "@via/keys";
 import { providerReply } from "@via/providers/testing";
-import { Clock, Effect, Fiber, Schedule, Schema } from "effect";
+import { Clock, Effect, Fiber, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import type { HttpClientResponse } from "effect/unstable/http";
 import { type Via, ok, withVia } from "./testing/harness.ts";
@@ -69,16 +69,21 @@ const coolingA = (request: CodexRequest) =>
     : ok();
 
 /**
- * Runs `request`, moving the test clock on until it ends: via answers a wrong
- * admin key only after a delay, which the test clock would otherwise never end.
+ * Runs `request` until it ends, moving the test clock past each second via
+ * holds a wrong admin key back for, which the test clock would otherwise never end.
  */
-const clocked = <A, E>(request: Effect.Effect<A, E>) =>
+const clocked = <A, E>(via: Via, request: Effect.Effect<A, E>) =>
   Effect.gen(function* () {
     const fiber = yield* Effect.forkChild(request);
-    yield* TestClock.withLive(Effect.sleep("2 millis")).pipe(
-      Effect.andThen(TestClock.adjust("1 second")),
-      Effect.repeat({ until: () => fiber.pollUnsafe() !== undefined }),
-    );
+
+    while (
+      !(yield* Effect.raceFirst(
+        Effect.as(Fiber.await(fiber), true),
+        Effect.as(via.timer("1 second"), false),
+      ))
+    ) {
+      yield* TestClock.adjust("1 second");
+    }
 
     return yield* Fiber.join(fiber);
   });
@@ -87,17 +92,17 @@ const clocked = <A, E>(request: Effect.Effect<A, E>) =>
 const usageLookups = (via: Via) =>
   via.upstreamRequests.filter(({ path }) => path === "/wham/usage");
 
-/** Runs `read` until `done` says so, a few real milliseconds apart: for a refresh running in the background. */
+/**
+ * Asks via with `read` until `done` says so: for work via does in the
+ * background, such as a refresh, which gets on while each request is answered.
+ */
 const eventually = <A, E>(read: Effect.Effect<A, E>, done: (value: A) => boolean) =>
-  TestClock.withLive(Effect.sleep("5 millis")).pipe(
-    Effect.andThen(read),
-    Effect.repeat({ until: done, schedule: Schedule.recurs(400) }),
-  );
+  Effect.repeat(read, { until: done });
 
 /**
- * Polls a login, a few real milliseconds apart, until it is no longer pending.
- * It doesn't move the test clock: that would run out the 30 seconds via gives
- * the issuer to answer a request still in flight.
+ * Polls a login until it is no longer pending. It doesn't move the test clock:
+ * that would run out the 30 seconds via gives the issuer to answer a request
+ * still in flight.
  */
 const settled = (via: Via, id: string) =>
   eventually(
@@ -155,7 +160,7 @@ const decodeUsageSpec = Schema.decodeUnknownSync(
 
 /** Signs in to the admin API with `key`, as the admin UI does. */
 const signIn = (via: Via, key: string, headers: Record<string, string> = {}) =>
-  clocked(via.post("/admin/session", { key }, null, headers));
+  clocked(via, via.post("/admin/session", { key }, null, headers));
 
 /** The attributes of the cookie a response sets, `name=value` first. */
 const setCookie = (response: HttpClientResponse.HttpClientResponse) =>
@@ -906,10 +911,9 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           const response = yield* via.get("/admin/usage", adminKey);
           expect(response.status).toBe(200);
           expect(yield* response.json).toEqual({ accounts: [], opencodeGo: [], refreshing: true });
-          yield* eventually(
-            Effect.sync(() => usageLookups(via).length),
-            (lookups) => lookups === 2,
-          );
+          // One lookup for each account.
+          yield* via.upstreamReceived(2);
+          expect(usageLookups(via)).toHaveLength(2);
         }),
       { adminKey },
     ),
@@ -1156,10 +1160,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
 
             yield* TestClock.adjust("6 seconds");
             yield* via.get("/admin/usage", adminKey);
-            yield* eventually(
-              Effect.sync(() => via.provider.usageRequests.length),
-              (requests) => requests === 2,
-            );
+            yield* via.provider.usageReceived(2);
           }),
         { adminKey },
       ),
@@ -1304,6 +1305,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       (via) =>
         Effect.gen(function* () {
           const wrong = yield* clocked(
+            via,
             Effect.forEach(
               Array.from({ length: 10 }),
               () => via.post("/admin/session", { key: "wrong" }, null),
@@ -1326,6 +1328,7 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       (via) =>
         Effect.gen(function* () {
           const wrong = yield* clocked(
+            via,
             Effect.forEach(
               Array.from({ length: 10 }, (_, index) => `198.51.100.${index}`),
               (address) => via.post("/admin/session", { key: "wrong" }, null, from(address)),
