@@ -286,11 +286,16 @@ const OpenrouterModel = Schema.Struct({
 
 const OpenrouterModels = Schema.Struct({ data: Schema.Array(OpenrouterModel) });
 
-/** A price per token, as OpenRouter writes it, per million tokens; none when it gives none. */
+/**
+ * A price per token, as OpenRouter writes it, per million tokens; none when it
+ * gives none, a blank, or a negative one, such as the -1 of a router whose
+ * price is that of the model it picks.
+ */
 const perMillion = (perToken: string | undefined) => {
+  if (perToken === undefined || perToken.trim() === "") return null;
   const value = Number(perToken);
 
-  return perToken === undefined || !Number.isFinite(value) ? null : value * 1_000_000;
+  return Number.isFinite(value) && value >= 0 ? value * 1_000_000 : null;
 };
 
 /** The unavailable error for `reason`. */

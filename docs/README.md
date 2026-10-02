@@ -705,7 +705,9 @@ Add your OpenRouter API key on the Accounts page of the [web UI](#web-ui). via
 checks it with OpenRouter first, then keeps it in `openrouter.json`, and shows
 it only by its last four characters. OpenRouter lists hundreds of models, so
 none is offered until you choose some: **Choose models…** in its row lists
-them all, with OpenRouter's prices, to search and switch on. Only those show
+them all, with OpenRouter's prices, to search and switch on. A model whose
+price OpenRouter doesn't fix, such as `openrouter/auto`, which costs what the
+model it routes to does, shows "Price unknown". Only those show
 in `/v1/models`; a request for another answers `404` (`model_not_found`),
 saying to enable it. Replacing the key keeps the models chosen. It all takes
 effect at once, with no restart.
