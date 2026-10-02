@@ -155,9 +155,14 @@ export const adminKey = "admin-key-that-is-long-enough-000";
  */
 export const withBinary = process.env["VIA_E2E_BIN"] !== undefined;
 
-/** Waits for the heading `name`, as a page or dialog comes in. */
+/**
+ * Waits for the heading `name`, whole, as a page or dialog comes in: "Accounts"
+ * must not find the overview's "Accounts and providers" before it has gone.
+ */
 export const visible = (page: Page, name: string) =>
-  Effect.promise(() => page.getByRole("heading", { name }).waitFor({ timeout: 10_000 }));
+  Effect.promise(() =>
+    page.getByRole("heading", { name, exact: true }).waitFor({ timeout: 10_000 }),
+  );
 
 /** Signs in to the UI at `url` with the admin key, landing on the overview. */
 export const signIn = (page: Page, url: string) =>
