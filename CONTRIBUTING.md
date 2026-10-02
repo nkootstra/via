@@ -34,7 +34,7 @@ bun apps/cli/src/index.ts --help   # run the CLI from source
 | `bun run lint`          | oxlint, warnings are errors.                                                            |
 | `bun run format`        | oxfmt. `format:check` only checks.                                                      |
 | `bun run knip`          | Finds unused files, exports and dependencies.                                           |
-| `bun run build`         | Compiles the binary, web UI included, for every package in `npm/`.                      |
+| `bun run build`         | Compiles the binary, web UI included, for every `@nkootstra/via-<os>-<arch>` in `npm/`. |
 | `bun run smoke`         | Installs the packed npm packages and runs them under Node.                              |
 | `bun run prices:update` | Refreshes the model prices via ships with from models.dev and LiteLLM; review the diff. |
 

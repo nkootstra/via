@@ -45,12 +45,26 @@ it.effect("stamps the version on every package users get, and the launcher's bin
 
     for (const file of STAMPED) expect((yield* read(file)).version).toBe("1.2.3");
     expect((yield* read("npm/via/package.json")).optionalDependencies).toEqual({
-      "via-darwin-arm64": "1.2.3",
-      "via-darwin-x64": "1.2.3",
-      "via-linux-arm64": "1.2.3",
-      "via-linux-x64": "1.2.3",
+      "@nkootstra/via-darwin-arm64": "1.2.3",
+      "@nkootstra/via-darwin-x64": "1.2.3",
+      "@nkootstra/via-linux-arm64": "1.2.3",
+      "@nkootstra/via-linux-x64": "1.2.3",
     });
     expect((yield* read("apps/cli/package.json")).name).toBe("@via/cli");
+  }),
+);
+
+it.effect("publishes the npm packages publicly under the @nkootstra scope", () =>
+  Effect.gen(function* () {
+    const { read } = yield* stamp("1.2.3");
+
+    for (const file of STAMPED.filter((path) => path.startsWith("npm/"))) {
+      const pkg = yield* read(file);
+      expect(pkg.name).toBe(`@nkootstra/${file.split("/")[1]}`);
+      expect(pkg.publishConfig).toEqual({ access: "public" });
+    }
+
+    expect((yield* read("npm/via/package.json")).bin).toEqual({ via: "bin/via.js" });
   }),
 );
 

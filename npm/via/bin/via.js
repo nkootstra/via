@@ -2,7 +2,7 @@
 // Runs the prebuilt via binary from the platform package npm installed alongside.
 const { spawnSync } = require("node:child_process");
 
-const platform = `via-${process.platform}-${process.arch}`;
+const platform = `@nkootstra/via-${process.platform}-${process.arch}`;
 
 let binary;
 

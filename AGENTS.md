@@ -96,5 +96,6 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
 - `tools/oxlint/anti-slop`: vendored Oxlint rules, enabled in `.oxlintrc.json`.
   Changes to them are recorded in its `UPSTREAM.md`.
 - `npm/`: distribution. `bun run build` compiles the binary into each
-  `npm/via-<os>-<arch>` package; `npm/via` is the Node launcher; `bun run smoke`
+  `npm/via-<os>-<arch>` package (published as `@nkootstra/via-<os>-<arch>`);
+  `npm/via` is the Node launcher (`@nkootstra/via`, bin `via`); `bun run smoke`
   installs the packed packages with npm and runs them under Node.
