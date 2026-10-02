@@ -53,13 +53,16 @@ const make = Effect.gen(function* () {
 
   /** The stored account, with the rotated tokens it couldn't save yet, saving them now if it can. */
   const current = Effect.fnUntraced(function* (id: string) {
-    const stored = yield* store.find(id);
+    const stored = yield* store.read(id);
     const pending = unsaved.get(id);
 
     return pending === undefined ? stored : yield* saveRotation(stored, pending);
   });
 
-  /** Refreshes the account when `needed` says so, one refresh per account at a time. */
+  /**
+   * Refreshes the account when `needed` says so, one refresh per account at a time, in this
+   * process and across every via process.
+   */
   const refreshIf = Effect.fn("AccountTokens.refreshIf")(function* (
     id: string,
     needed: (account: Account, now: number) => boolean,
@@ -67,7 +70,8 @@ const make = Effect.gen(function* () {
     const lock = yield* lockFor(id);
 
     return yield* Effect.gen(function* () {
-      // Read under the lock, so a caller that waited sees the refresh it waited for.
+      // Read under the locks, so a caller that waited sees the refresh it waited for,
+      // whichever process made it.
       const account = yield* current(id);
 
       if (!needed(account, yield* Clock.currentTimeMillis)) return account;
@@ -77,7 +81,7 @@ const make = Effect.gen(function* () {
       return yield* Effect.uninterruptible(
         Effect.flatMap(auth.refresh(account), (tokens) => saveRotation(account, tokens)),
       );
-    }).pipe(Semaphore.withPermit(lock));
+    }).pipe((refresh) => store.lockedForRefresh(id, refresh), Semaphore.withPermit(lock));
   });
 
   /**

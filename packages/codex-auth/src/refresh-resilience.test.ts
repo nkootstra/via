@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Deferred, Effect, Fiber, FileSystem, Layer, PlatformError } from "effect";
+import { Context, Deferred, Effect, Fiber, FileSystem, Layer, PlatformError } from "effect";
 import { TestClock } from "effect/testing";
 import { seedAccount, tokensFor } from "./testing/index.ts";
 import { AccountStore, AccountTokens, CodexAuth, RefreshRejectedError } from "./index.ts";
@@ -145,6 +145,35 @@ layer(BunFileSystem.layer)("AccountTokens refreshing", (it) => {
         Effect.provide(tokensLayer(authDir, auth, yield* flakyDisk(authDir, disk))),
         TestClock.withLive,
       );
+    }),
+  );
+
+  it.effect("two processes refreshing the same account at once spend its refresh token once", () =>
+    Effect.gen(function* () {
+      const authDir = yield* tempAuthDir;
+      yield* seedAccount(authDir, "a", { expiresAt: 0 });
+      const { auth, used } = rotatingIssuer();
+
+      // Two layers are two processes, each with its own in-process locks, as `via accounts
+      // status` next to a running `via serve` are.
+      const processAt = Layer.build(tokensLayer(authDir, auth)).pipe(
+        Effect.map(Context.get(AccountTokens)),
+      );
+
+      const serve = yield* processAt;
+      const cli = yield* processAt;
+
+      const stored = yield* Effect.flatMap(Layer.build(AccountStore.layer(authDir)), (context) =>
+        Context.get(context, AccountStore).find("a"),
+      );
+
+      // Live time: a process waiting on the other's lock file polls for it in real time.
+      const fresh = yield* TestClock.withLive(
+        Effect.all([serve.fresh(stored), cli.fresh(stored)], { concurrency: "unbounded" }),
+      );
+
+      expect(fresh.map((account) => account.accessToken)).toEqual(["at-2", "at-2"]);
+      expect(used).toEqual(["rt-1"]);
     }),
   );
 });
