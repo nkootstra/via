@@ -29,14 +29,21 @@ const isOld = (at: number, maxAge: Duration.Input) =>
 /** Ids, in order, as one string: two lists of the same accounts make the same key. */
 const keyOf = (ids: ReadonlyArray<string>) => ids.join("\n");
 
+/** How long a failed load is remembered, so calls meanwhile fail at once instead of loading again. */
+const FAILURE_KEPT = Duration.minutes(1);
+
 /**
  * Keeps `load(input)`'s last success, for the `key` of the input it loaded.
  * A call with an input of another key, such as when the accounts that serve
  * changed, waits for a load of its own, as does the first; once what it keeps
  * is `maxAge` old, a call starts one reload in the background and still
- * answers with what it keeps, so the next call gets the new answer.
+ * answers with what it keeps, so the next call gets the new answer. A failed
+ * load is remembered for a minute, with a warning that names `what` failed:
+ * meanwhile a call with nothing kept fails with it at once, and one with an
+ * old answer starts no reload.
  */
 const stale = <I, A, E, R>(
+  what: string,
   load: (input: I) => Effect.Effect<A, E, R>,
   key: (input: I) => string,
   maxAge: Duration.Input,
@@ -50,14 +57,43 @@ const stale = <I, A, E, R>(
       Option.none<{ readonly key: string; readonly value: A; readonly at: number }>(),
     );
 
+    const failed = yield* Ref.make(
+      Option.none<{ readonly key: string; readonly error: E; readonly at: number }>(),
+    );
+
     const reload = (input: I) =>
       Effect.gen(function* () {
-        const value = yield* load(input);
+        const value = yield* load(input).pipe(
+          Effect.tapError((error) =>
+            Effect.flatMap(Clock.currentTimeMillis, (at) =>
+              Ref.set(failed, Option.some({ key: key(input), error, at })),
+            ).pipe(
+              Effect.andThen(
+                Effect.logWarning(
+                  `Could not load ${what}; trying again in a minute at the earliest`,
+                ),
+              ),
+            ),
+          ),
+        );
         const at = yield* Clock.currentTimeMillis;
         yield* Ref.set(kept, Option.some({ key: key(input), value, at }));
+        yield* Ref.set(failed, Option.none());
 
         return value;
       }).pipe(Effect.provide(context));
+
+    /** The error a load for `input` failed with less than a minute ago, if one did. */
+    const failedRecently = (input: I) =>
+      Effect.gen(function* () {
+        const last = Option.filter(yield* Ref.get(failed), (failure) => failure.key === key(input));
+
+        if (Option.isNone(last) || (yield* isOld(last.value.at, FAILURE_KEPT))) {
+          return Option.none<E>();
+        }
+
+        return Option.some(last.value.error);
+      });
 
     /** What is kept for `input`, if anything is. */
     const keptFor = (input: I) =>
@@ -74,6 +110,11 @@ const stale = <I, A, E, R>(
         if (Option.isSome(current) && !(yield* isOld(current.value.at, maxAge)))
           return current.value.value;
 
+        // Calls that queued behind a load that failed fail with it rather than loading again.
+        const failure = yield* failedRecently(input);
+
+        if (Option.isSome(failure)) return yield* Effect.fail(failure.value);
+
         return yield* reload(input);
       });
 
@@ -85,7 +126,10 @@ const stale = <I, A, E, R>(
         // Calls that find nothing kept for their input wait for one shared load.
         if (Option.isNone(current)) return yield* Semaphore.withPermits(lock, 1)(loadIfOld(input));
 
-        if (yield* isOld(current.value.at, maxAge)) {
+        if (
+          (yield* isOld(current.value.at, maxAge)) &&
+          Option.isNone(yield* failedRecently(input))
+        ) {
           // One reload at a time; a failed one keeps the old answer, and a later call tries again.
           yield* Semaphore.withPermitsIfAvailable(
             lock,
@@ -155,7 +199,12 @@ export class ModelCatalog extends Context.Service<
       const providers = yield* Providers;
       const opencodeGo = yield* OpencodeGoAccounts;
 
-      const providerModels = yield* stale(() => providers.models, keyOf, "5 minutes");
+      const providerModels = yield* stale(
+        "the providers' models",
+        () => providers.models,
+        keyOf,
+        "5 minutes",
+      );
 
       /** The enabled OpenCode Go accounts, by id: the keys its models can be asked with. */
       const enabledOpencodeGo = opencodeGo.list.pipe(
@@ -209,6 +258,7 @@ export class ModelCatalog extends Context.Service<
         );
 
       const offeredTo = yield* stale(
+        "the models Codex offers",
         ask,
         (accounts) => keyOf(accounts.map(({ id }) => id)),
         "5 minutes",

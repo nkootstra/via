@@ -199,13 +199,46 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
             yield* via.get("/v1/models");
             codex.models("not a catalog");
             yield* TestClock.adjust("5 minutes");
+            expect(yield* listed(via)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            yield* via.logged("Could not load the models Codex offers");
+
+            // No reload for a minute after one failed.
+            expect(yield* listed(via)).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+            expect(codex.modelRequests).toHaveLength(4);
 
             // A second round of asks means the first one failed and was let go.
+            yield* TestClock.adjust("1 minute");
             const last = yield* listed(via).pipe(
               Effect.repeat({ until: () => codex.modelRequests.length >= 6 }),
             );
 
             expect(last).toEqual(["gpt-7", "gpt-7-low", "gpt-7-high"]);
+          }),
+        { codexUrl: codex.url },
+      );
+    }),
+  );
+
+  it.effect("asks Codex for its catalog again only a minute after asking failed", () =>
+    Effect.gen(function* () {
+      const codex = yield* startFakeCodex;
+      codex.respond(ok);
+      codex.models("not a catalog");
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const ask = via.post("/v1/responses", { model: "gpt-7", input: "hi" });
+
+            // The catalog is unknown, so any account serves; one ask per account, made once.
+            expect((yield* ask).status).toBe(200);
+            expect((yield* ask).status).toBe(200);
+            expect((yield* ask).status).toBe(200);
+            expect(codex.modelRequests).toHaveLength(2);
+
+            yield* TestClock.adjust("1 minute");
+            expect((yield* ask).status).toBe(200);
+            expect(codex.modelRequests).toHaveLength(4);
           }),
         { codexUrl: codex.url },
       );

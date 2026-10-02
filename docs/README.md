@@ -204,7 +204,8 @@ the list as it starts and answers from it at once; once it is five minutes old,
 via fetches a new one in the background for the next request. Disabling,
 enabling, adding or removing an account, or one being locked out, changes the
 list at once. When Codex can't be asked, it lists the models via knows:
-`gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna`.
+`gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna`, logs a warning, and asks again
+no sooner than a minute later; meanwhile any account may serve any model.
 
 Add an effort suffix to a model id to pick the reasoning effort, as in
 `gpt-6-astra-high`. The list shows each model with the suffixes it supports,
