@@ -19,7 +19,14 @@ const FunctionCallItem = Schema.Struct({
   arguments: Schema.String,
 });
 
-// Reasoning and other items have no Chat Completions counterpart.
+const SummaryText = Schema.Struct({ type: Schema.Literal("summary_text"), text: Schema.String });
+
+const ReasoningItem = Schema.Struct({
+  type: Schema.Literal("reasoning"),
+  summary: Schema.Array(Schema.Union([SummaryText, Schema.Struct({ type: Schema.String })])),
+});
+
+// Other items have no Chat Completions counterpart.
 const OtherItem = Schema.Struct({ type: Schema.String });
 
 /** Responses usage with the total, which Chat Completions reports. */
@@ -29,7 +36,7 @@ export const CompletedResponse = Schema.Struct({
   id: Schema.String,
   created_at: Schema.Finite,
   model: Schema.String,
-  output: Schema.Array(Schema.Union([MessageItem, FunctionCallItem, OtherItem])),
+  output: Schema.Array(Schema.Union([MessageItem, FunctionCallItem, ReasoningItem, OtherItem])),
   // Codex may leave the usage out, or send `null`; the answer is no less complete.
   usage: Schema.optionalKey(Schema.NullOr(Usage)),
   incomplete_details: Schema.optionalKey(Schema.NullOr(Schema.Struct({ reason: Schema.String }))),
@@ -44,6 +51,10 @@ const isRefusal = Schema.is(Refusal);
 const isMessageItem = Schema.is(MessageItem);
 
 const isFunctionCallItem = Schema.is(FunctionCallItem);
+
+const isReasoningItem = Schema.is(ReasoningItem);
+
+const isSummaryText = Schema.is(SummaryText);
 
 /** Token usage in Chat Completions terms, with only the details Codex reported. */
 export const chatUsage = (usage: typeof Usage.Type) => {
@@ -96,6 +107,15 @@ export const toChatCompletion = (response: CompletedResponse) => {
     .map((part) => part.refusal)
     .join("");
 
+  // Each summary part reads as a paragraph, as `toChatStream` streams them.
+  const reasoning = response.output
+    .filter(isReasoningItem)
+    .flatMap((item) => item.summary)
+    .filter(isSummaryText)
+    .map((part) => part.text)
+    .filter((text) => text !== "")
+    .join("\n\n");
+
   const toolCalls = response.output
     .filter(isFunctionCallItem)
     .map((call) => toolCall(call.call_id, call.name, call.arguments));
@@ -112,6 +132,7 @@ export const toChatCompletion = (response: CompletedResponse) => {
           role: "assistant",
           // A refusal, like a tool call, answers in place of content.
           content: text === "" && (toolCalls.length > 0 || refusal !== "") ? null : text,
+          ...(reasoning !== "" && { reasoning_content: reasoning }),
           ...(refusal !== "" && { refusal }),
           ...(toolCalls.length > 0 && { tool_calls: toolCalls }),
         },

@@ -53,6 +53,35 @@ describe("toChatCompletion", () => {
     });
   });
 
+  it("puts the reasoning summaries in reasoning content, a blank line between parts", () => {
+    const completion = translate({
+      id: "resp_1",
+      created_at: 1_700_000_000,
+      model: "gpt-6-astra",
+      output: [
+        {
+          type: "reasoning",
+          id: "rs_1",
+          summary: [
+            { type: "summary_text", text: "Weighing it" },
+            { type: "summary_text", text: "" },
+            { type: "summary_text", text: "Decided" },
+          ],
+          encrypted_content: "gAAA",
+        },
+        { type: "reasoning", id: "rs_2", summary: [{ type: "summary_text", text: "Again" }] },
+        { type: "message", content: [{ type: "output_text", text: "Hi" }] },
+      ],
+      usage,
+    });
+
+    expect(completion.choices[0]?.message).toEqual({
+      role: "assistant",
+      content: "Hi",
+      reasoning_content: "Weighing it\n\nDecided\n\nAgain",
+    });
+  });
+
   it("puts a refusal in the message's refusal, with no content", () => {
     const completion = translate({
       id: "resp_1",

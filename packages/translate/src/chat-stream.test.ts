@@ -417,7 +417,10 @@ describe("toChatStream and toChatCompletion", () => {
       deltas: Schema.Array(Schema.String),
     }),
     Schema.Struct({ type: Schema.Literal("refusal"), deltas: Schema.Array(Schema.String) }),
-    Schema.Struct({ type: Schema.Literal("reasoning") }),
+    Schema.Struct({
+      type: Schema.Literal("reasoning"),
+      summary: Schema.Array(Schema.Array(Schema.String)),
+    }),
   ]);
 
   const Count = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1_000_000 }));
@@ -435,6 +438,8 @@ describe("toChatStream and toChatCompletion", () => {
   const isFunctionCall = Schema.is(Item.members[1]);
 
   const isRefusal = Schema.is(Item.members[2]);
+
+  const isReasoning = Schema.is(Item.members[3]);
 
   const envelope = { id: "resp_1", created_at: 1_700_000_000, model: "gpt-6-astra" };
 
@@ -456,7 +461,12 @@ describe("toChatStream and toChatCompletion", () => {
         return { type: "message", content: [{ type: "refusal", refusal: item.deltas.join("") }] };
       }
 
-      return { type: "reasoning", summary: [] };
+      const summary = isReasoning(item) ? item.summary : [];
+
+      return {
+        type: "reasoning",
+        summary: summary.map((part) => ({ type: "summary_text", text: part.join("") })),
+      };
     }),
     usage,
     incomplete_details: incomplete === null ? null : { reason: incomplete },
@@ -493,9 +503,18 @@ describe("toChatStream and toChatCompletion", () => {
         ];
       }
 
+      const summary = isReasoning(item) ? item.summary : [];
+
       return [
         { type: "response.output_item.added", output_index, item: { type: "reasoning" } },
-        { type: "response.reasoning_summary_text.delta", output_index, delta: "Hmm" },
+        ...summary.flatMap((part, summary_index) =>
+          part.map((delta) => ({
+            type: "response.reasoning_summary_text.delta",
+            output_index,
+            summary_index,
+            delta,
+          })),
+        ),
       ];
     }),
     incomplete === null
@@ -520,6 +539,7 @@ describe("toChatStream and toChatCompletion", () => {
       Schema.Struct({
         delta: Schema.Struct({
           content: Schema.optionalKey(Schema.String),
+          reasoning_content: Schema.optionalKey(Schema.String),
           refusal: Schema.optionalKey(Schema.String),
           tool_calls: Schema.optionalKey(Schema.Array(ToolCallDelta)),
         }),
@@ -555,6 +575,7 @@ describe("toChatStream and toChatCompletion", () => {
       created: chunks[0]?.created,
       model: chunks[0]?.model,
       content: choices.map((choice) => choice.delta.content ?? "").join(""),
+      reasoning: choices.map((choice) => choice.delta.reasoning_content ?? "").join(""),
       refusal: choices.map((choice) => choice.delta.refusal ?? "").join(""),
       calls,
       finish: choices.findLast((choice) => choice.finish_reason !== null)?.finish_reason,
@@ -577,6 +598,7 @@ describe("toChatStream and toChatCompletion", () => {
             created: answer.created,
             model: answer.model,
             content: message.content ?? "",
+            reasoning: "reasoning_content" in message ? message.reasoning_content : "",
             refusal: "refusal" in message ? message.refusal : "",
             calls: message.tool_calls ?? [],
             finish: finish_reason,
