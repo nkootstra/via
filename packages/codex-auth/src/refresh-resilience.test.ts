@@ -176,4 +176,41 @@ layer(BunFileSystem.layer)("AccountTokens refreshing", (it) => {
       expect(used).toEqual(["rt-1"]);
     }),
   );
+
+  it.effect("a refresh token another process already spent gives the tokens it saved", () =>
+    Effect.gen(function* () {
+      const authDir = yield* tempAuthDir;
+      yield* seedAccount(authDir, "a", { expiresAt: 0 });
+
+      const other = yield* Effect.map(Layer.build(AccountStore.layer(authDir)), (context) =>
+        Context.get(context, AccountStore),
+      );
+
+      // Another process, one that doesn't take the lock, refreshes "a" and saves its rotation
+      // just before this one's refresh reaches the issuer.
+      const auth = CodexAuth.of({
+        ...rotatingIssuer().auth,
+        refresh: () =>
+          other
+            .saveRefreshed(
+              "a",
+              tokensFor("a", { accessToken: "at-2", refreshToken: "rt-2", expiresAt: 1e15 }),
+            )
+            .pipe(
+              // The other process's save is part of the test's setup.
+              Effect.orDie,
+              Effect.andThen(new RefreshRejectedError({ code: "refresh_token_reused" })),
+            ),
+      });
+
+      const fresh = yield* Effect.flatMap(AccountStore, (store) => store.find("a")).pipe(
+        Effect.flatMap((account) =>
+          Effect.flatMap(AccountTokens, (tokens) => tokens.fresh(account)),
+        ),
+        Effect.provide(tokensLayer(authDir, auth)),
+      );
+
+      expect(fresh).toMatchObject({ accessToken: "at-2", refreshToken: "rt-2" });
+    }),
+  );
 });

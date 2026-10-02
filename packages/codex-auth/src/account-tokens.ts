@@ -1,6 +1,6 @@
 import { Clock, Context, Duration, Effect, Layer, Predicate, Schedule, Semaphore } from "effect";
 import { type Account, AccountStore } from "./accounts.ts";
-import { CodexAuth, type Tokens } from "./codex-auth.ts";
+import { CodexAuth, type RefreshRejectedError, type Tokens } from "./codex-auth.ts";
 
 const REFRESH_WINDOW = Duration.minutes(5);
 
@@ -60,6 +60,15 @@ const make = Effect.gen(function* () {
   });
 
   /**
+   * `account` as another process refreshed it, after the issuer refused its refresh token
+   * with `rejected`, perhaps because that process spent it; else the refusal.
+   */
+  const refreshedElsewhere = (account: Account, rejected: RefreshRejectedError) =>
+    Effect.flatMap(store.read(account.id), (stored) =>
+      stored.refreshToken === account.refreshToken ? Effect.fail(rejected) : Effect.succeed(stored),
+    );
+
+  /**
    * Refreshes the account when `needed` says so, one refresh per account at a time, in this
    * process and across every via process.
    */
@@ -80,6 +89,8 @@ const make = Effect.gen(function* () {
       // mustn't stop the new one from being saved.
       return yield* Effect.uninterruptible(
         Effect.flatMap(auth.refresh(account), (tokens) => saveRotation(account, tokens)),
+      ).pipe(
+        Effect.catchTag("RefreshRejectedError", (error) => refreshedElsewhere(account, error)),
       );
     }).pipe((refresh) => store.lockedForRefresh(id, refresh), Semaphore.withPermit(lock));
   });
