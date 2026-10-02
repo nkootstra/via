@@ -254,12 +254,16 @@ layer(BunFileSystem.layer)("UsagePoll", (it) => {
 
       yield* withPoll("a", ({ account, codex, logged, authDir }) =>
         Effect.gen(function* () {
-          yield* fs.writeFileString(`${authDir}/broken.json`, "not json");
+          // A file where the accounts' directory should be can't be listed; a corrupt account
+          // file wouldn't do, as a pass skips it.
+          yield* fs.rename(authDir, `${authDir}.moved`);
+          yield* fs.writeFileString(authDir, "not a directory");
           yield* TestClock.adjust("15 minutes");
           yield* logged("usage poll pass failed");
           expect(codex.requests).toHaveLength(1);
 
-          yield* fs.remove(`${authDir}/broken.json`);
+          yield* fs.remove(authDir);
+          yield* fs.rename(`${authDir}.moved`, authDir);
           codex.usage("acc-a", {}, 401);
           yield* TestClock.adjust("15 minutes");
           yield* logged(`Could not poll ${account.label}'s usage`);

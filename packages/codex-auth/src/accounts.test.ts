@@ -1,6 +1,5 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { CorruptFileError } from "@via/config";
 import { Context, Effect, FileSystem, Layer, Ref, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { seedAccount, tokensFor } from "./testing/index.ts";
@@ -194,15 +193,15 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     ),
   );
 
-  it.effect("fails with CorruptFileError naming an account file it cannot read", () =>
+  it.effect("skips an account file it cannot read, so the other accounts keep serving", () =>
     withAccountStore((authDir) =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
-        yield* fs.makeDirectory(authDir, { recursive: true });
+        const store = yield* AccountStore;
+        const { account: saved } = yield* store.save(tokensFor("a"));
         yield* fs.writeFileString(`${authDir}/broken.json`, '{"id": "broken"}');
-        const error = yield* Effect.flip((yield* AccountStore).list);
-        expect(error).toBeInstanceOf(CorruptFileError);
-        expect(error).toMatchObject({ path: `${authDir}/broken.json` });
+        expect(yield* store.list).toEqual([saved]);
+        expect(yield* store.find(saved.id)).toEqual(saved);
       }),
     ),
   );

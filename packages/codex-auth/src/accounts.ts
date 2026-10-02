@@ -1,10 +1,12 @@
 import { CorruptFileError, withFileLock, writeJsonFile } from "@via/config";
 import {
+  Array as Arr,
   Context,
   DateTime,
   Effect,
   FileSystem,
   Layer,
+  Option,
   Schema,
   Semaphore,
   Stream,
@@ -66,11 +68,18 @@ const make = (authDir: string) => {
 
       const accounts = yield* Effect.forEach(
         files.filter((name) => name.endsWith(".json")),
-        (name) => readAccount(`${authDir}/${name}`),
+        (name) =>
+          readAccount(`${authDir}/${name}`).pipe(
+            Effect.asSome,
+            // One unreadable account file mustn't take every other account down with it.
+            Effect.catchTag("CorruptFileError", (error) =>
+              Effect.as(Effect.logWarning(`Skipping account: ${error.message}`), Option.none()),
+            ),
+          ),
         { concurrency: "unbounded" },
       );
 
-      return accounts.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return Arr.getSomes(accounts).toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
     }).pipe(Effect.withSpan("AccountStore.list"));
 
     const write = (account: Account) =>
