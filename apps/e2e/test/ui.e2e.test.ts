@@ -1,15 +1,17 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
-import type { Page } from "playwright";
 import { reply } from "@via/codex-upstream/testing";
-import { launchVia, openPage, post, startCodex } from "./harness.ts";
-
-const adminKey = "admin-key-that-is-long-enough-000";
-
-// The browser runs the UI embedded in a compiled binary, as users get it; the
-// build job, which has one, installs Chromium for these.
-const withBinary = process.env["VIA_E2E_BIN"] !== undefined;
+import {
+  adminKey,
+  launchVia,
+  openPage,
+  post,
+  signIn,
+  startCodex,
+  visible,
+  withBinary,
+} from "./harness.ts";
 
 /** A via with one account and the admin key set, so it serves the UI, and its fake Codex. */
 const viaAndCodex = Effect.gen(function* () {
@@ -49,18 +51,6 @@ const adminBeforeFirstCard = `(() => {
     .map((entry) => new URL(entry.name).pathname)
     .filter((path) => path.startsWith("/admin"));
 })()`;
-
-const visible = (page: Page, name: string) =>
-  Effect.promise(() => page.getByRole("heading", { name }).waitFor({ timeout: 10_000 }));
-
-const signIn = (page: Page, url: string) =>
-  Effect.gen(function* () {
-    yield* Effect.promise(() => page.goto(`${url}/ui/`));
-    yield* visible(page, "Sign in");
-    yield* Effect.promise(() => page.getByLabel("Admin key").fill(adminKey));
-    yield* Effect.promise(() => page.getByRole("button", { name: "Sign in" }).click());
-    yield* visible(page, "Overview");
-  });
 
 layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
   it.effect.runIf(withBinary)("loads with no console errors or CSP violations", () =>

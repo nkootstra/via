@@ -9,7 +9,7 @@ import {
 } from "@via/codex-upstream/testing";
 import { Effect, Exit, Predicate, Schema } from "effect";
 import OpenAI from "openai";
-import { type BrowserContextOptions, chromium } from "playwright";
+import { type BrowserContextOptions, chromium, type Page } from "playwright";
 
 export { freePort, realTime, runVia, tempHome } from "@via/cli/testing";
 
@@ -145,3 +145,26 @@ export const errorFixture = (name: string) =>
   Effect.map(codexErrorFixture(name), ({ status, headers, body }) =>
     reply.error(status, body, headers),
   );
+
+/** The admin key a via that serves the UI is started with. */
+export const adminKey = "admin-key-that-is-long-enough-000";
+
+/**
+ * Whether the browser tests run: they drive the UI embedded in a compiled
+ * binary, as users get it, and the build job, which has one, installs Chromium.
+ */
+export const withBinary = process.env["VIA_E2E_BIN"] !== undefined;
+
+/** Waits for the heading `name`, as a page or dialog comes in. */
+export const visible = (page: Page, name: string) =>
+  Effect.promise(() => page.getByRole("heading", { name }).waitFor({ timeout: 10_000 }));
+
+/** Signs in to the UI at `url` with the admin key, landing on the overview. */
+export const signIn = (page: Page, url: string) =>
+  Effect.gen(function* () {
+    yield* Effect.promise(() => page.goto(`${url}/ui/`));
+    yield* visible(page, "Sign in");
+    yield* Effect.promise(() => page.getByLabel("Admin key").fill(adminKey));
+    yield* Effect.promise(() => page.getByRole("button", { name: "Sign in" }).click());
+    yield* visible(page, "Overview");
+  });
