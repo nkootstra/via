@@ -188,6 +188,13 @@ via bounds what one request can take:
   provider that doesn't stream answers only once the model is done. After
   that, a stream runs as long as the model takes. An upstream that doesn't
   start in time answers `502`, like one that can't be reached.
+- Once an answer has started, the upstream may go 5 minutes without sending
+  anything, as long as the Codex CLI waits; a reasoning model can think for
+  minutes between chunks. After that via ends its request upstream. A
+  streamed Codex answer, or one translated to Chat Completions, then ends in
+  an `upstream_incomplete` error event, and one via collects for a client that
+  doesn't stream answers `504 upstream_timeout`. A provider's answer passed
+  through as it comes breaks off, as if the provider had dropped it.
 - A non-streaming Codex response that hasn't completed after 30 minutes
   answers `504 upstream_timeout`, and one whose stream runs past 128 MiB
   answers `502 upstream_too_large`.

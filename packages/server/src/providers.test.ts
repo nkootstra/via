@@ -1,7 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { providerReply } from "@via/providers/testing";
-import { Effect } from "effect";
+import { Effect, Fiber, Result, Stream } from "effect";
+import { TestClock } from "effect/testing";
 import { ok, withVia } from "./testing/harness.ts";
 
 const completion = { id: "chatcmpl-or", object: "chat.completion", choices: [] };
@@ -51,6 +52,33 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
 
         expect(response.headers["content-type"]).toContain("text/event-stream");
         expect(yield* response.text).toBe(sse);
+      }),
+    ),
+  );
+
+  it.effect("ends a provider's stream that goes quiet for 5 minutes", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const sse = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n';
+        via.provider.respond(providerReply.sseThenHang(sse));
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "openrouter/qwen/qwen3",
+          stream: true,
+          messages: [{ role: "user", content: "hi" }],
+        });
+
+        const read = yield* response.stream.pipe(
+          Stream.decodeText,
+          Stream.mkString,
+          Effect.result,
+          Effect.forkChild,
+        );
+
+        yield* via.timer("5 minutes");
+        yield* TestClock.adjust("5 minutes");
+        // Like a stream the provider broke off: the client's read fails.
+        expect(Result.isFailure(yield* Fiber.join(read))).toBe(true);
       }),
     ),
   );
