@@ -3,9 +3,9 @@ import { Clock, Duration, Effect, Ref, Stream } from "effect";
 /** An SSE comment: clients skip it, but it keeps the connection from looking idle. */
 const PING = new TextEncoder().encode(": keepalive\n\n");
 
-// Bun closes a connection that sends nothing for 10 seconds (its `idleTimeout`),
-// and so do some proxies, sooner or later. A model can reason for longer than that
-// before its next event, so a quiet stream gets a comment well within it.
+// Proxies close a connection that sends nothing, some after as little as 10
+// seconds, as Bun does by default. A model can reason for longer than that before
+// its next event, so a quiet stream gets a comment well within it.
 const QUIET = Duration.seconds(5);
 
 const LF = 10;

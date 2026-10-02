@@ -153,6 +153,10 @@ export const serve = ({
               hostname: Option.getOrElse(host, () => config.host),
               port: Option.getOrElse(port, () => config.port),
               maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
+              // No idle timeout: Bun's 10 seconds, or even its longest, 255, would cut a
+              // provider's answer that goes quiet after it starts. via's own timeouts
+              // bound the upstream, and a client that hangs up ends the request.
+              idleTimeout: 0,
             }),
           ),
           // One pool and one set of usage snapshots, shared by the API and the usage poll.
