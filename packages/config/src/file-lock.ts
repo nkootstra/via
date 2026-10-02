@@ -1,4 +1,14 @@
-import { Clock, Data, Effect, FileSystem, Option, Predicate, Schedule, Schema } from "effect";
+import {
+  Clock,
+  Data,
+  Effect,
+  FileSystem,
+  Option,
+  Predicate,
+  Random,
+  Schedule,
+  Schema,
+} from "effect";
 import { dirname } from "node:path";
 
 // A holder renews its lock every second for as long as it holds it, so a lock this old was
@@ -23,18 +33,32 @@ export class FileLockTimeoutError extends Schema.TaggedError<FileLockTimeoutErro
   }
 }
 
-/** Creates the lock file if no one holds it; whether it did. */
-const tryCreate = (fs: FileSystem.FileSystem, lock: string) =>
-  fs.writeFileString(lock, "", { flag: "wx", mode: 0o600 }).pipe(
+/** Identifies one holder, so it acts only on a lock file it still owns. */
+const makeToken = Effect.gen(function* () {
+  const parts = yield* Effect.replicateEffect(Random.nextInt, 4);
+
+  return parts.map((part) => (part >>> 0).toString(16).padStart(8, "0")).join("");
+});
+
+/** Creates the lock file holding `token` if no one holds it; whether it did. */
+const tryCreate = (fs: FileSystem.FileSystem, lock: string, token: string) =>
+  fs.writeFileString(lock, token, { flag: "wx", mode: 0o600 }).pipe(
     Effect.as(true),
     Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.succeed(false)),
   );
 
-const acquire = (path: string, lock: string) =>
+/** Whether `lock` still holds `token`, that is, no other holder has taken it over as stale. */
+const owns = (fs: FileSystem.FileSystem, lock: string, token: string) =>
+  fs.readFileString(lock).pipe(
+    Effect.map((text) => text === token),
+    Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
+  );
+
+const acquire = (path: string, lock: string, token: string) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
 
-    if (yield* tryCreate(fs, lock)) return;
+    if (yield* tryCreate(fs, lock, token)) return;
     const now = yield* Clock.currentTimeMillis;
 
     // The holder may release the lock between the failed create and this stat.
@@ -48,7 +72,7 @@ const acquire = (path: string, lock: string) =>
     if (stale) {
       yield* fs.remove(lock, { force: true });
 
-      if (yield* tryCreate(fs, lock)) return;
+      if (yield* tryCreate(fs, lock, token)) return;
     }
 
     return yield* new LockBusy();
@@ -60,9 +84,13 @@ const acquire = (path: string, lock: string) =>
     Effect.catchTag("LockBusy", () => Effect.fail(new FileLockTimeoutError({ path }))),
   );
 
-/** Keeps `lock` from going stale, touching it every second until interrupted. */
-const renew = (fs: FileSystem.FileSystem, lock: string) =>
+/**
+ * Keeps `lock` from going stale, touching it every second until interrupted, but only while it
+ * still holds `token`: a lock taken over as stale belongs to its new holder.
+ */
+const renew = (fs: FileSystem.FileSystem, lock: string, token: string) =>
   Effect.gen(function* () {
+    if (!(yield* owns(fs, lock, token))) return;
     const now = new Date(yield* Clock.currentTimeMillis);
     yield* fs.utimes(lock, now, now);
   }).pipe(
@@ -74,19 +102,25 @@ const renew = (fs: FileSystem.FileSystem, lock: string) =>
 
 /**
  * Runs `effect` while holding an exclusive lock on `path`, shared with every other process
- * that locks it: a `<path>.lock` file, created with O_EXCL, renewed while `effect` runs and
- * removed afterwards. Guards a read-modify-write of `path` against another via process (the
+ * that locks it: a `<path>.lock` file holding a random owner token, created with O_EXCL,
+ * renewed while `effect` runs and removed afterwards, each only while the file still holds that
+ * token. Checking the token and then acting isn't atomic; like a takeover, that race needs a
+ * stalled holder first. Guards a read-modify-write of `path` against another via process (the
  * CLI next to `via serve`).
  */
 export const withFileLock = <A, E, R>(path: string, effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const lock = `${path}.lock`;
+    const token = yield* makeToken;
     yield* fs.makeDirectory(dirname(path), { recursive: true, mode: 0o700 });
 
     return yield* Effect.acquireUseRelease(
-      acquire(path, lock),
-      () => Effect.raceFirst(effect, renew(fs, lock)),
-      () => fs.remove(lock, { force: true }).pipe(Effect.ignore),
+      acquire(path, lock, token),
+      () => Effect.raceFirst(effect, renew(fs, lock, token)),
+      () =>
+        Effect.gen(function* () {
+          if (yield* owns(fs, lock, token)) yield* fs.remove(lock, { force: true });
+        }).pipe(Effect.ignore),
     );
   });
