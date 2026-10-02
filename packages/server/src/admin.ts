@@ -187,22 +187,12 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
           if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
 
           return withoutTokens(yield* store.find(id));
-        }).pipe(
-          Effect.catchTag(
-            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-            Effect.die,
-          ),
-        ),
+        }).pipe(Effect.catchTag(["FileLockTimeoutError", "PlatformError"], Effect.die)),
       )
       .handle("remove", ({ params }) =>
         Effect.gen(function* () {
           yield* (yield* AccountStore).remove((yield* byId(params.id)).id);
-        }).pipe(
-          Effect.catchTag(
-            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-            Effect.die,
-          ),
-        ),
+        }).pipe(Effect.catchTag(["FileLockTimeoutError", "PlatformError"], Effect.die)),
       );
   }),
 );

@@ -71,6 +71,47 @@ layer(BunFileSystem.layer)("json files", (it) => {
     }),
   );
 
+  it.effect("flushes the new contents to disk before they replace the file", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = `${yield* tempDir}/a.json`;
+      const calls: Array<string> = [];
+
+      // Records which file each flush and rename touches: a rename of contents that were never
+      // flushed can survive a crash as an empty file.
+      const recording = FileSystem.FileSystem.of({
+        ...fs,
+        open: (path, options) =>
+          Effect.map(fs.open(path, options), (handle) =>
+            // The handle's methods live on its prototype, so it is extended rather than spread.
+            Object.create(handle, {
+              sync: {
+                value: Effect.andThen(
+                  handle.sync,
+                  Effect.sync(() => calls.push(`sync ${path}`)),
+                ),
+              },
+            }),
+          ),
+        rename: (from, to) =>
+          Effect.andThen(
+            fs.rename(from, to),
+            Effect.sync(() => calls.push(`rename ${from}`)),
+          ),
+      });
+
+      yield* writeJsonFile(file, Greeting, { hello: "x" }).pipe(
+        Effect.provideService(FileSystem.FileSystem, recording),
+      );
+
+      const tmp = calls.at(-1)?.slice("rename ".length);
+      expect(calls).toEqual([`sync ${tmp}`, `rename ${tmp}`]);
+      expect(yield* readJsonFile(file, Greeting, () => ({ hello: "fallback" }))).toEqual({
+        hello: "x",
+      });
+    }),
+  );
+
   it.effect("removes its temporary file when the write fails", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

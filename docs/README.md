@@ -572,6 +572,10 @@ first; a key it refuses is taken out of use at its first request. `list` and
   account. A token refresh that fails because the sign-in server can't be
   reached rests that account for 1 minute, and via tries the next one; only a
   refused refresh locks an account out.
+- One via process refreshes an account at a time, so `via accounts status` next
+  to a running `via serve` never spends a refresh token twice. If the new
+  tokens can't be saved (a full disk, say), via keeps them in memory and saves
+  them the next time it uses the account; they are lost if via stops first.
 - When no account is left, the client gets `429` with a `Retry-After` header
   (or `503` if waiting won't help). For a model only some accounts offer, only
   those accounts count.
@@ -604,6 +608,9 @@ via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set.
 | `ollama.json`      | The address of the Ollama added in the web UI.      |
 | `openrouter.json`  | Your OpenRouter API key and the models it enables.  |
 | `usage.db`         | The [usage history](#usage-history), in SQLite.     |
+
+An `auth/<id>.json` via can't read is skipped with a warning naming it, so the
+other accounts keep working. Delete it and sign that account in again.
 
 `config.yaml`, with the defaults:
 
@@ -800,7 +807,8 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   scripts, stylesheet and icon it loads aren't logged.
 
 It also warns when an account cools down, is locked out, or has its token
-rejected, and says until when.
+rejected, and says until when; and when an account's file can't be read or its
+new tokens can't be saved.
 
 ### Usage history
 

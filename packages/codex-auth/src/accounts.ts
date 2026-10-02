@@ -1,10 +1,12 @@
 import { CorruptFileError, withFileLock, writeJsonFile } from "@via/config";
 import {
+  Array as Arr,
   Context,
   DateTime,
   Effect,
   FileSystem,
   Layer,
+  Option,
   Schema,
   Semaphore,
   Stream,
@@ -59,6 +61,14 @@ const make = (authDir: string) => {
         ),
       );
 
+    /** Account `id`, read from its own file alone. */
+    const read = (id: string) =>
+      readAccount(fileOf(id)).pipe(
+        Effect.catchReason("PlatformError", "NotFound", () =>
+          Effect.fail(new AccountNotFoundError({ query: id })),
+        ),
+      );
+
     const list = Effect.gen(function* () {
       const files = yield* fs
         .readDirectory(authDir)
@@ -66,11 +76,20 @@ const make = (authDir: string) => {
 
       const accounts = yield* Effect.forEach(
         files.filter((name) => name.endsWith(".json")),
-        (name) => readAccount(`${authDir}/${name}`),
+        (name) =>
+          readAccount(`${authDir}/${name}`).pipe(
+            Effect.asSome,
+            // One unreadable account file mustn't take every other account down with it.
+            Effect.catchTag("CorruptFileError", (error) =>
+              Effect.as(Effect.logWarning(`Skipping account: ${error.message}`), Option.none()),
+            ),
+            // Removed since the directory was read, as another process may.
+            Effect.catchReason("PlatformError", "NotFound", () => Effect.succeedNone),
+          ),
         { concurrency: "unbounded" },
       );
 
-      return accounts.toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
+      return Arr.getSomes(accounts).toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
     }).pipe(Effect.withSpan("AccountStore.list"));
 
     const write = (account: Account) =>
@@ -121,7 +140,7 @@ const make = (authDir: string) => {
       id: string,
       tokens: Tokens,
     ) {
-      const current = yield* find(id);
+      const current = yield* read(id);
 
       const refreshed = yield* decodeIdToken(tokens.idToken).pipe(
         Effect.map((identity): Account => ({ ...current, ...identity, ...tokens })),
@@ -150,10 +169,29 @@ const make = (authDir: string) => {
       yield* fs.remove(fileOf((yield* find(query)).id));
     }, serialized);
 
+    /**
+     * Runs `effect`, a refresh of account `id`'s tokens, holding a lock on that account that
+     * every via process shares, so its single-use refresh token is spent once. The lock is the
+     * account's own, so a slow refresh doesn't hold up changes to the others.
+     */
+    const lockedForRefresh = <A, E, R>(id: string, effect: Effect.Effect<A, E, R>) =>
+      withFileLock(fileOf(id), effect).pipe(Effect.provideService(FileSystem.FileSystem, fs));
+
     /** Signals now, then after every change this process makes to the accounts. */
     const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
 
-    return { list, find, save, saveRefreshed, setLabel, setEnabled, remove, changes };
+    return {
+      list,
+      find,
+      read,
+      save,
+      saveRefreshed,
+      lockedForRefresh,
+      setLabel,
+      setEnabled,
+      remove,
+      changes,
+    };
   });
 };
 

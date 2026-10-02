@@ -94,6 +94,48 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
     }),
   );
 
+  it.effect("keeps its lock from going stale for as long as the effect runs", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* TestClock.setTime(START);
+      const file = yield* tempFile;
+      const events: Array<string> = [];
+      const release = yield* Deferred.make<void>();
+      const held = yield* Deferred.make<void>();
+
+      const first = yield* withFileLock(
+        file,
+        Effect.gen(function* () {
+          yield* Deferred.succeed(held, undefined);
+          yield* Deferred.await(release);
+          events.push("first");
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* Deferred.await(held);
+      // Taken at the test clock's start rather than in real time, which is far ahead of it.
+      const takenAt = new Date(START);
+      yield* fs.utimes(`${file}.lock`, takenAt, takenAt);
+
+      const second = yield* withFileLock(
+        file,
+        Effect.sync(() => events.push("second")),
+      ).pipe(Effect.forkChild);
+
+      // Well past the 5 s after which a lock no one renews counts as stale, yet short of the
+      // 10 s after which the second gives up.
+      yield* Effect.replicateEffect(step("1 second"), 8, { discard: true });
+      // Lets a second that took the lock over finish with it.
+      yield* TestClock.withLive(Effect.sleep("50 millis"));
+
+      expect(events).toEqual([]);
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(first);
+      yield* advanceUntilDone(second);
+      expect(events).toEqual(["first", "second"]);
+    }),
+  );
+
   it.effect("takes over a stale lock left behind by a crashed process", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

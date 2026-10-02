@@ -1,10 +1,12 @@
 import { Clock, Data, Effect, FileSystem, Option, Predicate, Schedule, Schema } from "effect";
 import { dirname } from "node:path";
 
-// A holder only reads and rewrites a small file, which takes milliseconds, so a lock this old
-// was left by a process that died holding it. Taking it over has a narrow race (two waiters
-// can both judge it stale and both proceed), which is accepted: it needs a crash first.
+// A holder renews its lock every second for as long as it holds it, so a lock this old was
+// left by a process that died holding it. Taking it over has a narrow race (two waiters can
+// both judge it stale and both proceed), which is accepted: it needs a crash first.
 const STALE_AFTER_MS = 5_000;
+
+const RENEW_EVERY = "1 second";
 
 // Longer than STALE_AFTER_MS, so a crashed holder's lock is taken over before a waiter gives up.
 const GIVE_UP_AFTER = "10 seconds";
@@ -58,10 +60,23 @@ const acquire = (path: string, lock: string) =>
     Effect.catchTag("LockBusy", () => Effect.fail(new FileLockTimeoutError({ path }))),
   );
 
+/** Keeps `lock` from going stale, touching it every second until interrupted. */
+const renew = (fs: FileSystem.FileSystem, lock: string) =>
+  Effect.gen(function* () {
+    const now = new Date(yield* Clock.currentTimeMillis);
+    yield* fs.utimes(lock, now, now);
+  }).pipe(
+    // A missed renewal only brings a takeover closer; the next one may succeed.
+    Effect.ignore,
+    Effect.delay(RENEW_EVERY),
+    Effect.forever,
+  );
+
 /**
  * Runs `effect` while holding an exclusive lock on `path`, shared with every other process
- * that locks it: a `<path>.lock` file, created with O_EXCL and removed afterwards. Guards a
- * read-modify-write of `path` against another via process (the CLI next to `via serve`).
+ * that locks it: a `<path>.lock` file, created with O_EXCL, renewed while `effect` runs and
+ * removed afterwards. Guards a read-modify-write of `path` against another via process (the
+ * CLI next to `via serve`).
  */
 export const withFileLock = <A, E, R>(path: string, effect: Effect.Effect<A, E, R>) =>
   Effect.gen(function* () {
@@ -71,7 +86,7 @@ export const withFileLock = <A, E, R>(path: string, effect: Effect.Effect<A, E, 
 
     return yield* Effect.acquireUseRelease(
       acquire(path, lock),
-      () => effect,
+      () => Effect.raceFirst(effect, renew(fs, lock)),
       () => fs.remove(lock, { force: true }).pipe(Effect.ignore),
     );
   });

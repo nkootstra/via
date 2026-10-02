@@ -58,6 +58,27 @@ const memoryFileSystem = () => {
         : Effect.sync(() => {
             files.set(path, text);
           }),
+    // Opened only to write a new file and flush it, as `writeJsonFile` does with its temp file.
+    open: (path) =>
+      Effect.sync((): FileSystem.File => {
+        files.set(path, "");
+        const unused = Effect.die(`the store only writes and flushes ${path}`);
+
+        return {
+          [FileSystem.FileTypeId]: FileSystem.FileTypeId,
+          stat: unused,
+          seek: () => unused,
+          read: () => unused,
+          readAlloc: () => unused,
+          truncate: () => unused,
+          write: () => unused,
+          writeAll: (bytes) =>
+            Effect.sync(() => {
+              files.set(path, `${files.get(path) ?? ""}${new TextDecoder().decode(bytes)}`);
+            }),
+          sync: Effect.void,
+        };
+      }),
     rename: (from, to) => {
       const text = files.get(from);
 
