@@ -595,8 +595,10 @@ first; a key it refuses is taken out of use at its first request. `list` and
   (`misalignment_policy_violation`) goes back to the client as-is.
 - A Codex backend via can't reach at all answers `502` without trying the next
   account. A token refresh that fails because the sign-in server can't be
-  reached rests that account for 1 minute, and via tries the next one; only a
-  refused refresh locks an account out.
+  reached, or because its file in `auth/` is locked by another via process,
+  corrupt or unreadable, rests that account for 1 minute, and via tries the
+  next one; an account removed meanwhile is skipped. Only a refused refresh
+  locks an account out.
 - One via process refreshes an account at a time, so `via accounts status` next
   to a running `via serve` never spends a refresh token twice. If the new
   tokens can't be saved (a full disk, say), via keeps them in memory and saves
