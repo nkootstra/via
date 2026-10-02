@@ -12,6 +12,9 @@ const QUOTA_CODES = new Set([
   "organization_usage_limit_exceeded",
 ]);
 
+// Codex's code for a request its safety checks refuse, with 400 or 403: the request's fault, not the account's.
+const MISALIGNMENT_POLICY_VIOLATION = "misalignment_policy_violation";
+
 const CodexErrorBody = Schema.fromJsonString(
   Schema.Struct({
     error: Schema.Struct({
@@ -41,7 +44,9 @@ const retryAfterIn = (header: string | undefined, now: number) =>
 /**
  * What Codex means by answering `status` with `body` at `now` (epoch
  * milliseconds), in the pool's terms. A quota code or a 429 outranks a server
- * error or overload, which outranks a 401.
+ * error or overload, which outranks a 401 or 403. A 403 bars the account
+ * (suspended, deactivated, or blocked by Cloudflare), unless Codex refused the
+ * request itself.
  */
 export const readRejection = (
   status: number,
@@ -71,6 +76,10 @@ export const readRejection = (
   }
 
   if (status === 401) return Rejection.Unauthorized();
+
+  if (status === 403 && code !== MISALIGNMENT_POLICY_VIOLATION) {
+    return Rejection.Forbidden({ reason: code ?? "forbidden" });
+  }
 
   return Rejection.Invalid();
 };

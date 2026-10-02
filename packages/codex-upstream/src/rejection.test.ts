@@ -126,6 +126,27 @@ describe("readRejection", () => {
     ],
     ["a 401 refuses the token", 401, {}, "", Rejection.Unauthorized()],
     [
+      "a 403 bars the account",
+      403,
+      {},
+      codexError({ code: "account_deactivated", message: "deactivated" }),
+      Rejection.Forbidden({ reason: "account_deactivated" }),
+    ],
+    [
+      "a 403 with no error code bars the account",
+      403,
+      {},
+      "<html><body>Just a moment...</body></html>",
+      Rejection.Forbidden({ reason: "forbidden" }),
+    ],
+    [
+      "a 403 for a misalignment policy violation is the request's fault",
+      403,
+      {},
+      codexError({ type: "invalid_request_error", code: "misalignment_policy_violation" }),
+      Rejection.Invalid(),
+    ],
+    [
       "any other client error is the request's fault",
       400,
       {},
@@ -153,7 +174,7 @@ describe("readRejection", () => {
   });
 
   it.prop(
-    "a quota code or 429 outranks a 5xx or overload, which outranks a 401",
+    "a quota code or 429 outranks a 5xx or overload, which outranks a 401 or 403",
     { failure: Arbitrary.schema(Failure) },
     ({ failure: { status, code } }) => {
       const body = code === "none" ? "" : codexError({ code });
@@ -166,7 +187,9 @@ describe("readRejection", () => {
             ? Rejection.Unavailable({ reason: named ?? `upstream_${status}` })
             : status === 401
               ? Rejection.Unauthorized()
-              : Rejection.Invalid();
+              : status === 403
+                ? Rejection.Forbidden({ reason: named ?? "forbidden" })
+                : Rejection.Invalid();
 
       expect(readRejection(status, {}, body, NOW)).toEqual(expected);
     },
