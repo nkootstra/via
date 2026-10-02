@@ -52,6 +52,7 @@ const LiteLlmEntry = Schema.Struct({
   input_cost_per_token: Schema.Finite,
   output_cost_per_token: Schema.Finite,
   cache_read_input_token_cost: Schema.optionalKey(Schema.Finite),
+  cache_creation_input_token_cost: Schema.optionalKey(Schema.Finite),
 });
 
 const isLiteLlmEntry = Schema.is(LiteLlmEntry);
@@ -64,6 +65,7 @@ const ModelsDevModel = Schema.Struct({
     input: Schema.Finite,
     output: Schema.Finite,
     cache_read: Schema.optionalKey(Schema.Finite),
+    cache_write: Schema.optionalKey(Schema.Finite),
   }),
 });
 
@@ -82,12 +84,16 @@ const fromLiteLlm = (entry: typeof LiteLlmEntry.Type): ModelPrice => ({
   ...(entry.cache_read_input_token_cost === undefined
     ? {}
     : { cachedInput: perMillion(entry.cache_read_input_token_cost) }),
+  ...(entry.cache_creation_input_token_cost === undefined
+    ? {}
+    : { cacheWrite: perMillion(entry.cache_creation_input_token_cost) }),
   output: perMillion(entry.output_cost_per_token),
 });
 
 const fromModelsDev = ({ cost }: typeof ModelsDevModel.Type): ModelPrice => ({
   input: cost.input,
   ...(cost.cache_read === undefined ? {} : { cachedInput: cost.cache_read }),
+  ...(cost.cache_write === undefined ? {} : { cacheWrite: cost.cache_write }),
   output: cost.output,
 });
 
@@ -137,8 +143,9 @@ export const pricesOf = (
 
 const line = (model: string, price: ModelPrice) => {
   const cached = price.cachedInput === undefined ? "" : ` cachedInput: ${price.cachedInput},`;
+  const written = price.cacheWrite === undefined ? "" : ` cacheWrite: ${price.cacheWrite},`;
 
-  return `  [${JSON.stringify(model)}, { input: ${price.input},${cached} output: ${price.output} }],`;
+  return `  [${JSON.stringify(model)}, { input: ${price.input},${cached}${written} output: ${price.output} }],`;
 };
 
 export const LITELLM =
