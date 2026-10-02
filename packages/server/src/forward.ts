@@ -90,7 +90,7 @@ const PROTOCOL_UNSUPPORTED = "ModelProtocolUnsupported";
  * Sends a request for OpenCode Go's model through its accounts: to the account
  * that answered the session last while it can serve, else fill-first, skipping
  * those cooling down or locked out. An account answered 429 cools down and one
- * whose key is refused is locked out, and the next one is tried. A model that
+ * whose key is refused or forbidden is locked out, and the next one is tried. A model that
  * doesn't speak the request's protocol is asked again in the next one it may.
  */
 const forwardPooled = Effect.fn("forwardPooled")(function* (
@@ -136,7 +136,8 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
         break;
       }
 
-      if (upstream.status === 401) {
+      // A refused key and a forbidden account alike, as OpenCode Go's key check reads them.
+      if (upstream.status === 401 || upstream.status === 403) {
         yield* pool.lockOut(account, "unauthorized");
         break;
       }

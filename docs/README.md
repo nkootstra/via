@@ -609,7 +609,7 @@ works the same way: fill-first in the order you added the keys, a conversation
 kept on the key that last answered it, and a `429` (or every key resting)
 handled as above. A key's cooldown lasts until its used-up usage window resets,
 or as long as the answer's `Retry-After` asks, whichever is later. A key
-OpenCode Go refuses (401) is taken out of use until `via serve` restarts. via
+OpenCode Go refuses or forbids (401 or 403) is taken out of use until `via serve` restarts. via
 asks OpenCode Go for each key's usage every 15 minutes too.
 
 ## Configuration
