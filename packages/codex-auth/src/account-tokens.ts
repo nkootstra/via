@@ -1,6 +1,6 @@
 import { Clock, Context, Duration, Effect, Layer, Predicate, Schedule, Semaphore } from "effect";
 import { type Account, AccountStore } from "./accounts.ts";
-import { CodexAuth } from "./codex-auth.ts";
+import { CodexAuth, type Tokens } from "./codex-auth.ts";
 
 const REFRESH_WINDOW = Duration.minutes(5);
 
@@ -26,6 +26,39 @@ const make = Effect.gen(function* () {
       return lock;
     });
 
+  // Rotated tokens this process couldn't save, by account. The refresh tokens they replace
+  // are spent, so these are used in place of the stored ones until a save succeeds.
+  const unsaved = new Map<string, Tokens>();
+
+  /** Saves `account`'s rotated `tokens`, or keeps them in memory when it can't. */
+  const saveRotation = (account: Account, tokens: Tokens) =>
+    store.saveRefreshed(account.id, tokens).pipe(
+      Effect.retry({
+        schedule: SAVE_RETRY,
+        times: 3,
+        while: Predicate.not(Predicate.isTagged("AccountNotFoundError")),
+      }),
+      Effect.tap(() => Effect.sync(() => unsaved.delete(account.id))),
+      Effect.catchTag(["FileLockTimeoutError", "PlatformError"], (error) =>
+        Effect.gen(function* () {
+          unsaved.set(account.id, tokens);
+          yield* Effect.logWarning(
+            `Could not save the new tokens of ${account.label}, so they are kept in memory until they can be (${error.message})`,
+          );
+
+          return { ...account, ...tokens };
+        }),
+      ),
+    );
+
+  /** The stored account, with the rotated tokens it couldn't save yet, saving them now if it can. */
+  const current = Effect.fnUntraced(function* (id: string) {
+    const stored = yield* store.find(id);
+    const pending = unsaved.get(id);
+
+    return pending === undefined ? stored : yield* saveRotation(stored, pending);
+  });
+
   /** Refreshes the account when `needed` says so, one refresh per account at a time. */
   const refreshIf = Effect.fn("AccountTokens.refreshIf")(function* (
     id: string,
@@ -35,22 +68,14 @@ const make = Effect.gen(function* () {
 
     return yield* Effect.gen(function* () {
       // Read under the lock, so a caller that waited sees the refresh it waited for.
-      const account = yield* store.find(id);
+      const account = yield* current(id);
 
       if (!needed(account, yield* Clock.currentTimeMillis)) return account;
 
       // The issuer spends the old refresh token once it answers, so a caller going away
       // mustn't stop the new one from being saved.
       return yield* Effect.uninterruptible(
-        Effect.flatMap(auth.refresh(account), (tokens) =>
-          store.saveRefreshed(id, tokens).pipe(
-            Effect.retry({
-              schedule: SAVE_RETRY,
-              times: 3,
-              while: Predicate.not(Predicate.isTagged("AccountNotFoundError")),
-            }),
-          ),
-        ),
+        Effect.flatMap(auth.refresh(account), (tokens) => saveRotation(account, tokens)),
       );
     }).pipe(Semaphore.withPermit(lock));
   });

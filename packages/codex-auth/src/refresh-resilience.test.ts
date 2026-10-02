@@ -115,4 +115,36 @@ layer(BunFileSystem.layer)("AccountTokens refreshing", (it) => {
       }).pipe(Effect.provide(tokensLayer(authDir, auth, disk)), TestClock.withLive);
     }),
   );
+
+  it.effect("keeps rotated tokens it can't save, refreshes with them and saves them later", () =>
+    Effect.gen(function* () {
+      const authDir = yield* tempAuthDir;
+      yield* seedAccount(authDir, "a", { expiresAt: 0 });
+      const disk = { failures: Infinity };
+      const { auth, used } = rotatingIssuer();
+
+      yield* Effect.gen(function* () {
+        const store = yield* AccountStore;
+        const tokens = yield* AccountTokens;
+
+        const first = yield* tokens.fresh(yield* store.find("a"));
+        expect(first.accessToken).toBe("at-2");
+
+        // Codex refuses the new access token: the next refresh must spend "rt-2", not "rt-1".
+        const second = yield* tokens.refreshRejected("a", "at-2");
+        expect(second.accessToken).toBe("at-3");
+        expect(used).toEqual(["rt-1", "rt-2"]);
+
+        disk.failures = 0;
+        const third = yield* tokens.fresh(yield* store.find("a"));
+
+        expect(third.accessToken).toBe("at-3");
+        expect(used).toEqual(["rt-1", "rt-2"]);
+        expect((yield* store.find("a")).refreshToken).toBe("rt-3");
+      }).pipe(
+        Effect.provide(tokensLayer(authDir, auth, yield* flakyDisk(authDir, disk))),
+        TestClock.withLive,
+      );
+    }),
+  );
 });
