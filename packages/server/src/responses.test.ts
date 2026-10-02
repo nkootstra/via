@@ -1,6 +1,12 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { refreshedTokens } from "@via/codex-auth/testing";
-import { type CodexRequest, completedStream, reply, sse } from "@via/codex-upstream/testing";
+import {
+  type CodexRequest,
+  codexFixture,
+  completedStream,
+  reply,
+  sse,
+} from "@via/codex-upstream/testing";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { ok, withVia } from "./testing/harness.ts";
@@ -127,6 +133,40 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
       (received) => (accountOf(received) === "acc-a" ? reply.hangUp(usageLimit(3600), 1) : ok()),
       (via) =>
         Effect.gen(function* () {
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b"]);
+        }),
+    ),
+  );
+
+  it.effect("moves on to the next account when one fails its response with a rate limit", () =>
+    Effect.flatMap(codexFixture("response-failed-rate-limit.sse"), (rateLimited) =>
+      withVia(
+        (received) => (accountOf(received) === "acc-a" ? reply.sse(rateLimited) : ok()),
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.post("/v1/responses", request);
+            expect(response.status).toBe(200);
+            expect(yield* response.json).toMatchObject({ status: "completed" });
+
+            expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+            expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
+          }),
+      ),
+    ),
+  );
+
+  it.effect("cools down an account whose stream fails with a rate limit", () =>
+    withVia(
+      (received) =>
+        accountOf(received) === "acc-a"
+          ? reply.failed("rate_limit_exceeded", "Please try again in 20s.")
+          : ok(),
+      (via) =>
+        Effect.gen(function* () {
+          const streamed = yield* via.post("/v1/responses", { ...request, stream: true });
+          expect(yield* streamed.text).toContain("rate_limit_exceeded");
+
           expect((yield* via.post("/v1/responses", request)).status).toBe(200);
           expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b"]);
         }),

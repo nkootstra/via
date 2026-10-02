@@ -1,3 +1,4 @@
+import type { UpstreamFailedError } from "@via/codex-upstream";
 import {
   type ChatRequest,
   CompletedResponse,
@@ -19,14 +20,23 @@ const decodeCompleted = Schema.decodeUnknownEffect(CompletedResponse);
 /**
  * A Chat Completions answer to `chat` from `upstream`'s Responses stream: its
  * chunks as they come for a streaming client, else the completion it ends in.
+ * A response failed in a stream relayed as it comes is told to `onFailed`.
  */
 export const chatFromResponses = (
   upstream: HttpClientResponse.HttpClientResponse,
   chat: typeof ChatRequest.Type,
+  onFailed?: (error: UpstreamFailedError) => Effect.Effect<void>,
 ) =>
   chat.stream === true
-    ? relayed(upstream, { contentType: "text/event-stream", sse: true }, (events) =>
-        toChatStream(events, { includeUsage: chat.stream_options?.include_usage === true }),
+    ? relayed(
+        upstream,
+        {
+          contentType: "text/event-stream",
+          sse: true,
+          ...(onFailed === undefined ? {} : { onFailed }),
+        },
+        (events) =>
+          toChatStream(events, { includeUsage: chat.stream_options?.include_usage === true }),
       )
     : collected(upstream, (response) =>
         decodeCompleted(response).pipe(

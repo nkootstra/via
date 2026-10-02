@@ -36,8 +36,8 @@ export const chatCompletions = authenticated(
 
     if (Option.isNone(chat)) return yield* invalid;
 
-    return yield* dispatch(toResponsesRequest(chat.value), session, (upstream) =>
-      chatFromResponses(upstream, chat.value),
+    return yield* dispatch(toResponsesRequest(chat.value), session, (upstream, failed) =>
+      chatFromResponses(upstream, chat.value, failed),
     );
   }),
 );

@@ -1,10 +1,11 @@
-import { CodexUpstream } from "@via/codex-upstream";
+import { CodexUpstream, type UpstreamFailedError } from "@via/codex-upstream";
 import { classify, Verdict } from "@via/pool";
 import { Clock, type Data, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
 import { AccountPool } from "@via/account-pool";
 import { ModelCatalog } from "./catalog.ts";
 import { openAiError } from "./openai-error.ts";
+import { failedResponse } from "./relay.ts";
 import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
@@ -56,13 +57,16 @@ const outage = (
  * accounts in order, skipping those cooling down or locked out, until one answers.
  * Only accounts whose plan offers the model are tried, when via knows which do.
  * A successful answer goes to `onSuccess`; a client error is returned as-is.
+ * A response `onSuccess` finds Codex failed for a rate limit cools its account
+ * down and goes to the next one, as a 429 would.
  */
-export const dispatch = Effect.fn("dispatch")(function* <E, R>(
+export const dispatch = Effect.fn("dispatch")(function* <R>(
   body: Schema.JsonObject,
   session: string,
   onSuccess: (
     upstream: HttpClientResponse.HttpClientResponse,
-  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+    failed: (error: UpstreamFailedError) => Effect.Effect<void>,
+  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, UpstreamFailedError, R>,
 ) {
   const pool = yield* AccountPool;
   const codex = yield* CodexUpstream;
@@ -92,6 +96,18 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
 
     const account = next.value;
 
+    // Cools the account down when Codex failed its response for a rate limit; whether it did.
+    const coolDownFor = (failed: UpstreamFailedError) =>
+      Effect.gen(function* () {
+        const verdict = classify(failed.rejection, yield* Clock.currentTimeMillis);
+
+        if (!Verdict.$is("Cooldown")(verdict)) return false;
+
+        yield* pool.coolDown(account, verdict.until, verdict.reason);
+
+        return true;
+      });
+
     const sent = yield* codex.send(account, body, session).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
@@ -105,9 +121,20 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       }
 
       yield* log.served(account.label, account.id);
-      yield* bindings.bind(session, account.id);
 
-      return yield* onSuccess(sent.success.value);
+      const answered = yield* onSuccess(sent.success.value, (error) =>
+        Effect.asVoid(coolDownFor(error)),
+      ).pipe(Effect.result);
+
+      if (Result.isSuccess(answered)) {
+        yield* bindings.bind(session, account.id);
+
+        return answered.success;
+      }
+
+      if (yield* coolDownFor(answered.failure)) continue;
+
+      return yield* failedResponse(answered.failure);
     }
 
     const rejected = sent.failure;

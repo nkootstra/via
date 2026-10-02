@@ -559,7 +559,11 @@ first; a key it refuses is taken out of use at its first request. `list` and
   anyway, as it may be newer than the list.
 - A rate-limit or usage-limit answer puts that account on a cooldown until the
   reset time the upstream gives, or 30 minutes if it gives none, and via retries
-  on the next account.
+  on the next account. Codex sometimes starts a response and then fails it with
+  a rate or usage limit (`response.failed`); that counts the same. A client that
+  isn't streaming gets its answer from the next account; a streaming client has
+  already been sent the start of the response, so it gets the failure, and the
+  next request goes to the next account.
 - A server error (5xx) or an overloaded Codex is an outage, not the account's
   fault: via cools no account down and doesn't try the others, which would
   meet the same outage. The client gets `503` if Codex is overloaded, else

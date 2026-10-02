@@ -6,7 +6,7 @@ import { chatFromMessages, chatFromResponses } from "./chat-answer.ts";
 import { ModelProtocols, type Protocol } from "./model-protocols.ts";
 import { noAccountLeft, streams } from "./dispatch.ts";
 import { openAiError } from "./openai-error.ts";
-import { relayed } from "./relay.ts";
+import { failedResponse, relayed } from "./relay.ts";
 import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
@@ -59,7 +59,10 @@ const attempts = (
     path: "/responses",
     // Streamed either way: a client that isn't streaming gets the completion it ends in.
     body: { ...toResponsesRequest(chat.value), stream: true },
-    answer: (upstream) => chatFromResponses(upstream, chat.value),
+    answer: (upstream) =>
+      chatFromResponses(upstream, chat.value).pipe(
+        Effect.catchTag("UpstreamFailedError", failedResponse),
+      ),
   };
 
   const messages: Attempt = {
