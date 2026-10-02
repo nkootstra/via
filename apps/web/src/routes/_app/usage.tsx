@@ -473,7 +473,13 @@ function Usage() {
           <>
             <Totals breakdown={breakdown.data} />
             <Panel>
-              {series.data === undefined ? (
+              {series.isError ? (
+                <QueryError
+                  what="the chart"
+                  error={series.error}
+                  onRetry={() => void series.refetch()}
+                />
+              ) : series.data === undefined ? (
                 <Skeleton height="240px" />
               ) : (
                 <BarChart

@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
-import { delay, http } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { breakdown, cost, group, request } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
@@ -368,6 +368,22 @@ describe("the usage page", () => {
         detail: "Leaves out local/llama: no price known",
       }),
     );
+  });
+
+  it("says the chart couldn't be loaded, rather than loading it forever", async () => {
+    const { user } = renderApp("/usage", seed, [
+      http.get("*/admin/history/series", () => new HttpResponse(null, { status: 500 }), {
+        once: true,
+      }),
+    ]);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't load the chart");
+
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("figure", { name: "Tokens per hour" })).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("says so when the range has no requests", async () => {
