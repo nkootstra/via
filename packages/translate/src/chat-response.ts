@@ -113,7 +113,7 @@ export const toChatCompletion = (response: CompletedResponse) => {
     .flatMap((item) => item.summary)
     .filter(isSummaryText)
     .map((part) => part.text)
-    .filter((text) => text !== "")
+    .filter((paragraph) => paragraph !== "")
     .join("\n\n");
 
   const toolCalls = response.output

@@ -29,6 +29,14 @@ const argumentsDelta = (output_index: number, delta: string) => ({
   delta,
 });
 
+const summaryDelta = (output_index: number, summary_index: number, delta: string) => ({
+  type: "response.reasoning_summary_text.delta",
+  item_id: `rs_${output_index}`,
+  output_index,
+  summary_index,
+  delta,
+});
+
 const upstream = (events: ReadonlyArray<object>) =>
   Stream.make(new TextEncoder().encode(sse(events)));
 
@@ -285,20 +293,12 @@ describe("toChatStream", () => {
 
   it.effect("streams reasoning summaries as reasoning content, a blank line between parts", () =>
     Effect.gen(function* () {
-      const summary = (output_index: number, summary_index: number, delta: string) => ({
-        type: "response.reasoning_summary_text.delta",
-        item_id: `rs_${output_index}`,
-        output_index,
-        summary_index,
-        delta,
-      });
-
       const events = yield* chatEvents([
         created,
-        summary(0, 0, "Weighing "),
-        summary(0, 0, "it"),
-        summary(0, 1, "Decided"),
-        summary(2, 0, "Again"),
+        summaryDelta(0, 0, "Weighing "),
+        summaryDelta(0, 0, "it"),
+        summaryDelta(0, 1, "Decided"),
+        summaryDelta(2, 0, "Again"),
         { type: "response.output_text.delta", delta: "Hi" },
         completed,
       ]);
