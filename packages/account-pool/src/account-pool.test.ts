@@ -29,6 +29,56 @@ const account: Account = {
   createdAt: "2026-01-01T00:00:00.000Z",
 };
 
+/** A temporary auth directory with an account for each of `names`, added in that order. */
+const seeded = (names: ReadonlyArray<string>) =>
+  Effect.gen(function* () {
+    const dir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
+
+    for (const [index, name] of names.entries()) {
+      yield* seedAccount(dir, name, { createdAt: `2026-01-0${index + 1}T00:00:00.000Z` });
+    }
+
+    return dir;
+  });
+
+/** A pool over the accounts in `dir`, whose token store fails every refresh of "a" with `error`. */
+const poolFailingRefreshOfA = (
+  dir: string,
+  error: Effect.Error<ReturnType<AccountTokens["Service"]["fresh"]>>,
+) => {
+  const refresh = (refreshing: Account) =>
+    refreshing.id === "a" ? Effect.fail(error) : Effect.succeed(refreshing);
+
+  const tokens = Layer.succeed(AccountTokens, {
+    fresh: refresh,
+    refreshRejected: (id: string) => refresh({ ...account, id }),
+  });
+
+  return AccountPool.layer.pipe(Layer.provide([tokens, AccountStore.layer(dir), PoolStates.layer]));
+};
+
+/**
+ * The id of the account the pool chooses among `names` while every refresh of
+ * "a" fails with `error`, and how long until one stops cooling down then.
+ */
+const chooseWhileRefreshOfAFails = (
+  error: Effect.Error<ReturnType<AccountTokens["Service"]["fresh"]>>,
+  names: ReadonlyArray<string> = ["a", "b"],
+) =>
+  Effect.gen(function* () {
+    const dir = yield* seeded(names);
+
+    return yield* Effect.gen(function* () {
+      const pool = yield* AccountPool;
+      const chosen = yield* pool.next(() => true, Option.none());
+
+      return {
+        chosen: Option.map(chosen, ({ id }) => id),
+        wait: yield* pool.waitFor(() => true),
+      };
+    }).pipe(Effect.provide(poolFailingRefreshOfA(dir, error)));
+  });
+
 layer(BunFileSystem.layer)("choosing an account", (it) => {
   it.effect("moves on to the next account when the first one's refresh is rejected", () =>
     Effect.gen(function* () {
@@ -90,58 +140,23 @@ layer(BunFileSystem.layer)("choosing an account", (it) => {
     }),
   );
 
-  /**
-   * A pool over accounts "a" and then "b" (or `names`), whose token store fails
-   * every refresh of "a" with `error`, and the logs it writes.
-   */
-  const failingRefreshOfA = (
-    error: Effect.Error<ReturnType<AccountTokens["Service"]["fresh"]>>,
-    names: ReadonlyArray<string> = ["a", "b"],
-  ) =>
-    Effect.gen(function* () {
-      const dir = yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped();
-
-      for (const [index, name] of names.entries()) {
-        yield* seedAccount(dir, name, { createdAt: `2026-01-0${index + 1}T00:00:00.000Z` });
-      }
-
-      const refresh = (account: Account) =>
-        account.id === "a" ? Effect.fail(error) : Effect.succeed(account);
-      const tokens = Layer.succeed(AccountTokens, {
-        fresh: refresh,
-        refreshRejected: (id: string) => refresh({ ...account, id }),
-      });
-      const logs = collectLogs();
-
-      const poolLayer = AccountPool.layer.pipe(
-        Layer.provide([tokens, AccountStore.layer(dir), PoolStates.layer]),
-        Layer.provide(Logger.layer([logs.logger])),
-      );
-
-      return { poolLayer, logs };
-    });
-
   it.effect.each([
     new FileLockTimeoutError({ path: "/auth/a.json" }),
     new CorruptFileError({ path: "/auth/a.json", reason: "not JSON" }),
-    PlatformError.systemError({
-      _tag: "PermissionDenied",
+    PlatformError.badArgument({
       module: "FileSystem",
       method: "readFileString",
-      pathOrDescriptor: "/auth/a.json",
+      description: "/auth/a.json is unreadable",
     }),
   ])("rests an account for a minute when its refresh fails with $_tag, and moves on", (error) =>
     Effect.gen(function* () {
-      const { poolLayer, logs } = yield* failingRefreshOfA(error);
+      const logs = collectLogs();
 
-      const [next, wait] = yield* Effect.gen(function* () {
-        const pool = yield* AccountPool;
-        const next = yield* pool.next(() => true, Option.none());
+      const { chosen, wait } = yield* chooseWhileRefreshOfAFails(error).pipe(
+        Effect.provide(Logger.layer([logs.logger])),
+      );
 
-        return [next, yield* pool.waitFor(() => true)] as const;
-      }).pipe(Effect.provide([poolLayer, Logger.layer([logs.logger])]));
-
-      expect(Option.map(next, ({ id }) => id)).toEqual(Option.some("b"));
+      expect(chosen).toEqual(Option.some("b"));
       expect(wait).toEqual(Option.some(60_000));
       expect(yield* logs.logged("a is cooling down")).toMatchObject({ level: "Warn" });
     }),
@@ -149,18 +164,13 @@ layer(BunFileSystem.layer)("choosing an account", (it) => {
 
   it.effect("skips an account removed while its token was refreshed, without a cooldown", () =>
     Effect.gen(function* () {
-      const { poolLayer, logs } = yield* failingRefreshOfA(
+      const logs = collectLogs();
+
+      const { chosen, wait } = yield* chooseWhileRefreshOfAFails(
         new AccountNotFoundError({ query: "a" }),
-      );
+      ).pipe(Effect.provide(Logger.layer([logs.logger])));
 
-      const [next, wait] = yield* Effect.gen(function* () {
-        const pool = yield* AccountPool;
-        const next = yield* pool.next(() => true, Option.none());
-
-        return [next, yield* pool.waitFor(() => true)] as const;
-      }).pipe(Effect.provide([poolLayer, Logger.layer([logs.logger])]));
-
-      expect(Option.map(next, ({ id }) => id)).toEqual(Option.some("b"));
+      expect(chosen).toEqual(Option.some("b"));
       expect(wait).toEqual(Option.none());
       expect(yield* logs.logged("Skipping a")).toMatchObject({ level: "Warn" });
     }),
@@ -168,30 +178,31 @@ layer(BunFileSystem.layer)("choosing an account", (it) => {
 
   it.effect("finds no account when the only one keeps vanishing on refresh", () =>
     Effect.gen(function* () {
-      const { poolLayer } = yield* failingRefreshOfA(new AccountNotFoundError({ query: "a" }), [
-        "a",
-      ]);
+      const { chosen } = yield* chooseWhileRefreshOfAFails(
+        new AccountNotFoundError({ query: "a" }),
+        ["a"],
+      );
 
-      const next = yield* Effect.gen(function* () {
-        return yield* (yield* AccountPool).next(() => true, Option.none());
-      }).pipe(Effect.provide(poolLayer));
-
-      expect(next).toEqual(Option.none());
+      expect(chosen).toEqual(Option.none());
     }),
   );
 
   it.effect("sets an account aside when its refresh after a refused token fails", () =>
     Effect.gen(function* () {
-      const { poolLayer } = yield* failingRefreshOfA(
-        new FileLockTimeoutError({ path: "/auth/a.json" }),
-      );
+      const dir = yield* seeded(["a", "b"]);
 
       const [refreshed, wait] = yield* Effect.gen(function* () {
         const pool = yield* AccountPool;
-        const refreshed = yield* pool.refreshRejected({ ...account, id: "a" });
 
-        return [refreshed, yield* pool.waitFor(() => true)] as const;
-      }).pipe(Effect.provide(poolLayer));
+        return [
+          yield* pool.refreshRejected({ ...account, id: "a" }),
+          yield* pool.waitFor(() => true),
+        ] as const;
+      }).pipe(
+        Effect.provide(
+          poolFailingRefreshOfA(dir, new FileLockTimeoutError({ path: "/auth/a.json" })),
+        ),
+      );
 
       expect(refreshed).toEqual(Option.none());
       expect(wait).toEqual(Option.some(60_000));
