@@ -74,6 +74,31 @@ layer(BunFileSystem.layer)("collectResponse against codex's fixtures", (it) => {
       expect(error).toMatchObject({ code });
     }),
   );
+
+  it.effect.each([
+    {
+      fixture: "response-failed-rate-limit.sse",
+      rejection: Rejection.Exhausted({ reason: "rate_limit_exceeded", retryAfterMs: 11_054 }),
+    },
+    {
+      fixture: "response-failed-quota-exceeded.sse",
+      rejection: Rejection.Exhausted({ reason: "insufficient_quota" }),
+    },
+    {
+      fixture: "response-failed-server-overloaded.sse",
+      rejection: Rejection.Unavailable({ reason: "server_is_overloaded" }),
+    },
+    { fixture: "response-failed-context-length.sse", rejection: Rejection.Invalid() },
+  ])("reads $fixture's failure as $rejection._tag", ({ fixture, rejection }) =>
+    Effect.gen(function* () {
+      const read = yield* collectFixture(fixture).pipe(
+        Effect.flatMap(() => Effect.die("the response did not fail")),
+        Effect.catchTag("UpstreamFailedError", (error) => Effect.succeed(error.rejection)),
+      );
+
+      expect(read).toEqual(rejection);
+    }),
+  );
 });
 
 const readFixture = (name: string) =>

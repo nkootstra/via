@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 import { Rejection } from "@via/pool";
 import { Schema } from "effect";
 import { Arbitrary } from "effect/unstable/arbitrary";
-import { readRejection } from "./rejection.ts";
+import { readFailure, readRejection } from "./rejection.ts";
 
 const RESETS_AT_SECONDS = 1_700_003_600;
 
@@ -145,6 +145,67 @@ describe("readRejection", () => {
               : Rejection.Invalid();
 
       expect(readRejection(status, {}, body)).toEqual(expected);
+    },
+  );
+});
+
+describe("readFailure", () => {
+  const cases: ReadonlyArray<[name: string, code: string, message: string, Rejection]> = [
+    [
+      "a rate limit waits as long as its message asks",
+      "rate_limit_exceeded",
+      "Rate limit reached. Please try again in 11.054s. Visit the docs.",
+      Rejection.Exhausted({ reason: "rate_limit_exceeded", retryAfterMs: 11_054 }),
+    ],
+    [
+      "a wait given in milliseconds",
+      "rate_limit_exceeded",
+      "Please try again in 250ms.",
+      Rejection.Exhausted({ reason: "rate_limit_exceeded", retryAfterMs: 250 }),
+    ],
+    [
+      "a rate limit that names no wait",
+      "rate_limit_exceeded",
+      "Rate limit reached.",
+      Rejection.Exhausted({ reason: "rate_limit_exceeded" }),
+    ],
+    [
+      "an overloaded Codex is unavailable",
+      "server_is_overloaded",
+      "busy",
+      Rejection.Unavailable({ reason: "server_is_overloaded" }),
+    ],
+    [
+      "any other failure is the request's",
+      "context_length_exceeded",
+      "too long",
+      Rejection.Invalid(),
+    ],
+  ];
+
+  for (const [name, code, message, expected] of cases) {
+    it(name, () => {
+      expect(readFailure(code, message)).toEqual(expected);
+    });
+  }
+
+  it.prop(
+    "a rate limit or quota code reads as the same code answered with 429",
+    {
+      code: Arbitrary.schema(
+        Schema.Literals([
+          "rate_limit_exceeded",
+          "usage_limit_reached",
+          "insufficient_quota",
+          "usage_not_included",
+          "credit_balance_exhausted",
+        ]),
+      ),
+    },
+    ({ code }) => {
+      expect(readFailure(code, "limit reached")).toEqual(
+        readRejection(429, {}, codexError({ code })),
+      );
     },
   );
 });

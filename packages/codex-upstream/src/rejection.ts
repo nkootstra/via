@@ -63,6 +63,36 @@ export const readRejection = (
   return Rejection.Invalid();
 };
 
+// How codex itself finds the wait in a rate limit's message: "Please try again in 11.054s."
+const RETRY_DELAY = /try again in\s*(\d+(?:\.\d+)?)\s*(s|ms|seconds?)\b/i;
+
+/** The wait a failure's message asks for, in milliseconds. */
+const retryDelayIn = (message: string) => {
+  const found = RETRY_DELAY.exec(message);
+
+  if (found === null) return undefined;
+
+  const unit = found[2]?.toLowerCase() === "ms" ? 1 : 1000;
+
+  return Option.getOrUndefined(
+    Option.map(decodeSeconds(found[1]), (amount) => Math.round(amount * unit)),
+  );
+};
+
+/**
+ * What Codex means by failing a response in-stream with `code`, in the pool's
+ * terms: a rate limit or quota code reads as the same code answered with 429.
+ */
+export const readFailure = (code: string, message: string): Rejection => {
+  if (code === "rate_limit_exceeded" || QUOTA_CODES.has(code)) {
+    return Rejection.Exhausted({ reason: code, retryAfterMs: retryDelayIn(message) });
+  }
+
+  if (code === "server_is_overloaded") return Rejection.Unavailable({ reason: code });
+
+  return Rejection.Invalid();
+};
+
 /** Codex answered a request with something other than 200 OK. */
 export class RequestRejectedError extends Data.TaggedError("RequestRejectedError")<{
   readonly status: number;

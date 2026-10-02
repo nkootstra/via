@@ -1,5 +1,6 @@
 import { Context, Duration, Effect, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
+import { readFailure } from "./rejection.ts";
 import {
   isTerminalEvent,
   ResponseCompleted,
@@ -14,6 +15,11 @@ export class UpstreamFailedError extends Schema.TaggedError<UpstreamFailedError>
 ) {
   override get message() {
     return `Codex failed the response (${this.code}): ${this.reason}`;
+  }
+
+  /** What the failure means for the account that got it. */
+  get rejection() {
+    return readFailure(this.code, this.reason);
   }
 }
 
