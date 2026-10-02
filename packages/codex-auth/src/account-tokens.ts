@@ -35,7 +35,11 @@ const make = Effect.gen(function* () {
 
       if (!needed(account, yield* Clock.currentTimeMillis)) return account;
 
-      return yield* store.saveRefreshed(id, yield* auth.refresh(account));
+      // The issuer spends the old refresh token once it answers, so a caller going away
+      // mustn't stop the new one from being saved.
+      return yield* Effect.uninterruptible(
+        Effect.flatMap(auth.refresh(account), (tokens) => store.saveRefreshed(id, tokens)),
+      );
     }).pipe(Semaphore.withPermit(lock));
   });
 
