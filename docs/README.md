@@ -574,11 +574,12 @@ first; a key it refuses is taken out of use at its first request. `list` and
   whichever is later, or 30 minutes if it gives neither, and via retries
   on the next account. Codex's reset time is the error's `resets_at`, else its
   `resets_in_seconds`, else the `x-codex-primary-reset-at` or
-  `x-codex-secondary-reset-at` header of the window that is used up. Codex sometimes starts a response and then fails it with
-  a rate or usage limit (`response.failed`); that counts the same. A client that
-  isn't streaming gets its answer from the next account; a streaming client has
-  already been sent the start of the response, so it gets the failure, and the
-  next request goes to the next account.
+  `x-codex-secondary-reset-at` header of the window that is used up. Codex
+  sometimes starts a response and then fails it with a rate or usage limit
+  (`response.failed`); that counts the same. A client that isn't streaming
+  gets its answer from the next account; a streaming client has already been
+  sent the start of the response, so it gets the failure, and the next request
+  goes to the next account.
 - A server error (5xx) or an overloaded Codex is an outage, not the account's
   fault: via cools no account down and doesn't try the others, which would
   meet the same outage. The client gets `503` if Codex is overloaded, else
@@ -615,8 +616,8 @@ works the same way: fill-first in the order you added the keys, a conversation
 kept on the key that last answered it, and a `429` (or every key resting)
 handled as above. A key's cooldown lasts until its used-up usage window resets,
 or as long as the answer's `Retry-After` asks, whichever is later. A key
-OpenCode Go refuses or forbids (401 or 403) is taken out of use until `via serve` restarts. via
-asks OpenCode Go for each key's usage every 15 minutes too.
+OpenCode Go refuses or forbids (401 or 403) is taken out of use until `via
+serve` restarts. via asks OpenCode Go for each key's usage every 15 minutes too.
 
 ## Configuration
 
