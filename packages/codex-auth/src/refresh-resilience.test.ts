@@ -1,10 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Deferred, Effect, Fiber, FileSystem, Layer } from "effect";
+import { Deferred, Effect, Fiber, FileSystem, Layer, PlatformError } from "effect";
+import { TestClock } from "effect/testing";
 import { seedAccount, tokensFor } from "./testing/index.ts";
 import { AccountStore, AccountTokens, CodexAuth, RefreshRejectedError } from "./index.ts";
-
-const HOUR = 3_600_000;
 
 /**
  * An issuer in memory: each refresh token works once and is answered with the next ("rt-1",
@@ -27,17 +26,44 @@ const rotatingIssuer = (onRefresh: () => Effect.Effect<void> = () => Effect.void
         const n = used.length + 1;
         yield* onRefresh();
 
-        return tokensFor("a", { accessToken: `at-${n}`, refreshToken: `rt-${n}`, expiresAt: HOUR });
+        return tokensFor("a", { accessToken: `at-${n}`, refreshToken: `rt-${n}`, expiresAt: 1e15 });
       }),
   });
 
   return { auth, used };
 };
 
+/**
+ * The file system, except that writing account "a" fails while `disk.failures` is above
+ * zero, each failure counting it down, as a full disk would.
+ */
+const flakyDisk = (authDir: string, disk: { failures: number }) =>
+  Effect.map(FileSystem.FileSystem, (fs) =>
+    Layer.succeed(FileSystem.FileSystem, {
+      ...fs,
+      rename: (from, to) => {
+        if (to !== `${authDir}/a.json` || disk.failures <= 0) return fs.rename(from, to);
+        disk.failures -= 1;
+
+        return Effect.fail(
+          PlatformError.badArgument({
+            module: "FileSystem",
+            method: "rename",
+            description: "disk full",
+          }),
+        );
+      },
+    }),
+  );
+
 /** AccountTokens over the accounts in `authDir`, refreshing them at `auth`. */
-const tokensLayer = (authDir: string, auth: CodexAuth["Service"]) =>
+const tokensLayer = (
+  authDir: string,
+  auth: CodexAuth["Service"],
+  fs: Layer.Layer<FileSystem.FileSystem> | Layer.Layer<never> = Layer.empty,
+) =>
   AccountTokens.layer.pipe(
-    Layer.provideMerge(AccountStore.layer(authDir)),
+    Layer.provideMerge(AccountStore.layer(authDir).pipe(Layer.provide(fs))),
     Layer.provide(Layer.succeed(CodexAuth, auth)),
   );
 
@@ -71,6 +97,22 @@ layer(BunFileSystem.layer)("AccountTokens refreshing", (it) => {
 
         expect((yield* store.find("a")).refreshToken).toBe("rt-2");
       }).pipe(Effect.provide(tokensLayer(authDir, auth)));
+    }),
+  );
+
+  it.effect("saves the rotated tokens when saving fails at first", () =>
+    Effect.gen(function* () {
+      const authDir = yield* tempAuthDir;
+      yield* seedAccount(authDir, "a", { expiresAt: 0 });
+      const disk = yield* flakyDisk(authDir, { failures: 1 });
+      const { auth } = rotatingIssuer();
+
+      yield* Effect.gen(function* () {
+        const store = yield* AccountStore;
+        yield* (yield* AccountTokens).fresh(yield* store.find("a"));
+
+        expect((yield* store.find("a")).refreshToken).toBe("rt-2");
+      }).pipe(Effect.provide(tokensLayer(authDir, auth, disk)), TestClock.withLive);
     }),
   );
 });

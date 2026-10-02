@@ -1,8 +1,12 @@
-import { Clock, Context, Duration, Effect, Layer, Semaphore } from "effect";
+import { Clock, Context, Duration, Effect, Layer, Predicate, Schedule, Semaphore } from "effect";
 import { type Account, AccountStore } from "./accounts.ts";
 import { CodexAuth } from "./codex-auth.ts";
 
 const REFRESH_WINDOW = Duration.minutes(5);
+
+// A save that fails, e.g. on a busy lock or a full disk, is tried again a few times soon after:
+// the old refresh token is already spent, so the new one is the only way back in.
+const SAVE_RETRY = Schedule.exponential("50 millis");
 
 const expiring = (account: Account, now: number) =>
   account.expiresAt - now <= Duration.toMillis(REFRESH_WINDOW);
@@ -38,7 +42,15 @@ const make = Effect.gen(function* () {
       // The issuer spends the old refresh token once it answers, so a caller going away
       // mustn't stop the new one from being saved.
       return yield* Effect.uninterruptible(
-        Effect.flatMap(auth.refresh(account), (tokens) => store.saveRefreshed(id, tokens)),
+        Effect.flatMap(auth.refresh(account), (tokens) =>
+          store.saveRefreshed(id, tokens).pipe(
+            Effect.retry({
+              schedule: SAVE_RETRY,
+              times: 3,
+              while: Predicate.not(Predicate.isTagged("AccountNotFoundError")),
+            }),
+          ),
+        ),
       );
     }).pipe(Semaphore.withPermit(lock));
   });
