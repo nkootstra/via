@@ -43,6 +43,18 @@ describe("CopyField", () => {
     expect(screen.queryByRole("button", { name: "Show API key" })).toBeNull();
   });
 
+  it("conceals the value again once it is to be concealed again", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(<CopyField label="API key" value="via_secret123" concealed />);
+    await user.click(screen.getByRole("button", { name: "Show API key" }));
+
+    rerender(<CopyField label="API key" value="via_secret123" concealed={false} />);
+    rerender(<CopyField label="API key" value="via_secret123" concealed />);
+
+    expect(document.body.innerHTML).not.toContain("via_secret123");
+    expect(screen.getByRole("button", { name: "Show API key" })).toBeDefined();
+  });
+
   it("says so when the copy fails", async () => {
     const user = userEvent.setup();
     const onCopy = vi.fn();

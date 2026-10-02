@@ -29,6 +29,8 @@ const styles = stylex.create({
  * if it did. That, an empty field and a failure show in the form, which stays
  * open to try again; the same name just closes it. `onRenamed` follows a
  * rename that took. It stays mounted while it closes, so it animates out.
+ * `hide` is how privacy mode shows a name; a name it would change starts the
+ * field empty, so the field neither shows it nor saves its hidden form.
  */
 export function RenameDialog({
   open,
@@ -40,6 +42,7 @@ export function RenameDialog({
   description,
   rename,
   onRenamed,
+  hide = (text) => text,
 }: {
   readonly open: boolean;
   readonly onClose: () => void;
@@ -51,9 +54,10 @@ export function RenameDialog({
   readonly description: string;
   readonly rename: (to: string) => Promise<string | undefined>;
   readonly onRenamed: () => void;
+  readonly hide?: (text: string) => string;
 }) {
   const toast = useToast();
-  const [value, setValue] = useState(name);
+  const [value, setValue] = useState(hide(name) === name ? name : "");
   const [problem, setProblem] = useState<string | undefined>(undefined);
   const to = value.trim();
 
@@ -63,7 +67,7 @@ export function RenameDialog({
       if (refused !== undefined) return setProblem(refused);
 
       onRenamed();
-      toast.add({ title: `${thing} renamed`, description: `It's now called ${to}.` });
+      toast.add({ title: `${thing} renamed`, description: `It's now called ${hide(to)}.` });
       onClose();
     },
   });
@@ -87,7 +91,7 @@ export function RenameDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>Rename {name}</DialogTitle>
+            <DialogTitle>Rename {hide(name)}</DialogTitle>
             <DialogDescription>{description}</DialogDescription>
           </DialogHeader>
           <Field label={field} error={problem ?? mutation.error?.message}>

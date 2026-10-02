@@ -1,6 +1,9 @@
 import { screen, waitFor, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { http, HttpResponse } from "msw";
+import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "./app.tsx";
+
+afterEach(() => localStorage.clear());
 
 const nas = "http://192.168.1.20:11434";
 
@@ -81,6 +84,19 @@ describe("the Ollama section", () => {
     await user.click(await screen.findByRole("menuitem", { name: "Check again" }));
 
     expect(await within(await row()).findByText("Ollama 0.35.0")).toBeDefined();
+  });
+
+  it("hides only the address in why a check failed, in privacy mode", async () => {
+    localStorage.setItem("via.privacy", "on");
+    renderApp("/accounts", { ollama: { address: nas, fromConfig: false } }, [
+      http.post("*/admin/ollama/check", () => HttpResponse.error()),
+    ]);
+
+    expect(
+      await within(await row()).findByText(
+        "Can't reach it: Can't reach via right now. Check that it's running, then try again.",
+      ),
+    ).toBeDefined();
   });
 
   it("changes a saved Ollama's address", async () => {

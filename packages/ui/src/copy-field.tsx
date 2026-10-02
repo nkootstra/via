@@ -180,6 +180,15 @@ export function CopyField({
 }: CopyFieldProps) {
   const large = size === "large";
   const [revealed, setRevealed] = useState(false);
+  // Concealed again, as when privacy mode comes back on, it waits to be shown again.
+  const [wasConcealed, setWasConcealed] = useState(concealed);
+
+  if (concealed !== wasConcealed) {
+    setWasConcealed(concealed);
+
+    if (concealed) setRevealed(false);
+  }
+
   const hidden = concealed && !revealed;
   const shown = hidden ? "•".repeat(Math.min(value.length, CONCEALED_LENGTH)) : value;
   const [status, setStatus] = useState<Status>("idle");

@@ -450,7 +450,8 @@ page's preferences:
 - **Privacy mode**, for streaming or sharing your screen: it hides emails
   (in labels and error messages too), key endings, the OpenRouter key, the
   Ollama address and the ChatGPT plan, and shows a new API key or a sign-in
-  code as dots until you choose **Show** (**Copy** copies it either way). It
+  code as dots until you choose **Show** (**Copy** copies it either way).
+  Renaming an account whose label it hides starts from an empty field. It
   changes only what the page shows; the admin API answers as always.
 - The theme (System, Light or Dark), and **Motion**: System follows the
   device's reduced motion setting, Reduced holds animations still whatever it
