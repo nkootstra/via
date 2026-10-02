@@ -106,7 +106,7 @@ function OllamaStatus({ address }: { readonly address: string }) {
   if (found.isError) {
     return (
       <span {...stylex.props(styles.caption)}>
-        Can't reach it: {mask.address(found.error.message)}
+        Can't reach it: {mask.text(found.error.message)}
       </span>
     );
   }
