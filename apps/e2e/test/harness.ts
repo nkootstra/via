@@ -1,4 +1,11 @@
-import { createKey, type SeededAccount, seedAccounts, serveVia, viaHome } from "@via/cli/testing";
+import {
+  createKey,
+  type SeededAccount,
+  seedAccounts,
+  serveVia,
+  viaHome,
+  writeConfig,
+} from "@via/cli/testing";
 import type { FakeIssuerOptions } from "@via/codex-auth/testing";
 import {
   type CodexRequest,
@@ -37,9 +44,13 @@ export const launchVia = (options: {
   issuer?: FakeIssuerOptions;
   /** More environment for every `via` command, `via serve` included. */
   env?: Record<string, string>;
+  /** config.yaml, as YAML. */
+  config?: string;
 }) =>
   Effect.gen(function* () {
     const { home, env, via } = yield* viaHome(options);
+
+    if (options.config !== undefined) yield* writeConfig(home, options.config);
 
     if (options.accounts === undefined) yield* via("accounts", "add");
     else yield* seedAccounts(home, options.accounts);
