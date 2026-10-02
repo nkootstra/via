@@ -76,6 +76,7 @@ const stale = <I, A, E, R>(
             ),
           ),
         );
+
         const at = yield* Clock.currentTimeMillis;
         yield* Ref.set(kept, Option.some({ key: key(input), value, at }));
         yield* Ref.set(failed, Option.none());

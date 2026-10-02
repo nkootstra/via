@@ -208,6 +208,7 @@ layer(BunFileSystem.layer)("GET /v1/models", (it) => {
 
             // A second round of asks means the first one failed and was let go.
             yield* TestClock.adjust("1 minute");
+
             const last = yield* listed(via).pipe(
               Effect.repeat({ until: () => codex.modelRequests.length >= 6 }),
             );
