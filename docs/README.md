@@ -650,8 +650,9 @@ price tables that ships with via: [models.dev](https://models.dev) for what
 OpenCode Go charges for each of its models, and
 [LiteLLM's](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)
 for the rest. For a model neither lists, or at another price, add it under
-`prices`, in USD per million tokens. `cachedInput` is optional: cached input
-costs what input does unless it's set. A price that grows past a long context
+`prices`, in USD per million tokens. `cachedInput` and `cacheWrite` are
+optional: input read from the cache, and input written to it, cost what other
+input does unless they're set. A price that grows past a long context
 is taken at its base rate.
 
 ```yaml
@@ -659,6 +660,7 @@ prices:
   opencode-go/kimi-k3:
     input: 0.6
     cachedInput: 0.1
+    cacheWrite: 0.75
     output: 2.5
 ```
 

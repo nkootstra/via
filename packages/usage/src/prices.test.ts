@@ -8,6 +8,7 @@ import type { ModelUsage } from "./usage-history.ts";
 const snapshot = new Map<string, ModelPrice>([
   ["gpt-6-astra", { input: 2, cachedInput: 0.5, output: 10 }],
   ["kimi-k3", { input: 3, cachedInput: 0.3, output: 15 }],
+  ["claude-6", { input: 4, cachedInput: 0.4, cacheWrite: 5, output: 20 }],
   ["minimax-m3", { input: 0.3, output: 1.2 }],
   ["opencode-go/deepseek-v4.1-flash", { input: 0.15, cachedInput: 0.003, output: 0.6 }],
   ["deepseek-v4.1-flash", { input: 0.3, output: 1.2 }],
@@ -98,6 +99,29 @@ describe("costOf", () => {
     expect(cost).toEqual({ apiEquivalentUsd: 1.2 + 0.2 + 1, billedUsd: 0, unpriced: [] });
   });
 
+  it("prices input written to the cache at its own rate", () => {
+    const cost = costOf(
+      [
+        usage("claude-6", {
+          unbilled: { inputTokens: 1_000_000, cachedTokens: 500_000, cacheWriteTokens: 200_000 },
+        }),
+      ],
+      book,
+    );
+
+    // 300k uncached at $4, 500k cached at $0.40, 200k written to the cache at $5 per million.
+    expect(cost.apiEquivalentUsd).toBeCloseTo(1.2 + 0.2 + 1);
+  });
+
+  it("prices input written to the cache as input when the model has no cache-write price", () => {
+    const cost = costOf(
+      [usage("gpt-6-astra", { unbilled: { inputTokens: 1_000_000, cacheWriteTokens: 1_000_000 } })],
+      book,
+    );
+
+    expect(cost.apiEquivalentUsd).toBeCloseTo(2);
+  });
+
   it("prices cached input as input when the model has no cached price", () => {
     const cost = costOf(
       [
@@ -128,9 +152,17 @@ describe("costOf", () => {
   const Tokens = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 10_000_000 }));
 
   const Usage = Schema.Struct({
-    model: Schema.Literals(["gpt-6-astra", "gpt-6-astra-high", "minimax-m3", "local/llama"]),
+    model: Schema.Literals([
+      "gpt-6-astra",
+      "gpt-6-astra-high",
+      "claude-6",
+      "minimax-m3",
+      "local/llama",
+    ]),
     input: Tokens,
     cachedShare: Schema.Finite.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
+    // Upstreams can report more read from and written to the cache than they took in all.
+    cacheWrite: Tokens,
     output: Tokens,
   });
 
@@ -143,6 +175,7 @@ describe("costOf", () => {
           unbilled: {
             inputTokens: u.input,
             cachedTokens: Math.floor(u.input * u.cachedShare),
+            cacheWriteTokens: u.cacheWrite,
             outputTokens: u.output,
           },
         }),
