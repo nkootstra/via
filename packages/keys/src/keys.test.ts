@@ -194,7 +194,7 @@ const writesOf = (store: KeyStore["Service"]) =>
     const signals = yield* Queue.unbounded<void>();
     yield* store.changes.pipe(
       Stream.runForEach(() => Queue.offer(signals, undefined)),
-      Effect.forkScoped,
+      Effect.forkChild,
     );
     // The signal `changes` gives at once, before any write.
     yield* Queue.take(signals);
@@ -522,6 +522,59 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
         ]);
       }),
     ),
+  );
+
+  it.effect("verifies and lists without reading the key file again while it is unchanged", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = `${yield* fs.makeTempDirectoryScoped()}/keys.json`;
+      let reads = 0;
+
+      const counting = FileSystem.FileSystem.of({
+        ...fs,
+        readFileString: (path, encoding) => {
+          if (path === file) reads += 1;
+
+          return fs.readFileString(path, encoding);
+        },
+      });
+
+      const store = yield* storeAt(file).pipe(
+        Effect.provideService(FileSystem.FileSystem, counting),
+      );
+
+      const written = yield* writesOf(store);
+      const { key } = yield* store.create("laptop");
+      yield* store.verify(key);
+      yield* written.next;
+      yield* written.next;
+      reads = 0;
+
+      yield* store.verify(key);
+      yield* store.list;
+      yield* store.verify(key);
+      expect(reads).toBe(1);
+    }),
+  );
+
+  it.effect("sees another process's change to the key file on the next use", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = `${yield* fs.makeTempDirectoryScoped()}/keys.json`;
+      const cli = yield* storeAt(file);
+      const serve = yield* storeAt(file);
+      const written = yield* writesOf(serve);
+      const { id, key } = yield* cli.create("laptop");
+      yield* serve.verify(key);
+      yield* written.next;
+
+      // The same length, so the file's size doesn't change, and likely within the millisecond.
+      yield* cli.rename(id, "laptoq");
+      expect(yield* serve.verify(key)).toEqual(Option.some({ id, name: "laptoq" }));
+      yield* cli.revoke(id);
+      expect(yield* serve.verify(key)).toEqual(Option.none());
+      expect(yield* serve.list).toEqual([]);
+    }),
   );
 
   it.effect("verifies a key at once while another process holds the key file's lock", () =>

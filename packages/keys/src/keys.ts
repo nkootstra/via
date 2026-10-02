@@ -1,4 +1,10 @@
-import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
+import {
+  cachedUntilChanged,
+  fileStamp,
+  readJsonFile,
+  withFileLock,
+  writeJsonFile,
+} from "@via/config";
 import {
   Context,
   DateTime,
@@ -79,6 +85,15 @@ const make = (path: string) =>
       Effect.provideService(FileSystem.FileSystem, fs),
     );
 
+    // What `list` and `verify`, which every request runs, read: the file as last read until it
+    // changes, by this process or another (`via keys revoke`, so the next request sees it).
+    // Changes read the file itself, under the lock.
+    const current = yield* cachedUntilChanged({
+      stamp: fileStamp(path).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
+      revision: SubscriptionRef.get(revision),
+      read,
+    });
+
     const write = (keys: typeof StoredKeys.Type) =>
       writeJsonFile(path, StoredKeys, keys).pipe(Effect.provideService(FileSystem.FileSystem, fs));
 
@@ -111,7 +126,7 @@ const make = (path: string) =>
       ),
     });
 
-    const list = read.pipe(Effect.map((keys) => keys.map(shown)));
+    const list = current.pipe(Effect.map((keys) => keys.map(shown)));
 
     // An id match wins over a name match, so one change never takes out two keys.
     const find = (keys: typeof StoredKeys.Type, idOrName: string) =>
@@ -158,7 +173,7 @@ const make = (path: string) =>
     const verify = Effect.fn("KeyStore.verify")(function* (key: string) {
       const candidate = hash(key);
 
-      const match = (yield* read).find((k) =>
+      const match = (yield* current).find((k) =>
         timingSafeEqual(candidate, Buffer.from(k.hash, "hex")),
       );
 
