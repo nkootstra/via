@@ -169,6 +169,20 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     ),
   );
 
+  it.effect("ends a session's stream once the session is left unused for an hour", () =>
+    withAdmin(ok, (via) =>
+      Effect.gen(function* () {
+        const session = yield* listen(via, { cookie: yield* sessionCookie(via) });
+        yield* settled(via, session.states);
+
+        // The stream itself doesn't count as using the session.
+        yield* via.timer("1 hour");
+        yield* TestClock.adjust("1 hour");
+        yield* session.ended;
+      }),
+    ),
+  );
+
   it.effect("sends the state again when an account, an OpenCode Go key or a key changes", () =>
     withAdmin(ok, (via) =>
       Effect.gen(function* () {

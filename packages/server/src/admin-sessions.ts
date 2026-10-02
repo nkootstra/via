@@ -22,9 +22,14 @@ interface Session {
   readonly signedOut: Deferred.Deferred<void>;
 }
 
-const isLive = ({ signedInAt, usedAt }: Session, now: number) =>
-  now - signedInAt < Duration.toMillis(SESSION_LIFETIME) &&
-  now - usedAt < Duration.toMillis(SESSION_IDLE);
+/** When `session` runs out unless it is used again, in epoch millis. */
+const endsAt = ({ signedInAt, usedAt }: Session) =>
+  Math.min(
+    signedInAt + Duration.toMillis(SESSION_LIFETIME),
+    usedAt + Duration.toMillis(SESSION_IDLE),
+  );
+
+const isLive = (session: Session, now: number) => now < endsAt(session);
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest();
 
@@ -118,11 +123,22 @@ const make = (adminKey: Redacted.Redacted<string>) =>
         if (ended !== undefined) yield* Deferred.succeed(ended.signedOut, undefined);
       });
 
+    // Looked at again whenever the session would have run out: using it since moves that on.
     const ended = (token: Redacted.Redacted<string>) =>
       Effect.gen(function* () {
-        const session = (yield* Ref.get(sessions)).get(idOf(Redacted.value(token)));
+        const id = idOf(Redacted.value(token));
 
-        if (session !== undefined) yield* Deferred.await(session.signedOut);
+        for (;;) {
+          const session = (yield* Ref.get(sessions)).get(id);
+          const now = yield* Clock.currentTimeMillis;
+
+          if (session === undefined || !isLive(session, now)) return;
+
+          yield* Effect.raceFirst(
+            Deferred.await(session.signedOut),
+            Effect.sleep(endsAt(session) - now),
+          );
+        }
       });
 
     return { isAdminKey, signIn, verify, signOut, ended };

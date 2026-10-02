@@ -176,6 +176,24 @@ describe("AdminSessions", () => {
     }).pipe(Effect.provide(sessions)),
   );
 
+  it.effect("says a session ended once it runs out 12 hours in, however much it is used", () =>
+    Effect.gen(function* () {
+      const admin = yield* AdminSessions;
+      const token = yield* admin.signIn(adminKey, "203.0.113.1");
+      const ended = yield* Effect.forkChild(admin.ended(token));
+
+      for (let use = 0; use < 12; use++) {
+        yield* TestClock.adjust("59 minutes");
+        expect(yield* admin.verify(token)).toBe(true);
+      }
+
+      yield* TestClock.adjust("11 minutes");
+      expect(ended.pollUnsafe()).toBeUndefined();
+      yield* TestClock.adjust("1 minute");
+      yield* Fiber.join(ended);
+    }).pipe(Effect.provide(sessions)),
+  );
+
   /** Minutes between two uses of a session: often under the hour it may idle, sometimes not. */
   const gaps = Arbitrary.array(
     Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 65 }))),
