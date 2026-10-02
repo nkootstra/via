@@ -1,6 +1,6 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
-import { delay, http } from "msw";
+import { delay, http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { breakdown, cost, group, request } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
@@ -368,6 +368,60 @@ describe("the usage page", () => {
         detail: "Leaves out local/llama: no price known",
       }),
     );
+  });
+
+  it("says the chart couldn't be loaded, rather than loading it forever", async () => {
+    const { user } = renderApp("/usage", seed, [
+      http.get("*/admin/history/series", () => new HttpResponse(null, { status: 500 }), {
+        once: true,
+      }),
+    ]);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't load the chart");
+
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+
+    expect(await screen.findByRole("figure", { name: "Tokens per hour" })).toBeDefined();
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("says the filters couldn't be loaded, rather than that there's nothing to pick", async () => {
+    // The key facet's first ask fails; the rest, and every other, pass through.
+    let failed = false;
+
+    const keysFail = http.get("*/admin/history/breakdown", ({ request: sent }) => {
+      if (failed || new URL(sent.url).searchParams.get("groupBy") !== "key") return;
+
+      failed = true;
+
+      return new HttpResponse(null, { status: 500 });
+    });
+
+    const { user } = renderApp("/usage", seed, [keysFail]);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't load the filters");
+
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
+  it("costs a group it couldn't price as unknown, not as free", async () => {
+    const unpriced = breakdown([
+      group({ group: "local/llama", cost: cost(0, 0, ["local/llama"]) }),
+    ]);
+
+    renderApp("/usage", { ...seed, historyBreakdown: new Map([["model", unpriced]]) });
+
+    const table = await screen.findByRole("table", { name: "Usage by model" });
+    const [row] = within(table).getAllByRole("row").slice(1);
+    const cells = within(row ?? table).getAllByRole("cell");
+    const costCell = cells[4];
+
+    expect(costCell?.textContent).toBe("Unknown");
+    expect(within(costCell ?? table).getByTitle("No price known for local/llama")).toBeDefined();
   });
 
   it("says so when the range has no requests", async () => {

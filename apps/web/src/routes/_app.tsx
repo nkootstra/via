@@ -1,8 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { sessionQuery } from "../api/admin.ts";
 import { useLiveUpdates } from "../api/live.ts";
-import { Dashboard, pageAt } from "../components/app-shell.tsx";
+import { Dashboard } from "../components/app-shell.tsx";
 import { UpdatePrompt } from "../components/update-prompt.tsx";
+import { backTo } from "../lib/sign-in-redirect.ts";
 
 export const Route = createFileRoute("/_app")({
   // Every dashboard page needs a session; without one, sign in and come back. A
@@ -11,12 +12,7 @@ export const Route = createFileRoute("/_app")({
     if (
       !(await context.queryClient.ensureQueryData({ ...sessionQuery, revalidateIfStale: true }))
     ) {
-      const back = pageAt(location.pathname);
-
-      throw redirect({
-        to: "/sign-in",
-        search: back === undefined || back === "/" ? {} : { redirect: back },
-      });
+      throw redirect({ to: "/sign-in", search: backTo(location.href) });
     }
   },
   component: SignedIn,

@@ -1,6 +1,7 @@
 import * as stylex from "@stylexjs/stylex";
 import { useMutation } from "@tanstack/react-query";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { isAppPath } from "../lib/sign-in-redirect.ts";
 import { startPath } from "../lib/start-page.ts";
 import { Button, Callout, Field, Input, VisuallyHidden } from "@via/ui";
 import { colors, fonts, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
@@ -16,9 +17,8 @@ import { countdown, useNow } from "../lib/time.ts";
 const LOCKOUT_MS = 60_000;
 
 const Search = Schema.Struct({
-  redirect: Schema.optional(
-    Schema.Literals(["/", "/usage", "/accounts", "/keys", "/models", "/settings"]),
-  ),
+  // The page, with its search, to go back to once signed in.
+  redirect: Schema.optional(Schema.String),
   // Set when via ended the session, so the page says why the viewer is back here.
   expired: Schema.optional(Schema.Boolean),
 });
@@ -190,7 +190,10 @@ function SignIn() {
       setProblem(null);
       setKey("");
       queryClient.setQueryData(sessionQuery.queryKey, true);
-      void navigate({ to: back ?? startPath() });
+      // Only ever to a page of the app: a link elsewhere would hand the session's tab to it.
+      void (back !== undefined && isAppPath(back)
+        ? navigate({ href: back })
+        : navigate({ to: startPath() }));
     },
     onError: (error) => setProblem({ kind: "unreachable", message: error.message }),
   });

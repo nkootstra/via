@@ -24,6 +24,7 @@ import {
   SidebarProvider,
   SidebarTrigger,
   SidebarUserMenu,
+  useToast,
 } from "@via/ui";
 import { colors, durations, radii, space, text } from "@via/ui/tokens.stylex";
 import { useEffect, useState, type ReactNode } from "react";
@@ -54,7 +55,7 @@ const pages: ReadonlyArray<{
 ];
 
 /** The dashboard page at `path`, if it is one: a page in the navigation, or the settings. */
-export const pageAt = (path: string): Page | undefined =>
+const pageAt = (path: string): Page | undefined =>
   path === "/settings" ? path : pages.find((page) => page.to === path)?.to;
 
 const styles = stylex.create({
@@ -160,14 +161,18 @@ function Pages() {
 function AccountMenu() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const toast = useToast();
   const [confirming, setConfirming] = useState(false);
 
   const mutation = useMutation({
     mutationFn: signOut,
-    onSettled: () => {
+    onSuccess: () => {
       queryClient.clear();
       void navigate({ to: "/sign-in" });
     },
+    // Still signed in: off to sign in, the page would only send the viewer back.
+    onError: (error) =>
+      toast.add({ type: "error", title: "Couldn't sign out", description: error.message }),
   });
 
   return (
