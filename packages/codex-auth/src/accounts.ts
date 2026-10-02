@@ -75,6 +75,8 @@ const make = (authDir: string) => {
             Effect.catchTag("CorruptFileError", (error) =>
               Effect.as(Effect.logWarning(`Skipping account: ${error.message}`), Option.none()),
             ),
+            // Removed since the directory was read, as another process may.
+            Effect.catchReason("PlatformError", "NotFound", () => Effect.succeedNone),
           ),
         { concurrency: "unbounded" },
       );

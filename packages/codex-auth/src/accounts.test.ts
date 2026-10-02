@@ -206,6 +206,27 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
     ),
   );
 
+  it.effect("skips an account file removed while it lists them, as another process may", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const authDir = `${yield* fs.makeTempDirectoryScoped()}/auth`;
+      yield* seedAccount(authDir, "a");
+
+      // The directory still names an account whose file is gone by the time it is read.
+      const removedMidList = Layer.succeed(FileSystem.FileSystem, {
+        ...fs,
+        readDirectory: (path, options) =>
+          Effect.map(fs.readDirectory(path, options), (names) => [...names, "gone.json"]),
+      });
+
+      const accounts = yield* Effect.flatMap(AccountStore, (store) => store.list).pipe(
+        Effect.provide(AccountStore.layer(authDir).pipe(Layer.provide(removedMidList))),
+      );
+
+      expect(accounts.map((a) => a.id)).toEqual(["a"]);
+    }),
+  );
+
   it.effect("signals now, then after every change it makes, but not when read", () =>
     withAccountStore(() =>
       Effect.gen(function* () {
