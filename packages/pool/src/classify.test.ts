@@ -54,6 +54,11 @@ describe("classify", () => {
       Rejection.Unavailable({ reason: "server_is_overloaded", retryAfterMs: SECOND }),
       Verdict.Unavailable({ reason: "server_is_overloaded", retryAfterMs: SECOND }),
     ],
+    [
+      "a forbidden account cools down for 30 minutes",
+      Rejection.Forbidden({ reason: "forbidden" }),
+      Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: "forbidden" }),
+    ],
     ["a refused token asks for a refresh", Rejection.Unauthorized(), Verdict.Unauthorized()],
     ["an invalid request goes back to the client", Rejection.Invalid(), Verdict.PassThrough()],
   ];
@@ -98,6 +103,29 @@ describe("properties", () => {
           const state = { a: { status: "cooling", until, reason } } as const;
 
           return Option.isNone(select([account], state, NOW));
+        },
+        Unavailable: () => false,
+        Unauthorized: () => false,
+        PassThrough: () => false,
+      }),
+  );
+
+  it.prop(
+    "a forbidden account is out of rotation for 30 minutes, then back",
+    {
+      reason: Arbitrary.schema(Schema.String),
+      elapsedSeconds: Arbitrary.schema(
+        Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 3_600 })),
+      ),
+    },
+    ({ reason, elapsedSeconds }) =>
+      Verdict.$match(classify(Rejection.Forbidden({ reason }), NOW), {
+        Cooldown: ({ until }) => {
+          const account = { id: "a", enabled: true };
+          const state = { a: { status: "cooling", until, reason } } as const;
+          const at = NOW + elapsedSeconds * SECOND;
+
+          return Option.isSome(select([account], state, at)) === at >= NOW + 30 * MINUTE;
         },
         Unavailable: () => false,
         Unauthorized: () => false,
