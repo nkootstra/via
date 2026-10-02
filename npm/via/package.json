@@ -1,5 +1,5 @@
 {
-  "name": "via",
+  "name": "@nkootstra/via",
   "version": "0.0.0",
   "description": "One OpenAI-compatible endpoint for your ChatGPT subscriptions, OpenCode Go keys and other providers",
   "license": "MIT",
@@ -9,10 +9,13 @@
   "files": [
     "bin"
   ],
+  "publishConfig": {
+    "access": "public"
+  },
   "optionalDependencies": {
-    "via-darwin-arm64": "0.0.0",
-    "via-darwin-x64": "0.0.0",
-    "via-linux-arm64": "0.0.0",
-    "via-linux-x64": "0.0.0"
+    "@nkootstra/via-darwin-arm64": "0.0.0",
+    "@nkootstra/via-darwin-x64": "0.0.0",
+    "@nkootstra/via-linux-arm64": "0.0.0",
+    "@nkootstra/via-linux-x64": "0.0.0"
   }
 }

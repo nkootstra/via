@@ -1,5 +1,5 @@
 {
-  "name": "via-darwin-arm64",
+  "name": "@nkootstra/via-darwin-arm64",
   "version": "0.0.0",
   "description": "The via binary for darwin-arm64",
   "license": "MIT",
@@ -11,5 +11,8 @@
   ],
   "cpu": [
     "arm64"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

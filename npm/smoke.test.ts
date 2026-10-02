@@ -44,8 +44,8 @@ it.effect(
           "--omit=optional",
           "--no-audit",
           "--no-fund",
-          `./${platform}-0.0.0.tgz`,
-          "./via-0.0.0.tgz",
+          `./nkootstra-${platform}-0.0.0.tgz`,
+          "./nkootstra-via-0.0.0.tgz",
         ],
         dir,
       );

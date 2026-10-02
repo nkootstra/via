@@ -1,5 +1,5 @@
 {
-  "name": "via-linux-arm64",
+  "name": "@nkootstra/via-linux-arm64",
   "version": "0.0.0",
   "description": "The via binary for linux-arm64",
   "license": "MIT",
@@ -11,5 +11,8 @@
   ],
   "cpu": [
     "arm64"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

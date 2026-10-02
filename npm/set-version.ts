@@ -10,6 +10,7 @@ if (version === undefined || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$/.test(version))
   process.exit(1);
 }
 
+// The platform packages' directories in npm/; each is published as @nkootstra/<directory>.
 const PLATFORMS = ["via-darwin-arm64", "via-darwin-x64", "via-linux-arm64", "via-linux-x64"];
 
 const stamp = async (
@@ -28,5 +29,7 @@ await stamp("apps/cli/package.json", () => {});
 for (const platform of PLATFORMS) await stamp(`npm/${platform}/package.json`, () => {});
 
 await stamp("npm/via/package.json", (pkg) => {
-  pkg.optionalDependencies = Object.fromEntries(PLATFORMS.map((platform) => [platform, version]));
+  pkg.optionalDependencies = Object.fromEntries(
+    PLATFORMS.map((platform) => [`@nkootstra/${platform}`, version]),
+  );
 });
