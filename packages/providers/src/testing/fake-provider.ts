@@ -22,6 +22,11 @@ type Answer = {
   body: string;
   headers?: Readonly<Record<string, string>>;
   /**
+   * What the rest of `body` waits for once its first character is sent, with the
+   * headers. It doesn't wait by default.
+   */
+  held?: Effect.Effect<void>;
+  /**
    * What the stream does after `body`: stays open, or breaks off once `drop` completes.
    * It ends by default.
    */
@@ -72,6 +77,19 @@ export const providerReply = {
   sseThenDrop:
     (body: string, drop: Effect.Effect<void>): ProviderReply =>
     () => ({ status: 200, contentType: "text/event-stream", body, ending: { drop } }),
+  /**
+   * A JSON body that starts at once with a newline, which JSON allows, and goes
+   * on only once `held` completes: a provider that starts its answer before the
+   * model is done, as OpenRouter does.
+   */
+  jsonHeld:
+    (held: Effect.Effect<void>, body: Schema.Json): ProviderReply =>
+    () => ({
+      status: 200,
+      contentType: "application/json",
+      body: `\n${JSON.stringify(body)}`,
+      held,
+    }),
 };
 
 const Body = Schema.JsonObject;
@@ -113,22 +131,32 @@ export const startFakeProvider = Effect.gen(function* () {
   const answer = HttpServerRequest.schemaBodyJson(Body).pipe(
     Effect.flatMap((body) => record(requests, body)),
     Effect.map((request) => {
-      const { status, contentType, body, headers = {}, ending } = handler(request);
+      const { status, contentType, body, headers = {}, held, ending } = handler(request);
 
-      if (ending === undefined) {
+      if (held === undefined && ending === undefined) {
         return HttpServerResponse.text(body, { status, contentType, headers });
       }
 
-      const rest =
-        ending === "hang"
-          ? Stream.never
-          : // Failing with `undefined` drops the connection without Bun printing the error.
-            Stream.fromEffect(Effect.andThen(ending.drop, Effect.fail(undefined)));
+      const sent =
+        held === undefined
+          ? Stream.make(body)
+          : Stream.make(body.slice(0, 1)).pipe(
+              Stream.concat(Stream.drain(Stream.fromEffect(held))),
+              Stream.concat(Stream.make(body.slice(1))),
+            );
 
-      return HttpServerResponse.stream(
-        Stream.make(body).pipe(Stream.concat(rest), Stream.encodeText),
-        { status, contentType },
-      );
+      const rest =
+        ending === undefined
+          ? Stream.empty
+          : ending === "hang"
+            ? Stream.never
+            : // Failing with `undefined` drops the connection without Bun printing the error.
+              Stream.fromEffect(Effect.andThen(ending.drop, Effect.fail(undefined)));
+
+      return HttpServerResponse.stream(sent.pipe(Stream.concat(rest), Stream.encodeText), {
+        status,
+        contentType,
+      });
     }),
     // Test fixture: a body that is not JSON is a bug in the code under test.
     Effect.orDie,
@@ -203,7 +231,11 @@ export const startFakeProvider = Effect.gen(function* () {
   );
 
   const server = yield* Layer.build(
-    HttpRouter.serve(routes).pipe(Layer.provideMerge(BunHttpServer.layer({ port: 0 }))),
+    HttpRouter.serve(routes).pipe(
+      // No idle timeout: a held reply stays open, as a provider's does, instead of
+      // Bun closing it after 10 quiet seconds.
+      Layer.provideMerge(BunHttpServer.layer({ port: 0, idleTimeout: 0 })),
+    ),
   );
 
   return {

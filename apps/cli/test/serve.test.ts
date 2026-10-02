@@ -343,6 +343,28 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     45_000,
   );
 
+  it.effect(
+    "relays a provider's answer that doesn't stream through a wait longer than Bun's 10s idle timeout",
+    () =>
+      Effect.gen(function* () {
+        const { home, key, env } = yield* loggedIn;
+        const provider = yield* startFakeProvider;
+        // It starts its answer, then finishes it only once Bun would have closed a quiet connection.
+        provider.respond(
+          providerReply.jsonHeld(Effect.sleep(IDLE_CLOSE_MS).pipe(realTime), {
+            id: "chatcmpl-local",
+          }),
+        );
+        yield* configureLocal(home, provider);
+        const url = yield* serveVia(home, ["--port", "0"], { ...env, LOCAL_KEY: "sk-local" });
+
+        const response = yield* postLocalChat(url, key);
+        expect(yield* response.json.pipe(realTime)).toEqual({ id: "chatcmpl-local" });
+      }),
+    // The provider is quiet for 14 real seconds, on top of the 30 seconds the other tests get.
+    44_000,
+  );
+
   it.effect("keeps an account cooling down across a restart", () =>
     Effect.gen(function* () {
       const { home, key, env, codex } = yield* loggedIn;
