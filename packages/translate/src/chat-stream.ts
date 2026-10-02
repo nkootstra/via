@@ -42,7 +42,8 @@ const ArgumentsDelta = Schema.Struct({
 
 const Completed = Schema.Struct({
   ...ResponseCompleted.fields,
-  response: Schema.Struct({ usage: Usage }),
+  // Codex may leave the usage out, or send `null`; the answer is no less complete.
+  response: Schema.Struct({ usage: Schema.optionalKey(Schema.NullOr(Usage)) }),
 });
 
 const Incomplete = Schema.Struct({
@@ -201,9 +202,9 @@ export const toChatStream = <E>(
     return [state, []];
   };
 
-  const finish = (state: State, reason: string, usage: typeof Usage.Type | undefined) => [
+  const finish = (state: State, reason: string, usage: typeof Usage.Type | null | undefined) => [
     chunk(state, {}, reason),
-    ...(options.includeUsage && usage !== undefined
+    ...(options.includeUsage && usage != null
       ? [`data: ${state.envelope},"choices":[],"usage":${JSON.stringify(chatUsage(usage))}}\n\n`]
       : []),
     "data: [DONE]\n\n",

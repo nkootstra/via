@@ -328,10 +328,33 @@ describe("toChatStream", () => {
 
   it.effect("does not take a malformed completion for the end of the response", () =>
     Effect.gen(function* () {
-      const events = yield* chatEvents([created, { type: "response.completed", response: {} }]);
+      const events = yield* chatEvents([
+        created,
+        { type: "response.completed", response: { usage: "lots" } },
+      ]);
 
       expect(events).not.toContain("[DONE]");
       expect(events.at(-1)).toMatchObject({ error: { code: "upstream_incomplete" } });
+    }),
+  );
+
+  it.effect.each([
+    { case: "leaves it out", response: { status: "completed" } },
+    { case: "sends null", response: { status: "completed", usage: null } },
+  ])("finishes a completed response whose usage Codex $case, with no usage chunk", ({ response }) =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents(
+        [
+          created,
+          { type: "response.output_text.delta", delta: "Hello" },
+          { type: "response.completed", response },
+        ],
+        { includeUsage: true },
+      );
+
+      expect(deltas(events).at(-1)).toEqual({ index: 0, delta: {}, finish_reason: "stop" });
+      expect(events.filter((event) => Predicate.hasProperty(event, "usage"))).toEqual([]);
+      expect(events.at(-1)).toBe("[DONE]");
     }),
   );
 
