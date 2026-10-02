@@ -151,6 +151,7 @@ const entryOf = (
     accountLabel: Option.flatMap(line.accountId, () => line.servedBy),
     inputTokens: count((u) => u.inputTokens),
     cachedTokens: count((u) => u.cachedTokens),
+    cacheWriteTokens: Option.none(),
     outputTokens: count((u) => u.outputTokens),
     reasoningTokens: count((u) => u.reasoningTokens),
     costUsd: count((u) => u.costUsd),

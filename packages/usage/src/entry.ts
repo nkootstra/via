@@ -30,6 +30,8 @@ export const UsageEntry = Schema.Struct({
   accountLabel: Nullable(Schema.String),
   inputTokens: Nullable(Schema.Finite),
   cachedTokens: Nullable(Schema.Finite),
+  /** The part of `inputTokens` written to the upstream's prompt cache. */
+  cacheWriteTokens: Nullable(Schema.Finite),
   outputTokens: Nullable(Schema.Finite),
   reasoningTokens: Nullable(Schema.Finite),
   /** What the upstream says it billed, in USD. */

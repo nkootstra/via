@@ -69,11 +69,17 @@ describe("priceBook", () => {
   });
 });
 
-const usage = (model: string, overrides: Partial<ModelUsage> = {}): ModelUsage => ({
+const usage = (
+  model: string,
+  {
+    unbilled,
+    ...overrides
+  }: Partial<Omit<ModelUsage, "unbilled">> & { unbilled?: Partial<ModelUsage["unbilled"]> } = {},
+): ModelUsage => ({
   model,
   billedUsd: 0,
   billedRequests: 0,
-  unbilled: { inputTokens: 0, cachedTokens: 0, outputTokens: 0 },
+  unbilled: { inputTokens: 0, cachedTokens: 0, cacheWriteTokens: 0, outputTokens: 0, ...unbilled },
   ...overrides,
 });
 

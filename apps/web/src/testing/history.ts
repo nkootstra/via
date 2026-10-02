@@ -65,6 +65,7 @@ export const request = (
   accountLabel: Option.some("work@example.com"),
   inputTokens: Option.some(1_200),
   cachedTokens: Option.some(800),
+  cacheWriteTokens: Option.none(),
   outputTokens: Option.some(300),
   reasoningTokens: Option.none(),
   costUsd: Option.none(),
