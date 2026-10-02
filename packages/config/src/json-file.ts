@@ -28,7 +28,10 @@ export const readJsonFile = Effect.fn("readJsonFile")(function* <
   );
 });
 
-/** Encode and write JSON owner-only via temp file + rename, so readers never see a partial file. */
+/**
+ * Encode and write JSON owner-only via a flushed temp file + rename, so readers never see a
+ * partial file and a crash leaves the old contents or the new ones.
+ */
 export const writeJsonFile = Effect.fn("writeJsonFile")(function* <
   S extends Schema.Codec<unknown, unknown>,
 >(path: string, schema: S, value: S["Type"]) {
@@ -38,7 +41,14 @@ export const writeJsonFile = Effect.fn("writeJsonFile")(function* <
   yield* fs.makeDirectory(dirname(path), { recursive: true, mode: 0o700 });
   const tmp = `${path}.${yield* Random.nextInt}.tmp`;
   yield* Effect.gen(function* () {
-    yield* fs.writeFileString(tmp, `${JSON.stringify(encoded, null, 2)}\n`, { mode: 0o600 });
+    // Flushed before the rename, so a crash can't leave the file renamed but empty.
+    yield* Effect.scoped(
+      Effect.gen(function* () {
+        const file = yield* fs.open(tmp, { flag: "w", mode: 0o600 });
+        yield* file.writeAll(new TextEncoder().encode(`${JSON.stringify(encoded, null, 2)}\n`));
+        yield* file.sync;
+      }),
+    );
     yield* fs.chmod(tmp, 0o600);
     yield* fs.rename(tmp, path);
   }).pipe(
