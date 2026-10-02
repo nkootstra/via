@@ -36,7 +36,11 @@ export const chatCompletions = authenticated(
 
     if (Option.isNone(chat)) return yield* invalid;
 
-    return yield* dispatch(toResponsesRequest(chat.value), session, (upstream, failed) =>
+    const responses = toResponsesRequest(chat.value);
+    // Codex sends reasoning summaries, the chat answer's reasoning content, only when asked.
+    const reasoning = { ...responses.reasoning, summary: "auto" };
+
+    return yield* dispatch({ ...responses, reasoning }, session, (upstream, failed) =>
       chatFromResponses(upstream, chat.value, failed),
     );
   }),

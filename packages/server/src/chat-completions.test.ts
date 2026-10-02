@@ -138,6 +138,20 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
     ),
   );
 
+  it.effect("asks Codex for reasoning summaries, which it sends only when asked", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/chat/completions", request);
+        yield* via.post("/v1/chat/completions", { ...request, reasoning_effort: "low" });
+
+        expect(via.upstreamRequests.map((sent) => sent.body["reasoning"])).toEqual([
+          { summary: "auto" },
+          { effort: "low", summary: "auto" },
+        ]);
+      }),
+    ),
+  );
+
   it.effect("keeps every turn of a conversation in one Codex session", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
