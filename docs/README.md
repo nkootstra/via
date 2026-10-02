@@ -337,6 +337,11 @@ same as the last one isn't sent again. A `: keepalive` comment keeps a quiet
 stream open. Changes another process makes, such as `via accounts label`,
 show within 15 seconds, and while a stream is open via keeps usage from
 getting more than about a minute old, as it does for a page that polls.
+A stream opened with a session cookie ends when that session does: on sign-out,
+12 hours after sign-in, or after an hour unused. An open stream doesn't count
+as using the session, so a page left open with nothing done in it is signed out
+on the hour as one that polls would be. A stream opened with the bearer key
+runs until you close it.
 
 The stream also says when the [usage history](#usage-history) changes, as when
 via keeps a request or the history is deleted, with an event named `history`
@@ -370,6 +375,10 @@ cookie instead, so the key is never kept in the page:
   and similar headers, so behind a proxy every sign-in shares the proxy's
   address. Each failed sign-in is logged, without the key. via never logs the
   key or the cookie.
+- A wrong `Authorization: Bearer` key on any `/admin` route counts as a failed
+  sign-in from its address too, and is logged the same way, though it answers
+  401 at once. While an address's sign-ins answer 429, so do its bearer
+  requests, even with the right key; sessions already signed in keep working.
 
 ### Web UI
 
