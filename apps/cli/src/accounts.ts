@@ -163,10 +163,25 @@ const describeState = (state: ProviderState) => {
   }
 };
 
-/** Each configured provider with its own key, a line saying it is available. */
-const providerSections = Effect.flatMap(Providers, ({ names }) =>
-  Effect.map(names, (all) =>
-    all.map((name) => ({ line: `${name}  provider  available`, rows: [] })),
+/**
+ * Each configured provider with its own key, all asked at once whether it can
+ * be used: a line saying it is available, or why not.
+ */
+const providerSections = Effect.flatMap(Providers, ({ names, check }) =>
+  Effect.flatMap(names, (all) =>
+    Effect.forEach(
+      all,
+      (name) =>
+        check(name).pipe(
+          Effect.as("available"),
+          Effect.catchTags({
+            ProviderKeyRefusedError: ({ status }) => Effect.succeed(`key refused (HTTP ${status})`),
+            ProviderUnreachableError: ({ reason }) => Effect.succeed(`unreachable: ${reason}`),
+          }),
+          Effect.map((state) => ({ line: `${name}  provider  ${state}`, rows: [] })),
+        ),
+      { concurrency: "unbounded" },
+    ),
   ),
 );
 

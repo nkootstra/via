@@ -336,9 +336,28 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
-  it.effect("status shows a provider that reports no usage as available", () =>
+  it.effect("status asks each provider whether it can be used, and says why not", () =>
+    Effect.gen(function* () {
+      // It lists no models, so it answers 500.
+      const down = yield* startFakeProvider;
+      const openrouter = yield* startFakeProvider;
+      const { via, home } = yield* setup({ env: { OR_KEY: "sk-or-bad" } });
+      yield* writeConfig(
+        home,
+        `providers:\n  local:\n    baseUrl: ${down.url}\n` +
+          `  openrouter:\n    baseUrl: ${openrouter.url}\n    apiKeyEnv: OR_KEY\n`,
+      );
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(/^local {2}provider {2}unreachable: HTTP 500$/m);
+      expect(status.stdout).toMatch(/^openrouter {2}provider {2}key refused \(HTTP 401\)$/m);
+    }),
+  );
+
+  it.effect("status shows a provider that answers as available", () =>
     Effect.gen(function* () {
       const provider = yield* startFakeProvider;
+      provider.models(["m"]);
       const { via, home } = yield* setup({ env: { LOCAL_KEY: "sk-local" } });
       yield* writeConfig(
         home,
