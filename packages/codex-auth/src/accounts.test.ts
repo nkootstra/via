@@ -5,6 +5,10 @@ import { TestClock } from "effect/testing";
 import { seedAccount, tokensFor } from "./testing/index.ts";
 import { AccountNotFoundError, AccountStore } from "./index.ts";
 
+/** Each account's id and whether it is enabled. */
+const enabled = (accounts: ReadonlyArray<{ id: string; enabled: boolean }>) =>
+  accounts.map(({ id, enabled: on }) => [id, on]);
+
 const withAccountStore = <A, E>(
   body: (authDir: string) => Effect.Effect<A, E, AccountStore | FileSystem.FileSystem>,
 ) =>
@@ -224,6 +228,64 @@ layer(BunFileSystem.layer)("AccountStore", (it) => {
       );
 
       expect(accounts.map((a) => a.id)).toEqual(["a"]);
+    }),
+  );
+
+  it.effect("lists without reading the account files again while none has changed", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const authDir = `${yield* fs.makeTempDirectoryScoped()}/auth`;
+      yield* seedAccount(authDir, "a");
+      yield* seedAccount(authDir, "b");
+      let reads = 0;
+
+      const counting = Layer.succeed(FileSystem.FileSystem, {
+        ...fs,
+        readFileString: (path, encoding) => {
+          if (path.startsWith(`${authDir}/`)) reads += 1;
+
+          return fs.readFileString(path, encoding);
+        },
+      });
+
+      const store = yield* Layer.build(
+        AccountStore.layer(authDir).pipe(Layer.provide(counting)),
+      ).pipe(Effect.map(Context.get(AccountStore)));
+
+      const first = yield* store.list;
+      reads = 0;
+
+      expect(yield* store.list).toEqual(first);
+      expect(yield* store.list).toEqual(first);
+      expect(reads).toBe(0);
+    }),
+  );
+
+  it.effect("sees another process's change to the accounts on the next list", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const authDir = `${yield* fs.makeTempDirectoryScoped()}/auth`;
+      yield* seedAccount(authDir, "a");
+
+      const storeAt = Layer.build(AccountStore.layer(authDir)).pipe(
+        Effect.map(Context.get(AccountStore)),
+      );
+
+      const cli = yield* storeAt;
+      const serve = yield* storeAt;
+
+      expect(enabled(yield* serve.list)).toEqual([["a", true]]);
+      yield* cli.setEnabled("a", false);
+      expect(enabled(yield* serve.list)).toEqual([["a", false]]);
+      yield* cli.setEnabled("a", true);
+      expect(enabled(yield* serve.list)).toEqual([["a", true]]);
+      yield* seedAccount(authDir, "b");
+      expect(enabled(yield* serve.list).toSorted()).toEqual([
+        ["a", true],
+        ["b", true],
+      ]);
+      yield* cli.remove("a");
+      expect(enabled(yield* serve.list)).toEqual([["b", true]]);
     }),
   );
 

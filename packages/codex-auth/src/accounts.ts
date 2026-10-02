@@ -1,4 +1,10 @@
-import { CorruptFileError, withFileLock, writeJsonFile } from "@via/config";
+import {
+  cachedUntilChanged,
+  CorruptFileError,
+  fileStamp,
+  withFileLock,
+  writeJsonFile,
+} from "@via/config";
 import {
   Array as Arr,
   Context,
@@ -69,13 +75,15 @@ const make = (authDir: string) => {
         ),
       );
 
-    const list = Effect.gen(function* () {
-      const files = yield* fs
-        .readDirectory(authDir)
-        .pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])));
+    const accountFiles = fs.readDirectory(authDir).pipe(
+      Effect.map((files) => files.filter((name) => name.endsWith(".json")).toSorted()),
+      Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])),
+    );
 
+    /** Every account, read from its file. */
+    const readAll = Effect.gen(function* () {
       const accounts = yield* Effect.forEach(
-        files.filter((name) => name.endsWith(".json")),
+        yield* accountFiles,
         (name) =>
           readAccount(`${authDir}/${name}`).pipe(
             Effect.asSome,
@@ -90,7 +98,30 @@ const make = (authDir: string) => {
       );
 
       return Arr.getSomes(accounts).toSorted((a, b) => a.createdAt.localeCompare(b.createdAt));
-    }).pipe(Effect.withSpan("AccountStore.list"));
+    });
+
+    /** Which account files there are, and a `fileStamp` of each. */
+    const stamp = Effect.gen(function* () {
+      const stamps = yield* Effect.forEach(yield* accountFiles, (name) =>
+        Effect.map(
+          fileStamp(`${authDir}/${name}`),
+          Option.map((at) => `${name}=${at}`),
+        ),
+      );
+
+      return Option.map(Option.all(stamps), (all) => all.join("\n"));
+    }).pipe(Effect.provideService(FileSystem.FileSystem, fs));
+
+    // What `list`, which every request runs, reads: the accounts as last read until a file
+    // changes, by this process or another (`via accounts disable`, so the next request sees it).
+    // Changes read the files themselves, under the lock.
+    const cached = yield* cachedUntilChanged({
+      stamp,
+      revision: SubscriptionRef.get(revision),
+      read: readAll,
+    });
+
+    const list = cached.pipe(Effect.withSpan("AccountStore.list"));
 
     const write = (account: Account) =>
       writeJsonFile(fileOf(account.id), Account, account).pipe(
@@ -98,7 +129,7 @@ const make = (authDir: string) => {
       );
 
     const find = Effect.fn("AccountStore.find")(function* (query: string) {
-      const all = yield* list;
+      const all = yield* readAll;
 
       // An id is checked first, so a label that looks like another account's id can't hide it.
       const match =
@@ -114,7 +145,7 @@ const make = (authDir: string) => {
     const save = Effect.fn("AccountStore.save")(function* (tokens: Tokens) {
       const identity = yield* decodeIdToken(tokens.idToken);
 
-      const existing = (yield* list).find(
+      const existing = (yield* readAll).find(
         (a) => a.accountId === identity.accountId && a.email === identity.email,
       );
 
