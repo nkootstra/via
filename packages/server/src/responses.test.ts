@@ -2,6 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { refreshedTokens } from "@via/codex-auth/testing";
 import {
   type CodexRequest,
+  codexErrorFixture,
   codexFixture,
   completedStream,
   reply,
@@ -15,6 +16,12 @@ const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id
 
 const usageLimit = (resetsAt: number) =>
   reply.error(429, { error: { type: "usage_limit_reached", resets_at: resetsAt } });
+
+/** One of codex's recorded error answers, verbatim, as a reply. */
+const errorFixture = (name: string) =>
+  Effect.map(codexErrorFixture(name), ({ status, headers, body }) =>
+    reply.error(status, body, headers),
+  );
 
 const request = { model: "gpt-6-astra", input: "hi" };
 
@@ -240,6 +247,33 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
             error: { message: "bad input" },
           });
           expect(via.upstreamRequests).toHaveLength(1);
+        }),
+    ),
+  );
+
+  it.effect("cools down an account Codex forbids, and moves on", () =>
+    Effect.flatMap(errorFixture("cloudflare_blocked_403"), (blocked) =>
+      withVia(
+        (received) => (accountOf(received) === "acc-a" ? blocked : ok()),
+        (via) =>
+          Effect.gen(function* () {
+            expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+            expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+            expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
+          }),
+      ),
+    ),
+  );
+
+  it.effect("answers 429 when Codex forbids every account", () =>
+    withVia(
+      () => reply.error(403, { error: { code: "account_deactivated" } }),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", request);
+          expect(response.status).toBe(429);
+          expect(response.headers["retry-after"]).toBe("1800");
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b"]);
         }),
     ),
   );

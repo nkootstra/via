@@ -586,6 +586,10 @@ first; a key it refuses is taken out of use at its first request. `list` and
   from the web UI's **Add account** and it's back in rotation at once. With
   `via accounts add` instead, restart `via serve`: the CLI can't reach the
   running server's lockouts. A login lifts only a lockout, never a cooldown.
+- A 403 means Codex bars the account (suspended, its workspace deactivated, or
+  blocked by Cloudflare): via cools it down for 30 minutes and tries the next
+  one. A 403 for a request Codex's policy refuses
+  (`misalignment_policy_violation`) goes back to the client as-is.
 - A Codex backend via can't reach at all answers `502` without trying the next
   account. A token refresh that fails because the sign-in server can't be
   reached rests that account for 1 minute, and via tries the next one; only a
