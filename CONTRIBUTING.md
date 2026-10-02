@@ -14,7 +14,7 @@ Security problems go through [SECURITY.md](SECURITY.md), never a public issue.
 
 ## Setup
 
-You need [Bun](https://bun.sh) 1.4.0 (pinned in `package.json`). Node 24 is only
+You need [Bun](https://bun.sh) 1.4.2 (pinned in `package.json`). Node 24 is only
 needed for `bun run smoke`.
 
 ```sh
