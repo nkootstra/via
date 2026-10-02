@@ -39,9 +39,9 @@ const exporting = OtlpTracer.layerFromConfig({
 );
 
 /**
- * Without a collector, spans would be built for every request and go nowhere,
- * and upstreams would still be sent `traceparent` and `b3` headers, so tracing
- * is off instead.
+ * Without a collector, or with `OTEL_SDK_DISABLED=true`, spans would be built
+ * for every request and go nowhere, and upstreams would still be sent
+ * `traceparent` and `b3` headers, so tracing is off instead.
  */
 const off = Layer.mergeAll(
   Layer.succeed(References.TracerEnabled, false),
@@ -52,8 +52,9 @@ const tracing = Layer.unwrap(
   Effect.gen(function* () {
     const traces = yield* Config.option(Config.String("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"));
     const all = yield* Config.option(Config.String("OTEL_EXPORTER_OTLP_ENDPOINT"));
+    const disabled = yield* Config.Boolean("OTEL_SDK_DISABLED").pipe(Config.withDefault(false));
 
-    return Option.isSome(traces) || Option.isSome(all) ? exporting : off;
+    return !disabled && (Option.isSome(traces) || Option.isSome(all)) ? exporting : off;
   }),
 );
 
