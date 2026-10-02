@@ -44,6 +44,16 @@ export const signOutAll = (
     discard: true,
   });
 
+/** Waits until every session `request` carries a cookie for has ended. */
+export const sessionsEnded = (
+  sessions: AdminSessions["Service"],
+  request: HttpServerRequest.HttpServerRequest,
+): Effect.Effect<void> =>
+  Effect.forEach(sessionTokens(request), (token) => sessions.ended(Redacted.make(token)), {
+    concurrency: "unbounded",
+    discard: true,
+  });
+
 /** Deletes the session cookie at `path`, whatever its value. */
 const expired = (path: string) =>
   Cookies.makeCookieUnsafe(session.key, "", {

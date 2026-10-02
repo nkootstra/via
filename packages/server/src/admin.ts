@@ -22,10 +22,22 @@ import {
 } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar, OpenApi } from "effect/unstable/httpapi";
-import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
+import {
+  AdminApi,
+  AdminAuthorization,
+  bearer,
+  Forbidden,
+  session,
+  Unauthorized,
+} from "./admin-api.ts";
 import { history } from "./admin-history.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
-import { hasLiveSession, signOutAll, staleSessionCookies } from "./session-cookie.ts";
+import {
+  hasLiveSession,
+  sessionsEnded,
+  signOutAll,
+  staleSessionCookies,
+} from "./session-cookie.ts";
 import {
   adminAccounts,
   adminOllama,
@@ -81,21 +93,39 @@ const reads = new Set(["GET", "HEAD"]);
 
 const invalid = new Unauthorized({ message: "Missing or invalid admin key or session" });
 
+/**
+ * Who is signing in, for counting their failed sign-ins: the address the
+ * connection came from. Never a header such as `X-Forwarded-For`, which the
+ * client could make up; behind a proxy, every sign-in is the proxy's.
+ */
+const clientOf = (request: HttpServerRequest.HttpServerRequest) =>
+  Option.getOrElse(request.remoteAddress, () => "unknown");
+
+/** The bearer key the request carries, unless it carries none. */
+const bearerKey = Effect.map(HttpApiBuilder.securityDecode(bearer), (key) =>
+  Redacted.value(key) === "" ? Option.none() : Option.some(key),
+);
+
 const authorization = Layer.effect(
   AdminAuthorization,
   Effect.gen(function* () {
     const sessions = yield* AdminSessions;
 
+    // The builder tries `bearer`, then `session`, and answers with the last one's error,
+    // so `session` decides every request: a bearer key refused because its address is
+    // throttled must answer 429, which an error from `bearer` would turn into a 401.
     return AdminAuthorization.of({
-      bearer: (handler, { credential }) =>
-        Effect.gen(function* () {
-          if (!(yield* sessions.isAdminKey(credential))) return yield* invalid;
-
-          return yield* handler;
-        }),
+      bearer: () => invalid,
       session: (handler) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
+          const key = yield* bearerKey;
+
+          if (Option.isSome(key)) {
+            yield* sessions.authorize(key.value, clientOf(request));
+
+            return yield* handler;
+          }
 
           if (!(yield* hasLiveSession(sessions, request))) return yield* invalid;
 
@@ -128,14 +158,6 @@ const setSessionCookie = (token: Redacted.Redacted<string> | "", maxAge: Duratio
       maxAge,
     });
   });
-
-/**
- * Who is signing in, for counting their failed sign-ins: the address the
- * connection came from. Never a header such as `X-Forwarded-For`, which the
- * client could make up; behind a proxy, every sign-in is the proxy's.
- */
-const clientOf = (request: HttpServerRequest.HttpServerRequest) =>
-  Option.getOrElse(request.remoteAddress, () => "unknown");
 
 const sessions = HttpApiBuilder.group(AdminApi, "session", (handlers) =>
   Effect.gen(function* () {
@@ -341,16 +363,28 @@ const models = HttpApiBuilder.group(AdminApi, "models", (handlers) =>
   handlers.handle("list", () => Effect.flatMap(ModelCatalog, (catalog) => catalog.list)),
 );
 
-// Answered raw, to keep a quiet stream alive with comments, which the typed events can't carry.
+/**
+ * Answered raw, to keep a quiet stream alive with comments, which the typed events can't
+ * carry. A stream opened with the admin key runs until the page goes away; one opened with
+ * a session ends with the session too, so a signed-out page stops getting the state.
+ */
 const events = (options: StateOptions) =>
   HttpApiBuilder.group(AdminApi, "events", (handlers) =>
     Effect.gen(function* () {
       const stream = adminEvents(options);
       const context = yield* Effect.context<Stream.Services<typeof stream>>();
+      const admin = yield* AdminSessions;
 
       return handlers.handleRaw("stream", () =>
         Effect.gen(function* () {
-          const body = (yield* RequestLog).timed(keepAlive(stream));
+          const request = yield* HttpServerRequest.HttpServerRequest;
+
+          // Let through with a bearer key, it was the admin key.
+          const ended = Option.isSome(yield* bearerKey)
+            ? Effect.never
+            : sessionsEnded(admin, request);
+
+          const body = (yield* RequestLog).timed(keepAlive(Stream.interruptWhen(stream, ended)));
 
           return HttpServerResponse.stream(Stream.provideContext(body, context), {
             contentType: "text/event-stream",

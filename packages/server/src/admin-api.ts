@@ -301,7 +301,7 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()(
  * Bearer auth, spelled `bearer` in the spec: `HttpApiSecurity.bearer` says `Bearer`,
  * which Scalar's API client mistakes for Basic auth. Headers match either way.
  */
-const bearer = HttpApiSecurity.http({ scheme: "bearer" });
+export const bearer = HttpApiSecurity.http({ scheme: "bearer" });
 
 /** The session cookie `POST /admin/session` sets. */
 export const session = HttpApiSecurity.apiKey({ key: "via_session", in: "cookie" });
@@ -310,13 +310,14 @@ export const session = HttpApiSecurity.apiKey({ key: "via_session", in: "cookie"
  * Lets a request through with `Authorization: Bearer <VIA_ADMIN_KEY>`, or with a
  * session cookie. A request that changes something with only the cookie must also
  * come from via's own origin and carry `x-via-csrf: 1`, which a cross-site form can't.
- * Reading the cookie takes the request, as any HTTP middleware does.
+ * A wrong bearer key counts as a failed sign-in, so an address refused sign-ins is
+ * refused the bearer key too, with 429. Reading the cookie takes the request, as any HTTP middleware does.
  *
  * @effect-expect-leaking HttpServerRequest | ParsedSearchParams | RouteContext
  */
 export class AdminAuthorization extends HttpApiMiddleware.Service<AdminAuthorization>()(
   "via/AdminAuthorization",
-  { security: { bearer, session }, error: [Unauthorized, Forbidden] },
+  { security: { bearer, session }, error: [Unauthorized, Forbidden, TooManySignInsError] },
 ) {}
 
 /** An integer, as a query parameter carries it, such as a time in epoch milliseconds. */

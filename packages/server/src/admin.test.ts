@@ -1310,6 +1310,19 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("logs a wrong bearer key without it", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.get("/admin/keys", "wrong-key-with-a-guess-in-it")).status).toBe(401);
+          yield* via.logged("Failed admin request");
+          expect(JSON.stringify(via.logs)).not.toContain("wrong-key-with-a-guess-in-it");
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("refuses strings too long to be real with 400, before acting on them", () =>
     withVia(
       ok,
@@ -1361,6 +1374,31 @@ layer(BunFileSystem.layer)("admin API", (it) => {
         }),
       { adminKey },
     ),
+  );
+
+  it.effect(
+    "counts wrong bearer keys as failed sign-ins, refusing even the right key after ten",
+    () =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const wrong = yield* Effect.forEach(
+              Array.from({ length: 10 }),
+              () => via.get("/admin/keys", "wrong-admin-key"),
+              { concurrency: "unbounded" },
+            );
+
+            expect(wrong.map(({ status }) => status)).toEqual(
+              Array.from({ length: 10 }, () => 401),
+            );
+            expect((yield* via.get("/admin/keys", adminKey)).status).toBe(429);
+            expect((yield* signIn(via, adminKey)).status).toBe(429);
+            yield* TestClock.adjust("1 minute");
+            expect((yield* via.get("/admin/keys", adminKey)).status).toBe(200);
+          }),
+        { adminKey },
+      ),
   );
 
   it.effect("tells clients apart by their connection, not by forwarding headers", () =>

@@ -135,26 +135,28 @@ layer(BunFileSystem.layer)("admin sessions", (it) => {
     }),
   );
 
-  it.effect("refuses sign-ins from an address after 10 wrong keys, the right key included", () =>
-    Effect.gen(function* () {
-      const via = yield* viaWithAdmin;
+  it.effect(
+    "refuses an address after 10 wrong keys, the right key and the bearer key included",
+    () =>
+      Effect.gen(function* () {
+        const via = yield* viaWithAdmin;
 
-      // Each wrong key is answered after a second, so they go at once.
-      const wrong = yield* Effect.forEach(
-        Array.from({ length: 10 }, (_, attempt) => `wrong-key-${attempt}`),
-        (key) => Effect.map(signInWith(via.url, key), ({ status }) => status),
-        { concurrency: "unbounded" },
-      );
+        // Each wrong key is answered after a second, so they go at once.
+        const wrong = yield* Effect.forEach(
+          Array.from({ length: 10 }, (_, attempt) => `wrong-key-${attempt}`),
+          (key) => Effect.map(signInWith(via.url, key), ({ status }) => status),
+          { concurrency: "unbounded" },
+        );
 
-      expect(wrong).toEqual(Array.from({ length: 10 }, () => 401));
+        expect(wrong).toEqual(Array.from({ length: 10 }, () => 401));
 
-      const locked = yield* signInWith(via.url, adminKey);
-      expect(locked.status).toBe(429);
-      expect(locked.cookie).toBeUndefined();
+        const locked = yield* signInWith(via.url, adminKey);
+        expect(locked.status).toBe(429);
+        expect(locked.cookie).toBeUndefined();
 
-      // The bearer key isn't a sign-in, so it still works.
-      expect((yield* admin(via.url, "/keys", { key: adminKey })).status).toBe(200);
-    }),
+        // The bearer key counts against the same limit, or it would be a way around it.
+        expect((yield* admin(via.url, "/keys", { key: adminKey })).status).toBe(429);
+      }),
   );
 
   it.effect.runIf(withBinary)(

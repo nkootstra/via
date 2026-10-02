@@ -44,9 +44,11 @@ describe("AdminSessions", () => {
   it.effect("checks the admin key as a bearer credential", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
-      expect(yield* admin.isAdminKey(adminKey)).toBe(true);
-      expect(yield* admin.isAdminKey(wrongKey)).toBe(false);
-      expect(yield* admin.isAdminKey(Redacted.make(""))).toBe(false);
+      yield* admin.authorize(adminKey, "203.0.113.1");
+      const wrong = yield* Effect.flip(admin.authorize(wrongKey, "203.0.113.1"));
+      expect(Schema.is(Unauthorized)(wrong)).toBe(true);
+      const empty = yield* Effect.flip(admin.authorize(Redacted.make(""), "203.0.113.1"));
+      expect(Schema.is(Unauthorized)(empty)).toBe(true);
     }).pipe(Effect.provide(sessions)),
   );
 
@@ -173,6 +175,24 @@ describe("AdminSessions", () => {
       // 12 × 59 minutes in, and used 12 minutes ago: only the 12 hours end it.
       yield* TestClock.adjust("12 minutes");
       expect(yield* admin.verify(token)).toBe(false);
+    }).pipe(Effect.provide(sessions)),
+  );
+
+  it.effect("says a session ended once it runs out 12 hours in, however much it is used", () =>
+    Effect.gen(function* () {
+      const admin = yield* AdminSessions;
+      const token = yield* admin.signIn(adminKey, "203.0.113.1");
+      const ended = yield* Effect.forkChild(admin.ended(token));
+
+      for (let use = 0; use < 12; use++) {
+        yield* TestClock.adjust("59 minutes");
+        expect(yield* admin.verify(token)).toBe(true);
+      }
+
+      yield* TestClock.adjust("11 minutes");
+      expect(ended.pollUnsafe()).toBeUndefined();
+      yield* TestClock.adjust("1 minute");
+      yield* Fiber.join(ended);
     }).pipe(Effect.provide(sessions)),
   );
 

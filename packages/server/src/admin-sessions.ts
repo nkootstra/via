@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { Clock, Context, Duration, Effect, Layer, Redacted, Ref } from "effect";
+import { Clock, Context, Deferred, Duration, Effect, Layer, Redacted, Ref } from "effect";
 import { TooManySignInsError, Unauthorized } from "./admin-api.ts";
 import { type Failures, SIGN_IN_LIMITS, attempt } from "./sign-in-throttle.ts";
 
@@ -12,15 +12,24 @@ const SESSION_IDLE = Duration.hours(1);
 /** How long a wrong or refused sign-in takes to answer, to slow down guessing. */
 const FAILED_SIGN_IN_DELAY = Duration.seconds(1);
 
-/** A signed-in session: when it began and when it was last used, in epoch millis. */
+/**
+ * A signed-in session: when it began and when it was last used, in epoch millis,
+ * and `signedOut`, done once it is signed out.
+ */
 interface Session {
   readonly signedInAt: number;
   readonly usedAt: number;
+  readonly signedOut: Deferred.Deferred<void>;
 }
 
-const isLive = ({ signedInAt, usedAt }: Session, now: number) =>
-  now - signedInAt < Duration.toMillis(SESSION_LIFETIME) &&
-  now - usedAt < Duration.toMillis(SESSION_IDLE);
+/** When `session` runs out unless it is used again, in epoch millis. */
+const endsAt = ({ signedInAt, usedAt }: Session) =>
+  Math.min(
+    signedInAt + Duration.toMillis(SESSION_LIFETIME),
+    usedAt + Duration.toMillis(SESSION_IDLE),
+  );
+
+const isLive = (session: Session, now: number) => now < endsAt(session);
 
 const sha256 = (value: string) => createHash("sha256").update(value).digest();
 
@@ -37,23 +46,42 @@ const make = (adminKey: Redacted.Redacted<string>) =>
 
     const idOf = (token: string) => sha256(token).toString("hex");
 
-    const isAdminKey = (key: Redacted.Redacted<string>) => Effect.sync(() => matches(key));
+    // Checked and counted in one step, so failures that arrive together all count.
+    const check = (key: Redacted.Redacted<string>, client: string) =>
+      Effect.flatMap(Clock.currentTimeMillis, (now) =>
+        Ref.modify(failures, (all) =>
+          attempt(SIGN_IN_LIMITS, all, { client, now, matches: matches(key) }),
+        ),
+      );
+
+    const tooMany = new TooManySignInsError({ message: "Too many failed sign-ins; try later" });
+
+    const authorize = Effect.fn("AdminSessions.authorize")(function* (
+      key: Redacted.Redacted<string>,
+      client: string,
+    ) {
+      const outcome = yield* check(key, client);
+
+      if (outcome === "throttled") return yield* tooMany;
+
+      if (outcome === "wrong") {
+        yield* Effect.logWarning("Failed admin request: wrong bearer key");
+
+        return yield* new Unauthorized({ message: "Wrong admin key" });
+      }
+    });
 
     const signIn = Effect.fn("AdminSessions.signIn")(function* (
       key: Redacted.Redacted<string>,
       client: string,
     ) {
       const now = yield* Clock.currentTimeMillis;
-
-      // Checked and counted in one step, so failures that arrive together all count.
-      const outcome = yield* Ref.modify(failures, (all) =>
-        attempt(SIGN_IN_LIMITS, all, { client, now, matches: matches(key) }),
-      );
+      const outcome = yield* check(key, client);
 
       if (outcome === "throttled") {
         yield* Effect.sleep(FAILED_SIGN_IN_DELAY);
 
-        return yield* new TooManySignInsError({ message: "Too many failed sign-ins; try later" });
+        return yield* tooMany;
       }
 
       if (outcome === "wrong") {
@@ -65,10 +93,12 @@ const make = (adminKey: Redacted.Redacted<string>) =>
 
       // 256 bits from the OS CSPRNG, as session tokens are secrets.
       const token = randomBytes(32).toString("base64url");
+      const signedOut = yield* Deferred.make<void>();
       yield* Ref.update(sessions, (all) =>
         new Map([...all].filter(([, session]) => isLive(session, now))).set(idOf(token), {
           signedInAt: now,
           usedAt: now,
+          signedOut,
         }),
       );
 
@@ -96,14 +126,41 @@ const make = (adminKey: Redacted.Redacted<string>) =>
     });
 
     const signOut = (token: Redacted.Redacted<string>) =>
-      Ref.update(sessions, (all) => {
-        const next = new Map(all);
-        next.delete(idOf(Redacted.value(token)));
+      Effect.gen(function* () {
+        const id = idOf(Redacted.value(token));
 
-        return next;
+        const ended = yield* Ref.modify(
+          sessions,
+          (all): [Session | undefined, ReadonlyMap<string, Session>] => {
+            const next = new Map(all);
+            next.delete(id);
+
+            return [all.get(id), next];
+          },
+        );
+
+        if (ended !== undefined) yield* Deferred.succeed(ended.signedOut, undefined);
       });
 
-    return { isAdminKey, signIn, verify, signOut };
+    // Looked at again whenever the session would have run out: using it since moves that on.
+    const ended = (token: Redacted.Redacted<string>) =>
+      Effect.gen(function* () {
+        const id = idOf(Redacted.value(token));
+
+        for (;;) {
+          const session = (yield* Ref.get(sessions)).get(id);
+          const now = yield* Clock.currentTimeMillis;
+
+          if (session === undefined || !isLive(session, now)) return;
+
+          yield* Effect.raceFirst(
+            Deferred.await(session.signedOut),
+            Effect.sleep(endsAt(session) - now),
+          );
+        }
+      });
+
+    return { authorize, signIn, verify, signOut, ended };
   });
 
 /**
@@ -113,8 +170,16 @@ const make = (adminKey: Redacted.Redacted<string>) =>
 export class AdminSessions extends Context.Service<
   AdminSessions,
   {
-    /** Whether `key` is the admin key. */
-    readonly isAdminKey: (key: Redacted.Redacted<string>) => Effect.Effect<boolean>;
+    /**
+     * Lets a request from `client` with `key` through if it is the admin key. A
+     * wrong key counts as a failed sign-in, and once `client`'s sign-ins are
+     * refused, so is the key, the right one too. A wrong key is logged, without
+     * it. Unlike a sign-in it answers at once: the count limits guessing as well.
+     */
+    readonly authorize: (
+      key: Redacted.Redacted<string>,
+      client: string,
+    ) => Effect.Effect<void, Unauthorized | TooManySignInsError>;
     /**
      * A new session's token, for the admin key sent by `client`, the address it
      * connected from. A wrong key is answered only after a delay. After too many
@@ -129,6 +194,8 @@ export class AdminSessions extends Context.Service<
     readonly verify: (token: Redacted.Redacted<string>) => Effect.Effect<boolean>;
     /** Ends `token`'s session, if there is one. */
     readonly signOut: (token: Redacted.Redacted<string>) => Effect.Effect<void>;
+    /** Waits until `token`'s session ends, without using it; at once if it has. */
+    readonly ended: (token: Redacted.Redacted<string>) => Effect.Effect<void>;
   }
 >()("via/AdminSessions") {
   static readonly layer = (adminKey: Redacted.Redacted<string>) =>
