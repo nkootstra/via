@@ -30,7 +30,8 @@ export const CompletedResponse = Schema.Struct({
   created_at: Schema.Finite,
   model: Schema.String,
   output: Schema.Array(Schema.Union([MessageItem, FunctionCallItem, OtherItem])),
-  usage: Usage,
+  // Codex may leave the usage out, or send `null`; the answer is no less complete.
+  usage: Schema.optionalKey(Schema.NullOr(Usage)),
   incomplete_details: Schema.optionalKey(Schema.NullOr(Schema.Struct({ reason: Schema.String }))),
 });
 
@@ -117,6 +118,6 @@ export const toChatCompletion = (response: CompletedResponse) => {
         finish_reason: finishReason(response.incomplete_details, toolCalls.length > 0),
       },
     ],
-    usage: chatUsage(response.usage),
+    ...(response.usage != null && { usage: chatUsage(response.usage) }),
   };
 };

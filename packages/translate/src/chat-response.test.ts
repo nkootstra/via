@@ -145,6 +145,22 @@ describe("toChatCompletion", () => {
     });
   });
 
+  it.each([
+    { case: "leaves it out", reported: {} },
+    { case: "sends null", reported: { usage: null } },
+  ])("answers with no usage when Codex $case", ({ reported }) => {
+    const completion = translate({
+      id: "resp_1",
+      created_at: 1_700_000_000,
+      model: "gpt-6-astra",
+      output: [{ type: "message", content: [{ type: "output_text", text: "Hello" }] }],
+      ...reported,
+    });
+
+    expect(completion.choices[0]).toMatchObject({ message: { content: "Hello" } });
+    expect(completion).not.toHaveProperty("usage");
+  });
+
   it("leaves out the token details Codex did not send", () => {
     expect(withUsage({ ...usage, input_tokens_details: { cached_tokens: 8 } })).toEqual({
       prompt_tokens: 12,
