@@ -108,6 +108,7 @@ export const startFakeProvider = Effect.gen(function* () {
   const keyInfo = new Map<string, Schema.JsonObject>();
   const modelRequests: Array<ProviderRequest> = [];
   let usageAnswer = { status: 500, body: "" };
+  let usageHeld: Effect.Effect<void> = Effect.void;
   const usageByKey = new Map<string, { status: number; body: string }>();
   const usageRequests: Array<ProviderRequest> = [];
   const waiters: Array<{ count: number; deferred: Deferred.Deferred<void> }> = [];
@@ -198,6 +199,7 @@ export const startFakeProvider = Effect.gen(function* () {
             }
           }
 
+          yield* usageHeld;
           const { status, body } = usageByKey.get(keyOf(request) ?? "") ?? usageAnswer;
 
           return HttpServerResponse.text(body, { status, contentType: "application/json" });
@@ -263,6 +265,8 @@ export const startFakeProvider = Effect.gen(function* () {
     /** Answers `GET /usage` sent with `apiKey` with `body`, whatever `usage` says. */
     usageFor: (apiKey: string, body: Schema.Json, status = 200) =>
       void usageByKey.set(apiKey, { status, body: JSON.stringify(body) }),
+    /** Answers `GET /usage` only once `held` completes, as a slow OpenCode Go does. */
+    holdUsage: (held: Effect.Effect<void>) => void (usageHeld = held),
     /** Waits until at least `count` `GET /models` requests have arrived. */
     modelsReceived: (count: number) =>
       Effect.gen(function* () {

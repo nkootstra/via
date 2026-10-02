@@ -1,10 +1,18 @@
 import { classify, PoolStates, retryAfter, select, Verdict } from "@via/pool";
-import { Clock, Context, Effect, Layer, type Option } from "effect";
+import { Clock, Context, Duration, Effect, Layer, type Option, Scope } from "effect";
 import { type OpencodeGoAccount, OpencodeGoAccounts } from "./opencode-go-accounts.ts";
 import { Providers } from "./providers.ts";
-import { rateLimitRejection } from "./opencode-go-rejection.ts";
+import { provisionalRejection, rateLimitRejection } from "./opencode-go-rejection.ts";
+
+/**
+ * How long a rate-limited account rests while via asks its usage, when its 429
+ * gave no Retry-After: longer than the lookup may take, so the account doesn't
+ * come back before the cooldown its usage calls for is known.
+ */
+const PROVISIONAL_REST = Duration.minutes(1);
 
 const make = Effect.gen(function* () {
+  const scope = yield* Scope.Scope;
   const accounts = yield* OpencodeGoAccounts;
   const states = yield* PoolStates;
   const providers = yield* Providers;
@@ -55,16 +63,33 @@ const make = Effect.gen(function* () {
   /**
    * Cools `account` down after OpenCode Go answered it 429: until its used-up
    * usage window resets or for as long as `retryAfterHeader` (the answer's
-   * `Retry-After`) asks, whichever is later, and for half an hour when neither says.
+   * `Retry-After`) asks, whichever is later, and for half an hour when neither
+   * says. It rests for its Retry-After, or `PROVISIONAL_REST`, at once; its
+   * usage is asked in the background, so the request moves on without waiting
+   * for it, and the cooldown is lengthened to what the usage calls for.
    */
   const rateLimited = (account: OpencodeGoAccount, retryAfterHeader: string | undefined) =>
     Effect.gen(function* () {
-      const usage = yield* providers.usage(account.apiKey);
       const now = yield* Clock.currentTimeMillis;
-      const verdict = classify(rateLimitRejection(usage, retryAfterHeader, now), now);
 
-      // An exhausted account always gets a cooldown.
-      if (Verdict.$is("Cooldown")(verdict)) yield* coolDown(account, verdict.until, verdict.reason);
+      const provisional = classify(
+        provisionalRejection(retryAfterHeader, now, Duration.toMillis(PROVISIONAL_REST)),
+        now,
+      );
+
+      if (Verdict.$is("Cooldown")(provisional)) {
+        yield* coolDown(account, provisional.until, provisional.reason);
+      }
+
+      yield* Effect.gen(function* () {
+        const usage = yield* providers.usage(account.apiKey);
+        const at = yield* Clock.currentTimeMillis;
+        const verdict = classify(rateLimitRejection(usage, retryAfterHeader, at), at);
+
+        // An exhausted account always gets a cooldown.
+        if (Verdict.$is("Cooldown")(verdict))
+          yield* coolDown(account, verdict.until, verdict.reason);
+      }).pipe(Effect.forkIn(scope));
     });
 
   return { next, waitFor, coolDown, lockOut, rateLimited };
