@@ -408,6 +408,22 @@ describe("the usage page", () => {
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
+  it("costs a group it couldn't price as unknown, not as free", async () => {
+    const unpriced = breakdown([
+      group({ group: "local/llama", cost: cost(0, 0, ["local/llama"]) }),
+    ]);
+
+    renderApp("/usage", { ...seed, historyBreakdown: new Map([["model", unpriced]]) });
+
+    const table = await screen.findByRole("table", { name: "Usage by model" });
+    const [row] = within(table).getAllByRole("row").slice(1);
+    const cells = within(row ?? table).getAllByRole("cell");
+    const costCell = cells[4];
+
+    expect(costCell?.textContent).toBe("Unknown");
+    expect(within(costCell ?? table).getByTitle("No price known for local/llama")).toBeDefined();
+  });
+
   it("says so when the range has no requests", async () => {
     renderApp("/usage");
 

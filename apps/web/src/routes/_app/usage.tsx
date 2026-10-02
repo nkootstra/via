@@ -771,9 +771,19 @@ function Breakdown({
                   </span>
                 </TableCell>
                 <TableCell>
-                  <span {...stylex.props(styles.number)}>
-                    {formatUsd(group.cost.apiEquivalentUsd + group.cost.billedUsd)}
-                  </span>
+                  {/* As the Overview has it: a model without a price costs an unknown amount, not nothing. */}
+                  {group.cost.unpriced.length > 0 ? (
+                    <span
+                      title={`No price known for ${group.cost.unpriced.join(", ")}`}
+                      {...stylex.props(styles.number)}
+                    >
+                      Unknown
+                    </span>
+                  ) : (
+                    <span {...stylex.props(styles.number)}>
+                      {formatUsd(group.cost.apiEquivalentUsd + group.cost.billedUsd)}
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell secondary>
                   <span {...stylex.props(styles.number, group.errors > 0 && styles.failed)}>
