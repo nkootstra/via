@@ -810,7 +810,9 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   answered.
 - `input_tokens` and `output_tokens` are the token counts the upstream
   reported for an answered request, and `cached_tokens` joins them when the
-  upstream reports a cache hit. `reasoning_tokens` is the part of the output
+  upstream reports a cache hit, and `cache_write_tokens` when it reports
+  input written to its cache (OpenRouter does, as do models OpenCode Go
+  serves in Messages). `reasoning_tokens` is the part of the output
   the model spent reasoning, and `cost_usd` what the upstream says it billed,
   when it reports either (OpenRouter reports its cost). Absent usage stays
   absent, never a zero.
@@ -836,7 +838,7 @@ new tokens can't be saved.
 database: when it came in, the API key's id and name, the model, the provider
 and account that served it, its status, why it failed if it did (the error
 code and message, via's own or the upstream's, the message cut to 500
-characters), its input, cached,
+characters), its input, cached, cache-write,
 output and reasoning tokens as the upstream reported them, any cost the
 upstream billed (OpenRouter reports one), and how long it took to answer and,
 for a streamed answer, to send its first chunk. It never keeps a prompt or an answer. Requests older
