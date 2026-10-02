@@ -213,4 +213,29 @@ layer(BunFileSystem.layer)("AccountTokens refreshing", (it) => {
       expect(fresh).toMatchObject({ accessToken: "at-2", refreshToken: "rt-2" });
     }),
   );
+
+  it.effect("a login replaces rotated tokens kept in memory", () =>
+    Effect.gen(function* () {
+      const authDir = yield* tempAuthDir;
+      yield* seedAccount(authDir, "a", { expiresAt: 0 });
+      const disk = { failures: Infinity };
+      const { auth } = rotatingIssuer();
+
+      yield* Effect.gen(function* () {
+        const store = yield* AccountStore;
+        const tokens = yield* AccountTokens;
+        yield* tokens.fresh(yield* store.find("a"));
+
+        disk.failures = 0;
+        yield* store.save(tokensFor("a", { accessToken: "at-login", refreshToken: "rt-login" }));
+        const fresh = yield* tokens.refreshRejected("a", "at-2");
+
+        expect(fresh.accessToken).toBe("at-login");
+        expect((yield* store.find("a")).refreshToken).toBe("rt-login");
+      }).pipe(
+        Effect.provide(tokensLayer(authDir, auth, yield* flakyDisk(authDir, disk))),
+        TestClock.withLive,
+      );
+    }),
+  );
 });

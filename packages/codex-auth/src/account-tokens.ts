@@ -26,47 +26,66 @@ const make = Effect.gen(function* () {
       return lock;
     });
 
-  // Rotated tokens this process couldn't save, by account. The refresh tokens they replace
-  // are spent, so these are used in place of the stored ones until a save succeeds.
-  const unsaved = new Map<string, Tokens>();
+  // Rotated tokens this process couldn't save, by account, with the refresh token still
+  // stored in its place. That one is spent, so these are used instead until a save succeeds
+  // or the stored one changes, as a login or another process's refresh changes it.
+  const unsaved = new Map<string, { stored: string; tokens: Tokens }>();
 
-  /** Saves `account`'s rotated `tokens`, or keeps them in memory when it can't. */
-  const saveRotation = (account: Account, tokens: Tokens) =>
-    store.saveRefreshed(account.id, tokens).pipe(
+  /**
+   * Saves the rotated `tokens` of `stored`, the account as its file has it, or keeps them in
+   * memory when it can't.
+   */
+  const saveRotation = (stored: Account, tokens: Tokens) =>
+    store.saveRefreshed(stored.id, tokens).pipe(
       Effect.retry({
         schedule: SAVE_RETRY,
         times: 3,
         while: Predicate.not(Predicate.isTagged("AccountNotFoundError")),
       }),
-      Effect.tap(() => Effect.sync(() => unsaved.delete(account.id))),
+      Effect.tap(() => Effect.sync(() => unsaved.delete(stored.id))),
       Effect.catchTag(["FileLockTimeoutError", "PlatformError"], (error) =>
         Effect.gen(function* () {
-          unsaved.set(account.id, tokens);
+          unsaved.set(stored.id, { stored: stored.refreshToken, tokens });
           yield* Effect.logWarning(
-            `Could not save the new tokens of ${account.label}, so they are kept in memory until they can be (${error.message})`,
+            `Could not save the new tokens of ${stored.label}, so they are kept in memory until they can be (${error.message})`,
           );
 
-          return { ...account, ...tokens };
+          return { ...stored, ...tokens };
         }),
       ),
     );
 
-  /** The stored account, with the rotated tokens it couldn't save yet, saving them now if it can. */
-  const current = Effect.fnUntraced(function* (id: string) {
-    const stored = yield* store.read(id);
-    const pending = unsaved.get(id);
+  /**
+   * `stored` with the rotated tokens this process couldn't save yet, saving them now if it
+   * can; just `stored` when there are none, or they were rotated from tokens since replaced.
+   */
+  const current = Effect.fnUntraced(function* (stored: Account) {
+    const pending = unsaved.get(stored.id);
 
-    return pending === undefined ? stored : yield* saveRotation(stored, pending);
+    if (pending?.stored !== stored.refreshToken) {
+      unsaved.delete(stored.id);
+
+      return stored;
+    }
+
+    return yield* saveRotation(stored, pending.tokens);
   });
 
   /**
-   * `account` as another process refreshed it, after the issuer refused its refresh token
-   * with `rejected`, perhaps because that process spent it; else the refusal.
+   * The account as another process refreshed it, after the issuer refused the refresh token
+   * with `rejected`, perhaps because that process spent it: unless its file still holds
+   * `stored`'s, as it did before the refresh, the refusal.
    */
-  const refreshedElsewhere = (account: Account, rejected: RefreshRejectedError) =>
-    Effect.flatMap(store.read(account.id), (stored) =>
-      stored.refreshToken === account.refreshToken ? Effect.fail(rejected) : Effect.succeed(stored),
-    );
+  const refreshedElsewhere = Effect.fnUntraced(function* (
+    stored: Account,
+    rejected: RefreshRejectedError,
+  ) {
+    const latest = yield* store.read(stored.id);
+
+    if (latest.refreshToken === stored.refreshToken) return yield* rejected;
+
+    return yield* current(latest);
+  });
 
   /**
    * Refreshes the account when `needed` says so, one refresh per account at a time, in this
@@ -81,17 +100,16 @@ const make = Effect.gen(function* () {
     return yield* Effect.gen(function* () {
       // Read under the locks, so a caller that waited sees the refresh it waited for,
       // whichever process made it.
-      const account = yield* current(id);
+      const stored = yield* store.read(id);
+      const account = yield* current(stored);
 
       if (!needed(account, yield* Clock.currentTimeMillis)) return account;
 
       // The issuer spends the old refresh token once it answers, so a caller going away
       // mustn't stop the new one from being saved.
       return yield* Effect.uninterruptible(
-        Effect.flatMap(auth.refresh(account), (tokens) => saveRotation(account, tokens)),
-      ).pipe(
-        Effect.catchTag("RefreshRejectedError", (error) => refreshedElsewhere(account, error)),
-      );
+        Effect.flatMap(auth.refresh(account), (tokens) => saveRotation(stored, tokens)),
+      ).pipe(Effect.catchTag("RefreshRejectedError", (error) => refreshedElsewhere(stored, error)));
     }).pipe((refresh) => store.lockedForRefresh(id, refresh), Semaphore.withPermit(lock));
   });
 
