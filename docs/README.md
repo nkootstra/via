@@ -649,7 +649,8 @@ The [usage history](#usage-history) prices tokens with a snapshot of two
 price tables that ships with via: [models.dev](https://models.dev) for what
 OpenCode Go charges for each of its models, and
 [LiteLLM's](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)
-for the rest. For a model neither lists, or at another price, add it under
+for the rest. The snapshot's header says on which day it was taken, and from
+which commit of LiteLLM's table. For a model neither lists, or at another price, add it under
 `prices`, in USD per million tokens. `cachedInput` and `cacheWrite` are
 optional: input read from the cache, and input written to it, cost what other
 input does unless they're set. A price that grows past a long context
