@@ -36,8 +36,8 @@ so they run on CPUs without AVX2 too. There is no Windows build.
 
 ## Install
 
-Prebuilt npm packages are coming. Until then, build from source with
-[Bun](https://bun.sh) 1.4:
+Prebuilt npm packages are coming: `npm i -g @nkootstra/via` will install them.
+Until then, build from source with [Bun](https://bun.sh) 1.4:
 
 ```sh
 git clone https://github.com/nkootstra/via.git
