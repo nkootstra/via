@@ -51,12 +51,46 @@ const outage = (
     retryAfterMs === undefined ? {} : { "retry-after": String(Math.ceil(retryAfterMs / 1000)) },
   );
 
+/** A request Codex refused, as it answered. */
+type Refusal = {
+  readonly status: number;
+  readonly contentType: string | undefined;
+  readonly body: string;
+};
+
+/** A refusal passed on as Codex sent it, to a client of Codex's own Responses API. */
+const asSent = ({ status, contentType, body }: Refusal) =>
+  HttpServerResponse.text(body, { status, contentType: contentType ?? "application/json" });
+
+/**
+ * A refusal in OpenAI's error shape, for a client of an API via translates:
+ * with Codex's message and code when it gave them readably. An HTML page,
+ * such as a proxy's, gives neither.
+ */
+export const asOpenAiError = ({ status, contentType, body }: Refusal) => {
+  const { code, message } = (contentType ?? "").includes("html")
+    ? { code: Option.none(), message: Option.none() }
+    : upstreamErrorOf(body);
+
+  return HttpServerResponse.jsonUnsafe(
+    {
+      error: {
+        message: Option.getOrElse(message, () => `Codex refused the request (HTTP ${status})`),
+        type: status >= 500 ? "server_error" : "invalid_request_error",
+        code: Option.getOrNull(code),
+      },
+    },
+    { status },
+  );
+};
+
 /**
  * Sends a Responses request to Codex through the pool: to the account that
  * answered the session last while it can serve, else fill-first, trying
  * accounts in order, skipping those cooling down or locked out, until one answers.
  * Only accounts whose plan offers the model are tried, when via knows which do.
- * A successful answer goes to `onSuccess`; a client error is returned as-is.
+ * A successful answer goes to `onSuccess`; a client error goes to `refused`,
+ * which passes it on as it came unless told otherwise.
  * A response `onSuccess` finds Codex failed for a rate limit cools its account
  * down and goes to the next one, as a 429 would.
  */
@@ -67,6 +101,7 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
     upstream: HttpClientResponse.HttpClientResponse,
     failed: (error: UpstreamFailedError) => Effect.Effect<void>,
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, UpstreamFailedError, R>,
+  refused: (refusal: Refusal) => HttpServerResponse.HttpServerResponse = asSent,
 ) {
   const pool = yield* AccountPool;
   const codex = yield* CodexUpstream;
@@ -166,9 +201,6 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
 
     yield* log.upstreamFailed(upstreamErrorOf(rejected.body));
 
-    return HttpServerResponse.text(rejected.body, {
-      status: rejected.status,
-      contentType: rejected.contentType ?? "application/json",
-    });
+    return refused(rejected);
   }
 });

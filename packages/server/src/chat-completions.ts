@@ -3,7 +3,7 @@ import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
 import { authenticated } from "./authenticated.ts";
-import { dispatch, modelOf } from "./dispatch.ts";
+import { asOpenAiError, dispatch, modelOf } from "./dispatch.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
 import { chatFromResponses } from "./chat-answer.ts";
@@ -40,8 +40,12 @@ export const chatCompletions = authenticated(
     // Codex sends reasoning summaries, the chat answer's reasoning content, only when asked.
     const reasoning = { ...responses.reasoning, summary: "auto" };
 
-    return yield* dispatch({ ...responses, reasoning }, session, (upstream, failed) =>
-      chatFromResponses(upstream, chat.value, failed),
+    return yield* dispatch(
+      { ...responses, reasoning },
+      session,
+      (upstream, failed) => chatFromResponses(upstream, chat.value, failed),
+      // A chat client speaks OpenAI's API, not Codex's: it reads OpenAI's errors.
+      asOpenAiError,
     );
   }),
 );
