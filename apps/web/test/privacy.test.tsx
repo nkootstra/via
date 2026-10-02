@@ -119,6 +119,23 @@ describe("privacy mode", () => {
     await waitFor(() => expect(state.accounts[0]?.label).toBe("work"));
   });
 
+  it("hides the new name in the toast that follows a rename", async () => {
+    localStorage.setItem("via.privacy", "on");
+    const { user } = renderApp("/accounts", seed);
+
+    const table = await screen.findByRole("table", { name: "ChatGPT accounts" });
+    await user.click(within(table).getAllByRole("button", { name: /^Actions for / })[0] ?? table);
+    await user.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const dialog = await screen.findByRole("dialog", { name: /^Rename / });
+    await user.type(within(dialog).getByLabelText("Label"), "upstream@leak.example");
+    await user.click(within(dialog).getByRole("button", { name: "Rename" }));
+
+    const toast = await screen.findByRole("dialog", { name: "Account renamed" });
+    expect(toast.textContent).toContain("It's now called •••••@•••••.example.");
+
+    for (const secret of secrets) expect(markup()).not.toContain(secret);
+  });
+
   it("conceals a new API key until the viewer shows it", async () => {
     localStorage.setItem("via.privacy", "on");
     const { user } = renderApp("/keys");

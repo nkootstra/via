@@ -67,7 +67,7 @@ export function RenameDialog({
       if (refused !== undefined) return setProblem(refused);
 
       onRenamed();
-      toast.add({ title: `${thing} renamed`, description: `It's now called ${to}.` });
+      toast.add({ title: `${thing} renamed`, description: `It's now called ${hide(to)}.` });
       onClose();
     },
   });
