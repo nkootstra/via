@@ -572,7 +572,9 @@ first; a key it refuses is taken out of use at its first request. `list` and
 - A rate-limit or usage-limit answer puts that account on a cooldown until the
   reset time the upstream gives or its `Retry-After` (seconds or a date),
   whichever is later, or 30 minutes if it gives neither, and via retries
-  on the next account. Codex sometimes starts a response and then fails it with
+  on the next account. Codex's reset time is the error's `resets_at`, else its
+  `resets_in_seconds`, else the `x-codex-primary-reset-at` or
+  `x-codex-secondary-reset-at` header of the window that is used up. Codex sometimes starts a response and then fails it with
   a rate or usage limit (`response.failed`); that counts the same. A client that
   isn't streaming gets its answer from the next account; a streaming client has
   already been sent the start of the response, so it gets the failure, and the

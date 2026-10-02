@@ -23,6 +23,66 @@ describe("readRejection", () => {
       Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: RESETS_AT_SECONDS * 1000 }),
     ],
     [
+      "resets_at wins over resets_in_seconds",
+      429,
+      {},
+      codexError({
+        type: "usage_limit_reached",
+        resets_at: RESETS_AT_SECONDS,
+        resets_in_seconds: 1234,
+      }),
+      Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: RESETS_AT_SECONDS * 1000 }),
+    ],
+    [
+      "resets_in_seconds counts from now",
+      429,
+      {},
+      codexError({ type: "usage_limit_reached", resets_in_seconds: 1234 }),
+      Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: NOW + 1_234_000 }),
+    ],
+    [
+      // Header names and values as in codex's token_count_includes_rate_limits_snapshot.
+      "without a reset in the body, the used-up window's reset header",
+      429,
+      {
+        "x-codex-primary-used-percent": "100.0",
+        "x-codex-secondary-used-percent": "40.0",
+        "x-codex-primary-reset-at": "1704069000",
+        "x-codex-secondary-reset-at": "1704074400",
+      },
+      codexError({ type: "usage_limit_reached" }),
+      Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: 1_704_069_000_000 }),
+    ],
+    [
+      "the later reset when both windows are used up",
+      429,
+      {
+        "x-codex-primary-used-percent": "100.0",
+        "x-codex-secondary-used-percent": "100.0",
+        "x-codex-primary-reset-at": "1704069000",
+        "x-codex-secondary-reset-at": "1704074400",
+      },
+      "",
+      Rejection.Exhausted({ reason: "rate_limited", resetsAt: 1_704_074_400_000 }),
+    ],
+    [
+      "no reset header for a window that isn't used up",
+      429,
+      {
+        "x-codex-primary-used-percent": "12.5",
+        "x-codex-primary-reset-at": "1704069000",
+      },
+      "",
+      Rejection.Exhausted({ reason: "rate_limited" }),
+    ],
+    [
+      "the body's reset wins over the headers'",
+      429,
+      { "x-codex-primary-used-percent": "100.0", "x-codex-primary-reset-at": "1704069000" },
+      codexError({ type: "usage_limit_reached", resets_at: RESETS_AT_SECONDS }),
+      Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: RESETS_AT_SECONDS * 1000 }),
+    ],
+    [
       "Retry-After comes along in milliseconds",
       429,
       { "retry-after": "7200" },

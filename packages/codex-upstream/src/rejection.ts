@@ -21,6 +21,7 @@ const CodexErrorBody = Schema.fromJsonString(
       type: Schema.optionalKey(Schema.String),
       code: Schema.optionalKey(Schema.NullOr(Schema.String)),
       resets_at: Schema.optionalKey(Schema.Finite),
+      resets_in_seconds: Schema.optionalKey(Schema.Finite),
     }),
   }),
 );
@@ -42,6 +43,24 @@ const retryAfterIn = (header: string | undefined, now: number) =>
   );
 
 /**
+ * When the latest of Codex's used-up rate-limit windows resets, in epoch
+ * milliseconds, from its `x-codex-<window>-used-percent` and
+ * `x-codex-<window>-reset-at` (epoch seconds) headers.
+ */
+const windowResetIn = (headers: Readonly<Record<string, string | undefined>>) => {
+  const resets = (["primary", "secondary"] as const).flatMap((window) => {
+    const used = decodeSeconds(headers[`x-codex-${window}-used-percent`]);
+    const resetAt = decodeSeconds(headers[`x-codex-${window}-reset-at`]);
+
+    return Option.exists(used, (percent) => percent >= 100) && Option.isSome(resetAt)
+      ? [resetAt.value * 1000]
+      : [];
+  });
+
+  return resets.length > 0 ? Option.some(Math.max(...resets)) : Option.none();
+};
+
+/**
  * What Codex means by answering `status` with `body` at `now` (epoch
  * milliseconds), in the pool's terms. A quota code or a 429 outranks a server
  * error or overload, which outranks a 401 or 403. A 403 bars the account
@@ -60,8 +79,15 @@ export const readRejection = (
   const retryAfterMs = retryAfterIn(headers["retry-after"], now);
 
   if ((code !== undefined && QUOTA_CODES.has(code)) || status === 429) {
+    // The body's reset time, else its wait from now, else the used-up window's reset header.
     const resetsAt = Option.flatMapNullishOr(error, (e) => e.resets_at).pipe(
       Option.map((seconds) => seconds * 1000),
+      Option.orElse(() =>
+        Option.flatMapNullishOr(error, (e) => e.resets_in_seconds).pipe(
+          Option.map((seconds) => now + seconds * 1000),
+        ),
+      ),
+      Option.orElse(() => windowResetIn(headers)),
     );
 
     return Rejection.Exhausted({

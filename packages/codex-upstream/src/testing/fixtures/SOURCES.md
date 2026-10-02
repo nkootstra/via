@@ -159,6 +159,23 @@ substitutions for `"code"`: `credit_balance_exhausted`,
   envelope for completeness; its field values are not verified against any
   source and are not read by codex or by via's classifier either.
 
+## Reset headers and `resets_in_seconds` (in rejection.test.ts)
+
+Not a fixture file: `rejection.test.ts` uses these inline.
+
+- `x-codex-primary-reset-at: 1704069000` and
+  `x-codex-secondary-reset-at: 1704074400` (epoch seconds), with the
+  `x-codex-*-used-percent` headers, are **VERBATIM** from
+  `codex-rs/core/tests/suite/client.rs`, function
+  `token_count_includes_rate_limits_snapshot`, lines 3367-3373
+  (commit `c73775f19ef05b40dcb17da4fc5506960c52fe7c`). Codex reads them as
+  `{prefix}-primary-reset-at` / `{prefix}-secondary-reset-at` in
+  `codex-rs/codex-api/src/rate_limits.rs`.
+- `resets_in_seconds: 1234` next to `resets_at` in a `usage_limit_reached`
+  error is **VERBATIM** from `codex-rs/core/tests/suite/client_websockets.rs`,
+  function `responses_websocket_usage_limit_error_emits_rate_limit_event`,
+  lines 1758-1778 (commit `3f4668da20a56907f0a8c546c8cffa16e5e03f28`).
+
 ## usage.json
 
 **Field names VERBATIM**, values **transcribed from a Rust struct
