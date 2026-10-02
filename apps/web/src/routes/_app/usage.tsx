@@ -567,44 +567,55 @@ function FilterBar({
   const models = useQuery(facet("model"));
   const accounts = useQuery(facet("account"));
   const keys = useQuery(facet("key"));
+  const failedFacets = [models, accounts, keys].filter((query) => query.isError);
 
   return (
-    <fieldset {...stylex.props(styles.filters)}>
-      <legend {...stylex.props(styles.legend)}>Filters</legend>
-      <FilterSelect
-        label="Model"
-        options={optionsOf("model", models.data?.groups ?? [], mask.key)}
-        value={chosen(search.model)}
-        onValueChange={(value) => change({ model: value ?? undefined })}
-        fallbackLabel={withoutPrefix}
-      />
-      <FilterSelect
-        label="Account"
-        options={optionsOf("account", accounts.data?.groups ?? [], mask.key)}
-        value={chosen(search.account)}
-        onValueChange={(value) => change({ account: value ?? undefined })}
-      />
-      <FilterSelect
-        label="Key"
-        options={optionsOf("key", keys.data?.groups ?? [], mask.key)}
-        value={chosen(search.key)}
-        onValueChange={(value) => change({ key: value ?? undefined })}
-      />
-      {/* A label, so its words toggle the switch as well. */}
-      <label htmlFor={failed} {...stylex.props(styles.toggle)}>
-        <Switch
-          id={failed}
-          checked={search.failed === true}
-          onCheckedChange={(checked) => change({ failed: checked || undefined })}
+    <>
+      <fieldset {...stylex.props(styles.filters)}>
+        <legend {...stylex.props(styles.legend)}>Filters</legend>
+        <FilterSelect
+          label="Model"
+          options={optionsOf("model", models.data?.groups ?? [], mask.key)}
+          value={chosen(search.model)}
+          onValueChange={(value) => change({ model: value ?? undefined })}
+          fallbackLabel={withoutPrefix}
         />
-        Failed only
-      </label>
-      {hasFilters(search) && (
-        <Button variant="ghost" size="compact" onClick={clear}>
-          Clear filters
-        </Button>
+        <FilterSelect
+          label="Account"
+          options={optionsOf("account", accounts.data?.groups ?? [], mask.key)}
+          value={chosen(search.account)}
+          onValueChange={(value) => change({ account: value ?? undefined })}
+        />
+        <FilterSelect
+          label="Key"
+          options={optionsOf("key", keys.data?.groups ?? [], mask.key)}
+          value={chosen(search.key)}
+          onValueChange={(value) => change({ key: value ?? undefined })}
+        />
+        {/* A label, so its words toggle the switch as well. */}
+        <label htmlFor={failed} {...stylex.props(styles.toggle)}>
+          <Switch
+            id={failed}
+            checked={search.failed === true}
+            onCheckedChange={(checked) => change({ failed: checked || undefined })}
+          />
+          Failed only
+        </label>
+        {hasFilters(search) && (
+          <Button variant="ghost" size="compact" onClick={clear}>
+            Clear filters
+          </Button>
+        )}
+      </fieldset>
+      {/* An empty facet would read as nothing to pick. */}
+      {failedFacets.length > 0 && (
+        <QueryError
+          what="the filters"
+          error={failedFacets[0]?.error}
+          onRetry={() => failedFacets.forEach((query) => void query.refetch())}
+        />
       )}
-    </fieldset>
+    </>
   );
 }
 

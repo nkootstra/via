@@ -386,6 +386,28 @@ describe("the usage page", () => {
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
+  it("says the filters couldn't be loaded, rather than that there's nothing to pick", async () => {
+    // The key facet's first ask fails; the rest, and every other, pass through.
+    let failed = false;
+
+    const keysFail = http.get("*/admin/history/breakdown", ({ request: sent }) => {
+      if (failed || new URL(sent.url).searchParams.get("groupBy") !== "key") return;
+
+      failed = true;
+
+      return new HttpResponse(null, { status: 500 });
+    });
+
+    const { user } = renderApp("/usage", seed, [keysFail]);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Couldn't load the filters");
+
+    await user.click(within(alert).getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  });
+
   it("says so when the range has no requests", async () => {
     renderApp("/usage");
 
