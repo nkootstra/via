@@ -7,13 +7,15 @@ import {
   Deferred,
   Duration,
   Effect,
+  Fiber,
   FileSystem,
   Layer,
   Option,
   PlatformError,
-  Ref,
+  Queue,
   Schema,
   Stream,
+  SubscriptionRef,
 } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
@@ -182,6 +184,40 @@ const storedLastUse = (file: string) =>
     return Object.fromEntries(keys.map((k) => [k.name, k.lastUsedAt]));
   });
 
+/**
+ * Signals each write `store` makes to its file, as `changes` reports it: `next` waits for the
+ * first one not yet waited for. A key's last use is written off the request's path, so a test
+ * waits for it before reading the file.
+ */
+const writesOf = (store: KeyStore["Service"]) =>
+  Effect.gen(function* () {
+    const signals = yield* Queue.unbounded<void>();
+    yield* store.changes.pipe(
+      Stream.runForEach(() => Queue.offer(signals, undefined)),
+      Effect.forkScoped,
+    );
+    // The signal `changes` gives at once, before any write.
+    yield* Queue.take(signals);
+
+    return { next: Queue.take(signals), pending: Queue.size(signals) };
+  });
+
+/**
+ * Runs `effect` while moving the test clock on 50 ms at a time, letting real time pass for
+ * pending file-system calls first, so a store waiting on a lock tries it again each step.
+ */
+const untilDone = <A, E>(effect: Effect.Effect<A, E>) =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(effect);
+
+    while (fiber.pollUnsafe() === undefined) {
+      yield* TestClock.withLive(Effect.sleep("2 millis"));
+      yield* TestClock.adjust("50 millis");
+    }
+
+    return yield* Fiber.join(fiber);
+  });
+
 /** The time `millis` after `start`, as the key file writes it. */
 const iso = (start: number, millis: number) => new Date(start + millis).toISOString();
 
@@ -326,8 +362,11 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const store = yield* KeyStore;
+        const written = yield* writesOf(store);
         const { key } = yield* store.create("laptop");
+        yield* written.next;
         yield* store.verify(key);
+        yield* written.next;
         const before = yield* storedLastUse(file);
         const { lastUsedAt } = yield* store.rename("laptop", "desktop");
         expect(yield* storedLastUse(file)).toEqual({ desktop: before["laptop"] });
@@ -425,10 +464,13 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     withKeyStore((file) =>
       Effect.gen(function* () {
         const store = yield* KeyStore;
+        const written = yield* writesOf(store);
         const { key } = yield* store.create("laptop");
+        yield* written.next;
         const start = yield* Clock.currentTimeMillis;
 
         yield* store.verify(key);
+        yield* written.next;
         expect(yield* storedLastUse(file)).toEqual({ laptop: iso(start, 0) });
 
         for (const _ of Array.from({ length: 5 })) {
@@ -441,7 +483,11 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
 
         yield* TestClock.adjust("10 seconds");
         yield* store.verify(key);
+        yield* written.next;
         expect(yield* storedLastUse(file)).toEqual({ laptop: iso(start, 60_000) });
+        // Writes run one at a time, so one the five uses within the minute made would have
+        // signalled before the last.
+        expect(yield* written.pending).toBe(0);
       }),
     ),
   );
@@ -451,10 +497,13 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       const fs = yield* FileSystem.FileSystem;
       const file = `${yield* fs.makeTempDirectoryScoped()}/keys.json`;
       const serve = yield* storeAt(file);
+      const written = yield* writesOf(serve);
       const { key } = yield* serve.create("laptop");
+      yield* written.next;
       const start = yield* Clock.currentTimeMillis;
       yield* TestClock.adjust("1 hour");
       yield* serve.verify(key);
+      yield* written.next;
 
       const restarted = yield* storeAt(file);
       expect((yield* restarted.list)[0]?.lastUsedAt).toBe(iso(start, 3_600_000));
@@ -471,6 +520,35 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
         expect(yield* (yield* KeyStore).list).toEqual([
           { id: "k1", name: "laptop", createdAt, lastUsedAt: null },
         ]);
+      }),
+    ),
+  );
+
+  it.effect("verifies a key at once while another process holds the key file's lock", () =>
+    withKeyStore((file) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const store = yield* KeyStore;
+        const written = yield* writesOf(store);
+        const { id, key } = yield* store.create("laptop");
+        yield* written.next;
+        const start = yield* Clock.currentTimeMillis;
+        // Another process's lock, fresh by the test clock, which is far behind real time.
+        yield* fs.writeFileString(`${file}.lock`, "another-process");
+
+        // A key's first use is always due to be written.
+        const verifying = yield* store.verify(key).pipe(Effect.forkChild);
+
+        const verified = yield* Fiber.join(verifying).pipe(
+          Effect.timeout("2 seconds"),
+          // Bounds a verify stuck behind the lock in real time; the store waits on the test clock.
+          TestClock.withLive,
+        );
+
+        expect(verified).toEqual(Option.some({ id, name: "laptop" }));
+        yield* fs.remove(`${file}.lock`);
+        yield* untilDone(written.next);
+        expect(yield* storedLastUse(file)).toEqual({ laptop: iso(start, 0) });
       }),
     ),
   );
@@ -515,7 +593,9 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
       withKeyStoreInMemory((file) =>
         Effect.gen(function* () {
           const store = yield* KeyStore;
+          const writes = yield* writesOf(store);
           const { key } = yield* store.create("laptop");
+          yield* writes.next;
           const start = yield* Clock.currentTimeMillis;
           let now = 0;
           let written: number | undefined;
@@ -525,7 +605,11 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
             now += seconds * 1000;
             yield* store.verify(key);
 
-            if (written === undefined || now - written >= 60_000) written = now;
+            if (written === undefined || now - written >= 60_000) {
+              written = now;
+              yield* writes.next;
+            }
+
             expect(yield* storedLastUse(file)).toEqual({ laptop: iso(start, written) });
             expect((yield* store.list)[0]?.lastUsedAt).toBe(iso(start, now));
           }
@@ -540,24 +624,28 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
     withKeyStore(() =>
       Effect.gen(function* () {
         const store = yield* KeyStore;
-        const signals = yield* Ref.make(0);
+        const signals = yield* SubscriptionRef.make(0);
         yield* store.changes.pipe(
-          Stream.runForEach(() => Ref.update(signals, (n) => n + 1)),
+          Stream.runForEach(() => SubscriptionRef.update(signals, (n) => n + 1)),
           Effect.forkChild,
         );
 
         const settled = Effect.andThen(
           Effect.repeat(Effect.yieldNow, { times: 20 }),
-          Ref.get(signals),
+          SubscriptionRef.get(signals),
         );
 
         expect(yield* settled).toBe(1);
         const { key } = yield* store.create("laptop");
         yield* store.list;
         expect(yield* settled).toBe(2);
-        // The first use is written; another within the minute isn't.
+        // The first use is written, off the request's path; another within the minute isn't.
         yield* store.verify(key);
         yield* store.verify(key);
+        yield* SubscriptionRef.changes(signals).pipe(
+          Stream.filter((n) => n >= 3),
+          Stream.runHead,
+        );
         expect(yield* settled).toBe(3);
         yield* store.rename("laptop", "desktop");
         expect(yield* settled).toBe(4);

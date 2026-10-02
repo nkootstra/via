@@ -66,6 +66,9 @@ const make = (path: string) =>
     const permit = Semaphore.withPermit(yield* Semaphore.make(1));
     // Counts this process's writes to the file, so `changes` can signal each one.
     const revision = yield* SubscriptionRef.make(0);
+    // Holds the writes of keys' last uses, which run off the request's path, for as long as
+    // the store lives.
+    const background = yield* Effect.scope;
 
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
       permit(
@@ -137,8 +140,9 @@ const make = (path: string) =>
       return shown(renamed);
     }, serialized);
 
-    // Re-reads under the lock, so a key revoked since `verify` read the file stays revoked. A
-    // failed write is only logged: the key did verify, and the next use a minute on retries it.
+    // Re-reads under the lock, so a key revoked since `verify` read the file stays revoked. Runs
+    // off the request's path, as waiting on the lock can take seconds. A failed write is only
+    // logged: the key did verify, and the next use a minute on retries it.
     const persistLastUse = (id: string, at: DateTime.Utc) =>
       serialized(
         Effect.gen(function* () {
@@ -169,7 +173,7 @@ const make = (path: string) =>
 
       if (stale) {
         persisted.set(match.id, now);
-        yield* persistLastUse(match.id, now);
+        yield* Effect.forkIn(persistLastUse(match.id, now), background);
       }
 
       return Option.some({ id: match.id, name: match.name });
