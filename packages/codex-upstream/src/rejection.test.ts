@@ -6,6 +6,9 @@ import { readFailure, readRejection } from "./rejection.ts";
 
 const RESETS_AT_SECONDS = 1_700_003_600;
 
+// 2023-11-14T22:13:20Z
+const NOW = 1_700_000_000_000;
+
 const codexError = (error: Schema.JsonObject) => JSON.stringify({ error });
 
 describe("readRejection", () => {
@@ -29,6 +32,27 @@ describe("readRejection", () => {
         resetsAt: RESETS_AT_SECONDS * 1000,
         retryAfterMs: 7_200_000,
       }),
+    ],
+    [
+      "a Retry-After date counts from now",
+      429,
+      { "retry-after": "Tue, 14 Nov 2023 22:15:20 GMT" },
+      "",
+      Rejection.Exhausted({ reason: "rate_limited", retryAfterMs: 120_000 }),
+    ],
+    [
+      "an outage's Retry-After date counts from now",
+      503,
+      { "retry-after": "Tue, 14 Nov 2023 22:13:21 GMT" },
+      "",
+      Rejection.Unavailable({ reason: "upstream_503", retryAfterMs: 1000 }),
+    ],
+    [
+      "a Retry-After that is neither seconds nor a date is left out",
+      429,
+      { "retry-after": "soon" },
+      "",
+      Rejection.Exhausted({ reason: "rate_limited" }),
     ],
     [
       "a bare 429 is a rate limit",
@@ -112,7 +136,7 @@ describe("readRejection", () => {
 
   for (const [name, status, headers, body, expected] of cases) {
     it(name, () => {
-      expect(readRejection(status, headers, body)).toEqual(expected);
+      expect(readRejection(status, headers, body, NOW)).toEqual(expected);
     });
   }
 
@@ -144,7 +168,7 @@ describe("readRejection", () => {
               ? Rejection.Unauthorized()
               : Rejection.Invalid();
 
-      expect(readRejection(status, {}, body)).toEqual(expected);
+      expect(readRejection(status, {}, body, NOW)).toEqual(expected);
     },
   );
 });
@@ -204,7 +228,7 @@ describe("readFailure", () => {
     },
     ({ code }) => {
       expect(readFailure(code, "limit reached")).toEqual(
-        readRejection(429, {}, codexError({ code })),
+        readRejection(429, {}, codexError({ code }), NOW),
       );
     },
   );

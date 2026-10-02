@@ -107,6 +107,7 @@ const readFixture = (name: string) =>
       status,
       Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])),
       JSON.stringify(body),
+      0,
     ),
   );
 

@@ -558,7 +558,8 @@ first; a key it refuses is taken out of use at its first request. `list` and
   `daybreak`. A model no account's list includes is tried on every account
   anyway, as it may be newer than the list.
 - A rate-limit or usage-limit answer puts that account on a cooldown until the
-  reset time the upstream gives, or 30 minutes if it gives none, and via retries
+  reset time the upstream gives or its `Retry-After` (seconds or a date),
+  whichever is later, or 30 minutes if it gives neither, and via retries
   on the next account. Codex sometimes starts a response and then fails it with
   a rate or usage limit (`response.failed`); that counts the same. A client that
   isn't streaming gets its answer from the next account; a streaming client has

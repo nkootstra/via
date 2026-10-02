@@ -1,5 +1,5 @@
 import { Rejection } from "@via/pool";
-import { Data, Option, Schema } from "effect";
+import { Data, DateTime, Option, Schema } from "effect";
 
 // Codex's own error mapping treats all of these as an exhausted account.
 const QUOTA_CODES = new Set([
@@ -26,21 +26,33 @@ const decodeErrorBody = Schema.decodeUnknownOption(CodexErrorBody);
 
 const decodeSeconds = Schema.decodeUnknownOption(Schema.FiniteFromString);
 
+/** How long a `Retry-After` asks to wait, in milliseconds: seconds, or an HTTP date counted from `now`. */
+const retryAfterIn = (header: string | undefined, now: number) =>
+  Option.getOrUndefined(
+    Option.orElse(
+      Option.map(decodeSeconds(header), (seconds) => seconds * 1000),
+      () =>
+        Option.map(Option.flatMap(Option.fromNullishOr(header), DateTime.make), (at) =>
+          Math.max(0, DateTime.toEpochMillis(at) - now),
+        ),
+    ),
+  );
+
 /**
- * What Codex means by answering `status` with `body`, in the pool's terms. A quota
- * code or a 429 outranks a server error or overload, which outranks a 401.
+ * What Codex means by answering `status` with `body` at `now` (epoch
+ * milliseconds), in the pool's terms. A quota code or a 429 outranks a server
+ * error or overload, which outranks a 401.
  */
 export const readRejection = (
   status: number,
   headers: Readonly<Record<string, string | undefined>>,
   body: string,
+  now: number,
 ): Rejection => {
   const error = Option.map(decodeErrorBody(body), (b) => b.error);
   const code = Option.getOrUndefined(Option.flatMapNullishOr(error, (e) => e.code ?? e.type));
 
-  const retryAfterMs = Option.getOrUndefined(
-    Option.map(decodeSeconds(headers["retry-after"]), (s) => s * 1000),
-  );
+  const retryAfterMs = retryAfterIn(headers["retry-after"], now);
 
   if ((code !== undefined && QUOTA_CODES.has(code)) || status === 429) {
     const resetsAt = Option.flatMapNullishOr(error, (e) => e.resets_at).pipe(

@@ -1,5 +1,5 @@
 import type { UsageWindow } from "@via/pool";
-import { Context, Duration, Effect, Layer, Schema } from "effect";
+import { Clock, Context, Duration, Effect, Layer, Schema } from "effect";
 import {
   HttpBody,
   HttpClient,
@@ -151,7 +151,12 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
           status: response.status,
           contentType: response.headers["content-type"],
           body: text,
-          rejection: readRejection(response.status, response.headers, text),
+          rejection: readRejection(
+            response.status,
+            response.headers,
+            text,
+            yield* Clock.currentTimeMillis,
+          ),
         });
       }).pipe(answeredWithin(request, RESPONSE_START_TIMEOUT));
     });
