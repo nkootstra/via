@@ -55,7 +55,7 @@ const pages: ReadonlyArray<{
 ];
 
 /** The dashboard page at `path`, if it is one: a page in the navigation, or the settings. */
-export const pageAt = (path: string): Page | undefined =>
+const pageAt = (path: string): Page | undefined =>
   path === "/settings" ? path : pages.find((page) => page.to === path)?.to;
 
 const styles = stylex.create({

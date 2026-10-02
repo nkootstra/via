@@ -38,6 +38,31 @@ describe("signing in", () => {
     expect(router.history.location.pathname).toBe("/ui/keys");
   });
 
+  it("lands on the page the visitor was going to, its search and all", async () => {
+    const { state, user, router } = renderApp("/usage?range=7d&failed=true", { signedIn: false });
+
+    await signIn(user, state.adminKey);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Usage" })).toBeDefined();
+    expect(router.state.location.pathname).toBe("/usage");
+    expect(router.state.location.search).toEqual({ range: "7d", failed: true });
+  });
+
+  it.each(["//evil.example/usage", "https://evil.example", "/\\evil.example"])(
+    "lands on the dashboard rather than off via, sent on to %s",
+    async (elsewhere) => {
+      const { state, user, router } = renderApp(
+        `/sign-in?redirect=${encodeURIComponent(elsewhere)}`,
+        { signedIn: false },
+      );
+
+      await signIn(user, state.adminKey);
+
+      await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+      expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeDefined();
+    },
+  );
+
   it("says so when the key is wrong, and stays on the form", async () => {
     const { state, user } = renderApp("/sign-in", { signedIn: false });
 
@@ -193,6 +218,21 @@ describe("the session", () => {
     await user.click(screen.getByRole("link", { name: "Accounts" }));
 
     await waitFor(() => expect(router.history.location.pathname).toBe("/ui/sign-in"));
+  });
+
+  it("brings the viewer back to the page they were on once they sign in again", async () => {
+    const { state, user, router } = renderApp("/usage?range=7d", {});
+    await screen.findByRole("heading", { level: 1, name: "Usage" });
+
+    state.signedIn = false;
+    await user.click(screen.getByText("Failed only"));
+    await screen.findByText("Your session ended. Sign in again.");
+
+    await signIn(user, state.adminKey);
+
+    expect(await screen.findByRole("heading", { level: 1, name: "Usage" })).toBeDefined();
+    expect(router.state.location.pathname).toBe("/usage");
+    expect(router.state.location.search).toEqual({ range: "7d", failed: true });
   });
 
   it("asks before signing out, and sends nothing until confirmed", async () => {

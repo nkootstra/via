@@ -3,6 +3,7 @@ import { createRouter, type RouterHistory } from "@tanstack/react-router";
 import { onSignedOut } from "./api/client.ts";
 import { createLiveUpdates } from "./api/live.ts";
 import { applyEmbeddedState } from "./api/state.ts";
+import { backTo } from "./lib/sign-in-redirect.ts";
 import { startPath } from "./lib/start-page.ts";
 import { routeTree } from "./routeTree.gen.ts";
 
@@ -36,10 +37,15 @@ export function createAppRouter(history?: RouterHistory) {
     router.history.replace(`/ui${startPath()}`);
   }
 
-  // A 401 anywhere means the session ended: forget what it showed, and sign in, told why.
+  // A 401 anywhere means the session ended: forget what it showed, and sign in, told
+  // why, to come back to the page after. The page's other calls answer 401 as well,
+  // once it's on its way there already; clearing again would cancel sign-in's own check.
   onSignedOut(() => {
+    const { href, pathname } = router.latestLocation;
+
+    if (pathname === "/sign-in") return;
     queryClient.clear();
-    void router.navigate({ to: "/sign-in", search: { expired: true } });
+    void router.navigate({ to: "/sign-in", search: { expired: true, ...backTo(href) } });
   });
 
   return router;
