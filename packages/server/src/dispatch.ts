@@ -1,10 +1,11 @@
-import { CodexUpstream } from "@via/codex-upstream";
+import { CodexUpstream, type UpstreamFailedError } from "@via/codex-upstream";
 import { classify, Verdict } from "@via/pool";
-import { Clock, Effect, Option, Result, Schema } from "effect";
+import { Clock, type Data, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
 import { AccountPool } from "@via/account-pool";
 import { ModelCatalog } from "./catalog.ts";
 import { openAiError } from "./openai-error.ts";
+import { failedResponse } from "./relay.ts";
 import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
@@ -32,18 +33,40 @@ export const noAccountLeft = (waitMs: Option.Option<number>, kind = "account") =
   });
 
 /**
+ * The answer to a Codex outage: 503 when Codex is overloaded, else 502, with
+ * its Retry-After. Every account would meet the same outage, so none is tried.
+ */
+const outage = (
+  status: number,
+  body: string,
+  { reason, retryAfterMs }: Data.TaggedEnum.Value<Verdict, "Unavailable">,
+) =>
+  openAiError(
+    status === 503 || reason === "server_is_overloaded" ? 503 : 502,
+    reason,
+    Option.getOrElse(
+      upstreamErrorOf(body).message,
+      () => `Codex failed the request (HTTP ${status})`,
+    ),
+    retryAfterMs === undefined ? {} : { "retry-after": String(Math.ceil(retryAfterMs / 1000)) },
+  );
+
+/**
  * Sends a Responses request to Codex through the pool: to the account that
  * answered the session last while it can serve, else fill-first, trying
  * accounts in order, skipping those cooling down or locked out, until one answers.
  * Only accounts whose plan offers the model are tried, when via knows which do.
  * A successful answer goes to `onSuccess`; a client error is returned as-is.
+ * A response `onSuccess` finds Codex failed for a rate limit cools its account
+ * down and goes to the next one, as a 429 would.
  */
-export const dispatch = Effect.fn("dispatch")(function* <E, R>(
+export const dispatch = Effect.fn("dispatch")(function* <R>(
   body: Schema.JsonObject,
   session: string,
   onSuccess: (
     upstream: HttpClientResponse.HttpClientResponse,
-  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+    failed: (error: UpstreamFailedError) => Effect.Effect<void>,
+  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, UpstreamFailedError, R>,
 ) {
   const pool = yield* AccountPool;
   const codex = yield* CodexUpstream;
@@ -73,6 +96,18 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
 
     const account = next.value;
 
+    // Cools the account down when Codex failed its response for a rate limit; whether it did.
+    const coolDownFor = (failed: UpstreamFailedError) =>
+      Effect.gen(function* () {
+        const verdict = classify(failed.rejection, yield* Clock.currentTimeMillis);
+
+        if (!Verdict.$is("Cooldown")(verdict)) return false;
+
+        yield* pool.coolDown(account, verdict.until, verdict.reason);
+
+        return true;
+      });
+
     const sent = yield* codex.send(account, body, session).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
@@ -86,9 +121,20 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
       }
 
       yield* log.served(account.label, account.id);
-      yield* bindings.bind(session, account.id);
 
-      return yield* onSuccess(sent.success.value);
+      const answered = yield* onSuccess(sent.success.value, (error) =>
+        Effect.asVoid(coolDownFor(error)),
+      ).pipe(Effect.result);
+
+      if (Result.isSuccess(answered)) {
+        yield* bindings.bind(session, account.id);
+
+        return answered.success;
+      }
+
+      if (yield* coolDownFor(answered.failure)) continue;
+
+      return yield* failedResponse(answered.failure);
     }
 
     const rejected = sent.failure;
@@ -113,6 +159,11 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     }
 
     yield* log.served(account.label, account.id);
+
+    if (Verdict.$is("Unavailable")(verdict)) {
+      return yield* outage(rejected.status, rejected.body, verdict);
+    }
+
     yield* log.upstreamFailed(upstreamErrorOf(rejected.body));
 
     return HttpServerResponse.text(rejected.body, {

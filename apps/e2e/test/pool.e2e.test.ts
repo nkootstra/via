@@ -115,27 +115,47 @@ layer(BunFileSystem.layer)("pool", (it) => {
     }),
   );
 
-  it.effect("codex's 500 fixture fails over to the next account", () =>
+  // An outage hits every account alike: via neither fails over nor cools the account down.
+  it.effect("codex's 500 fixture answers 502 and leaves the account in rotation", () =>
     Effect.gen(function* () {
       const codex = yield* startCodex;
       codex.forAccount("acc-a", yield* errorFixture("internal_server_error_500"));
-      codex.respond(() => reply.text("pong"));
       const via = yield* launchVia({ upstream: codex.url, accounts: pair });
-      const completion = yield* chat(via, "boom");
+
+      const response = yield* post(via, "/v1/chat/completions", {
+        model: "gpt-6-astra",
+        messages: [{ role: "user", content: "boom" }],
+      });
+
+      expect(response.status).toBe(502);
+      expect(yield* json(response)).toMatchObject({
+        error: { type: "server_error", code: "server_error" },
+      });
+
+      codex.forAccount("acc-a", reply.text("pong"));
+      const completion = yield* chat(via, "again");
       expect(completion.choices[0]?.message.content).toBe("pong");
-      expect(accountsOf(codex)).toEqual(["acc-a", "acc-b"]);
+      expect(accountsOf(codex)).toEqual(["acc-a", "acc-a"]);
     }),
   );
 
-  it.effect("codex's overloaded 503 fixture fails over to the next account", () =>
+  it.effect("codex's overloaded 503 fixture answers 503 with its Retry-After", () =>
     Effect.gen(function* () {
       const codex = yield* startCodex;
       codex.forAccount("acc-a", yield* errorFixture("server_overloaded_503"));
-      codex.respond(() => reply.text("pong"));
       const via = yield* launchVia({ upstream: codex.url, accounts: pair });
-      const completion = yield* chat(via, "overloaded");
-      expect(completion.choices[0]?.message.content).toBe("pong");
-      expect(accountsOf(codex)).toEqual(["acc-a", "acc-b"]);
+
+      const response = yield* post(via, "/v1/chat/completions", {
+        model: "gpt-6-astra",
+        messages: [{ role: "user", content: "overloaded" }],
+      });
+
+      expect(response.status).toBe(503);
+      expect(response.headers.get("retry-after")).toBe("1");
+      expect(yield* json(response)).toMatchObject({
+        error: { type: "server_error", code: "server_is_overloaded" },
+      });
+      expect(accountsOf(codex)).toEqual(["acc-a"]);
     }),
   );
 

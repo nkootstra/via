@@ -1,6 +1,12 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { refreshedTokens } from "@via/codex-auth/testing";
-import { type CodexRequest, completedStream, reply, sse } from "@via/codex-upstream/testing";
+import {
+  type CodexRequest,
+  codexFixture,
+  completedStream,
+  reply,
+  sse,
+} from "@via/codex-upstream/testing";
 import { expect, layer } from "@effect/vitest";
 import { Effect } from "effect";
 import { ok, withVia } from "./testing/harness.ts";
@@ -133,6 +139,40 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     ),
   );
 
+  it.effect("moves on to the next account when one fails its response with a rate limit", () =>
+    Effect.flatMap(codexFixture("response-failed-rate-limit.sse"), (rateLimited) =>
+      withVia(
+        (received) => (accountOf(received) === "acc-a" ? reply.sse(rateLimited) : ok()),
+        (via) =>
+          Effect.gen(function* () {
+            const response = yield* via.post("/v1/responses", request);
+            expect(response.status).toBe(200);
+            expect(yield* response.json).toMatchObject({ status: "completed" });
+
+            expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+            expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b", "acc-b"]);
+          }),
+      ),
+    ),
+  );
+
+  it.effect("cools down an account whose stream fails with a rate limit", () =>
+    withVia(
+      (received) =>
+        accountOf(received) === "acc-a"
+          ? reply.failed("rate_limit_exceeded", "Please try again in 20s.")
+          : ok(),
+      (via) =>
+        Effect.gen(function* () {
+          const streamed = yield* via.post("/v1/responses", { ...request, stream: true });
+          expect(yield* streamed.text).toContain("rate_limit_exceeded");
+
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-b"]);
+        }),
+    ),
+  );
+
   it.effect("answers 429 with Retry-After when every account is cooling down", () =>
     withVia(
       () => reply.error(429, "", { "retry-after": "120" }),
@@ -144,6 +184,47 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
           expect(yield* response.json).toMatchObject({
             error: { code: "rate_limit_exceeded" },
           });
+        }),
+    ),
+  );
+
+  it.effect("answers a Codex outage with 503 and Retry-After, cooling no account down", () =>
+    withVia(
+      (received) =>
+        received.body["input"] === "first"
+          ? reply.error(503, { error: { code: "server_is_overloaded" } }, { "retry-after": "1" })
+          : ok(),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", { ...request, input: "first" });
+          expect(response.status).toBe(503);
+          expect(response.headers["retry-after"]).toBe("1");
+          expect(yield* response.json).toMatchObject({
+            error: { type: "server_error", code: "server_is_overloaded" },
+          });
+
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-a"]);
+        }),
+    ),
+  );
+
+  it.effect("answers a Codex server error with 502, without trying another account", () =>
+    withVia(
+      () => reply.error(500, { error: { type: "server_error", message: "Internal server error" } }),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", request);
+          expect(response.status).toBe(502);
+          expect(response.headers["retry-after"]).toBeUndefined();
+          expect(yield* response.json).toMatchObject({
+            error: {
+              type: "server_error",
+              code: "server_error",
+              message: "Internal server error",
+            },
+          });
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a"]);
         }),
     ),
   );

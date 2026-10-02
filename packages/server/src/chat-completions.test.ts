@@ -1,5 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
+import { type CodexRequest, reply } from "@via/codex-upstream/testing";
 import { Effect } from "effect";
 import { ok, withVia } from "./testing/harness.ts";
 
@@ -58,6 +59,28 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
         expect(text).toContain('"usage":{"prompt_tokens":10');
         expect(text.trimEnd().endsWith("data: [DONE]")).toBe(true);
       }),
+    ),
+  );
+
+  it.effect("cools down an account whose stream fails with a usage limit, for either client", () =>
+    withVia(
+      (received: CodexRequest) =>
+        received.headers["chatgpt-account-id"] === "acc-a"
+          ? reply.failed("usage_limit_reached", "The usage limit has been reached")
+          : ok(),
+      (via) =>
+        Effect.gen(function* () {
+          const streamed = yield* via.post("/v1/chat/completions", { ...request, stream: true });
+          expect(yield* streamed.text).toContain("usage_limit_reached");
+
+          expect((yield* via.post("/v1/chat/completions", request)).status).toBe(200);
+          expect((yield* via.post("/v1/chat/completions", request)).status).toBe(200);
+          expect(via.upstreamRequests.map((sent) => sent.headers["chatgpt-account-id"])).toEqual([
+            "acc-a",
+            "acc-b",
+            "acc-b",
+          ]);
+        }),
     ),
   );
 

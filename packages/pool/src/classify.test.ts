@@ -45,9 +45,14 @@ describe("classify", () => {
       Verdict.Cooldown({ until: NOW + 30 * MINUTE, reason: "insufficient_quota" }),
     ],
     [
-      "an unavailable upstream cools the account down for a minute",
+      "an unavailable upstream is not the account's fault",
       Rejection.Unavailable({ reason: "upstream_502" }),
-      Verdict.Cooldown({ until: NOW + MINUTE, reason: "upstream_502" }),
+      Verdict.Unavailable({ reason: "upstream_502" }),
+    ],
+    [
+      "an unavailable upstream keeps its Retry-After",
+      Rejection.Unavailable({ reason: "server_is_overloaded", retryAfterMs: SECOND }),
+      Verdict.Unavailable({ reason: "server_is_overloaded", retryAfterMs: SECOND }),
     ],
     ["a refused token asks for a refresh", Rejection.Unauthorized(), Verdict.Unauthorized()],
     ["an invalid request goes back to the client", Rejection.Invalid(), Verdict.PassThrough()],
@@ -94,9 +99,20 @@ describe("properties", () => {
 
           return Option.isNone(select([account], state, NOW));
         },
+        Unavailable: () => false,
         Unauthorized: () => false,
         PassThrough: () => false,
       }),
+  );
+
+  it.prop(
+    "an unavailable upstream never takes an account out of rotation",
+    {
+      reason: Arbitrary.schema(Schema.String),
+      retryAfterMs: Arbitrary.schema(Schema.UndefinedOr(Schema.Int)),
+    },
+    ({ reason, retryAfterMs }) =>
+      !Verdict.$is("Cooldown")(classify(Rejection.Unavailable({ reason, retryAfterMs }), NOW)),
   );
 
   it.prop(

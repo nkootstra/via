@@ -1,5 +1,11 @@
-import { collectResponse, streamIncomplete } from "@via/codex-upstream";
-import { Effect, Option, type Schema, type Stream } from "effect";
+import {
+  collectResponse,
+  ResponseFailed,
+  streamIncomplete,
+  UpstreamFailedError,
+} from "@via/codex-upstream";
+import { Effect, Option, Schema, Stream } from "effect";
+import { Sse } from "effect/unstable/encoding";
 import {
   type HttpClientError,
   type HttpClientResponse,
@@ -19,8 +25,9 @@ const unreadable = openAiError(
 
 /**
  * Reads a Codex stream to its final response for a non-streaming client, and
- * answers a response that failed, broke off or grew too large with a 502, and
- * one that took too long with a 504.
+ * answers a response that broke off or grew too large with a 502, and one that
+ * took too long with a 504. A response Codex failed is left to the caller,
+ * since nothing has reached the client yet: another account may serve it.
  */
 export const collected = (
   upstream: HttpClientResponse.HttpClientResponse,
@@ -39,13 +46,56 @@ export const collected = (
     ),
     Effect.flatMap(onResponse),
     Effect.catchTags({
-      UpstreamFailedError: (error) => openAiError(502, error.code, error.reason),
       IncompleteStreamError: (error) => openAiError(502, streamIncomplete.code, error.message),
       ResponseTooLargeError: (error) => openAiError(502, "upstream_too_large", error.message),
       ResponseTimeoutError: (error) => openAiError(504, "upstream_timeout", error.message),
+      // The body broke off, was not SSE, or held an event that is not a Responses one.
+      HttpClientError: () => unreadable,
+      SseError: () => unreadable,
+      Retry: () => unreadable,
+      SchemaError: () => unreadable,
     }),
-    // The body broke off, was not SSE, or held an event that is not a Responses one.
-    Effect.catch(() => unreadable),
+  );
+
+/** The answer to a response the upstream failed in its stream: a 502 with its code. */
+export const failedResponse = (error: UpstreamFailedError) =>
+  openAiError(502, error.code, error.reason);
+
+const decodeFailed = Schema.decodeUnknownOption(Schema.fromJsonString(ResponseFailed));
+
+/**
+ * Taps a Responses SSE stream for a `response.failed` event, and calls `report`
+ * with why Codex failed the response. The bytes pass through unchanged.
+ */
+const spotFailure = <E>(
+  body: Stream.Stream<Uint8Array, E>,
+  report: (error: UpstreamFailedError) => Effect.Effect<void>,
+): Stream.Stream<Uint8Array, E> =>
+  // Built fresh for each run of the stream, as `spotUsage` is.
+  Stream.unwrap(
+    Effect.sync(() => {
+      const decoder = new TextDecoder();
+      let found: Array<UpstreamFailedError> = [];
+
+      const parser = Sse.makeParser((event) => {
+        if (Sse.Retry.is(event)) return;
+
+        for (const failed of Option.toArray(decodeFailed(event.data))) {
+          const { code, message } = failed.response.error;
+          found.push(new UpstreamFailedError({ code, reason: message }));
+        }
+      });
+
+      return body.pipe(
+        Stream.mapArrayEffect((chunks) => {
+          for (const chunk of chunks) parser.feed(decoder.decode(chunk, { stream: true }));
+          const spotted = found;
+          found = [];
+
+          return Effect.as(Effect.forEach(spotted, report, { discard: true }), chunks);
+        }),
+      );
+    }),
   );
 
 /**
@@ -65,6 +115,8 @@ export const relayed = <E>(
     readonly sse?: boolean;
     /** False when `relay` reports the usage itself, from a body via can't read it in. */
     readonly spotUsage?: boolean;
+    /** Told when the upstream fails the response in its SSE stream. */
+    readonly onFailed?: (error: UpstreamFailedError) => Effect.Effect<void>;
   },
   relay: (
     body: Stream.Stream<Uint8Array, HttpClientError.HttpClientError>,
@@ -76,13 +128,18 @@ export const relayed = <E>(
     const sse =
       options.sse ?? (upstream.headers["content-type"] ?? "").includes("text/event-stream");
 
+    const answer =
+      sse && options.onFailed !== undefined
+        ? spotFailure(upstream.stream, options.onFailed)
+        : upstream.stream;
+
     // An error answer says why in its body; any other carries its usage.
     const relaying = relay(
       upstream.status >= 400
-        ? spotUpstreamError(upstream.stream, log.upstreamFailed)
+        ? spotUpstreamError(answer, log.upstreamFailed)
         : options.spotUsage === false
-          ? upstream.stream
-          : spotUsage(upstream.stream, sse, log.usage),
+          ? answer
+          : spotUsage(answer, sse, log.usage),
     );
 
     // Timed outermost: the request log counts the stream from when the server starts it.

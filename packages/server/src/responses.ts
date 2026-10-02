@@ -25,9 +25,13 @@ export const responses = authenticated(
 
     if (Option.isSome(route)) return yield* forward(route.value, "/responses", body, session);
 
-    return yield* dispatch(body, session, (upstream) =>
+    return yield* dispatch(body, session, (upstream, failed) =>
       body.stream === true
-        ? relayed(upstream, { contentType: "text/event-stream", sse: true }, relayStream)
+        ? relayed(
+            upstream,
+            { contentType: "text/event-stream", sse: true, onFailed: failed },
+            relayStream,
+          )
         : collected(upstream, (response) =>
             Effect.succeed(HttpServerResponse.jsonUnsafe(response)),
           ),
