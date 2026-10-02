@@ -46,23 +46,38 @@ const make = (adminKey: Redacted.Redacted<string>) =>
 
     const idOf = (token: string) => sha256(token).toString("hex");
 
-    const isAdminKey = (key: Redacted.Redacted<string>) => Effect.sync(() => matches(key));
+    // Checked and counted in one step, so failures that arrive together all count.
+    const check = (key: Redacted.Redacted<string>, client: string) =>
+      Effect.flatMap(Clock.currentTimeMillis, (now) =>
+        Ref.modify(failures, (all) =>
+          attempt(SIGN_IN_LIMITS, all, { client, now, matches: matches(key) }),
+        ),
+      );
+
+    const tooMany = new TooManySignInsError({ message: "Too many failed sign-ins; try later" });
+
+    const authorize = Effect.fn("AdminSessions.authorize")(function* (
+      key: Redacted.Redacted<string>,
+      client: string,
+    ) {
+      const outcome = yield* check(key, client);
+
+      if (outcome === "throttled") return yield* tooMany;
+
+      if (outcome === "wrong") return yield* new Unauthorized({ message: "Wrong admin key" });
+    });
 
     const signIn = Effect.fn("AdminSessions.signIn")(function* (
       key: Redacted.Redacted<string>,
       client: string,
     ) {
       const now = yield* Clock.currentTimeMillis;
-
-      // Checked and counted in one step, so failures that arrive together all count.
-      const outcome = yield* Ref.modify(failures, (all) =>
-        attempt(SIGN_IN_LIMITS, all, { client, now, matches: matches(key) }),
-      );
+      const outcome = yield* check(key, client);
 
       if (outcome === "throttled") {
         yield* Effect.sleep(FAILED_SIGN_IN_DELAY);
 
-        return yield* new TooManySignInsError({ message: "Too many failed sign-ins; try later" });
+        return yield* tooMany;
       }
 
       if (outcome === "wrong") {
@@ -141,7 +156,7 @@ const make = (adminKey: Redacted.Redacted<string>) =>
         }
       });
 
-    return { isAdminKey, signIn, verify, signOut, ended };
+    return { authorize, signIn, verify, signOut, ended };
   });
 
 /**
@@ -151,8 +166,16 @@ const make = (adminKey: Redacted.Redacted<string>) =>
 export class AdminSessions extends Context.Service<
   AdminSessions,
   {
-    /** Whether `key` is the admin key. */
-    readonly isAdminKey: (key: Redacted.Redacted<string>) => Effect.Effect<boolean>;
+    /**
+     * Lets a request from `client` with `key` through if it is the admin key. A
+     * wrong key counts as a failed sign-in, and once `client`'s sign-ins are
+     * refused, so is the key, the right one too. Unlike a sign-in it answers at
+     * once: the count limits guessing as well.
+     */
+    readonly authorize: (
+      key: Redacted.Redacted<string>,
+      client: string,
+    ) => Effect.Effect<void, Unauthorized | TooManySignInsError>;
     /**
      * A new session's token, for the admin key sent by `client`, the address it
      * connected from. A wrong key is answered only after a delay. After too many

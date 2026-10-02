@@ -93,21 +93,39 @@ const reads = new Set(["GET", "HEAD"]);
 
 const invalid = new Unauthorized({ message: "Missing or invalid admin key or session" });
 
+/**
+ * Who is signing in, for counting their failed sign-ins: the address the
+ * connection came from. Never a header such as `X-Forwarded-For`, which the
+ * client could make up; behind a proxy, every sign-in is the proxy's.
+ */
+const clientOf = (request: HttpServerRequest.HttpServerRequest) =>
+  Option.getOrElse(request.remoteAddress, () => "unknown");
+
+/** The bearer key the request carries, unless it carries none. */
+const bearerKey = Effect.map(HttpApiBuilder.securityDecode(bearer), (key) =>
+  Redacted.value(key) === "" ? Option.none() : Option.some(key),
+);
+
 const authorization = Layer.effect(
   AdminAuthorization,
   Effect.gen(function* () {
     const sessions = yield* AdminSessions;
 
+    // The builder tries `bearer`, then `session`, and answers with the last one's error,
+    // so `session` decides every request: a bearer key refused because its address is
+    // throttled must answer 429, which an error from `bearer` would turn into a 401.
     return AdminAuthorization.of({
-      bearer: (handler, { credential }) =>
-        Effect.gen(function* () {
-          if (!(yield* sessions.isAdminKey(credential))) return yield* invalid;
-
-          return yield* handler;
-        }),
+      bearer: () => invalid,
       session: (handler) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
+          const key = yield* bearerKey;
+
+          if (Option.isSome(key)) {
+            yield* sessions.authorize(key.value, clientOf(request));
+
+            return yield* handler;
+          }
 
           if (!(yield* hasLiveSession(sessions, request))) return yield* invalid;
 
@@ -140,14 +158,6 @@ const setSessionCookie = (token: Redacted.Redacted<string> | "", maxAge: Duratio
       maxAge,
     });
   });
-
-/**
- * Who is signing in, for counting their failed sign-ins: the address the
- * connection came from. Never a header such as `X-Forwarded-For`, which the
- * client could make up; behind a proxy, every sign-in is the proxy's.
- */
-const clientOf = (request: HttpServerRequest.HttpServerRequest) =>
-  Option.getOrElse(request.remoteAddress, () => "unknown");
 
 const sessions = HttpApiBuilder.group(AdminApi, "session", (handlers) =>
   Effect.gen(function* () {
@@ -379,7 +389,8 @@ const events = (options: StateOptions) =>
         Effect.gen(function* () {
           const request = yield* HttpServerRequest.HttpServerRequest;
 
-          const ended = (yield* admin.isAdminKey(yield* HttpApiBuilder.securityDecode(bearer)))
+          // Let through with a bearer key, it was the admin key.
+          const ended = Option.isSome(yield* bearerKey)
             ? Effect.never
             : sessionsEnded(admin, request);
 

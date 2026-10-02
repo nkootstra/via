@@ -1363,6 +1363,31 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect(
+    "counts wrong bearer keys as failed sign-ins, refusing even the right key after ten",
+    () =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const wrong = yield* Effect.forEach(
+              Array.from({ length: 10 }),
+              () => via.get("/admin/keys", "wrong-admin-key"),
+              { concurrency: "unbounded" },
+            );
+
+            expect(wrong.map(({ status }) => status)).toEqual(
+              Array.from({ length: 10 }, () => 401),
+            );
+            expect((yield* via.get("/admin/keys", adminKey)).status).toBe(429);
+            expect((yield* signIn(via, adminKey)).status).toBe(429);
+            yield* TestClock.adjust("1 minute");
+            expect((yield* via.get("/admin/keys", adminKey)).status).toBe(200);
+          }),
+        { adminKey },
+      ),
+  );
+
   it.effect("tells clients apart by their connection, not by forwarding headers", () =>
     withVia(
       ok,

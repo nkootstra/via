@@ -44,9 +44,11 @@ describe("AdminSessions", () => {
   it.effect("checks the admin key as a bearer credential", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
-      expect(yield* admin.isAdminKey(adminKey)).toBe(true);
-      expect(yield* admin.isAdminKey(wrongKey)).toBe(false);
-      expect(yield* admin.isAdminKey(Redacted.make(""))).toBe(false);
+      yield* admin.authorize(adminKey, "203.0.113.1");
+      const wrong = yield* Effect.flip(admin.authorize(wrongKey, "203.0.113.1"));
+      expect(Schema.is(Unauthorized)(wrong)).toBe(true);
+      const empty = yield* Effect.flip(admin.authorize(Redacted.make(""), "203.0.113.1"));
+      expect(Schema.is(Unauthorized)(empty)).toBe(true);
     }).pipe(Effect.provide(sessions)),
   );
 
