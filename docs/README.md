@@ -24,6 +24,13 @@ its rate limit, via moves on to the next (see
 
 > **Status:** early (`0.x`). Commands and file formats may still change before 1.0.
 
+> **Risk:** pooling ChatGPT subscriptions through the Codex backend may break
+> OpenAI's terms of use, and OpenAI could limit or ban the accounts. By default
+> via presents itself to Codex as the Codex CLI; set `codex.cloak: false` in
+> [`config.yaml`](#configuration) to send its own name instead. OpenCode Go's
+> terms apply to its keys too. Use only accounts you own, at your own risk (see
+> [Disclaimer](#disclaimer)).
+
 ![The web UI's Overview page: four accounts and providers, all available, with each one's limits](assets/screenshots/overview.png)
 
 A [web UI](#web-ui) at `/ui` shows the pool and manages accounts, keys and
@@ -43,6 +50,7 @@ Until then, build from source with [Bun](https://bun.sh) 1.4:
 git clone https://github.com/nkootstra/via.git
 cd via
 bun install
+bun run --cwd apps/web build    # the web UI, which the binary embeds
 cd npm && bun build.ts --host
 ```
 
@@ -64,7 +72,12 @@ via keys create --name laptop
 via serve
 ```
 
-Point any OpenAI client at it:
+Point any OpenAI client at it. In another terminal, put the key `via keys create`
+printed in `VIA_KEY`:
+
+```sh
+export VIA_KEY=via_...
+```
 
 ```sh
 curl http://127.0.0.1:8317/v1/chat/completions \
@@ -149,7 +162,23 @@ with Compose or a platform with volumes. What via needs from it:
 The image is public, so the host needs no registry login. Add accounts on the
 host with `docker exec -it via via accounts add`; the
 device-code login needs no browser there. Or copy an existing `~/.config/via`
-into the volume, owned by uid 65532, with the files kept at `0600`.
+into the volume, owned by uid 65532. Stop `via serve` on your machine first,
+so `usage.db` and its `-wal` file are copied as one, and then stop the
+container, as the image has no shell to copy with:
+
+```sh
+docker stop via
+docker run --rm -v ~/.config/via:/from:ro -v via-data:/data alpine \
+  sh -c 'cp -a /from/. /data/ && chown -R 65532:65532 /data'
+docker start via
+```
+
+That's for Docker on the same machine, such as Docker Desktop on a Mac. For a
+remote host, copy the folder there first, as with
+`scp -rp ~/.config/via host:via-home`, and mount `~/via-home` there instead.
+`cp -a` keeps the files at `0600`. Stop the via you copied from for good
+afterwards: two vias refreshing the same accounts log each other out (see
+above).
 
 ## API
 
@@ -636,7 +665,7 @@ other accounts keep working. Delete it and sign that account in again.
 host: 127.0.0.1
 port: 8317
 codex:
-  # Present requests to the upstream as the official Codex CLI.
+  # Present requests to Codex as the official Codex CLI; false sends via's own name.
   cloak: true
 ```
 
@@ -850,6 +879,20 @@ account served, such as one to a plain provider, counts under
 `model`, `accountId` (an account's id, or `provider:<name>`), `keyId`, and
 `outcome` (`error` for failed requests only, `ok` for the rest).
 
+`requests` answers `{"requests": [...], "next": ...}`, 50 requests a page, or
+`limit` of them (1 to 500). `next` is `null` on the last page; otherwise pass
+its `at` and `requestId` back as `afterAt` and `afterId`, with the same range
+and filters, for the page after it:
+
+```sh
+RANGE="from=1790000000000&to=1790086400000"
+curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
+  "http://127.0.0.1:8317/admin/history/requests?$RANGE&limit=100"
+# {"requests":[...],"next":{"at":1790040000000,"requestId":"<id>"}}
+curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
+  "http://127.0.0.1:8317/admin/history/requests?$RANGE&limit=100&afterAt=1790040000000&afterId=<id>"
+```
+
 Cost is worked out when you ask, from the tokens and the [model prices](#model-prices),
 so a price change applies to old requests too:
 
@@ -873,6 +916,117 @@ address, such as `http://localhost:4318`, and `via serve` exports a trace of
 each request it serves. The other standard variables work too:
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`,
 `OTEL_BSP_SCHEDULE_DELAY`, and `OTEL_SDK_DISABLED=true` to turn it off.
+
+## Upgrading
+
+[Back up](#backups) first. Until 1.0, a release may change commands and file
+formats. via upgrades `usage.db` itself when it starts, and leaves its other
+files as they are; the release notes say when you need to change something,
+such as a `config.yaml` key. An older via may not read a newer via's files, so
+a backup is how you go back.
+
+From source, pull and build again, then replace the binary on your `PATH` and
+restart `via serve`:
+
+```sh
+git pull
+bun install
+bun run --cwd apps/web build
+cd npm && bun build.ts --host
+```
+
+With Docker, pull the new image and start a new container on the same volume:
+
+```sh
+docker pull ghcr.io/nkootstra/via:latest
+docker rm -f via
+docker run -d --name via --restart unless-stopped \
+  -p 127.0.0.1:8317:8317 -v via-data:/data \
+  ghcr.io/nkootstra/via:latest
+```
+
+With Compose, `docker compose pull && docker compose up -d`. If you pinned a
+version, change the tag first.
+
+## Backups
+
+These files in via's [home](#configuration) are worth keeping:
+
+- `auth/`, `opencode-go.json` and `openrouter.json`: your accounts' tokens and
+  keys. Without them you sign every account in again.
+- `keys.json`: your API keys. Without it every client needs a new key.
+- `config.yaml`, if you wrote one, and `ollama.json`.
+- `usage.db`: the usage history.
+
+`state.json` only holds running cooldowns, so it can go.
+
+The backup holds tokens and keys in plaintext: keep it as private as the
+folder itself. A token in it goes stale: via replaces an account's refresh
+token each time it refreshes, so an account restored from an old backup may be
+locked out until you sign it in again.
+
+`usage.db` is SQLite in WAL mode: recent writes sit in `usage.db-wal` until
+SQLite moves them into `usage.db`. Copying `usage.db` alone while via runs can
+lose them or give you a damaged copy. Stop via before you copy the folder, or
+let SQLite make the copy, which is safe while via runs:
+
+```sh
+sqlite3 ~/.config/via/usage.db ".backup usage-backup.db"
+```
+
+With Docker, stop the container and archive the volume:
+
+```sh
+docker stop via
+docker run --rm -v via-data:/data:ro -v "$PWD":/backup alpine \
+  tar czf /backup/via-data.tgz -C /data .
+docker start via
+```
+
+## Uninstalling
+
+1. Stop `via serve`.
+2. Delete the binary from your `PATH`.
+3. Delete via's home: `~/.config/via`, or `$VIA_HOME` if you set it. That
+   removes the accounts' tokens, the API keys and the usage history.
+
+With Docker, remove the container, the volume with everything in it, and the
+image:
+
+```sh
+docker rm -f via
+docker volume rm via-data
+docker image rm ghcr.io/nkootstra/via:latest
+```
+
+Deleting the files, like `via accounts remove`, doesn't revoke anything. To
+end the access for good, log out of the sessions in your ChatGPT account's
+security settings, and revoke the OpenCode Go and OpenRouter keys on their
+sites.
+
+## Troubleshooting
+
+**`error: ... port 8317 ... in use`.** Something else listens on the port,
+often another `via serve`. Stop it, or start via on another port with
+`via serve --port <n>` or `port:` in `config.yaml`.
+
+**`error: Invalid config in <path>: <reason>`.** `config.yaml` doesn't parse,
+or has a key via doesn't know or a value it can't take; the reason names it.
+Fix that line, or move the file away to start from the defaults.
+
+**`error: VIA_ADMIN_KEY must be at least 32 characters; it has <n>`.** Make a
+longer key with `openssl rand -hex 32`, or unset `VIA_ADMIN_KEY` to serve
+without the admin API and web UI.
+
+**An account is locked out.** via logs
+`<account> is locked out until it logs in again (<reason>)`, the web UI's
+Overview shows it as **Locked out**, and `GET /admin/pool` as `auth_error`.
+Codex refused its tokens even after a refresh, as when its sign-in was revoked
+or it was restored from an old backup. Sign it in again with the
+web UI's **Add account**, which puts it back in use at once, or with
+`via accounts add` and then a restart of `via serve`. via replaces its tokens
+and keeps its label (see
+[How the pool picks an account](#how-the-pool-picks-an-account)).
 
 ## Security
 
@@ -903,9 +1057,11 @@ To report a vulnerability, see [SECURITY.md](https://github.com/nkootstra/via/bl
 
 ## Disclaimer
 
-via is not affiliated with or endorsed by OpenAI. It talks to the backend the
-Codex CLI uses and, by default, presents itself as that CLI. Pooling
-subscriptions this way may conflict with OpenAI's terms of use. Use only
+via is not affiliated with or endorsed by OpenAI or OpenCode. It talks to the
+backend the Codex CLI uses and, by default, presents itself as that CLI
+(`codex.cloak` in [`config.yaml`](#configuration) turns that off). Pooling
+subscriptions this way may conflict with OpenAI's terms of use, and accounts
+could be limited or banned; OpenCode Go's terms apply to its keys. Use only
 accounts you own, at your own risk.
 
 ## Contributing
