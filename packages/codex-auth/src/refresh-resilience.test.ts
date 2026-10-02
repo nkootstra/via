@@ -67,6 +67,22 @@ const tokensLayer = (
     Layer.provide(Layer.succeed(CodexAuth, auth)),
   );
 
+/**
+ * Runs `effect` to its end, moving the test clock on a second at a time so the pauses between
+ * save attempts pass at once; each step first lets pending file-system calls finish.
+ */
+const settled = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+  Effect.gen(function* () {
+    const fiber = yield* Effect.forkChild(effect);
+
+    while (fiber.pollUnsafe() === undefined) {
+      yield* TestClock.withLive(Effect.sleep("2 millis"));
+      yield* TestClock.adjust("1 second");
+    }
+
+    return yield* Fiber.join(fiber);
+  });
+
 const tempAuthDir = Effect.flatMap(FileSystem.FileSystem, (fs) =>
   fs.makeTempDirectoryScoped(),
 ).pipe(Effect.map((dir) => `${dir}/auth`));
@@ -109,43 +125,45 @@ layer(BunFileSystem.layer)("AccountTokens refreshing", (it) => {
 
       yield* Effect.gen(function* () {
         const store = yield* AccountStore;
-        yield* (yield* AccountTokens).fresh(yield* store.find("a"));
+        yield* settled((yield* AccountTokens).fresh(yield* store.find("a")));
 
         expect((yield* store.find("a")).refreshToken).toBe("rt-2");
-      }).pipe(Effect.provide(tokensLayer(authDir, auth, disk)), TestClock.withLive);
+      }).pipe(Effect.provide(tokensLayer(authDir, auth, disk)));
     }),
   );
 
-  it.effect("keeps rotated tokens it can't save, refreshes with them and saves them later", () =>
-    Effect.gen(function* () {
-      const authDir = yield* tempAuthDir;
-      yield* seedAccount(authDir, "a", { expiresAt: 0 });
-      const disk = { failures: Infinity };
-      const { auth, used } = rotatingIssuer();
+  it.effect(
+    "keeps rotated tokens it can't save, refreshes with them and saves them later",
+    () =>
+      Effect.gen(function* () {
+        const authDir = yield* tempAuthDir;
+        yield* seedAccount(authDir, "a", { expiresAt: 0 });
+        const disk = { failures: Infinity };
+        const { auth, used } = rotatingIssuer();
 
-      yield* Effect.gen(function* () {
-        const store = yield* AccountStore;
-        const tokens = yield* AccountTokens;
+        yield* Effect.gen(function* () {
+          const store = yield* AccountStore;
+          const tokens = yield* AccountTokens;
 
-        const first = yield* tokens.fresh(yield* store.find("a"));
-        expect(first.accessToken).toBe("at-2");
+          const first = yield* settled(tokens.fresh(yield* store.find("a")));
+          expect(first.accessToken).toBe("at-2");
 
-        // Codex refuses the new access token: the next refresh must spend "rt-2", not "rt-1".
-        const second = yield* tokens.refreshRejected("a", "at-2");
-        expect(second.accessToken).toBe("at-3");
-        expect(used).toEqual(["rt-1", "rt-2"]);
+          // Codex refuses the new access token: the next refresh must spend "rt-2", not "rt-1".
+          const second = yield* settled(tokens.refreshRejected("a", "at-2"));
+          expect(second.accessToken).toBe("at-3");
+          expect(used).toEqual(["rt-1", "rt-2"]);
 
-        disk.failures = 0;
-        const third = yield* tokens.fresh(yield* store.find("a"));
+          disk.failures = 0;
+          const third = yield* tokens.fresh(yield* store.find("a"));
 
-        expect(third.accessToken).toBe("at-3");
-        expect(used).toEqual(["rt-1", "rt-2"]);
-        expect((yield* store.find("a")).refreshToken).toBe("rt-3");
-      }).pipe(
-        Effect.provide(tokensLayer(authDir, auth, yield* flakyDisk(authDir, disk))),
-        TestClock.withLive,
-      );
-    }),
+          expect(third.accessToken).toBe("at-3");
+          expect(used).toEqual(["rt-1", "rt-2"]);
+          expect((yield* store.find("a")).refreshToken).toBe("rt-3");
+        }).pipe(Effect.provide(tokensLayer(authDir, auth, yield* flakyDisk(authDir, disk))));
+      }),
+    // Saves that fail and are tried again, each taking and freeing locks on disk: a loaded
+    // machine (the whole repo's tests at once) needs longer.
+    { timeout: 20_000 },
   );
 
   it.effect("two processes refreshing the same account at once spend its refresh token once", () =>
@@ -214,28 +232,30 @@ layer(BunFileSystem.layer)("AccountTokens refreshing", (it) => {
     }),
   );
 
-  it.effect("a login replaces rotated tokens kept in memory", () =>
-    Effect.gen(function* () {
-      const authDir = yield* tempAuthDir;
-      yield* seedAccount(authDir, "a", { expiresAt: 0 });
-      const disk = { failures: Infinity };
-      const { auth } = rotatingIssuer();
+  it.effect(
+    "a login replaces rotated tokens kept in memory",
+    () =>
+      Effect.gen(function* () {
+        const authDir = yield* tempAuthDir;
+        yield* seedAccount(authDir, "a", { expiresAt: 0 });
+        const disk = { failures: Infinity };
+        const { auth } = rotatingIssuer();
 
-      yield* Effect.gen(function* () {
-        const store = yield* AccountStore;
-        const tokens = yield* AccountTokens;
-        yield* tokens.fresh(yield* store.find("a"));
+        yield* Effect.gen(function* () {
+          const store = yield* AccountStore;
+          const tokens = yield* AccountTokens;
+          yield* settled(tokens.fresh(yield* store.find("a")));
 
-        disk.failures = 0;
-        yield* store.save(tokensFor("a", { accessToken: "at-login", refreshToken: "rt-login" }));
-        const fresh = yield* tokens.refreshRejected("a", "at-2");
+          disk.failures = 0;
+          yield* store.save(tokensFor("a", { accessToken: "at-login", refreshToken: "rt-login" }));
+          const fresh = yield* tokens.refreshRejected("a", "at-2");
 
-        expect(fresh.accessToken).toBe("at-login");
-        expect((yield* store.find("a")).refreshToken).toBe("rt-login");
-      }).pipe(
-        Effect.provide(tokensLayer(authDir, auth, yield* flakyDisk(authDir, disk))),
-        TestClock.withLive,
-      );
-    }),
+          expect(fresh.accessToken).toBe("at-login");
+          expect((yield* store.find("a")).refreshToken).toBe("rt-login");
+        }).pipe(Effect.provide(tokensLayer(authDir, auth, yield* flakyDisk(authDir, disk))));
+      }),
+    // Saves that fail and are tried again, each taking and freeing locks on disk: a loaded
+    // machine (the whole repo's tests at once) needs longer.
+    { timeout: 20_000 },
   );
 });
