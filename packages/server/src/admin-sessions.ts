@@ -64,7 +64,11 @@ const make = (adminKey: Redacted.Redacted<string>) =>
 
       if (outcome === "throttled") return yield* tooMany;
 
-      if (outcome === "wrong") return yield* new Unauthorized({ message: "Wrong admin key" });
+      if (outcome === "wrong") {
+        yield* Effect.logWarning("Failed admin request: wrong bearer key");
+
+        return yield* new Unauthorized({ message: "Wrong admin key" });
+      }
     });
 
     const signIn = Effect.fn("AdminSessions.signIn")(function* (
@@ -169,8 +173,8 @@ export class AdminSessions extends Context.Service<
     /**
      * Lets a request from `client` with `key` through if it is the admin key. A
      * wrong key counts as a failed sign-in, and once `client`'s sign-ins are
-     * refused, so is the key, the right one too. Unlike a sign-in it answers at
-     * once: the count limits guessing as well.
+     * refused, so is the key, the right one too. A wrong key is logged, without
+     * it. Unlike a sign-in it answers at once: the count limits guessing as well.
      */
     readonly authorize: (
       key: Redacted.Redacted<string>,

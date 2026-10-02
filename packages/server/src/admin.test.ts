@@ -1310,6 +1310,19 @@ layer(BunFileSystem.layer)("admin API", (it) => {
     ),
   );
 
+  it.effect("logs a wrong bearer key without it", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          expect((yield* via.get("/admin/keys", "wrong-key-with-a-guess-in-it")).status).toBe(401);
+          yield* via.logged("Failed admin request");
+          expect(JSON.stringify(via.logs)).not.toContain("wrong-key-with-a-guess-in-it");
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("refuses strings too long to be real with 400, before acting on them", () =>
     withVia(
       ok,
