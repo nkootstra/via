@@ -157,7 +157,8 @@ export function OpencodeGoAccounts() {
           key={rename.row.id}
           {...rename}
           thing="Account"
-          name={mask.key(rename.row.label)}
+          name={rename.row.label}
+          hide={mask.key}
           field="Label"
           description="The label shows in usage, in the pool and in logs."
           rename={async (label) => {
