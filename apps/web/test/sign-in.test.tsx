@@ -236,6 +236,29 @@ describe("the session", () => {
     expect(state.requests).not.toContain("DELETE /admin/session");
   });
 
+  it("stays put and says why when signing out fails", async () => {
+    const { user, router } = renderApp("/", {}, [
+      http.delete("*/admin/session", () => new HttpResponse(null, { status: 500 }), {
+        once: true,
+      }),
+    ]);
+
+    await user.click(await openSignOut(user));
+    const dialog = await screen.findByRole("alertdialog", { name: "Sign out of via?" });
+    await user.click(within(dialog).getByRole("button", { name: "Sign out" }));
+
+    await waitFor(() =>
+      expect(
+        screen
+          .getAllByRole("alert")
+          .some((alert) => alert.textContent?.startsWith("Couldn't sign out")),
+      ).toBe(true),
+    );
+    // Open still, to try again or cancel.
+    expect(screen.getByRole("alertdialog", { name: "Sign out of via?" })).toBeDefined();
+    expect(router.history.location.pathname).toBe("/ui/");
+  });
+
   it("signs out once confirmed, and forgets the session", async () => {
     const { state, user, router } = renderApp("/");
 
