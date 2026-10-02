@@ -168,3 +168,14 @@ export const signIn = (page: Page, url: string) =>
     yield* Effect.promise(() => page.getByRole("button", { name: "Sign in" }).click());
     yield* visible(page, "Overview");
   });
+
+/** Waits for a toast titled `title`. */
+export const toast = (page: Page, title: string) =>
+  Effect.promise(() => page.getByText(title, { exact: true }).waitFor({ timeout: 10_000 }));
+
+/** Chooses `item` in the actions menu of the table row named `row`. */
+export const rowAction = (page: Page, row: string, item: string) =>
+  Effect.gen(function* () {
+    yield* Effect.promise(() => page.getByRole("button", { name: `Actions for ${row}` }).click());
+    yield* Effect.promise(() => page.getByRole("menuitem", { name: item }).click());
+  });
