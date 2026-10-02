@@ -38,22 +38,24 @@ export const readRejection = (
   const error = Option.map(decodeErrorBody(body), (b) => b.error);
   const code = Option.getOrUndefined(Option.flatMapNullishOr(error, (e) => e.code ?? e.type));
 
+  const retryAfterMs = Option.getOrUndefined(
+    Option.map(decodeSeconds(headers["retry-after"]), (s) => s * 1000),
+  );
+
   if ((code !== undefined && QUOTA_CODES.has(code)) || status === 429) {
     const resetsAt = Option.flatMapNullishOr(error, (e) => e.resets_at).pipe(
       Option.map((seconds) => seconds * 1000),
     );
 
-    const retryAfter = Option.map(decodeSeconds(headers["retry-after"]), (s) => s * 1000);
-
     return Rejection.Exhausted({
       reason: code ?? "rate_limited",
       resetsAt: Option.getOrUndefined(resetsAt),
-      retryAfterMs: Option.getOrUndefined(retryAfter),
+      retryAfterMs,
     });
   }
 
   if (status >= 500 || code === "server_is_overloaded") {
-    return Rejection.Unavailable({ reason: code ?? `upstream_${status}` });
+    return Rejection.Unavailable({ reason: code ?? `upstream_${status}`, retryAfterMs });
   }
 
   if (status === 401) return Rejection.Unauthorized();

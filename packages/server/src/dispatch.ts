@@ -1,6 +1,6 @@
 import { CodexUpstream } from "@via/codex-upstream";
 import { classify, Verdict } from "@via/pool";
-import { Clock, Effect, Option, Result, Schema } from "effect";
+import { Clock, type Data, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
 import { AccountPool } from "@via/account-pool";
 import { ModelCatalog } from "./catalog.ts";
@@ -30,6 +30,25 @@ export const noAccountLeft = (waitMs: Option.Option<number>, kind = "account") =
         "retry-after": String(Math.ceil(ms / 1000)),
       }),
   });
+
+/**
+ * The answer to a Codex outage: 503 when Codex is overloaded, else 502, with
+ * its Retry-After. Every account would meet the same outage, so none is tried.
+ */
+const outage = (
+  status: number,
+  body: string,
+  { reason, retryAfterMs }: Data.TaggedEnum.Value<Verdict, "Unavailable">,
+) =>
+  openAiError(
+    status === 503 || reason === "server_is_overloaded" ? 503 : 502,
+    reason,
+    Option.getOrElse(
+      upstreamErrorOf(body).message,
+      () => `Codex failed the request (HTTP ${status})`,
+    ),
+    retryAfterMs === undefined ? {} : { "retry-after": String(Math.ceil(retryAfterMs / 1000)) },
+  );
 
 /**
  * Sends a Responses request to Codex through the pool: to the account that
@@ -113,6 +132,11 @@ export const dispatch = Effect.fn("dispatch")(function* <E, R>(
     }
 
     yield* log.served(account.label, account.id);
+
+    if (Verdict.$is("Unavailable")(verdict)) {
+      return yield* outage(rejected.status, rejected.body, verdict);
+    }
+
     yield* log.upstreamFailed(upstreamErrorOf(rejected.body));
 
     return HttpServerResponse.text(rejected.body, {

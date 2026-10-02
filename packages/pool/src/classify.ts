@@ -16,8 +16,10 @@ export type Rejection = Data.TaggedEnum<{
   };
   /** The upstream is failing or overloaded, whatever the account. */
   Unavailable: {
-    /** Names the failure; kept as the account's cooldown reason. */
+    /** Names the failure. */
     readonly reason: string;
+    /** How long the upstream asks to wait before trying again, in milliseconds. */
+    readonly retryAfterMs?: number | undefined;
   };
   /** The access token was refused. */
   Unauthorized: {};
@@ -31,6 +33,11 @@ export const Rejection = Data.taggedEnum<Rejection>();
 export type Verdict = Data.TaggedEnum<{
   /** Leave the account alone until `until`, then try it again. */
   Cooldown: { readonly until: number; readonly reason: string };
+  /**
+   * The upstream is down or overloaded for every account alike: the account is
+   * not to blame, and trying the others would only hit the same outage.
+   */
+  Unavailable: { readonly reason: string; readonly retryAfterMs?: number | undefined };
   /** The access token was refused: refresh it once and retry. */
   Unauthorized: {};
   /** The request itself is at fault; another account would fail the same way. */
@@ -40,8 +47,6 @@ export type Verdict = Data.TaggedEnum<{
 export const Verdict = Data.taggedEnum<Verdict>();
 
 const QUOTA_FALLBACK = Duration.minutes(30);
-
-const TRANSIENT_COOLDOWN = Duration.minutes(1);
 
 export const classify = (rejection: Rejection, now: number): Verdict =>
   Rejection.$match(rejection, {
@@ -55,8 +60,7 @@ export const classify = (rejection: Rejection, now: number): Verdict =>
 
       return Verdict.Cooldown({ until, reason });
     },
-    Unavailable: ({ reason }) =>
-      Verdict.Cooldown({ until: now + Duration.toMillis(TRANSIENT_COOLDOWN), reason }),
+    Unavailable: ({ reason, retryAfterMs }) => Verdict.Unavailable({ reason, retryAfterMs }),
     Unauthorized: () => Verdict.Unauthorized(),
     Invalid: () => Verdict.PassThrough(),
   });

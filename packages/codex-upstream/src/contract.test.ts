@@ -103,7 +103,7 @@ layer(BunFileSystem.layer)("readRejection against codex's error fixtures", (it) 
   it.effect("reads an overloaded server by its code", () =>
     Effect.gen(function* () {
       expect(yield* readFixture("server_overloaded_503")).toEqual(
-        Rejection.Unavailable({ reason: "server_is_overloaded" }),
+        Rejection.Unavailable({ reason: "server_is_overloaded", retryAfterMs: 1000 }),
       );
     }),
   );

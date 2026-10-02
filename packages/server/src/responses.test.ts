@@ -148,6 +148,47 @@ layer(BunFileSystem.layer)("POST /v1/responses", (it) => {
     ),
   );
 
+  it.effect("answers a Codex outage with 503 and Retry-After, cooling no account down", () =>
+    withVia(
+      (received) =>
+        received.body["input"] === "first"
+          ? reply.error(503, { error: { code: "server_is_overloaded" } }, { "retry-after": "1" })
+          : ok(),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", { ...request, input: "first" });
+          expect(response.status).toBe(503);
+          expect(response.headers["retry-after"]).toBe("1");
+          expect(yield* response.json).toMatchObject({
+            error: { type: "server_error", code: "server_is_overloaded" },
+          });
+
+          expect((yield* via.post("/v1/responses", request)).status).toBe(200);
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a", "acc-a"]);
+        }),
+    ),
+  );
+
+  it.effect("answers a Codex server error with 502, without trying another account", () =>
+    withVia(
+      () => reply.error(500, { error: { type: "server_error", message: "Internal server error" } }),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", request);
+          expect(response.status).toBe(502);
+          expect(response.headers["retry-after"]).toBeUndefined();
+          expect(yield* response.json).toMatchObject({
+            error: {
+              type: "server_error",
+              code: "server_error",
+              message: "Internal server error",
+            },
+          });
+          expect(via.upstreamRequests.map(accountOf)).toEqual(["acc-a"]);
+        }),
+    ),
+  );
+
   it.effect("returns a client error as-is, since another account would fail the same way", () =>
     withVia(
       () => reply.error(400, { error: { message: "bad input" } }),

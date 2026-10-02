@@ -558,8 +558,12 @@ first; a key it refuses is taken out of use at its first request. `list` and
   `daybreak`. A model no account's list includes is tried on every account
   anyway, as it may be newer than the list.
 - A rate-limit or usage-limit answer puts that account on a cooldown until the
-  reset time the upstream gives, or 30 minutes if it gives none. A server error
-  (5xx) cools it down for 1 minute. Either way, via retries on the next account.
+  reset time the upstream gives, or 30 minutes if it gives none, and via retries
+  on the next account.
+- A server error (5xx) or an overloaded Codex is an outage, not the account's
+  fault: via cools no account down and doesn't try the others, which would
+  meet the same outage. The client gets `503` if Codex is overloaded, else
+  `502`, as an OpenAI error, with Codex's `Retry-After` when it sends one.
 - A 401 makes via refresh the account's token and retry once. If that fails, the
   account is locked out: taken out of use until it signs in again. Sign it in
   from the web UI's **Add account** and it's back in rotation at once. With

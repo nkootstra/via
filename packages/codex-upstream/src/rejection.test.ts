@@ -87,6 +87,13 @@ describe("readRejection", () => {
       Rejection.Unavailable({ reason: "upstream_502" }),
     ],
     [
+      "an outage keeps its Retry-After",
+      503,
+      { "retry-after": "1" },
+      codexError({ code: "server_is_overloaded" }),
+      Rejection.Unavailable({ reason: "server_is_overloaded", retryAfterMs: 1000 }),
+    ],
+    [
       "server_is_overloaded is unavailable whatever the status",
       400,
       {},
