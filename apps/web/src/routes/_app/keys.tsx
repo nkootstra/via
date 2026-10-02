@@ -140,7 +140,8 @@ function CreateKeyDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={(next) => !next && onClose()}
+      // Once the key shows, only Done closes it: Escape or a stray click would lose it for good.
+      onOpenChange={(next) => !next && created === undefined && onClose()}
       onOpenChangeComplete={(next) => {
         if (next) return;
         setName("");
@@ -150,6 +151,7 @@ function CreateKeyDialog({
     >
       <DialogContent
         size="lg"
+        closeButton={created === undefined}
         finalFocus={() => (opener.current?.isConnected === true ? opener.current : heading.current)}
       >
         {created === undefined ? (
@@ -227,7 +229,7 @@ function CreateKeyDialog({
               endpoint and use the key as its API key.
             </p>
             <DialogFooter>
-              <DialogClose render={<Button>Done</Button>} />
+              <Button onClick={onClose}>Done</Button>
             </DialogFooter>
           </>
         )}

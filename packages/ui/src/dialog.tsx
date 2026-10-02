@@ -113,13 +113,20 @@ export interface DialogContentProps {
    * when the trigger went with what the dialog removed.
    */
   readonly finalFocus?: ComponentProps<typeof BaseDialog.Popup>["finalFocus"];
+  /** Whether it has a ✕; leave it out while only the dialog's own action may close it. */
+  readonly closeButton?: boolean;
   readonly children?: ReactNode;
 }
 
 /** The backdrop and panel, portalled to the body. */
-export function DialogContent({ size = "sm", finalFocus, children }: DialogContentProps) {
+export function DialogContent({
+  size = "sm",
+  finalFocus,
+  closeButton = true,
+  children,
+}: DialogContentProps) {
   return (
-    <DialogPanel size={size} finalFocus={finalFocus} closeButton>
+    <DialogPanel size={size} finalFocus={finalFocus} closeButton={closeButton}>
       {children}
     </DialogPanel>
   );

@@ -52,6 +52,23 @@ describe("the keys page", () => {
     expect(screen.queryByText("via-sk-key-2-0123456789abcdef")).toBeNull();
   });
 
+  it("keeps the new key up until Done, so a stray Escape doesn't lose it", async () => {
+    const { user } = renderApp("/keys", { keys: [laptop] });
+
+    await user.click(await screen.findByRole("button", { name: "Create key" }));
+    const form = await screen.findByRole("dialog", { name: "Create a key" });
+    await user.type(within(form).getByLabelText("Name"), "ci");
+    await user.click(within(form).getByRole("button", { name: "Create key" }));
+
+    const reveal = await screen.findByRole("dialog", { name: "Your new key: ci" });
+    expect(within(reveal).queryByRole("button", { name: "Close" })).toBeNull();
+
+    await user.keyboard("{Escape}");
+
+    expect(screen.getByRole("dialog", { name: "Your new key: ci" })).toBeDefined();
+    expect(within(reveal).getByText("via-sk-key-2-0123456789abcdef")).toBeDefined();
+  });
+
   it("says when a key with that name already exists", async () => {
     const { state, user } = renderApp("/keys", { keys: [laptop] });
 
