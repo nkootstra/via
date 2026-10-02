@@ -301,7 +301,7 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()(
  * Bearer auth, spelled `bearer` in the spec: `HttpApiSecurity.bearer` says `Bearer`,
  * which Scalar's API client mistakes for Basic auth. Headers match either way.
  */
-const bearer = HttpApiSecurity.http({ scheme: "bearer" });
+export const bearer = HttpApiSecurity.http({ scheme: "bearer" });
 
 /** The session cookie `POST /admin/session` sets. */
 export const session = HttpApiSecurity.apiKey({ key: "via_session", in: "cookie" });

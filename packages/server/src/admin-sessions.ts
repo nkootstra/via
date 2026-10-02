@@ -1,5 +1,5 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import { Clock, Context, Duration, Effect, Layer, Redacted, Ref } from "effect";
+import { Clock, Context, Deferred, Duration, Effect, Layer, Redacted, Ref } from "effect";
 import { TooManySignInsError, Unauthorized } from "./admin-api.ts";
 import { type Failures, SIGN_IN_LIMITS, attempt } from "./sign-in-throttle.ts";
 
@@ -12,10 +12,14 @@ const SESSION_IDLE = Duration.hours(1);
 /** How long a wrong or refused sign-in takes to answer, to slow down guessing. */
 const FAILED_SIGN_IN_DELAY = Duration.seconds(1);
 
-/** A signed-in session: when it began and when it was last used, in epoch millis. */
+/**
+ * A signed-in session: when it began and when it was last used, in epoch millis,
+ * and `signedOut`, done once it is signed out.
+ */
 interface Session {
   readonly signedInAt: number;
   readonly usedAt: number;
+  readonly signedOut: Deferred.Deferred<void>;
 }
 
 const isLive = ({ signedInAt, usedAt }: Session, now: number) =>
@@ -65,10 +69,12 @@ const make = (adminKey: Redacted.Redacted<string>) =>
 
       // 256 bits from the OS CSPRNG, as session tokens are secrets.
       const token = randomBytes(32).toString("base64url");
+      const signedOut = yield* Deferred.make<void>();
       yield* Ref.update(sessions, (all) =>
         new Map([...all].filter(([, session]) => isLive(session, now))).set(idOf(token), {
           signedInAt: now,
           usedAt: now,
+          signedOut,
         }),
       );
 
@@ -96,14 +102,30 @@ const make = (adminKey: Redacted.Redacted<string>) =>
     });
 
     const signOut = (token: Redacted.Redacted<string>) =>
-      Ref.update(sessions, (all) => {
-        const next = new Map(all);
-        next.delete(idOf(Redacted.value(token)));
+      Effect.gen(function* () {
+        const id = idOf(Redacted.value(token));
 
-        return next;
+        const ended = yield* Ref.modify(
+          sessions,
+          (all): [Session | undefined, ReadonlyMap<string, Session>] => {
+            const next = new Map(all);
+            next.delete(id);
+
+            return [all.get(id), next];
+          },
+        );
+
+        if (ended !== undefined) yield* Deferred.succeed(ended.signedOut, undefined);
       });
 
-    return { isAdminKey, signIn, verify, signOut };
+    const ended = (token: Redacted.Redacted<string>) =>
+      Effect.gen(function* () {
+        const session = (yield* Ref.get(sessions)).get(idOf(Redacted.value(token)));
+
+        if (session !== undefined) yield* Deferred.await(session.signedOut);
+      });
+
+    return { isAdminKey, signIn, verify, signOut, ended };
   });
 
 /**
@@ -129,6 +151,8 @@ export class AdminSessions extends Context.Service<
     readonly verify: (token: Redacted.Redacted<string>) => Effect.Effect<boolean>;
     /** Ends `token`'s session, if there is one. */
     readonly signOut: (token: Redacted.Redacted<string>) => Effect.Effect<void>;
+    /** Waits until `token`'s session ends, without using it; at once if it has. */
+    readonly ended: (token: Redacted.Redacted<string>) => Effect.Effect<void>;
   }
 >()("via/AdminSessions") {
   static readonly layer = (adminKey: Redacted.Redacted<string>) =>

@@ -22,10 +22,22 @@ import {
 } from "effect";
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar, OpenApi } from "effect/unstable/httpapi";
-import { AdminApi, AdminAuthorization, Forbidden, session, Unauthorized } from "./admin-api.ts";
+import {
+  AdminApi,
+  AdminAuthorization,
+  bearer,
+  Forbidden,
+  session,
+  Unauthorized,
+} from "./admin-api.ts";
 import { history } from "./admin-history.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./admin-sessions.ts";
-import { hasLiveSession, signOutAll, staleSessionCookies } from "./session-cookie.ts";
+import {
+  hasLiveSession,
+  sessionsEnded,
+  signOutAll,
+  staleSessionCookies,
+} from "./session-cookie.ts";
 import {
   adminAccounts,
   adminOllama,
@@ -351,16 +363,27 @@ const models = HttpApiBuilder.group(AdminApi, "models", (handlers) =>
   handlers.handle("list", () => Effect.flatMap(ModelCatalog, (catalog) => catalog.list)),
 );
 
-// Answered raw, to keep a quiet stream alive with comments, which the typed events can't carry.
+/**
+ * Answered raw, to keep a quiet stream alive with comments, which the typed events can't
+ * carry. A stream opened with the admin key runs until the page goes away; one opened with
+ * a session ends with the session too, so a signed-out page stops getting the state.
+ */
 const events = (options: StateOptions) =>
   HttpApiBuilder.group(AdminApi, "events", (handlers) =>
     Effect.gen(function* () {
       const stream = adminEvents(options);
       const context = yield* Effect.context<Stream.Services<typeof stream>>();
+      const admin = yield* AdminSessions;
 
       return handlers.handleRaw("stream", () =>
         Effect.gen(function* () {
-          const body = (yield* RequestLog).timed(keepAlive(stream));
+          const request = yield* HttpServerRequest.HttpServerRequest;
+
+          const ended = (yield* admin.isAdminKey(yield* HttpApiBuilder.securityDecode(bearer)))
+            ? Effect.never
+            : sessionsEnded(admin, request);
+
+          const body = (yield* RequestLog).timed(keepAlive(Stream.interruptWhen(stream, ended)));
 
           return HttpServerResponse.stream(Stream.provideContext(body, context), {
             contentType: "text/event-stream",

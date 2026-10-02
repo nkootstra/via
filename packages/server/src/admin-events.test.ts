@@ -27,7 +27,7 @@ const listen = (via: Via, headers: Record<string, string> = {}) =>
     const states = yield* Queue.unbounded<State>();
     const histories = yield* Queue.unbounded<void>();
 
-    yield* response.stream.pipe(
+    const ended = yield* response.stream.pipe(
       Stream.decodeText(),
       Stream.pipeThroughChannel(Sse.decodeSchema(AdminEvent)),
       Stream.runForEach((event) =>
@@ -38,8 +38,15 @@ const listen = (via: Via, headers: Record<string, string> = {}) =>
       Effect.forkScoped,
     );
 
-    return { response, states, histories };
+    return { response, states, histories, ended: Fiber.join(ended) };
   });
+
+/** Signs in with the admin key, and answers the `Cookie` header that sends its session back. */
+const sessionCookie = (via: Via) =>
+  Effect.map(
+    via.post("/admin/session", { key: adminKey }, null),
+    (response) => (response.headers["set-cookie"] ?? "").split("; ")[0] ?? "",
+  );
 
 /** How long via holds a change back for the ones that come with it. */
 const COALESCE = "200 millis";
@@ -128,12 +135,35 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         expect(labels(first)).toEqual(["a@example.com", "b@example.com"]);
         expect(first.keys.map(({ name }) => name)).toEqual(["test"]);
 
-        const signedIn = yield* via.post("/admin/session", { key: adminKey }, null);
-        const cookie = (signedIn.headers["set-cookie"] ?? "").split("; ")[0] ?? "";
-        const session = yield* listen(via, { cookie });
+        const session = yield* listen(via, { cookie: yield* sessionCookie(via) });
         expect(labels(yield* Queue.take(session.states))).toEqual([
           "a@example.com",
           "b@example.com",
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("ends a session's stream when it signs out, but not the admin key's", () =>
+    withAdmin(ok, (via) =>
+      Effect.gen(function* () {
+        const cookie = yield* sessionCookie(via);
+        const session = yield* listen(via, { cookie });
+        const bearer = yield* listen(via);
+        yield* Queue.take(session.states);
+        yield* settled(via, bearer.states);
+
+        yield* via.delete("/admin/session", null, {
+          cookie,
+          origin: via.baseUrl,
+          "x-via-csrf": "1",
+        });
+        yield* session.ended;
+
+        yield* via.post("/admin/keys", { name: "laptop" }, adminKey);
+        expect((yield* next(via, bearer.states)).keys.map(({ name }) => name)).toEqual([
+          "test",
+          "laptop",
         ]);
       }),
     ),
