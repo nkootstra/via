@@ -12,11 +12,11 @@ via hands out its own API keys and serves `/v1/responses`,
 `127.0.0.1:8317`. Behind that it
 talks to:
 
-| Upstream                                         | How you add it                                          | Models                     | When one runs out                                    |
-| ------------------------------------------------ | ------------------------------------------------------- | -------------------------- | ---------------------------------------------------- |
-| ChatGPT subscriptions, through the Codex backend | Device-code login: `via accounts add` or the web UI     | Any model without a prefix | Pooled: via moves on to the next account             |
-| OpenCode Go API keys                             | `via accounts add --provider opencode-go` or the web UI | `opencode-go/<model>`      | Pooled: via moves on to the next key                 |
-| Other OpenAI-compatible providers                | An entry in [`config.yaml`](#providers)                 | `<provider>/<model>`       | One key each; its errors are passed back as they are |
+| Upstream                                         | How you add it                                                                                            | Models                     | When one runs out                                    |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | -------------------------- | ---------------------------------------------------- |
+| ChatGPT subscriptions, through the Codex backend | Device-code login: `via accounts add` or the web UI                                                       | Any model without a prefix | Pooled: via moves on to the next account             |
+| OpenCode Go API keys                             | `via accounts add --provider opencode-go` or the web UI                                                   | `opencode-go/<model>`      | Pooled: via moves on to the next key                 |
+| Other OpenAI-compatible providers                | An entry in [`config.yaml`](#providers); OpenRouter and Ollama also in the web UI or with `via providers` | `<provider>/<model>`       | One key each; its errors are passed back as they are |
 
 Each request goes to the first account that still has capacity; when one hits
 its rate limit, via moves on to the next (see
@@ -526,21 +526,26 @@ The page is the admin key's reach in a browser, so give it the same care:
 
 ## Commands
 
-| Command                                   | What it does                                                    |
-| ----------------------------------------- | --------------------------------------------------------------- |
-| `via accounts add`                        | Log in to a ChatGPT account with a device code.                 |
-| `via accounts add --provider opencode-go` | Add an OpenCode Go API key as an account.                       |
-| `via accounts list`                       | List accounts in the order they are used.                       |
-| `via accounts status`                     | Show each account's and provider's limits and how much is used. |
-| `via accounts label <account> <label>`    | Rename an account.                                              |
-| `via accounts disable <account>`          | Stop using an account without removing it.                      |
-| `via accounts enable <account>`           | Use it again.                                                   |
-| `via accounts remove <account>`           | Forget an account and delete its tokens.                        |
-| `via keys create --name <name>`           | Create an API key. It is printed once.                          |
-| `via keys list`                           | List keys, when each was created and when it was last used.     |
-| `via keys rename <id-or-name> <new-name>` | Rename a key; clients keep using it.                            |
-| `via keys revoke <id-or-name>`            | Revoke a key.                                                   |
-| `via serve [--host <addr>] [--port <n>]`  | Serve the API in the foreground.                                |
+| Command                                        | What it does                                                    |
+| ---------------------------------------------- | --------------------------------------------------------------- |
+| `via accounts add`                             | Log in to a ChatGPT account with a device code.                 |
+| `via accounts add --provider opencode-go`      | Add an OpenCode Go API key as an account.                       |
+| `via accounts list`                            | List accounts in the order they are used.                       |
+| `via accounts status`                          | Show each account's and provider's limits and how much is used. |
+| `via accounts label <account> <label>`         | Rename an account.                                              |
+| `via accounts disable <account>`               | Stop using an account without removing it.                      |
+| `via accounts enable <account>`                | Use it again.                                                   |
+| `via accounts remove <account>`                | Forget an account and delete its tokens.                        |
+| `via providers openrouter set-key`             | Add or replace the OpenRouter API key.                          |
+| `via providers openrouter models [<model>...]` | Offer exactly these OpenRouter models, by id.                   |
+| `via providers openrouter remove`              | Forget the OpenRouter key and its models.                       |
+| `via providers ollama set <address>`           | Add Ollama at `<address>`, or change its address.               |
+| `via providers ollama remove`                  | Forget Ollama's address.                                        |
+| `via keys create --name <name>`                | Create an API key. It is printed once.                          |
+| `via keys list`                                | List keys, when each was created and when it was last used.     |
+| `via keys rename <id-or-name> <new-name>`      | Rename a key; clients keep using it.                            |
+| `via keys revoke <id-or-name>`                 | Revoke a key.                                                   |
+| `via serve [--host <addr>] [--port <n>]`       | Serve the API in the foreground.                                |
 
 `<account>` matches an account's id, label or email.
 
@@ -551,10 +556,27 @@ adding it twice. Adding an OpenCode Go key via already has is refused.
 `via accounts add --provider opencode-go` asks for the key without echoing it,
 or reads it from standard input when that isn't a terminal, so a script can
 pipe it in: `via accounts add --provider opencode-go < key.txt`. It never takes
-the key as an argument, which would end up in your shell history. Unlike the
-admin API and the web UI, it doesn't ask OpenCode Go whether the key works
-first; a key it refuses is taken out of use at its first request. `list` and
-`status` show only a key's last four characters.
+the key as an argument, which would end up in your shell history. Like the web
+UI, it asks OpenCode Go whether the key works first, and keeps it only if
+OpenCode Go takes it: a key OpenCode Go refuses, or one it can't check because
+OpenCode Go can't be reached, isn't stored, and the command exits with `1` and
+says why. `list` and `status` show only a key's last four characters.
+
+`via accounts status` asks every configured provider at once whether it can be
+used, as the web UI does: Ollama for its version, OpenRouter about its key, and
+any other provider for its models, each for up to 30 seconds. Its line ends in
+`available`, `key refused (HTTP <status>)` or `unreachable: <reason>`.
+`status` only reads: it changes no account or file.
+
+`via providers` sets up OpenRouter and Ollama as the web UI does, and keeps
+them in the same files. `openrouter set-key` reads the key as
+`accounts add --provider opencode-go` does, checks it with OpenRouter first,
+and keeps the models chosen before; a key OpenRouter refuses, or one it can't
+check, isn't stored. `openrouter models` takes the models' OpenRouter ids,
+such as `openai/gpt-5`; with none, it offers none. `ollama set` keeps the
+address even when nothing answers there yet, and says what it finds. Neither
+changes a provider config.yaml sets up. A running `via serve` sees these
+changes only once it restarts.
 
 ## How the pool picks an account
 
@@ -672,16 +694,17 @@ Add OpenAI-compatible providers under `providers`. Each one reads its API key
 from the environment variable `apiKeyEnv` names; `via serve` won't start while
 that variable is unset. A provider without `apiKeyEnv`, such as a model server
 on your own machine, is sent no key. OpenRouter still needs one: from
-`apiKeyEnv`, or from the web UI (see [OpenRouter](#openrouter)).
+`apiKeyEnv`, or from the web UI or `via providers` (see [OpenRouter](#openrouter)).
 
 OpenCode Go is the exception: it needs no entry at all. Add its keys as
 accounts with `via accounts add --provider opencode-go`, and via pools them
 like ChatGPT accounts (see [How the pool picks an account](#how-the-pool-picks-an-account)).
 
 > **Deprecated:** reading OpenCode Go's key from `apiKeyEnv` (such as
-> `OPENCODE_API_KEY`). While that variable is set, `via serve` and
-> `via accounts status` add its key as an account named
-> `OpenCode Go (imported)`, once, and `via serve` logs a warning at startup.
+> `OPENCODE_API_KEY`). While that variable is set, `via serve` adds its key as
+> an account named `OpenCode Go (imported)`, once, and logs a warning at
+> startup. Until then, `via accounts status` shows the key by the variable's
+> name.
 > Remove the variable (and the `opencode-go` entry, unless you set its
 > `baseUrl` or `sessionHeader`); a later release stops reading it.
 
@@ -710,6 +733,10 @@ in `/v1/models`; a request for another answers `404` (`model_not_found`),
 saying to enable it. Replacing the key keeps the models chosen. It all takes
 effect at once, with no restart.
 
+`via providers openrouter set-key` and `via providers openrouter models` do the
+same from the command line (see [Commands](#commands)); `via serve` uses what
+they save once it restarts.
+
 An `openrouter` entry in config.yaml with `apiKeyEnv` wins: the web UI shows
 its key, and via offers every model OpenRouter lists. One without `apiKeyEnv`
 only moves where the web UI's key is sent, with `baseUrl` or `sessionHeader`.
@@ -720,6 +747,8 @@ Add Ollama on the Accounts page of the [web UI](#web-ui): give its address,
 such as `http://192.168.1.20:11434`, and via sends to it at once, with no
 restart. The page shows the Ollama version there and its models, and changes
 or removes the address later. via keeps it in `ollama.json`.
+`via providers ollama set <address>` saves it from the command line, for
+`via serve` to use once it restarts.
 
 Or set it up in config.yaml, which then wins: the web UI shows that address
 but leaves changing it to config.yaml. With `ollama: {}`, via uses the Ollama
