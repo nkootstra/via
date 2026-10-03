@@ -299,6 +299,18 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
+  it.effect("status says ChatGPT's usage can't be read when it answers with a page, not JSON", () =>
+    Effect.gen(function* () {
+      const { via, codex } = yield* setup();
+      codex.usage("acc-123", "<html>Bad gateway</html>");
+      yield* via("accounts", "add");
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toContain("ChatGPT's usage answer could not be read");
+      expect(status.stdout).not.toContain("Could not reach ChatGPT");
+    }),
+  );
+
   it.effect(
     "status prints the account line and exits 0 when refresh hits an auth-server hiccup",
     () =>

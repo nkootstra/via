@@ -302,9 +302,16 @@ const usageOf = ({ name, client }: Provider, path: string, apiKey: Redacted.Reda
     }),
     // Usage failing, for whatever reason, is reported rather than failing whoever asked:
     // in words, as a network or parser error's message is for logs.
+    // An HTTP error with a response came from an answer, such as a page, that isn't JSON.
     Effect.catchTags({
-      HttpClientError: () =>
-        Effect.succeed<ProviderUsage>({ provider: name, error: `${name} couldn't be reached` }),
+      HttpClientError: (error) =>
+        Effect.succeed<ProviderUsage>({
+          provider: name,
+          error:
+            error.response === undefined
+              ? `${name} couldn't be reached`
+              : `${name}'s usage answer couldn't be read`,
+        }),
       SchemaError: () =>
         Effect.succeed<ProviderUsage>({
           provider: name,
@@ -396,6 +403,8 @@ const OpenrouterKeyInfo = Schema.Struct({
   }),
 });
 
+const unreadableBudget = "OpenRouter answered with a key budget via can't read";
+
 /** The budget of `provider`'s key, as OpenRouter tells it, or why it couldn't be read. */
 const budgetFrom = (provider: Provider) =>
   keyed(provider.client, provider.apiKey)
@@ -422,10 +431,14 @@ const budgetFrom = (provider: Provider) =>
         orElse: () =>
           Effect.succeed({ error: `OpenRouter gave ${unansweredWithin(LOOKUP_TIMEOUT)}` }),
       }),
+      // An HTTP error with a response came from an answer, such as a page, that isn't JSON.
       Effect.catchTags({
-        HttpClientError: () => Effect.succeed({ error: "OpenRouter couldn't be reached" }),
-        SchemaError: () =>
-          Effect.succeed({ error: "OpenRouter answered with a key budget via can't read" }),
+        HttpClientError: (error) =>
+          Effect.succeed({
+            error:
+              error.response === undefined ? "OpenRouter couldn't be reached" : unreadableBudget,
+          }),
+        SchemaError: () => Effect.succeed({ error: unreadableBudget }),
       }),
     );
 
