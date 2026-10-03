@@ -807,6 +807,10 @@ const errorNames = new Map([
   ["upstream_timeout", "Timed out"],
   ["upstream_too_large", "Too large"],
   ["invalid_request", "Bad request"],
+  ["invalid_api_key", "Wrong key"],
+  ["model_not_found", "Model not enabled"],
+  ["upstream_unreadable", "Unreadable"],
+  ["upstream_incomplete", "Broke off"],
 ]);
 
 /** How a request ended, in a word or two. */
