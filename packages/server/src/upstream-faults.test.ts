@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { reply, sse, sseFrames } from "@via/codex-upstream/testing";
 import { Clock, Deferred, Effect, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { withVia } from "./testing/harness.ts";
+import { outwait, withVia } from "./testing/harness.ts";
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
 const response = {
@@ -147,10 +147,8 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
         () => reply.stalled(reply.text("hello"), 2),
         (via) =>
           Effect.gen(function* () {
-            const pending = yield* via.post(path, bodies[path]).pipe(Effect.forkChild);
-            yield* via.timer("5 minutes");
-            yield* TestClock.adjust("5 minutes");
-            const answer = yield* Fiber.join(pending);
+            yield* Effect.forkChild(outwait(via, "5 minutes"));
+            const answer = yield* via.post(path, bodies[path]);
             expect(answer.status).toBe(504);
             expect(yield* answer.json).toMatchObject({
               error: { type: "server_error", code: "upstream_timeout" },
@@ -248,11 +246,9 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
       (via) =>
         Effect.gen(function* () {
           const answer = yield* via.post(RESPONSES, { ...bodies[RESPONSES], stream: true });
-          const text = yield* answer.text.pipe(Effect.forkChild);
           // via waits 5 minutes for Codex's next chunk, then gives up on it.
-          yield* via.timer("5 minutes");
-          yield* TestClock.adjust("5 minutes");
-          const frames = sseFrames(yield* Fiber.join(text));
+          yield* Effect.forkChild(outwait(via, "5 minutes"));
+          const frames = sseFrames(yield* answer.text);
           expect(frames.at(-1)?.event).toBe("error");
           expect(JSON.parse(frames.at(-1)?.data ?? "")).toMatchObject({
             code: "upstream_incomplete",

@@ -1,3 +1,4 @@
+import { streamIncomplete } from "@via/codex-upstream";
 import { OpencodeGoPool, type ProviderPath, Providers, type Route } from "@via/providers";
 import { ChatRequest, toMessagesRequest, toResponsesRequest } from "@via/translate";
 import { Effect, identity, Option, Schema } from "effect";
@@ -19,14 +20,36 @@ const passedOn = (upstream: HttpClientResponse.HttpClientResponse) =>
     ),
   );
 
-/** The provider's answer piped back as it comes, errors included, with its `passedOn` headers. */
-const relay = (upstream: HttpClientResponse.HttpClientResponse) =>
+const cutShort = "The provider's stream ended before its answer was complete";
+
+/**
+ * The event a provider's SSE answer to a request at each path ends in when it
+ * breaks off, as that API reports an error mid-stream.
+ */
+const incomplete: Partial<Record<ProviderPath, string>> = {
+  "/chat/completions": `data: ${JSON.stringify({
+    error: { message: cutShort, type: "server_error", code: streamIncomplete.code },
+  })}\n\n`,
+  "/responses": `event: error\ndata: ${JSON.stringify({
+    type: "error",
+    code: streamIncomplete.code,
+    message: cutShort,
+    param: null,
+  })}\n\n`,
+};
+
+/**
+ * The provider's answer to a request at `path`, piped back as it comes, errors
+ * included, with its `passedOn` headers.
+ */
+const relay = (path: ProviderPath) => (upstream: HttpClientResponse.HttpClientResponse) =>
   relayed(
     upstream,
     {
       status: upstream.status,
       contentType: upstream.headers["content-type"] ?? "application/json",
       headers: passedOn(upstream),
+      ...(incomplete[path] === undefined ? {} : { incomplete: incomplete[path] }),
     },
     identity,
   );
@@ -58,7 +81,7 @@ const attempts = (
   body: Schema.JsonObject,
   known: Option.Option<Protocol>,
 ): ReadonlyArray<Attempt> => {
-  const asSent: Attempt = { protocol: "chat", path, body, answer: relay };
+  const asSent: Attempt = { protocol: "chat", path, body, answer: relay(path) };
   const chat = path === "/chat/completions" ? decodeChat(body) : Option.none();
 
   if (Option.isNone(chat)) return [asSent];
@@ -160,7 +183,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
         return yield* attempt.answer(upstream);
       }
 
-      if (upstream.status !== 400) return yield* relay(upstream);
+      if (upstream.status !== 400) return yield* relay(attempt.path)(upstream);
 
       // A 400 is read whole: it may only mean the model speaks another protocol.
       const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
@@ -206,7 +229,7 @@ export const forward = Effect.fn("forward")(function* (
   yield* log.served(route.provider);
 
   return yield* (yield* Providers).send(route, path, body, session, { headers }).pipe(
-    Effect.flatMap(relay),
+    Effect.flatMap(relay(path)),
     Effect.catchTag("HttpClientError", () => unreachable(route)),
   );
 });

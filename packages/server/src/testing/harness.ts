@@ -120,6 +120,14 @@ export type Via = {
   readonly noTimer: (duration: Duration.Input) => Effect.Effect<void>;
 };
 
+/**
+ * Moves the test clock past every timer of `duration` via starts, until
+ * interrupted: past a wait for an upstream's next chunk, say, however often
+ * a chunk arriving starts that wait over.
+ */
+export const outwait = (via: Via, duration: Duration.Input) =>
+  Effect.forever(Effect.andThen(via.timer(duration), TestClock.adjust(duration)));
+
 /** A line via logged, with the labels of its log spans. */
 type LogLine = {
   readonly level: string;

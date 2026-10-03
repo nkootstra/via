@@ -1,9 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { providerReply } from "@via/providers/testing";
-import { Effect, Fiber, Result, Stream } from "effect";
-import { TestClock } from "effect/testing";
-import { ok, withVia } from "./testing/harness.ts";
+import { Effect } from "effect";
+import { ok, outwait, withVia } from "./testing/harness.ts";
 
 const completion = { id: "chatcmpl-or", object: "chat.completion", choices: [] };
 
@@ -79,32 +78,47 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
-  it.effect("ends a provider's stream that goes quiet for 5 minutes", () =>
-    withVia(ok, (via) =>
-      Effect.gen(function* () {
-        const sse = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n';
-        via.provider.respond(providerReply.sseThenHang(sse));
+  for (const [path, body, error] of [
+    [
+      "/v1/chat/completions",
+      { messages: [{ role: "user", content: "hi" }] },
+      (text: string) => JSON.parse(text.slice("data: ".length)).error,
+    ],
+    [
+      "/v1/responses",
+      { input: "hi" },
+      (text: string) => JSON.parse(text.slice(text.indexOf("data: ") + "data: ".length)),
+    ],
+  ] as const) {
+    it.effect(`ends a provider's ${path} stream that goes quiet for 5 minutes with an error`, () =>
+      withVia(ok, (via) =>
+        Effect.gen(function* () {
+          const sse = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n';
+          via.provider.respond(providerReply.sseThenHang(sse));
 
-        const response = yield* via.post("/v1/chat/completions", {
-          model: "openrouter/qwen/qwen3",
-          stream: true,
-          messages: [{ role: "user", content: "hi" }],
-        });
+          const response = yield* via.post(path, {
+            model: "openrouter/qwen/qwen3",
+            stream: true,
+            ...body,
+          });
 
-        const read = yield* response.stream.pipe(
-          Stream.decodeText,
-          Stream.mkString,
-          Effect.result,
-          Effect.forkChild,
-        );
+          yield* Effect.forkChild(outwait(via, "5 minutes"));
 
-        yield* via.timer("5 minutes");
-        yield* TestClock.adjust("5 minutes");
-        // Like a stream the provider broke off: the client's read fails.
-        expect(Result.isFailure(yield* Fiber.join(read))).toBe(true);
-      }),
-    ),
-  );
+          const events = (yield* response.text)
+            .split("\n\n")
+            .filter((event) => event !== "" && !event.startsWith(":"));
+
+          expect(events[0]).toBe(sse.trimEnd());
+          expect(events).toHaveLength(2);
+          expect(error(events[1] ?? "")).toMatchObject({ code: "upstream_incomplete" });
+          // The log still says the provider's stream broke off.
+          expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+            stream_end: "failed",
+          });
+        }),
+      ),
+    );
+  }
 
   it.effect("forwards a Responses request with the client's session", () =>
     withVia(ok, (via) =>

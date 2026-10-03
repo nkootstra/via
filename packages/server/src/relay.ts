@@ -144,6 +144,11 @@ export const relayed = <E>(
     /** Headers of `upstream`'s the answer keeps. */
     readonly headers?: Headers.Headers;
     readonly sse?: boolean;
+    /**
+     * The event an SSE body that breaks off, or goes quiet too long, ends in,
+     * so the client knows the answer is cut short; without one, the body fails.
+     */
+    readonly incomplete?: string;
     /** False when `relay` reports the usage itself, from a body via can't read it in. */
     readonly spotUsage?: boolean;
     /** Told when the upstream fails the response in its SSE stream. */
@@ -176,8 +181,15 @@ export const relayed = <E>(
     // Timed outermost: the request log counts the stream from when the server starts it.
     const passed = options.headers ?? Headers.empty;
     const timed = log.timed(sse ? keepAlive(relaying) : relaying);
+    const { incomplete } = options;
 
-    return HttpServerResponse.stream(timed, {
+    // Ended after the log has seen the stream fail, so its line still says it did.
+    const ended =
+      sse && incomplete !== undefined
+        ? Stream.orElseSucceed(timed, () => new TextEncoder().encode(incomplete))
+        : timed;
+
+    return HttpServerResponse.stream(ended, {
       ...(options.status === undefined ? {} : { status: options.status }),
       headers: sse ? Headers.merge(passed, UNBUFFERED) : passed,
       contentType: options.contentType,

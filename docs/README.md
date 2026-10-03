@@ -193,10 +193,10 @@ via bounds what one request can take:
 - Once an answer has started, the upstream may go 5 minutes without sending
   anything, as long as the Codex CLI waits; a reasoning model can think for
   minutes between chunks. After that via ends its request upstream. A
-  streamed Codex answer, or one translated to Chat Completions, then ends in
-  an `upstream_incomplete` error event, and one via collects for a client that
-  doesn't stream answers `504 upstream_timeout`. A provider's answer passed
-  through as it comes breaks off, as if the provider had dropped it.
+  streamed answer then ends in an `upstream_incomplete` error event, as one
+  the upstream broke off does, and one via collects for a client that doesn't
+  stream answers `504 upstream_timeout`. A provider's answer that isn't
+  streamed but passed through as it comes breaks off.
 - A non-streaming Codex response that hasn't completed after 30 minutes
   answers `504 upstream_timeout`, and one whose stream runs past 128 MiB
   answers `502 upstream_too_large`.
@@ -768,7 +768,9 @@ Prefix a model with the provider's name to use it, as in
 `/v1/chat/completions` and `/v1/responses` requests on as they are, with only
 the prefix taken off the model, and passes the provider's answer back the same
 way, errors included. Of the answer's headers, the client gets its
-`content-type`, `Retry-After` and `x-ratelimit-*` ones.
+`content-type`, `Retry-After` and `x-ratelimit-*` ones. A streamed answer the
+provider breaks off ends in an `upstream_incomplete` error, as an event of
+the API the client asked in.
 
 Of the client's request headers, via passes on only those a provider may act
 on: `anthropic-beta`, `anthropic-version`, `openai-beta`, and OpenRouter's

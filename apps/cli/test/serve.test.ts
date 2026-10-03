@@ -8,7 +8,6 @@ import {
   Context,
   Deferred,
   Effect,
-  Exit,
   FileSystem,
   Layer,
   Option,
@@ -510,33 +509,35 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
-  it.effect("cuts off a stream the upstream broke off without printing a stack trace", () =>
-    Effect.gen(function* () {
-      const { home, key, env } = yield* loggedIn;
-      const provider = yield* startFakeProvider;
-      const received = yield* Deferred.make<void>();
-      provider.respond(
-        providerReply.sseThenDrop('data: {"id":"chatcmpl-local"}\n\n', Deferred.await(received)),
-      );
-      yield* configureLocal(home, provider);
+  it.effect(
+    "ends a stream the upstream broke off in an error, without printing a stack trace",
+    () =>
+      Effect.gen(function* () {
+        const { home, key, env } = yield* loggedIn;
+        const provider = yield* startFakeProvider;
+        const received = yield* Deferred.make<void>();
+        provider.respond(
+          providerReply.sseThenDrop('data: {"id":"chatcmpl-local"}\n\n', Deferred.await(received)),
+        );
+        yield* configureLocal(home, provider);
 
-      const via = yield* startVia(home, ["--port", "0"], {
-        ...env,
-        LOCAL_KEY: "sk-local",
-      });
+        const via = yield* startVia(home, ["--port", "0"], {
+          ...env,
+          LOCAL_KEY: "sk-local",
+        });
 
-      const response = yield* postLocalChat(via.url, key, true);
+        const response = yield* postLocalChat(via.url, key, true);
 
-      const read = yield* response.stream.pipe(
-        Stream.tap(() => Deferred.succeed(received, undefined)),
-        Stream.runDrain,
-        Effect.exit,
-      );
+        const read = yield* response.stream.pipe(
+          Stream.tap(() => Deferred.succeed(received, undefined)),
+          Stream.decodeText,
+          Stream.mkString,
+        );
 
-      // A clean end would pass the truncated answer off as complete.
-      expect(Exit.isFailure(read)).toBe(true);
-      expect(yield* via.stop).not.toContain("Decode error");
-    }),
+        // Without its last event, the truncated answer would pass for complete.
+        expect(read.trimEnd().split("\n\n").at(-1)).toContain('"code":"upstream_incomplete"');
+        expect(yield* via.stop).not.toContain("Decode error");
+      }),
   );
 
   it.effect("imports OpenCode Go's key from its variable once, warning that it is deprecated", () =>
