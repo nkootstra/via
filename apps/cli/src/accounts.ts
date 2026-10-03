@@ -11,54 +11,16 @@ import {
   providerState,
 } from "@via/providers";
 import type { ProviderState } from "@via/providers/schemas";
-import {
-  Clock,
-  Console,
-  Effect,
-  Layer,
-  Record,
-  Redacted,
-  Schema,
-  Stdio,
-  Stream,
-  String as Str,
-} from "effect";
-import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
+import { Clock, Console, Effect, Layer, Record, Redacted } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
 import { apiKeys } from "./api-keys.ts";
+import { readApiKey } from "./read-key.ts";
 import { localTime } from "./time.ts";
 import { version } from "./version.ts";
 
 const accountArg = Argument.String("account").pipe(
   Argument.withDescription("Account id, label or email"),
 );
-
-class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()(
-  "MissingApiKeyError",
-  {},
-) {
-  override get message() {
-    return "No OpenCode Go API key was given";
-  }
-}
-
-/**
- * An OpenCode Go API key: typed in, hidden, at a terminal, else read from
- * standard input, so a script can pipe it in. Never an argument, which would
- * end up in the shell's history and the process list.
- */
-const readApiKey = Effect.gen(function* () {
-  const stdio = yield* Stdio.Stdio;
-
-  const key = (yield* stdio.stdinIsTerminal)
-    ? Redacted.value(yield* Prompt.run(Prompt.Password({ message: "OpenCode Go API key" })))
-    : yield* stdio.stdin.pipe(Stream.decodeText, Stream.mkString);
-
-  const trimmed = Str.trim(key);
-
-  if (trimmed === "") return yield* new MissingApiKeyError();
-
-  return Redacted.make(trimmed);
-});
 
 /** Logs in to a ChatGPT account with a device code. */
 const addCodex = Effect.gen(function* () {
@@ -94,7 +56,7 @@ const opencodeGoProviders = (providers: Record<string, ProviderConfig>) =>
 /** Stores an OpenCode Go API key as an account, once OpenCode Go takes it, as the web UI does. */
 const addOpencodeGo = (configPath: string) =>
   Effect.gen(function* () {
-    const apiKey = yield* readApiKey;
+    const apiKey = yield* readApiKey("OpenCode Go");
     const config = yield* loadConfig(configPath);
     yield* Effect.flatMap(Providers, (providers) => providers.verify(apiKey)).pipe(
       Effect.provide(opencodeGoProviders(config.providers)),
