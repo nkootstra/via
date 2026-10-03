@@ -220,7 +220,8 @@ the list as it starts and answers from it at once; once it is five minutes old,
 via fetches a new one in the background for the next request. Disabling,
 enabling, adding or removing an account, or one being locked out, changes the
 list at once. When Codex can't be asked, it lists the models via knows:
-`gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna`.
+`gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna`, logs a warning, and asks again
+no sooner than a minute later; meanwhile any account may serve any model.
 
 Add an effort suffix to a model id to pick the reasoning effort, as in
 `gpt-6-astra-high`. The list shows each model with the suffixes it supports,
@@ -593,11 +594,14 @@ first; a key it refuses is taken out of use at its first request. `list` and
 - A rate-limit or usage-limit answer puts that account on a cooldown until the
   reset time the upstream gives or its `Retry-After` (seconds or a date),
   whichever is later, or 30 minutes if it gives neither, and via retries
-  on the next account. Codex sometimes starts a response and then fails it with
-  a rate or usage limit (`response.failed`); that counts the same. A client that
-  isn't streaming gets its answer from the next account; a streaming client has
-  already been sent the start of the response, so it gets the failure, and the
-  next request goes to the next account.
+  on the next account. Codex's reset time is the error's `resets_at`, else its
+  `resets_in_seconds`, else the `x-codex-primary-reset-at` or
+  `x-codex-secondary-reset-at` header of the window that is used up. Codex
+  sometimes starts a response and then fails it with a rate or usage limit
+  (`response.failed`); that counts the same. A client that isn't streaming
+  gets its answer from the next account; a streaming client has already been
+  sent the start of the response, so it gets the failure, and the next request
+  goes to the next account.
 - A server error (5xx) or an overloaded Codex is an outage, not the account's
   fault: via cools no account down and doesn't try the others, which would
   meet the same outage. The client gets `503` if Codex is overloaded, else
@@ -607,10 +611,16 @@ first; a key it refuses is taken out of use at its first request. `list` and
   from the web UI's **Add account** and it's back in rotation at once. With
   `via accounts add` instead, restart `via serve`: the CLI can't reach the
   running server's lockouts. A login lifts only a lockout, never a cooldown.
+- A 403 means Codex bars the account (suspended, its workspace deactivated, or
+  blocked by Cloudflare): via cools it down for 30 minutes and tries the next
+  one. A 403 for a request Codex's policy refuses
+  (`misalignment_policy_violation`) goes back to the client as-is.
 - A Codex backend via can't reach at all answers `502` without trying the next
   account. A token refresh that fails because the sign-in server can't be
-  reached rests that account for 1 minute, and via tries the next one; only a
-  refused refresh locks an account out.
+  reached, or because its file in `auth/` is locked by another via process,
+  corrupt or unreadable, rests that account for 1 minute, and via tries the
+  next one; an account removed meanwhile is skipped. Only a refused refresh
+  locks an account out.
 - One via process refreshes an account at a time, so `via accounts status` next
   to a running `via serve` never spends a refresh token twice. If the new
   tokens can't be saved (a full disk, say), via keeps them in memory and saves
@@ -630,8 +640,8 @@ works the same way: fill-first in the order you added the keys, a conversation
 kept on the key that last answered it, and a `429` (or every key resting)
 handled as above. A key's cooldown lasts until its used-up usage window resets,
 or as long as the answer's `Retry-After` asks, whichever is later. A key
-OpenCode Go refuses (401) is taken out of use until `via serve` restarts. via
-asks OpenCode Go for each key's usage every 15 minutes too.
+OpenCode Go refuses or forbids (401 or 403) is taken out of use until `via
+serve` restarts. via asks OpenCode Go for each key's usage every 15 minutes too.
 
 ## Configuration
 

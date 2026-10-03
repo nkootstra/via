@@ -20,6 +20,7 @@
   "devDependencies": {
     "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
+    "@via/config": "workspace:*",
     "@via/tsconfig": "workspace:*",
     "vitest": "catalog:"
   }

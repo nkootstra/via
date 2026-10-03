@@ -54,5 +54,23 @@
         "code": null
       }
     }
+  },
+  "cloudflare_blocked_403": {
+    "status": 403,
+    "headers": {
+      "cf-ray": "ray-id"
+    },
+    "body": "<html><body>Cloudflare error: Sorry, you have been blocked</body></html>"
+  },
+  "misalignment_policy_violation_403": {
+    "status": 403,
+    "headers": {},
+    "body": {
+      "error": {
+        "message": "This request violated the misalignment policy.",
+        "type": "invalid_request_error",
+        "code": "misalignment_policy_violation"
+      }
+    }
   }
 }
