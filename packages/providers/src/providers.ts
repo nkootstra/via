@@ -165,6 +165,26 @@ class ProviderTimeoutError extends Schema.TaggedError<ProviderTimeoutError>()(
   }
 }
 
+/** A provider refused the API key via asked it with. */
+class ProviderKeyRefusedError extends Schema.TaggedError<ProviderKeyRefusedError>()(
+  "ProviderKeyRefusedError",
+  { provider: Schema.String, status: Schema.Finite },
+) {
+  override get message() {
+    return `${this.provider} refused its API key (HTTP ${this.status})`;
+  }
+}
+
+/** A provider could not be asked, and why. */
+class ProviderUnreachableError extends Schema.TaggedError<ProviderUnreachableError>()(
+  "ProviderUnreachableError",
+  { provider: Schema.String, reason: Schema.String },
+) {
+  override get message() {
+    return `Could not reach ${this.provider}: ${this.reason}`;
+  }
+}
+
 /** A model as a provider describes it: an id, plus whatever else it tells. */
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 
@@ -286,6 +306,34 @@ const usageOf = ({ name, client }: Provider, path: string, apiKey: Redacted.Reda
     ),
   );
 
+/**
+ * Asks `provider` for `path` with its key: fails when it refuses the key, or
+ * can't be asked.
+ */
+const probe = (provider: Provider, path: string) => {
+  const down = (reason: string) =>
+    new ProviderUnreachableError({ provider: provider.name, reason });
+
+  return keyed(provider.client, provider.apiKey)
+    .get(path)
+    .pipe(
+      Effect.catchTag("HttpClientError", () => Effect.fail(down("it could not be reached"))),
+      Effect.timeoutOrElse({
+        duration: LOOKUP_TIMEOUT,
+        orElse: () => Effect.fail(down(`it gave ${unansweredWithin(LOOKUP_TIMEOUT)}`)),
+      }),
+      Effect.flatMap(({ status }) =>
+        Effect.gen(function* () {
+          if (status === 401 || status === 403) {
+            return yield* new ProviderKeyRefusedError({ provider: provider.name, status });
+          }
+
+          if (status !== 200) return yield* down(`HTTP ${status}`);
+        }),
+      ),
+    );
+};
+
 /** The provider an OpenRouter key added in the web UI goes by. */
 const OPENROUTER = "openrouter";
 
@@ -320,27 +368,14 @@ const perMillion = (perToken: string | undefined) => {
 const openrouterDown = (reason: string) => new OpenrouterUnavailableError({ reason });
 
 /** Checks `apiKey` with OpenRouter, by asking what it knows of the key. */
-const verifyOpenrouter = (provider: Provider, apiKey: Redacted.Redacted<string>) =>
-  keyed(provider.client, apiKey)
-    .get("/key")
-    .pipe(
-      Effect.catchTag("HttpClientError", () =>
-        Effect.fail(openrouterDown("it could not be reached")),
-      ),
-      Effect.timeoutOrElse({
-        duration: LOOKUP_TIMEOUT,
-        orElse: () => Effect.fail(openrouterDown(`it gave ${unansweredWithin(LOOKUP_TIMEOUT)}`)),
-      }),
-      Effect.flatMap(({ status }) =>
-        Effect.gen(function* () {
-          if (status === 401 || status === 403) {
-            return yield* new OpenrouterKeyRejectedError({ status });
-          }
-
-          if (status !== 200) return yield* openrouterDown(`HTTP ${status}`);
-        }),
-      ),
-    );
+const verifyOpenrouter = (provider: Provider) =>
+  probe(provider, "/key").pipe(
+    Effect.catchTags({
+      ProviderKeyRefusedError: ({ status }) =>
+        Effect.fail(new OpenrouterKeyRejectedError({ status })),
+      ProviderUnreachableError: ({ reason }) => Effect.fail(openrouterDown(reason)),
+    }),
+  );
 
 /** What OpenRouter tells of a key: its limit, what's left of it, and how often it resets. */
 const OpenrouterKeyInfo = Schema.Struct({
@@ -558,6 +593,21 @@ const make = (
     ): Effect.Effect<Option.Option<Redacted.Redacted<string> | undefined>> =>
       provider.pooled ? anyAccountKey : Effect.succeedSome(provider.apiKey);
 
+    /** Where Ollama is, as config.yaml sets it up or the web UI saved it. */
+    const ollamaAt =
+      configured === undefined
+        ? Effect.map(
+            saved,
+            Option.map((address) => ({ address, fromConfig: false })),
+          )
+        : Effect.succeedSome({
+            address: Option.getOrElse(
+              parseOllamaAddress(configured.baseUrl ?? OLLAMA_DEFAULT),
+              () => configured.baseUrl ?? OLLAMA_DEFAULT,
+            ),
+            fromConfig: true,
+          });
+
     return Providers.of({
       names: Effect.sync(() =>
         [...providers.values()].flatMap(({ name, pooled: isPooled }) => (isPooled ? [] : [name])),
@@ -568,19 +618,7 @@ const make = (
         ),
       ),
       ollama: {
-        get:
-          configured === undefined
-            ? Effect.map(
-                saved,
-                Option.map((address) => ({ address, fromConfig: false })),
-              )
-            : Effect.succeedSome({
-                address: Option.getOrElse(
-                  parseOllamaAddress(configured.baseUrl ?? OLLAMA_DEFAULT),
-                  () => configured.baseUrl ?? OLLAMA_DEFAULT,
-                ),
-                fromConfig: true,
-              }),
+        get: ollamaAt,
         // The routes change before the store, whose change signals the admin state: a
         // state made on that signal then has the routes it names.
         set: (address) =>
@@ -624,6 +662,35 @@ const make = (
         if (status !== 200)
           return yield* new OpencodeGoUnavailableError({ reason: `HTTP ${status}` });
       }),
+      check: (name) =>
+        Effect.suspend(() => {
+          const provider = providers.get(name);
+
+          if (provider === undefined) {
+            return Effect.fail(
+              new ProviderUnreachableError({ provider: name, reason: "it is not set up" }),
+            );
+          }
+
+          // Ollama is asked for its version, as the web UI asks it; OpenRouter about its key.
+          if (name === OLLAMA) {
+            return Effect.flatMap(
+              ollamaAt,
+              Option.match({
+                onNone: () => Effect.void,
+                onSome: ({ address }) =>
+                  checkOllama(http, address).pipe(
+                    Effect.mapError(
+                      ({ reason }) => new ProviderUnreachableError({ provider: name, reason }),
+                    ),
+                    Effect.asVoid,
+                  ),
+              }),
+            );
+          }
+
+          return probe(provider, name === OPENROUTER ? "/key" : "/models");
+        }),
       // Read when asked: an Ollama may have been added or removed since.
       models: Effect.suspend(() =>
         Effect.forEach(
@@ -681,7 +748,7 @@ const make = (
         setKey: (apiKey) =>
           Effect.gen(function* () {
             const settings = yield* editableOpenrouter;
-            yield* verifyOpenrouter(yield* openrouterWith(apiKey), apiKey);
+            yield* verifyOpenrouter(yield* openrouterWith(apiKey));
 
             // A new key keeps the models the old one enabled.
             const models = Option.match(yield* savedOpenrouter, {
@@ -868,6 +935,13 @@ export class Providers extends Context.Service<
       /** Signals now, then after each change to the saved key or models. */
       readonly changes: Stream.Stream<void>;
     };
+    /**
+     * Asks provider `name` whether it can be used now, as the web UI does: Ollama
+     * for its version, OpenRouter about its key, any other for its models.
+     */
+    readonly check: (
+      name: string,
+    ) => Effect.Effect<void, ProviderKeyRefusedError | ProviderUnreachableError>;
     /** The provider a `<provider>/<model>` id names, if it is configured or pooled. */
     readonly route: (model: string) => Option.Option<Route>;
     /**

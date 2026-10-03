@@ -30,6 +30,16 @@ const configureOpenCodeGo = (home: string, provider: FakeProvider) =>
     `providers:\n  opencode-go:\n    baseUrl: ${provider.url}\n    apiKeyEnv: GO_KEY\n`,
   );
 
+/** Sets OpenCode Go up in `home` as a fake that takes every key, as `add` checks them with it. */
+const acceptOpenCodeGoKeys = (home: string) =>
+  Effect.gen(function* () {
+    const provider = yield* startFakeProvider;
+    provider.usage({ usage: {} });
+    yield* writeConfig(home, `providers:\n  opencode-go:\n    baseUrl: ${provider.url}\n`);
+
+    return provider;
+  });
+
 layer(BunFileSystem.layer)("via accounts", (it) => {
   it.effect("add shows the device code, then saves the approved account", () =>
     Effect.gen(function* () {
@@ -110,6 +120,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
   it.effect("add --provider opencode-go stores the key it reads from stdin", () =>
     Effect.gen(function* () {
       const { home, env, via } = yield* setup();
+      yield* acceptOpenCodeGoKeys(home);
 
       const added = yield* runVia(
         home,
@@ -137,9 +148,54 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
+  it.effect("add --provider opencode-go does not store a key OpenCode Go refuses", () =>
+    Effect.gen(function* () {
+      const { home, env, via } = yield* setup();
+      const provider = yield* acceptOpenCodeGoKeys(home);
+      provider.usageFor("sk-go-wrong", { error: "unauthorized" }, 401);
+
+      const added = yield* runVia(
+        home,
+        ["accounts", "add", "--provider", "opencode-go"],
+        env,
+        "sk-go-wrong",
+      );
+
+      expect(added.exitCode).toBe(1);
+      expect(added.stderr).toBe(
+        "error: OpenCode Go refused this API key (HTTP 401); check that it is right\n",
+      );
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
+  it.effect("add --provider opencode-go does not store a key it can't check", () =>
+    Effect.gen(function* () {
+      const { home, env, via } = yield* setup();
+      yield* writeConfig(
+        home,
+        `providers:\n  opencode-go:\n    baseUrl: http://127.0.0.1:${yield* freePort}\n`,
+      );
+
+      const added = yield* runVia(
+        home,
+        ["accounts", "add", "--provider", "opencode-go"],
+        env,
+        "sk-go-1234",
+      );
+
+      expect(added.exitCode).toBe(1);
+      expect(added.stderr).toBe(
+        "error: Could not check the key with OpenCode Go: it could not be reached\n",
+      );
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
   it.effect("add --provider opencode-go refuses a key it already stores", () =>
     Effect.gen(function* () {
       const { home, env } = yield* setup();
+      yield* acceptOpenCodeGoKeys(home);
       const args = ["accounts", "add", "--provider", "opencode-go"];
       yield* runVia(home, args, env, "sk-go-1234");
       const again = yield* runVia(home, args, env, "sk-go-1234");
@@ -153,6 +209,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
   it.effect("label, disable, enable and remove an OpenCode Go account", () =>
     Effect.gen(function* () {
       const { home, env, via } = yield* setup();
+      yield* acceptOpenCodeGoKeys(home);
       yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "sk-go-1234");
       expect((yield* via("accounts", "label", "OpenCode Go …1234", "go")).exitCode).toBe(0);
       yield* via("accounts", "disable", "go");
@@ -300,7 +357,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
         expect(status.exitCode).toBe(0);
         expect(status.stdout).toMatch(/5h\s+12% used/);
         expect(status.stdout).toMatch(
-          /^\w+ {2}OpenCode Go \(imported\) {2}opencode-go {2}…k-go {2}enabled {2}available$/m,
+          /^GO_KEY {2}OpenCode Go \(from GO_KEY\) {2}opencode-go {2}…k-go {2}enabled {2}available$/m,
         );
         expect(status.stdout).not.toContain("sk-go");
         expect(status.stdout).toMatch(/rolling\s+0% used\s+resets 2026-09-26 23:40/);
@@ -314,6 +371,32 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
         expect(columns).toHaveLength(4);
         expect(new Set(columns).size).toBe(1);
       }),
+  );
+
+  it.effect("status shows OpenCode Go's deprecated key variable without storing its key", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      provider.usage({ usage: {} });
+      const { via, home } = yield* setup({ env: { GO_KEY: "sk-go" } });
+      yield* configureOpenCodeGo(home, provider);
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(/^GO_KEY {2}OpenCode Go \(from GO_KEY\) {2}opencode-go /m);
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
+  it.effect("status shows OpenCode Go's key variable once when an account has its key", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      provider.usage({ usage: {} });
+      const { home, env, via } = yield* setup({ env: { GO_KEY: "sk-go" } });
+      yield* configureOpenCodeGo(home, provider);
+      yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "sk-go");
+      const status = yield* via("accounts", "status");
+      expect(status.stdout.match(/opencode-go {2}…k-go/g)).toHaveLength(1);
+      expect(status.stdout).toMatch(/^\w+ {2}OpenCode Go …k-go {2}opencode-go /m);
+    }),
   );
 
   it.effect("status shows an OpenCode Go account with a used-up window as exhausted", () =>
@@ -336,9 +419,28 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
-  it.effect("status shows a provider that reports no usage as available", () =>
+  it.effect("status asks each provider whether it can be used, and says why not", () =>
+    Effect.gen(function* () {
+      // It lists no models, so it answers 500.
+      const down = yield* startFakeProvider;
+      const openrouter = yield* startFakeProvider;
+      const { via, home } = yield* setup({ env: { OR_KEY: "sk-or-bad" } });
+      yield* writeConfig(
+        home,
+        `providers:\n  local:\n    baseUrl: ${down.url}\n` +
+          `  openrouter:\n    baseUrl: ${openrouter.url}\n    apiKeyEnv: OR_KEY\n`,
+      );
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(/^local {2}provider {2}unreachable: HTTP 500$/m);
+      expect(status.stdout).toMatch(/^openrouter {2}provider {2}key refused \(HTTP 401\)$/m);
+    }),
+  );
+
+  it.effect("status shows a provider that answers as available", () =>
     Effect.gen(function* () {
       const provider = yield* startFakeProvider;
+      provider.models(["m"]);
       const { via, home } = yield* setup({ env: { LOCAL_KEY: "sk-local" } });
       yield* writeConfig(
         home,

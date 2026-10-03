@@ -21,6 +21,9 @@ layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
       );
 
       for (const key of ["sk-go-first", "sk-go-second"]) {
+        // `accounts add` checks a key by asking for its usage, as OpenCode Go answers a valid one.
+        provider.usageFor(key, { usage: {} });
+
         const added = yield* runVia(
           home,
           ["accounts", "add", "--provider", "opencode-go"],
@@ -35,6 +38,8 @@ layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
       provider.usageFor("sk-go-first", {
         usage: { weekly: { status: "rate-limited", percent: 100, resetsAt: reset } },
       });
+      // From now on OpenCode Go can't report the second key's usage.
+      provider.usageFor("sk-go-second", { error: "unavailable" }, 500);
       provider.respond(
         providerReply.byKey({
           "sk-go-first": providerReply.rateLimited(),
