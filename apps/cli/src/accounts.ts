@@ -155,7 +155,7 @@ const providerSections = Effect.flatMap(Providers, ({ names, check }) =>
           Effect.as("available"),
           Effect.catchTags({
             ProviderKeyRefusedError: ({ status }) => Effect.succeed(`key refused (HTTP ${status})`),
-            ProviderUnreachableError: ({ reason }) => Effect.succeed(`unreachable: ${reason}`),
+            ProviderUnreachableError: ({ reason }) => Effect.succeed(`unavailable: ${reason}`),
           }),
           Effect.map((state) => ({ line: `${name}  provider  ${state}`, rows: [] })),
         ),

@@ -181,7 +181,7 @@ class ProviderUnreachableError extends Schema.TaggedError<ProviderUnreachableErr
   { provider: Schema.String, reason: Schema.String },
 ) {
   override get message() {
-    return `Could not reach ${this.provider}: ${this.reason}`;
+    return `${this.provider} isn't available: ${this.reason}`;
   }
 }
 
@@ -338,7 +338,7 @@ const probe = (provider: Provider, path: string) => {
             return yield* new ProviderKeyRefusedError({ provider: provider.name, status });
           }
 
-          if (status !== 200) return yield* down(`HTTP ${status}`);
+          if (status !== 200) return yield* down(`it answered HTTP ${status}`);
         }),
       ),
     );

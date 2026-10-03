@@ -641,7 +641,7 @@ says why. `list` and `status` show only a key's last four characters.
 `via accounts status` asks every configured provider at once whether it can be
 used, as the web UI does: Ollama for its version, OpenRouter about its key, and
 any other provider for its models, each for up to 30 seconds. Its line ends in
-`available`, `key refused (HTTP <status>)` or `unreachable: <reason>`.
+`available`, `key refused (HTTP <status>)` or `unavailable: <reason>`.
 `status` only reads: it changes no account or file.
 
 `via providers` sets up OpenRouter and Ollama as the web UI does, and keeps

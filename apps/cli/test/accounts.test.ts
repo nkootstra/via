@@ -432,7 +432,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       );
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(0);
-      expect(status.stdout).toMatch(/^local {2}provider {2}unreachable: HTTP 500$/m);
+      expect(status.stdout).toMatch(/^local {2}provider {2}unavailable: it answered HTTP 500$/m);
       expect(status.stdout).toMatch(/^openrouter {2}provider {2}key refused \(HTTP 401\)$/m);
     }),
   );
