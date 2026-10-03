@@ -490,6 +490,20 @@ describe("adding an account", () => {
     expect(within(dialog).getByRole("button", { name: "Try again" })).toBeDefined();
   });
 
+  it("says why when via no longer knows the login, as after a restart", async () => {
+    const { user, state } = renderApp("/accounts", { accounts: [work] });
+
+    await rowOf("work");
+    await user.click(screen.getAllByRole("button", { name: "Add account" })[0] ?? document.body);
+    await user.click(await screen.findByRole("button", { name: /ChatGPT \(Codex\)/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a ChatGPT account" });
+    state.logins.clear();
+
+    expect((await within(dialog).findByRole("alert")).textContent).toBe(
+      "Sign-in didn't finish: This sign-in expired or via restarted. Start it again.",
+    );
+  });
+
   it("starts a new login on Try again, which can then go through", async () => {
     const { user, state } = renderApp("/accounts", {
       accounts: [work],
