@@ -36,8 +36,24 @@ so they run on CPUs without AVX2 too. There is no Windows build.
 
 ## Install
 
+Each [release](https://github.com/nkootstra/via/releases) attaches a
+standalone binary for each platform, `via-<os>-<arch>` (`via-darwin-arm64`,
+`via-darwin-x64`, `via-linux-arm64`, `via-linux-x64`), and a `SHA256SUMS` file.
+Download yours, check it, and put it on your `PATH`; it doesn't need Bun or
+Node to run:
+
+```sh
+curl -fLO https://github.com/nkootstra/via/releases/latest/download/via-darwin-arm64
+curl -fLO https://github.com/nkootstra/via/releases/latest/download/SHA256SUMS
+shasum -a 256 --check --ignore-missing SHA256SUMS
+chmod +x via-darwin-arm64 && mv via-darwin-arm64 /usr/local/bin/via
+```
+
+`gh attestation verify via-darwin-arm64 --repo nkootstra/via` also checks that
+the release workflow built it.
+
 Prebuilt npm packages are coming: `npm i -g @nkootstra/via` will install them.
-Until then, build from source with [Bun](https://bun.sh) 1.4:
+Or build from source with [Bun](https://bun.sh) 1.4:
 
 ```sh
 git clone https://github.com/nkootstra/via.git

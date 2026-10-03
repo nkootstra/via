@@ -63,7 +63,8 @@ jobs:
         with:
           bun-version-file: package.json
       - run: bun install --frozen-lockfile
-      - run: bun run test
+      # The end-to-end suite runs once, in the build job, against the compiled binary.
+      - run: bun run test --filter='!@via/e2e'
 
   build:
     name: Build & npm smoke test (${{ matrix.os }})
@@ -104,7 +105,8 @@ jobs:
       # Installs the system libraries Chromium needs even when the browser comes from the cache.
       - run: bunx playwright install --with-deps chromium
         working-directory: apps/e2e
-      # Runs the end-to-end suite, the browser tests included, against this platform's compiled binary.
+      # Runs the whole end-to-end suite, the browser tests included, against this platform's
+      # compiled binary. The test job leaves it to this step.
       - run: bun run --filter @via/e2e test
         env:
           VIA_E2E_BIN: ${{ github.workspace }}/npm/via-${{ runner.os == 'macOS' && 'darwin' || 'linux' }}-${{ runner.arch == 'ARM64' && 'arm64' || 'x64' }}/bin/via
