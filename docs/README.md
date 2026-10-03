@@ -560,6 +560,11 @@ The page is the admin key's reach in a browser, so give it the same care:
 
 `<account>` matches an account's id, label or email.
 
+A running `via serve` sees what these commands change from its next request
+on: a revoked key is refused and a disabled account is skipped once the command
+has finished. It keeps the accounts and keys in memory and checks each request
+whether their files changed (`stat`, no read), reading them again only then.
+
 Adding a ChatGPT account that is already in the pool signs it in again: via
 replaces its tokens and keeps its label and whether it's enabled, rather than
 adding it twice. Adding an OpenCode Go key via already has is refused.
