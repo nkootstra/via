@@ -138,6 +138,79 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
     ),
   );
 
+  it.effect("asks Codex for reasoning summaries, which it sends only when asked", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/chat/completions", request);
+        yield* via.post("/v1/chat/completions", { ...request, reasoning_effort: "low" });
+
+        expect(via.upstreamRequests.map((sent) => sent.body["reasoning"])).toEqual([
+          { summary: "auto" },
+          { effort: "low", summary: "auto" },
+        ]);
+      }),
+    ),
+  );
+
+  it.effect("answers a request Codex refuses with OpenAI's error, saying what Codex said", () =>
+    withVia(
+      () => reply.error(400, { detail: "Unsupported parameter: frequency_penalty" }),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/chat/completions", request);
+
+          expect(response.status).toBe(400);
+          expect(yield* response.json).toEqual({
+            error: {
+              message: "Unsupported parameter: frequency_penalty",
+              type: "invalid_request_error",
+              code: null,
+            },
+          });
+        }),
+    ),
+  );
+
+  it.effect("keeps the code Codex gives a refusal", () =>
+    withVia(
+      () => reply.error(400, { error: { code: "invalid_value", message: "Bad effort" } }),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/chat/completions", request);
+
+          expect(yield* response.json).toEqual({
+            error: { message: "Bad effort", type: "invalid_request_error", code: "invalid_value" },
+          });
+        }),
+    ),
+  );
+
+  it.effect("leaves an HTML page Codex refuses with out of the error", () =>
+    withVia(
+      () => () => ({
+        status: 403,
+        headers: {},
+        contentType: "text/html; charset=utf-8",
+        chunks: ["<!DOCTYPE html><html><body>Attention Required!</body></html>"],
+        ending: "close",
+      }),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/chat/completions", request);
+
+          expect(response.status).toBe(403);
+          expect(response.headers["content-type"]).toContain("application/json");
+          expect(yield* response.json).toEqual({
+            error: {
+              message: "Codex refused the request (HTTP 403)",
+              type: "invalid_request_error",
+              code: null,
+            },
+          });
+        }),
+    ),
+  );
+
   it.effect("keeps every turn of a conversation in one Codex session", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

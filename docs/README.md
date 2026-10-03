@@ -173,6 +173,22 @@ them: `temperature`, `top_p`, `max_tokens`, `max_completion_tokens` and
 `context_management`.
 A refusal comes back as the chat message's `refusal`, as OpenAI sends it.
 
+A Chat Completions request to Codex is translated as OpenAI would read it:
+
+- A function tool that leaves out `strict` isn't strict, as in Chat
+  Completions, where the Responses API would make it strict.
+- via asks Codex for reasoning summaries, and they come back as the message's
+  `reasoning_content`, streamed as `reasoning_content` deltas, with a blank line
+  between summary parts. Codex's encrypted reasoning isn't handed to the
+  client, as Chat Completions has no field for a client to send it back in.
+- A response Codex completes without reporting usage still finishes; the
+  answer then has no `usage`, and a stream no usage chunk.
+- A request Codex refuses gets OpenAI's error,
+  `{"error":{"message","type","code"}}`, with Codex's status, message and code.
+  When Codex's answer isn't readable, such as an HTML page, the message says
+  only that Codex refused the request. `/v1/responses` passes Codex's refusal
+  on as Codex sent it.
+
 via's server never closes a connection as idle, so an answer that goes quiet
 while the model works still reaches the client, streamed or not. A streamed
 answer that goes quiet also gets a `: keepalive` SSE comment every five seconds,

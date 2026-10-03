@@ -24,6 +24,13 @@ const RefusalDelta = Schema.Struct({
   delta: Schema.String,
 });
 
+const ReasoningDelta = Schema.Struct({
+  type: Schema.Literal("response.reasoning_summary_text.delta"),
+  output_index: Schema.Int,
+  summary_index: Schema.Int,
+  delta: Schema.String,
+});
+
 const FunctionCallAdded = Schema.Struct({
   type: Schema.Literal("response.output_item.added"),
   output_index: Schema.Int,
@@ -42,7 +49,8 @@ const ArgumentsDelta = Schema.Struct({
 
 const Completed = Schema.Struct({
   ...ResponseCompleted.fields,
-  response: Schema.Struct({ usage: Usage }),
+  // Codex may leave the usage out, or send `null`; the answer is no less complete.
+  response: Schema.Struct({ usage: Schema.optionalKey(Schema.NullOr(Usage)) }),
 });
 
 const Incomplete = Schema.Struct({
@@ -53,13 +61,14 @@ const Incomplete = Schema.Struct({
   }),
 });
 
-// Reasoning, item bookkeeping and other events have no Chat Completions counterpart.
+// Item bookkeeping and other events have no Chat Completions counterpart.
 const Other = Schema.Struct({ type: Schema.String });
 
 const StreamEvent = Schema.Union([
   Created,
   TextDelta,
   RefusalDelta,
+  ReasoningDelta,
   FunctionCallAdded,
   ArgumentsDelta,
   Completed,
@@ -90,6 +99,8 @@ const isTextDelta = isEvent(TextDelta);
 
 const isRefusalDelta = isEvent(RefusalDelta);
 
+const isReasoningDelta = isEvent(ReasoningDelta);
+
 const isFunctionCallAdded = isEvent(FunctionCallAdded);
 
 const isArgumentsDelta = isEvent(ArgumentsDelta);
@@ -107,6 +118,8 @@ type State = {
   readonly envelope: string;
   /** The chat tool call index of each function call, by Responses output index. */
   readonly toolIndex: ReadonlyMap<number, number>;
+  /** The reasoning summary part streaming, as `output_index:summary_index`, if one has begun. */
+  readonly summaryPart: string | undefined;
   /** Whether the response reached a terminal event. */
   readonly ended: boolean;
 };
@@ -119,6 +132,7 @@ const envelope = (id: string, created: number, model: string) =>
 const initial = (): State => ({
   envelope: envelope("", 0, ""),
   toolIndex: new Map(),
+  summaryPart: undefined,
   ended: false,
 });
 
@@ -154,6 +168,19 @@ export const toChatStream = <E>(
     if (isTextDelta(event)) return [state, [chunk(state, { content: event.delta })]];
 
     if (isRefusalDelta(event)) return [state, [chunk(state, { refusal: event.delta })]];
+
+    if (isReasoningDelta(event)) {
+      if (event.delta === "") return [state, []];
+
+      const part = `${event.output_index}:${event.summary_index}`;
+      // Parts read as paragraphs, as `toChatCompletion` joins them.
+      const separator = state.summaryPart === undefined || state.summaryPart === part ? "" : "\n\n";
+
+      return [
+        { ...state, summaryPart: part },
+        [chunk(state, { reasoning_content: separator + event.delta })],
+      ];
+    }
 
     if (isFunctionCallAdded(event)) {
       const index = state.toolIndex.size;
@@ -201,9 +228,9 @@ export const toChatStream = <E>(
     return [state, []];
   };
 
-  const finish = (state: State, reason: string, usage: typeof Usage.Type | undefined) => [
+  const finish = (state: State, reason: string, usage: typeof Usage.Type | null | undefined) => [
     chunk(state, {}, reason),
-    ...(options.includeUsage && usage !== undefined
+    ...(options.includeUsage && usage != null
       ? [`data: ${state.envelope},"choices":[],"usage":${JSON.stringify(chatUsage(usage))}}\n\n`]
       : []),
     "data: [DONE]\n\n",
