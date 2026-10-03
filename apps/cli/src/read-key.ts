@@ -5,7 +5,7 @@ class NoApiKeyError extends Schema.TaggedError<NoApiKeyError>()("NoApiKeyError",
   provider: Schema.String,
 }) {
   override get message() {
-    return `No ${this.provider} API key was given`;
+    return `No ${this.provider} API key was given: type it at the prompt, or pipe it in on standard input`;
   }
 }
 

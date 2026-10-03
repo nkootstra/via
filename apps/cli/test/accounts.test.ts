@@ -144,7 +144,9 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const { home, env } = yield* setup();
       const added = yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "");
       expect(added.exitCode).toBe(1);
-      expect(added.stderr).toBe("error: No OpenCode Go API key was given\n");
+      expect(added.stderr).toBe(
+        "error: No OpenCode Go API key was given: type it at the prompt, or pipe it in on standard input\n",
+      );
     }),
   );
 
