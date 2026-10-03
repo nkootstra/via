@@ -1115,7 +1115,7 @@ sites.
 often another `via serve`. Stop it, or start via on another port with
 `via serve --port <n>` or `port:` in `config.yaml`.
 
-**`error: Invalid config in <path>: <reason>`.** `config.yaml` doesn't parse,
+**`error: <path> has a problem: <reason>`.** `config.yaml` doesn't parse,
 or has a key via doesn't know or a value it can't take; the reason names it.
 Fix that line, or move the file away to start from the defaults.
 

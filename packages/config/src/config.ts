@@ -50,7 +50,7 @@ export class InvalidConfigError extends Schema.TaggedError<InvalidConfigError>()
   { path: Schema.String, reason: Schema.String },
 ) {
   override get message() {
-    return `Invalid config in ${this.path}: ${this.reason}`;
+    return `${this.path} has a problem: ${this.reason}`;
   }
 }
 

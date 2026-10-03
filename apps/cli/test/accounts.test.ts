@@ -337,7 +337,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       yield* writeConfig(home, "port: nope\n");
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(1);
-      expect(status.stderr).toMatch(/^error: Invalid config/);
+      expect(status.stderr).toMatch(/^error: .*config\.yaml has a problem: /);
     }),
   );
 
