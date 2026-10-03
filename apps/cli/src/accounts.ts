@@ -1,7 +1,7 @@
 import { accountUsage } from "@via/account-pool";
 import { type Account, AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
 import { CodexUpstream } from "@via/codex-upstream";
-import { loadConfig } from "@via/config";
+import { loadConfig, type ProviderConfig } from "@via/config";
 import type { UsageWindow } from "@via/pool";
 import {
   maskKey,
@@ -11,54 +11,16 @@ import {
   providerState,
 } from "@via/providers";
 import type { ProviderState } from "@via/providers/schemas";
-import {
-  Clock,
-  Console,
-  Effect,
-  Layer,
-  Record,
-  Redacted,
-  Schema,
-  Stdio,
-  Stream,
-  String as Str,
-} from "effect";
-import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
-import { apiKeys, importOpencodeGoKey } from "./api-keys.ts";
+import { Clock, Console, Effect, Layer, Record, Redacted } from "effect";
+import { Argument, Command, Flag } from "effect/unstable/cli";
+import { apiKeys } from "./api-keys.ts";
+import { readApiKey } from "./read-key.ts";
 import { localTime } from "./time.ts";
 import { version } from "./version.ts";
 
 const accountArg = Argument.String("account").pipe(
   Argument.withDescription("Account id, label or email"),
 );
-
-class MissingApiKeyError extends Schema.TaggedError<MissingApiKeyError>()(
-  "MissingApiKeyError",
-  {},
-) {
-  override get message() {
-    return "No OpenCode Go API key was given";
-  }
-}
-
-/**
- * An OpenCode Go API key: typed in, hidden, at a terminal, else read from
- * standard input, so a script can pipe it in. Never an argument, which would
- * end up in the shell's history and the process list.
- */
-const readApiKey = Effect.gen(function* () {
-  const stdio = yield* Stdio.Stdio;
-
-  const key = (yield* stdio.stdinIsTerminal)
-    ? Redacted.value(yield* Prompt.run(Prompt.Password({ message: "OpenCode Go API key" })))
-    : yield* stdio.stdin.pipe(Stream.decodeText, Stream.mkString);
-
-  const trimmed = Str.trim(key);
-
-  if (trimmed === "") return yield* new MissingApiKeyError();
-
-  return Redacted.make(trimmed);
-});
 
 /** Logs in to a ChatGPT account with a device code. */
 const addCodex = Effect.gen(function* () {
@@ -80,34 +42,51 @@ const addCodex = Effect.gen(function* () {
   );
 });
 
-/** Stores an OpenCode Go API key as an account. */
-const addOpencodeGo = Effect.gen(function* () {
-  const apiKey = yield* readApiKey;
-  const saved = yield* (yield* OpencodeGoAccounts).add(apiKey);
-  yield* Console.log(`Added OpenCode Go key ${maskKey(apiKey)} as "${saved.label}".`);
-});
+/**
+ * Providers with only OpenCode Go's config, which never fails: another
+ * provider's can't keep its accounts from being added or shown.
+ */
+const opencodeGoProviders = (providers: Record<string, ProviderConfig>) =>
+  Providers.layer({
+    providers: Record.filter(providers, (_, name) => name === "opencode-go"),
+    apiKeys: {},
+    version,
+  });
 
-const add = Command.make(
-  "add",
-  {
-    provider: Flag.Literals("provider", ["codex", "opencode-go"]).pipe(
-      Flag.withDescription(
-        "codex logs in to a ChatGPT account; opencode-go asks for an OpenCode Go API key",
+/** Stores an OpenCode Go API key as an account, once OpenCode Go takes it, as the web UI does. */
+const addOpencodeGo = (configPath: string) =>
+  Effect.gen(function* () {
+    const apiKey = yield* readApiKey("OpenCode Go");
+    const config = yield* loadConfig(configPath);
+    yield* Effect.flatMap(Providers, (providers) => providers.verify(apiKey)).pipe(
+      Effect.provide(opencodeGoProviders(config.providers)),
+    );
+    const saved = yield* (yield* OpencodeGoAccounts).add(apiKey);
+    yield* Console.log(`Added OpenCode Go key ${maskKey(apiKey)} as "${saved.label}".`);
+  });
+
+const add = (configPath: string) =>
+  Command.make(
+    "add",
+    {
+      provider: Flag.Literals("provider", ["codex", "opencode-go"]).pipe(
+        Flag.withDescription(
+          "codex logs in to a ChatGPT account; opencode-go asks for an OpenCode Go API key",
+        ),
+        Flag.withDefault("codex"),
       ),
-      Flag.withDefault("codex"),
-    ),
-  },
-  ({ provider }) =>
-    Effect.gen(function* () {
-      if (provider === "codex") return yield* addCodex;
+    },
+    ({ provider }) =>
+      Effect.gen(function* () {
+        if (provider === "codex") return yield* addCodex;
 
-      return yield* addOpencodeGo;
-    }),
-).pipe(
-  Command.withDescription(
-    "Log in to a ChatGPT account with a device code, or add an OpenCode Go API key",
-  ),
-);
+        return yield* addOpencodeGo(configPath);
+      }),
+  ).pipe(
+    Command.withDescription(
+      "Log in to a ChatGPT account with a device code, or add an OpenCode Go API key",
+    ),
+  );
 
 const noAccounts = "No accounts. Add one with `via accounts add`.";
 
@@ -163,10 +142,25 @@ const describeState = (state: ProviderState) => {
   }
 };
 
-/** Each configured provider with its own key, a line saying it is available. */
-const providerSections = Effect.flatMap(Providers, ({ names }) =>
-  Effect.map(names, (all) =>
-    all.map((name) => ({ line: `${name}  provider  available`, rows: [] })),
+/**
+ * Each configured provider with its own key, all asked at once whether it can
+ * be used: a line saying it is available, or why not.
+ */
+const providerSections = Effect.flatMap(Providers, ({ names, check }) =>
+  Effect.flatMap(names, (all) =>
+    Effect.forEach(
+      all,
+      (name) =>
+        check(name).pipe(
+          Effect.as("available"),
+          Effect.catchTags({
+            ProviderKeyRefusedError: ({ status }) => Effect.succeed(`key refused (HTTP ${status})`),
+            ProviderUnreachableError: ({ reason }) => Effect.succeed(`unreachable: ${reason}`),
+          }),
+          Effect.map((state) => ({ line: `${name}  provider  ${state}`, rows: [] })),
+        ),
+      { concurrency: "unbounded" },
+    ),
   ),
 );
 
@@ -217,6 +211,28 @@ const showUsage = Effect.fnUntraced(function* (width: number, account: Account) 
   for (const line of lines) yield* Console.log(line);
 });
 
+/**
+ * OpenCode Go's key in its deprecated environment variable, as an account shown
+ * by the variable's name, unless one has it. `via serve` stores it; `status`,
+ * which only reads, leaves that to it.
+ */
+const fromEnvironment = (
+  providers: Record<string, ProviderConfig>,
+  keys: Readonly<Record<string, Redacted.Redacted<string>>>,
+  stored: ReadonlyArray<OpencodeGoAccount>,
+): ReadonlyArray<OpencodeGoAccount> => {
+  const apiKey = keys["opencode-go"];
+  const variable = providers["opencode-go"]?.apiKeyEnv;
+
+  if (apiKey === undefined || variable === undefined) return [];
+
+  if (stored.some((a) => Redacted.value(a.apiKey) === Redacted.value(apiKey))) return [];
+
+  return [
+    { id: variable, label: `OpenCode Go (from ${variable})`, apiKey, enabled: true, createdAt: "" },
+  ];
+};
+
 /** A provider that can't be set up, e.g. for a missing API key, says so in its place. */
 const say = (error: { readonly message: string }) =>
   Effect.succeed([{ line: error.message, rows: [] }]);
@@ -226,9 +242,9 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
     Effect.gen(function* () {
       const config = yield* loadConfig(configPath);
       const keys = yield* apiKeys(config.providers);
-      yield* importOpencodeGoKey(config.providers, keys);
       const accounts = yield* (yield* AccountStore).list;
-      const opencodeGo = yield* (yield* OpencodeGoAccounts).list;
+      const stored = yield* (yield* OpencodeGoAccounts).list;
+      const opencodeGo = [...stored, ...fromEnvironment(config.providers, keys, stored)];
 
       const providers = yield* providerSections.pipe(
         Effect.provide(Providers.layer({ providers: config.providers, apiKeys: keys, version })),
@@ -237,14 +253,7 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
 
       // Asked first, so the ChatGPT accounts' windows can line up with OpenCode Go's longer names.
       const opencodeGoAccounts = yield* opencodeGoSections(opencodeGo).pipe(
-        // Only OpenCode Go's own config, which never fails: another provider's can't hide its accounts.
-        Effect.provide(
-          Providers.layer({
-            providers: Record.filter(config.providers, (_, name) => name === "opencode-go"),
-            apiKeys: {},
-            version,
-          }),
-        ),
+        Effect.provide(opencodeGoProviders(config.providers)),
       );
 
       const width = Math.max(
@@ -330,14 +339,14 @@ const labelCommand = Command.make(
 ).pipe(Command.withDescription("Rename an account"));
 
 /**
- * `via accounts`. `status` reads `configPath`; `upstreamBaseUrl` replaces the
+ * `via accounts`. `add` and `status` read `configPath`; `upstreamBaseUrl` replaces the
  * Codex backend, which only tests do.
  */
 export const accounts = (configPath: string, upstreamBaseUrl: string | undefined) =>
   Command.make("accounts").pipe(
     Command.withDescription("Manage the ChatGPT and OpenCode Go accounts in the pool"),
     Command.withSubcommands([
-      add,
+      add(configPath),
       list,
       remove,
       setEnabled("enable", true, "Use an account again"),
