@@ -11,6 +11,7 @@ import { FetchHttpClient } from "effect/unstable/http";
 import { homedir } from "node:os";
 import { accounts } from "./accounts.ts";
 import { keys } from "./keys.ts";
+import { providers } from "./providers.ts";
 import { serve } from "./serve.ts";
 import { version } from "./version.ts";
 
@@ -46,6 +47,7 @@ const main = Effect.gen(function* () {
     Command.withSubcommands([
       accounts(paths.config, codexBaseUrl),
       keys,
+      providers(paths.config),
       serve({
         configPath: paths.config,
         statePath: paths.state,
