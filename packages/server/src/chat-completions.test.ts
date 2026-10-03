@@ -185,24 +185,25 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
     ),
   );
 
+  // A 403 bars the account and fails over, so a refused request here is a 400.
   it.effect("leaves an HTML page Codex refuses with out of the error", () =>
     withVia(
       () => () => ({
-        status: 403,
+        status: 400,
         headers: {},
         contentType: "text/html; charset=utf-8",
-        chunks: ["<!DOCTYPE html><html><body>Attention Required!</body></html>"],
+        chunks: ["<!DOCTYPE html><html><body>400 Bad Request</body></html>"],
         ending: "close",
       }),
       (via) =>
         Effect.gen(function* () {
           const response = yield* via.post("/v1/chat/completions", request);
 
-          expect(response.status).toBe(403);
+          expect(response.status).toBe(400);
           expect(response.headers["content-type"]).toContain("application/json");
           expect(yield* response.json).toEqual({
             error: {
-              message: "Codex refused the request (HTTP 403)",
+              message: "Codex refused the request (HTTP 400)",
               type: "invalid_request_error",
               code: null,
             },
