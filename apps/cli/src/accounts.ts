@@ -24,7 +24,7 @@ import {
   String as Str,
 } from "effect";
 import { Argument, Command, Flag, Prompt } from "effect/unstable/cli";
-import { apiKeys, importOpencodeGoKey } from "./api-keys.ts";
+import { apiKeys } from "./api-keys.ts";
 import { localTime } from "./time.ts";
 import { version } from "./version.ts";
 
@@ -232,6 +232,28 @@ const showUsage = Effect.fnUntraced(function* (width: number, account: Account) 
   for (const line of lines) yield* Console.log(line);
 });
 
+/**
+ * OpenCode Go's key in its deprecated environment variable, as an account shown
+ * by the variable's name, unless one has it. `via serve` stores it; `status`,
+ * which only reads, leaves that to it.
+ */
+const fromEnvironment = (
+  providers: Parameters<typeof apiKeys>[0],
+  keys: Readonly<Record<string, Redacted.Redacted<string>>>,
+  stored: ReadonlyArray<OpencodeGoAccount>,
+): ReadonlyArray<OpencodeGoAccount> => {
+  const apiKey = keys["opencode-go"];
+  const variable = providers["opencode-go"]?.apiKeyEnv;
+
+  if (apiKey === undefined || variable === undefined) return [];
+
+  if (stored.some((a) => Redacted.value(a.apiKey) === Redacted.value(apiKey))) return [];
+
+  return [
+    { id: variable, label: `OpenCode Go (from ${variable})`, apiKey, enabled: true, createdAt: "" },
+  ];
+};
+
 /** A provider that can't be set up, e.g. for a missing API key, says so in its place. */
 const say = (error: { readonly message: string }) =>
   Effect.succeed([{ line: error.message, rows: [] }]);
@@ -241,9 +263,9 @@ const status = (configPath: string, upstreamBaseUrl: string | undefined) =>
     Effect.gen(function* () {
       const config = yield* loadConfig(configPath);
       const keys = yield* apiKeys(config.providers);
-      yield* importOpencodeGoKey(config.providers, keys);
       const accounts = yield* (yield* AccountStore).list;
-      const opencodeGo = yield* (yield* OpencodeGoAccounts).list;
+      const stored = yield* (yield* OpencodeGoAccounts).list;
+      const opencodeGo = [...stored, ...fromEnvironment(config.providers, keys, stored)];
 
       const providers = yield* providerSections.pipe(
         Effect.provide(Providers.layer({ providers: config.providers, apiKeys: keys, version })),

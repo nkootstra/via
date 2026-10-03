@@ -300,7 +300,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
         expect(status.exitCode).toBe(0);
         expect(status.stdout).toMatch(/5h\s+12% used/);
         expect(status.stdout).toMatch(
-          /^\w+ {2}OpenCode Go \(imported\) {2}opencode-go {2}…k-go {2}enabled {2}available$/m,
+          /^GO_KEY {2}OpenCode Go \(from GO_KEY\) {2}opencode-go {2}…k-go {2}enabled {2}available$/m,
         );
         expect(status.stdout).not.toContain("sk-go");
         expect(status.stdout).toMatch(/rolling\s+0% used\s+resets 2026-09-26 23:40/);
@@ -314,6 +314,32 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
         expect(columns).toHaveLength(4);
         expect(new Set(columns).size).toBe(1);
       }),
+  );
+
+  it.effect("status shows OpenCode Go's deprecated key variable without storing its key", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      provider.usage({ usage: {} });
+      const { via, home } = yield* setup({ env: { GO_KEY: "sk-go" } });
+      yield* configureOpenCodeGo(home, provider);
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toMatch(/^GO_KEY {2}OpenCode Go \(from GO_KEY\) {2}opencode-go /m);
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
+  it.effect("status shows OpenCode Go's key variable once when an account has its key", () =>
+    Effect.gen(function* () {
+      const provider = yield* startFakeProvider;
+      provider.usage({ usage: {} });
+      const { home, env, via } = yield* setup({ env: { GO_KEY: "sk-go" } });
+      yield* configureOpenCodeGo(home, provider);
+      yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "sk-go");
+      const status = yield* via("accounts", "status");
+      expect(status.stdout.match(/opencode-go {2}…k-go/g)).toHaveLength(1);
+      expect(status.stdout).toMatch(/^\w+ {2}OpenCode Go …k-go {2}opencode-go /m);
+    }),
   );
 
   it.effect("status shows an OpenCode Go account with a used-up window as exhausted", () =>
