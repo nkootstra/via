@@ -1,7 +1,7 @@
 import { OpencodeGoPool, type ProviderPath, Providers, type Route } from "@via/providers";
 import { ChatRequest, toMessagesRequest, toResponsesRequest } from "@via/translate";
 import { Effect, identity, Option, Schema } from "effect";
-import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
+import { Headers, type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
 import { chatFromMessages, chatFromResponses } from "./chat-answer.ts";
 import { ModelProtocols, type Protocol } from "./model-protocols.ts";
 import { noAccountLeft, streams } from "./dispatch.ts";
@@ -11,13 +11,22 @@ import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
 
-/** The provider's answer piped back as it comes, errors included. */
+/** The headers of a provider's answer a client may act on: when to try again, and its rate limits. */
+const passedOn = (upstream: HttpClientResponse.HttpClientResponse) =>
+  Headers.fromInput(
+    Object.entries(upstream.headers).filter(
+      ([key]) => key === "retry-after" || key.startsWith("x-ratelimit-"),
+    ),
+  );
+
+/** The provider's answer piped back as it comes, errors included, with its `passedOn` headers. */
 const relay = (upstream: HttpClientResponse.HttpClientResponse) =>
   relayed(
     upstream,
     {
       status: upstream.status,
       contentType: upstream.headers["content-type"] ?? "application/json",
+      headers: passedOn(upstream),
     },
     identity,
   );
@@ -163,6 +172,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
       return HttpServerResponse.text(text, {
         status: upstream.status,
         contentType: upstream.headers["content-type"] ?? "application/json",
+        headers: passedOn(upstream),
       });
     }
   }

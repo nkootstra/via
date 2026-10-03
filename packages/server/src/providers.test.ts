@@ -122,6 +122,31 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
+  it.effect("passes a provider's Retry-After and rate-limit headers through", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const limits = {
+          "x-ratelimit-limit-requests": "60",
+          "x-ratelimit-remaining-requests": "0",
+          "x-ratelimit-reset-requests": "20s",
+        };
+
+        via.provider.respond(
+          providerReply.rateLimited({ "retry-after": "20", ...limits, "x-internal": "secret" }),
+        );
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "openrouter/qwen/qwen3",
+          messages: [],
+        });
+
+        expect(response.status).toBe(429);
+        expect(response.headers).toMatchObject({ "retry-after": "20", ...limits });
+        expect(response.headers).not.toHaveProperty("x-internal");
+      }),
+    ),
+  );
+
   it.effect("answers 502 when the provider can't be reached", () =>
     withVia(
       ok,

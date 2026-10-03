@@ -765,7 +765,8 @@ Prefix a model with the provider's name to use it, as in
 `openrouter/qwen/qwen3-coder` or `opencode-go/kimi-k3`. via passes
 `/v1/chat/completions` and `/v1/responses` requests on as they are, with only
 the prefix taken off the model, and passes the provider's answer back the same
-way, errors included.
+way, errors included. Of the answer's headers, the client gets its
+`content-type`, `Retry-After` and `x-ratelimit-*` ones.
 
 OpenCode Go serves each model in one API of its own choosing: Chat
 Completions, the Responses API, or Anthropic's Messages, and refuses a

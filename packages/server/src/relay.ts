@@ -7,6 +7,7 @@ import {
 import { Data, Duration, Effect, Option, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import {
+  type Headers,
   type HttpClientError,
   type HttpClientResponse,
   HttpServerResponse,
@@ -134,6 +135,8 @@ export const relayed = <E>(
   options: {
     readonly status?: number;
     readonly contentType: string;
+    /** Headers of `upstream`'s the answer keeps. */
+    readonly headers?: Headers.Headers;
     readonly sse?: boolean;
     /** False when `relay` reports the usage itself, from a body via can't read it in. */
     readonly spotUsage?: boolean;
@@ -169,6 +172,7 @@ export const relayed = <E>(
 
     return HttpServerResponse.stream(timed, {
       ...(options.status === undefined ? {} : { status: options.status }),
+      ...(options.headers === undefined ? {} : { headers: options.headers }),
       contentType: options.contentType,
     });
   });
