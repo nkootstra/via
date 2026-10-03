@@ -621,7 +621,7 @@ layer(BunFileSystem.layer)("Providers", (it) => {
         client,
       );
 
-      expect(error).toEqual(new OpencodeGoUnavailableError({ reason: "HTTP 503" }));
+      expect(error).toEqual(new OpencodeGoUnavailableError({ reason: "it answered HTTP 503" }));
     }),
   );
 });

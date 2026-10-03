@@ -695,7 +695,7 @@ const make = (
         }
 
         if (status !== 200)
-          return yield* new OpencodeGoUnavailableError({ reason: `HTTP ${status}` });
+          return yield* new OpencodeGoUnavailableError({ reason: `it answered HTTP ${status}` });
       }),
       check: (name) =>
         Effect.suspend(() => {
