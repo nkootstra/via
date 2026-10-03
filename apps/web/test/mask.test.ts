@@ -27,22 +27,32 @@ describe("maskEmails", () => {
     expect(maskEmails("OpenCode Go …1234")).toBe("OpenCode Go …1234");
   });
 
+  it("leaves what only looks like an email, with a one-letter ending, as it is", () => {
+    expect(maskEmails("\u0000\u0000@\u0000\u0000.C and me@work.com")).toBe(
+      "\u0000\u0000@\u0000\u0000.C and •••••@•••••.com",
+    );
+  });
+
   it("leaves no email behind, and hides one hidden already as it is", async () => {
+    // The text around may hold something email-shaped too, such as `a@b.C`, which isn't an
+    // email maskEmails knows; so the email looked for is the one put in.
     const texts = Arbitrary.map(
       Arbitrary.all([
         Arbitrary.schema(Schema.String),
         Arbitrary.schema(Local),
         Arbitrary.schema(Label),
       ]),
-      ([around, local, domain]) => `${around} ${local}@${domain}.com ${around}`,
+      ([around, local, domain]) => ({
+        email: `${local}@${domain}.com`,
+        text: `${around} ${local}@${domain}.com ${around}`,
+      }),
     );
 
     expect(
       await holds(
         texts,
-        (text) =>
-          !/[^\s@•]+@[^\s@•]+\.[a-z]+/i.test(maskEmails(text)) &&
-          maskEmails(maskEmails(text)) === maskEmails(text),
+        ({ email, text }) =>
+          !maskEmails(text).includes(email) && maskEmails(maskEmails(text)) === maskEmails(text),
       ),
     ).toBeUndefined();
   });
