@@ -21,6 +21,7 @@ import {
 import { useTimeFormat } from "../../lib/time-format.ts";
 import { useMask } from "../../lib/privacy.ts";
 import { providerName } from "../../lib/provider-name.ts";
+import { poolReason } from "../../lib/pool-reason.ts";
 import { historyRange } from "../../lib/history-range.ts";
 import { formatCount, formatTokens, formatUsd, tokensOf } from "../../lib/usage-format.ts";
 import type { HistoryGroup, PoolAccount, PoolProvider, Usage } from "../../api/types.ts";
@@ -449,11 +450,11 @@ function AccountDetail({
   if (!account.enabled || state.status === "available") return null;
 
   return state.status === "cooling" ? (
-    <Resting until={state.until} reason={state.reason} ends="Ends" />
+    <Resting until={state.until} reason={poolReason(state.reason)} ends="Ends" />
   ) : (
     <Blocked
       title={locked.title}
-      reason={locked.reason ?? state.reason}
+      reason={locked.reason ?? poolReason(state.reason)}
       {...(locked.action !== undefined && { action: locked.action })}
     />
   );

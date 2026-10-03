@@ -19,14 +19,14 @@ const accounts = [
     state: {
       status: "cooling",
       until: new Date(now + 5 * 60_000).toISOString(),
-      reason: "Usage limit reached",
+      reason: "usage_limit_reached",
     },
   },
   {
     id: "acc-3",
     label: "spare",
     enabled: true,
-    state: { status: "auth_error", reason: "Refresh token revoked" },
+    state: { status: "auth_error", reason: "refresh_token_expired" },
   },
 ] as const;
 
@@ -38,7 +38,7 @@ const opencodeGo = [
     state: {
       status: "cooling",
       until: new Date(now + 2 * 3_600_000).toISOString(),
-      reason: "usage_exhausted",
+      reason: "weekly_exhausted",
     },
   },
   {
@@ -114,7 +114,7 @@ describe("the overview", () => {
 
     const spare = await card("spare");
     expect(within(spare).getByText("Locked out")).toBeDefined();
-    expect(within(spare).getByText("Refresh token revoked")).toBeDefined();
+    expect(within(spare).getByText("ChatGPT signed this account out")).toBeDefined();
 
     expect(within(await card("home")).getByText(/ChatGPT didn't answer/)).toBeDefined();
   });
@@ -255,7 +255,7 @@ describe("the overview", () => {
 
     const go = await card("go main");
     expect(within(go).getByText("Cooling down")).toBeDefined();
-    expect(within(go).getByText(/usage_exhausted/)).toBeDefined();
+    expect(within(go).getByText(/Weekly limit used up/)).toBeDefined();
     expect(within(go).getByText("2 h 00 min")).toBeDefined();
 
     await act(() => vi.advanceTimersByTimeAsync(61_000));
@@ -552,7 +552,7 @@ const coolingWork = {
         state: {
           status: "cooling",
           until: new Date(now + 60_000).toISOString(),
-          reason: "Usage limit reached",
+          reason: "usage_limit_reached",
         },
       },
       ...accounts.slice(1),
