@@ -80,7 +80,9 @@ const sent = (name: string, body: Schema.JsonObject, config: Partial<ProviderCon
       { [name]: { baseUrl: fake.url, apiKeyEnv: "KEY", ...config } },
       (providers) =>
         name === "opencode-go"
-          ? providers.send(route(name, "m", true), "/chat/completions", body, "conv-1", goKey)
+          ? providers.send(route(name, "m", true), "/chat/completions", body, "conv-1", {
+              apiKey: goKey,
+            })
           : providers.send(route(name), "/chat/completions", body, "conv-1"),
     );
 
@@ -140,7 +142,9 @@ layer(BunFileSystem.layer)("Providers", (it) => {
             yield* providers.models;
             yield* providers.usage(goKey);
             yield* providers.send(route("openrouter"), "/responses", {}, "c");
-            yield* providers.send(route("opencode-go", "m", true), "/responses", {}, "c", goKey);
+            yield* providers.send(route("opencode-go", "m", true), "/responses", {}, "c", {
+              apiKey: goKey,
+            });
           }),
         undefined,
         client,

@@ -107,6 +107,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
   path: ProviderPath,
   body: Schema.JsonObject,
   session: string,
+  headers: Headers.Headers,
 ) {
   const log = yield* RequestLog;
   const providers = yield* Providers;
@@ -130,7 +131,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
     // Every way to send it, on this account; a 429 or a refused key moves on to the next account.
     for (const [index, attempt] of tries.entries()) {
       const sent = yield* providers
-        .send(route, attempt.path, attempt.body, session, account.apiKey)
+        .send(route, attempt.path, attempt.body, session, { apiKey: account.apiKey, headers })
         .pipe(
           Effect.asSome,
           // OpenCode Go is unreachable for every account alike, so there is no one to fail over to.
@@ -179,14 +180,16 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
 });
 
 /**
- * Sends a request for a provider's model to that provider and pipes its answer
- * back as it comes, errors included. OpenCode Go's go through its accounts.
+ * Sends a request for a provider's model to that provider, with those of the
+ * client's `headers` it may need, and pipes its answer back as it comes,
+ * errors included. OpenCode Go's go through its accounts.
  */
 export const forward = Effect.fn("forward")(function* (
   route: Route,
   path: ProviderPath,
   body: Schema.JsonObject,
   session: string,
+  headers: Headers.Headers,
 ) {
   const log = yield* RequestLog;
   yield* log.asked(`${route.provider}/${route.model}`, streams(body));
@@ -199,10 +202,10 @@ export const forward = Effect.fn("forward")(function* (
     );
   }
 
-  if (route.pooled) return yield* forwardPooled(route, path, body, session);
+  if (route.pooled) return yield* forwardPooled(route, path, body, session, headers);
   yield* log.served(route.provider);
 
-  return yield* (yield* Providers).send(route, path, body, session).pipe(
+  return yield* (yield* Providers).send(route, path, body, session, { headers }).pipe(
     Effect.flatMap(relay),
     Effect.catchTag("HttpClientError", () => unreachable(route)),
   );

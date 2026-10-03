@@ -770,6 +770,13 @@ the prefix taken off the model, and passes the provider's answer back the same
 way, errors included. Of the answer's headers, the client gets its
 `content-type`, `Retry-After` and `x-ratelimit-*` ones.
 
+Of the client's request headers, via passes on only those a provider may act
+on: `anthropic-beta`, `anthropic-version`, `openai-beta`, and OpenRouter's
+`http-referer` and `x-title`. A Messages request goes out with the client's
+`anthropic-version`, or `2023-06-01` without one. Every other header,
+`authorization`, cookies and `host` included, stays with via, which sends the
+provider its own key.
+
 OpenCode Go serves each model in one API of its own choosing: Chat
 Completions, the Responses API, or Anthropic's Messages, and refuses a
 request in another with `ModelProtocolUnsupported`. For a

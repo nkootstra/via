@@ -145,6 +145,34 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
+  it.effect("passes on only the client's headers a provider needs", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.json(completion));
+
+        const needed = {
+          "anthropic-beta": "prompt-caching-2024-07-31",
+          "openai-beta": "assistants=v2",
+          "http-referer": "https://example.com",
+          "x-title": "My app",
+        };
+
+        yield* via.post(
+          "/v1/chat/completions",
+          { model: "openrouter/qwen/qwen3", messages: [] },
+          undefined,
+          { ...needed, cookie: "session=secret", "x-api-key": "sk-client", "x-other": "1" },
+        );
+
+        const { headers } = via.provider.requests[0] ?? { headers: {} };
+        expect(headers).toMatchObject({ ...needed, authorization: "Bearer sk-provider" });
+        expect(headers).not.toHaveProperty("cookie");
+        expect(headers).not.toHaveProperty("x-api-key");
+        expect(headers).not.toHaveProperty("x-other");
+      }),
+    ),
+  );
+
   it.effect("passes a provider's Retry-After and rate-limit headers through", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
