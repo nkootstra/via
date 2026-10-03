@@ -52,9 +52,18 @@ const spawnVia = (
 const readAll = (stream: ReadableStream<Uint8Array>) =>
   Effect.promise(() => new Response(stream).text());
 
-/** Kills a running `via` and waits for it to exit. */
+/**
+ * Stops a running `via` with SIGTERM and waits for it to exit, or kills it with
+ * SIGKILL when it hasn't within a few seconds, so a hung shutdown can't hang the test.
+ */
 const kill = (proc: ReturnType<typeof spawnVia>) =>
-  Effect.promise(() => (proc.kill(), proc.exited));
+  Effect.promise(() => (proc.kill(), proc.exited)).pipe(
+    Effect.timeoutOrElse({
+      duration: "5 seconds",
+      orElse: () => Effect.promise(() => (proc.kill("SIGKILL"), proc.exited)),
+    }),
+    realTime,
+  );
 
 /**
  * How long a `via` gets to start listening, or a command to finish: well within
@@ -105,8 +114,8 @@ export const runVia = (
 
 /**
  * Starts `via serve` in a subprocess that lives as long as the test's scope, and
- * succeeds with the URL it announces once it listens; `output`, which waits for
- * a line of its stdout containing `text`; and `stop`, which stops it and
+ * succeeds with the URL it announces once it listens; `output`, which waits up
+ * to `PROCESS_LIMIT` for a line of its stdout containing `text`; and `stop`, which stops it and
  * succeeds with everything it wrote to stderr.
  */
 export const startVia = (
@@ -120,28 +129,55 @@ export const startVia = (
       kill,
     );
 
-    const stderr = readAll(proc.stderr);
+    // Both pipes are drained from the start: one left unread fills up in a long
+    // test, and via stalls writing to it.
+    const written = new Response(proc.stderr).text();
+    const stderr = Effect.promise(() => written);
 
-    const lines = proc.stdout.pipeThrough(new TextDecoderStream()).getReader();
     let stdout = "";
+    let ended = false;
+    let wrote = Promise.withResolvers<void>();
 
+    const wake = () => {
+      wrote.resolve();
+      wrote = Promise.withResolvers<void>();
+    };
+
+    const end = () => {
+      ended = true;
+      wake();
+    };
+
+    void proc.stdout
+      .pipeThrough(new TextDecoderStream())
+      .pipeTo(
+        new WritableStream({
+          write: (chunk) => {
+            stdout += chunk;
+            wake();
+          },
+        }),
+      )
+      .then(end, end);
+
+    /** Waits until `found` finds something in stdout, or stdout ends. */
     const readUntil = (found: () => string | undefined) =>
       Effect.gen(function* () {
         for (;;) {
           const seen = found();
 
           if (seen !== undefined) return seen;
-          const chunk = yield* Effect.promise(() => lines.read());
 
-          if (chunk.done) return undefined;
-          stdout += chunk.value;
+          if (ended) return undefined;
+          const next = wrote.promise;
+          yield* Effect.promise(() => next);
         }
       });
 
     const url = yield* readUntil(() => /Listening on (\S+)/.exec(stdout)?.[1]).pipe(
       Effect.filterOrElse(Predicate.isNotUndefined, () =>
-        Effect.flatMap(stderr, (written) =>
-          Effect.die(new Error(`via serve exited before listening:\n${written}`)),
+        Effect.flatMap(stderr, (text) =>
+          Effect.die(new Error(`via serve exited before listening:\n${text}`)),
         ),
       ),
       // Fail a via that never starts listening here, not at the test timeout.
@@ -160,7 +196,19 @@ export const startVia = (
           .split("\n")
           .slice(0, -1)
           .find((line) => line.includes(text)),
-      ).pipe(Effect.map((line) => line ?? ""));
+      ).pipe(
+        Effect.map((line) => line ?? ""),
+        Effect.timeoutOrElse({
+          duration: PROCESS_LIMIT,
+          orElse: () =>
+            Effect.die(
+              new Error(
+                `via serve wrote no line containing ${JSON.stringify(text)} in ${PROCESS_LIMIT}:\n${stdout}`,
+              ),
+            ),
+        }),
+        realTime,
+      );
 
     const stop = Effect.andThen(kill(proc), stderr);
 
