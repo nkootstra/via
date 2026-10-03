@@ -39,14 +39,14 @@ layer(BunFileSystem.layer)("Providers.check", (it) => {
     Effect.gen(function* () {
       const fake = yield* startFakeProvider;
       const local = { local: { baseUrl: fake.url } };
-      expect(yield* check("local", local)).toBe("Could not reach local: HTTP 500");
+      expect(yield* check("local", local)).toBe("local isn't available: it answered HTTP 500");
     }),
   );
 
   it.effect("says when nothing answers at a provider's address", () =>
     Effect.gen(function* () {
       const local = { local: { baseUrl: "http://127.0.0.1:1" } };
-      expect(yield* check("local", local)).toBe("Could not reach local: it could not be reached");
+      expect(yield* check("local", local)).toBe("local isn't available: it could not be reached");
     }),
   );
 
@@ -70,7 +70,7 @@ layer(BunFileSystem.layer)("Providers.check", (it) => {
       fake.models(["nimble"]);
       const configs = { ollama: { baseUrl: `${fake.url}/v1` } };
       expect(yield* check("ollama", configs)).toBe(
-        "Could not reach ollama: what answered there isn't Ollama",
+        "ollama isn't available: what answered there isn't Ollama",
       );
       fake.ollama("0.12.0");
       expect(yield* check("ollama", configs)).toBe("available");

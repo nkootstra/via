@@ -265,7 +265,11 @@ export const AdminEvent = Schema.Union([StateEvent, HistoryEvent]);
 export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()(
   "LoginNotFoundError",
   { id: Schema.String },
-) {}
+) {
+  override get message() {
+    return "This sign-in expired or via restarted. Start it again.";
+  }
+}
 
 /** Too many logins are waiting for approval; the admin API refuses another until one ends. */
 export class TooManyLoginsError extends Schema.TaggedError<TooManyLoginsError>()(

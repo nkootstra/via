@@ -181,7 +181,7 @@ class ProviderUnreachableError extends Schema.TaggedError<ProviderUnreachableErr
   { provider: Schema.String, reason: Schema.String },
 ) {
   override get message() {
-    return `Could not reach ${this.provider}: ${this.reason}`;
+    return `${this.provider} isn't available: ${this.reason}`;
   }
 }
 
@@ -300,7 +300,24 @@ const usageOf = ({ name, client }: Provider, path: string, apiKey: Redacted.Reda
       duration: LOOKUP_TIMEOUT,
       orElse: () => Effect.fail(new ProviderTimeoutError({ provider: name })),
     }),
-    // Usage failing, for whatever reason, is reported rather than failing whoever asked.
+    // Usage failing, for whatever reason, is reported rather than failing whoever asked:
+    // in words, as a network or parser error's message is for logs.
+    // An HTTP error with a response came from an answer, such as a page, that isn't JSON.
+    Effect.catchTags({
+      HttpClientError: (error) =>
+        Effect.succeed<ProviderUsage>({
+          provider: name,
+          error:
+            error.response === undefined
+              ? `${name} couldn't be reached`
+              : `${name}'s usage answer couldn't be read`,
+        }),
+      SchemaError: () =>
+        Effect.succeed<ProviderUsage>({
+          provider: name,
+          error: `${name}'s usage answer couldn't be read`,
+        }),
+    }),
     Effect.catch((error) =>
       Effect.succeed<ProviderUsage>({ provider: name, error: error.message }),
     ),
@@ -328,7 +345,7 @@ const probe = (provider: Provider, path: string) => {
             return yield* new ProviderKeyRefusedError({ provider: provider.name, status });
           }
 
-          if (status !== 200) return yield* down(`HTTP ${status}`);
+          if (status !== 200) return yield* down(`it answered HTTP ${status}`);
         }),
       ),
     );
@@ -386,25 +403,43 @@ const OpenrouterKeyInfo = Schema.Struct({
   }),
 });
 
+const unreadableBudget = "OpenRouter answered with a key budget via can't read";
+
 /** The budget of `provider`'s key, as OpenRouter tells it, or why it couldn't be read. */
 const budgetFrom = (provider: Provider) =>
   keyed(provider.client, provider.apiKey)
     .get("/key")
     .pipe(
-      Effect.flatMap(HttpClientResponse.filterStatusOk),
-      Effect.flatMap(HttpClientResponse.schemaBodyJson(OpenrouterKeyInfo)),
-      Effect.timeout(LOOKUP_TIMEOUT),
-      Effect.flatMap(({ data }) =>
-        Effect.map(Clock.currentTimeMillis, (now) => ({ budget: budgetOf(data, now) })),
+      Effect.flatMap((response) =>
+        Effect.gen(function* () {
+          if (response.status === 401 || response.status === 403) {
+            return { error: `OpenRouter refused its key (HTTP ${response.status})` };
+          }
+
+          if (response.status !== 200) {
+            return { error: `OpenRouter didn't tell the key's budget (HTTP ${response.status})` };
+          }
+
+          const { data } = yield* HttpClientResponse.schemaBodyJson(OpenrouterKeyInfo)(response);
+
+          return { budget: budgetOf(data, yield* Clock.currentTimeMillis) };
+        }),
       ),
-      // A budget that can't be read is reported, not a failure: the card says why.
-      Effect.catchTags({
-        SchemaError: () =>
-          Effect.succeed({ error: "OpenRouter answered with a key budget via can't read" }),
+      // A budget that can't be read is reported, not a failure: the card says why, in words.
+      Effect.timeoutOrElse({
+        duration: LOOKUP_TIMEOUT,
+        orElse: () =>
+          Effect.succeed({ error: `OpenRouter gave ${unansweredWithin(LOOKUP_TIMEOUT)}` }),
       }),
-      Effect.catch((error) =>
-        Effect.succeed({ error: `OpenRouter didn't tell the key's budget: ${error.message}` }),
-      ),
+      // An HTTP error with a response came from an answer, such as a page, that isn't JSON.
+      Effect.catchTags({
+        HttpClientError: (error) =>
+          Effect.succeed({
+            error:
+              error.response === undefined ? "OpenRouter couldn't be reached" : unreadableBudget,
+          }),
+        SchemaError: () => Effect.succeed({ error: unreadableBudget }),
+      }),
     );
 
 /** Every model OpenRouter lists, to pick which via offers. */
@@ -660,7 +695,7 @@ const make = (
         }
 
         if (status !== 200)
-          return yield* new OpencodeGoUnavailableError({ reason: `HTTP ${status}` });
+          return yield* new OpencodeGoUnavailableError({ reason: `it answered HTTP ${status}` });
       }),
       check: (name) =>
         Effect.suspend(() => {

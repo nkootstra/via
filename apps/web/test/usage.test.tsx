@@ -174,6 +174,21 @@ describe("the usage page", () => {
     ).toBe("rate_limit_exceeded");
   });
 
+  it.each([
+    ["invalid_api_key", "Wrong key"],
+    ["model_not_found", "Model not enabled"],
+    ["upstream_unreadable", "Unreadable"],
+    ["upstream_incomplete", "Broke off"],
+  ])("names via's own %s in words, with the code as its title", async (code, name) => {
+    renderApp("/usage", {
+      ...seed,
+      historyRequests: [request({ requestId: code, status: 502, error: Option.some(code) })],
+    });
+
+    const log = await screen.findByRole("table", { name: "Requests" });
+    expect(within(log).getByText(name).getAttribute("title")).toBe(code);
+  });
+
   it("says why a request failed, in the upstream's or via's own words", async () => {
     renderApp("/usage", {
       ...seed,

@@ -67,7 +67,9 @@ layer(Layer.mergeAll(BunFileSystem.layer, FetchHttpClient.layer))("via providers
       const { via } = yield* setup;
       const saved = yield* via(["providers", "openrouter", "set-key"], "");
       expect(saved.exitCode).toBe(1);
-      expect(saved.stderr).toBe("error: No OpenRouter API key was given\n");
+      expect(saved.stderr).toBe(
+        "error: No OpenRouter API key was given: type it at the prompt, or pipe it in on standard input\n",
+      );
     }),
   );
 

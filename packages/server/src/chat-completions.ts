@@ -1,6 +1,6 @@
 import { ChatRequest, toResponsesRequest } from "@via/translate";
 import { Providers } from "@via/providers";
-import { Effect, Option, Schema } from "effect";
+import { Effect, Option, Result, Schema } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
 import { authenticated } from "./authenticated.ts";
 import { asOpenAiError, dispatch, modelOf } from "./dispatch.ts";
@@ -12,7 +12,15 @@ import { withSharedPrefix } from "./shared-prefix.ts";
 
 const decodeChat = Schema.decodeUnknownEffect(ChatRequest);
 
-const invalid = openAiError(400, "invalid_request", "The request is not a valid chat completion");
+const notAnObject = openAiError(400, "invalid_request", "The request body is not a JSON object");
+
+/** A chat request via can't read, refused with what is wrong with it, for the client to fix. */
+const unreadable = (error: Schema.SchemaError) =>
+  openAiError(
+    400,
+    "invalid_request",
+    `The request isn't a chat completion via can read: ${error.message}`,
+  );
 
 /**
  * POST /v1/chat/completions: Chat Completions, translated to and from Responses
@@ -22,7 +30,7 @@ export const chatCompletions = authenticated(
   Effect.gen(function* () {
     const json = yield* HttpServerRequest.schemaBodyJson(Schema.JsonObject).pipe(Effect.option);
 
-    if (Option.isNone(json)) return yield* invalid;
+    if (Option.isNone(json)) return yield* notAnObject;
 
     const body = withSharedPrefix(json.value);
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
@@ -32,18 +40,18 @@ export const chatCompletions = authenticated(
     if (Option.isSome(route))
       return yield* forward(route.value, "/chat/completions", body, session, headers);
 
-    const chat = yield* decodeChat(body).pipe(Effect.option);
+    const chat = yield* decodeChat(body).pipe(Effect.result);
 
-    if (Option.isNone(chat)) return yield* invalid;
+    if (Result.isFailure(chat)) return yield* unreadable(chat.failure);
 
-    const responses = toResponsesRequest(chat.value);
+    const responses = toResponsesRequest(chat.success);
     // Codex sends reasoning summaries, the chat answer's reasoning content, only when asked.
     const reasoning = { ...responses.reasoning, summary: "auto" };
 
     return yield* dispatch(
       { ...responses, reasoning },
       session,
-      (upstream, failed) => chatFromResponses(upstream, chat.value, failed),
+      (upstream, failed) => chatFromResponses(upstream, chat.success, failed),
       // A chat client speaks OpenAI's API, not Codex's: it reads OpenAI's errors.
       asOpenAiError,
     );

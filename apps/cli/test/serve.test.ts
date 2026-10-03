@@ -285,7 +285,7 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       yield* writeConfig(home, "port: nope\n");
       const result = yield* runVia(home, ["serve"]);
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("Invalid config");
+      expect(result.stderr).toMatch(/config\.yaml has a problem: /);
     }),
   );
 

@@ -23,6 +23,8 @@ const MAX_AGE = Duration.minutes(1);
 /** How many accounts a refresh asks ChatGPT, or OpenCode Go, about at once. */
 const CONCURRENCY = 4;
 
+const unreadableUsage = "ChatGPT's usage answer couldn't be read";
+
 /** What ChatGPT last said about an account's usage, or why it could not say, and when. */
 export type AccountUsageSnapshot = {
   readonly account: Account;
@@ -68,6 +70,15 @@ const make = Effect.gen(function* () {
   const fetchAccount = (account: Account) =>
     accountUsage(account).pipe(
       Effect.map((windows) => ({ windows })),
+      // The page shows why in words: a network or parser error's message is for logs.
+      // An HTTP error with a response came from an answer, such as a page, that isn't JSON.
+      Effect.catchTags({
+        HttpClientError: (error) =>
+          Effect.succeed({
+            error: error.response === undefined ? "ChatGPT couldn't be reached" : unreadableUsage,
+          }),
+        SchemaError: () => Effect.succeed({ error: unreadableUsage }),
+      }),
       Effect.catch((error) => Effect.succeed({ error: error.message })),
       Effect.flatMap((usage) =>
         Effect.map(Clock.currentTimeMillis, (fetchedAt) => ({ account, fetchedAt, ...usage })),

@@ -103,7 +103,12 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
 
         expect(response.status).toBe(400);
         expect(yield* response.json).toMatchObject({
-          error: { type: "invalid_request_error" },
+          error: {
+            type: "invalid_request_error",
+            message: expect.stringMatching(
+              /^The request isn't a chat completion via can read: [^]*messages/,
+            ),
+          },
         });
         expect(via.upstreamRequests).toHaveLength(0);
       }),
@@ -116,7 +121,11 @@ layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
         const response = yield* via.post("/v1/chat/completions", [request]);
         expect(response.status).toBe(400);
         expect(yield* response.json).toMatchObject({
-          error: { type: "invalid_request_error", code: "invalid_request" },
+          error: {
+            type: "invalid_request_error",
+            code: "invalid_request",
+            message: "The request body is not a JSON object",
+          },
         });
         expect(via.upstreamRequests).toHaveLength(0);
       }),

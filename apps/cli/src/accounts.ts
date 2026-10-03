@@ -155,7 +155,7 @@ const providerSections = Effect.flatMap(Providers, ({ names, check }) =>
           Effect.as("available"),
           Effect.catchTags({
             ProviderKeyRefusedError: ({ status }) => Effect.succeed(`key refused (HTTP ${status})`),
-            ProviderUnreachableError: ({ reason }) => Effect.succeed(`unreachable: ${reason}`),
+            ProviderUnreachableError: ({ reason }) => Effect.succeed(`unavailable: ${reason}`),
           }),
           Effect.map((state) => ({ line: `${name}  provider  ${state}`, rows: [] })),
         ),
@@ -192,6 +192,8 @@ const opencodeGoSections = (accounts: ReadonlyArray<OpencodeGoAccount>) =>
 /** Why an account's usage is missing, in place of its windows. */
 const why = (error: { readonly message: string }) => Effect.succeed([`  ${error.message}`]);
 
+const unreadableUsage = "  ChatGPT's usage answer could not be read";
+
 const showUsage = Effect.fnUntraced(function* (width: number, account: Account) {
   yield* Console.log(describe(account));
 
@@ -203,8 +205,12 @@ const showUsage = Effect.fnUntraced(function* (width: number, account: Account) 
       UsageUnavailableError: why,
       AuthRequestError: why,
       // One account's usage that can't be fetched or read mustn't hide the others'.
-      HttpClientError: () => Effect.succeed(["  Could not reach ChatGPT for usage"]),
-      SchemaError: () => Effect.succeed(["  ChatGPT's usage answer could not be read"]),
+      // One with a response came from an answer, such as a page, that isn't JSON.
+      HttpClientError: (error) =>
+        Effect.succeed([
+          error.response === undefined ? "  Could not reach ChatGPT for usage" : unreadableUsage,
+        ]),
+      SchemaError: () => Effect.succeed([unreadableUsage]),
     }),
   );
 

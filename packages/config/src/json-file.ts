@@ -6,7 +6,7 @@ export class CorruptFileError extends Schema.TaggedError<CorruptFileError>()("Co
   reason: Schema.String,
 }) {
   override get message() {
-    return `Corrupt file ${this.path}: ${this.reason}`;
+    return `${this.path} can't be read: ${this.reason}. Fix it or restore it from a backup, then try again`;
   }
 }
 

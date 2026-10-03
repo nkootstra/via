@@ -122,6 +122,7 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
       yield* fs.writeFileString(file, "port: nope\n");
       const error = yield* Effect.flip(loadConfig(file));
       expect(error).toBeInstanceOf(InvalidConfigError);
+      expect(error.message.startsWith(`${file} has a problem: `)).toBe(true);
       expect(error.message).toMatch(/port/);
     }),
   );

@@ -144,7 +144,9 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       const { home, env } = yield* setup();
       const added = yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "");
       expect(added.exitCode).toBe(1);
-      expect(added.stderr).toBe("error: No OpenCode Go API key was given\n");
+      expect(added.stderr).toBe(
+        "error: No OpenCode Go API key was given: type it at the prompt, or pipe it in on standard input\n",
+      );
     }),
   );
 
@@ -297,6 +299,18 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
+  it.effect("status says ChatGPT's usage can't be read when it answers with a page, not JSON", () =>
+    Effect.gen(function* () {
+      const { via, codex } = yield* setup();
+      codex.usage("acc-123", "<html>Bad gateway</html>");
+      yield* via("accounts", "add");
+      const status = yield* via("accounts", "status");
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout).toContain("ChatGPT's usage answer could not be read");
+      expect(status.stdout).not.toContain("Could not reach ChatGPT");
+    }),
+  );
+
   it.effect(
     "status prints the account line and exits 0 when refresh hits an auth-server hiccup",
     () =>
@@ -335,7 +349,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       yield* writeConfig(home, "port: nope\n");
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(1);
-      expect(status.stderr).toMatch(/^error: Invalid config/);
+      expect(status.stderr).toMatch(/^error: .*config\.yaml has a problem: /);
     }),
   );
 
@@ -432,7 +446,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
       );
       const status = yield* via("accounts", "status");
       expect(status.exitCode).toBe(0);
-      expect(status.stdout).toMatch(/^local {2}provider {2}unreachable: HTTP 500$/m);
+      expect(status.stdout).toMatch(/^local {2}provider {2}unavailable: it answered HTTP 500$/m);
       expect(status.stdout).toMatch(/^openrouter {2}provider {2}key refused \(HTTP 401\)$/m);
     }),
   );

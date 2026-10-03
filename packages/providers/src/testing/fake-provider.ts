@@ -100,12 +100,15 @@ const Body = Schema.JsonObject;
  * `GET /models` with the models given to `models`, and `GET /usage` with `usage`,
  * at its root and under `/v1`; with `ollama`, it answers `GET /api/version` too.
  */
+/** `body` as JSON, or a string as it is. */
+const textOf = (body: Schema.Json) => (Predicate.isString(body) ? body : JSON.stringify(body));
+
 export const startFakeProvider = Effect.gen(function* () {
   const requests: Array<ProviderRequest> = [];
   let handler = unscripted;
   let modelList: ReadonlyArray<Schema.JsonObject> | undefined;
   let ollamaVersion: string | undefined;
-  const keyInfo = new Map<string, Schema.JsonObject>();
+  const keyInfo = new Map<string, Schema.JsonObject | string>();
   const modelRequests: Array<ProviderRequest> = [];
   let usageAnswer = { status: 500, body: "" };
   let usageHeld: Effect.Effect<void> = Effect.void;
@@ -218,8 +221,12 @@ export const startFakeProvider = Effect.gen(function* () {
         const request = yield* HttpServerRequest.HttpServerRequest;
         const known = keyInfo.get(request.headers["authorization"]?.replace(/^Bearer /, "") ?? "");
 
-        return known === undefined
-          ? HttpServerResponse.jsonUnsafe({ error: { code: 401 } }, { status: 401 })
+        if (known === undefined) {
+          return HttpServerResponse.jsonUnsafe({ error: { code: 401 } }, { status: 401 });
+        }
+
+        return Predicate.isString(known)
+          ? HttpServerResponse.text(known, { contentType: "application/json" })
           : HttpServerResponse.jsonUnsafe({ data: known });
       }),
     ),
@@ -243,8 +250,12 @@ export const startFakeProvider = Effect.gen(function* () {
   return {
     /** The provider's base URL, as config.yaml's `baseUrl`. */
     url: yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(Effect.provide(server)),
-    /** Answers `GET /key` sent with `apiKey` with `info`, as OpenRouter does; any other key gets 401. */
-    openrouterKey: (apiKey: string, info: Schema.JsonObject) => void keyInfo.set(apiKey, info),
+    /**
+     * Answers `GET /key` sent with `apiKey` with `info`, as OpenRouter does, or with
+     * a string as it is, such as a page that isn't JSON; any other key gets 401.
+     */
+    openrouterKey: (apiKey: string, info: Schema.JsonObject | string) =>
+      void keyInfo.set(apiKey, info),
     /** Answers `GET /api/version` as Ollama `version` does; until then, it answers 404. */
     ollama: (version: string) => void (ollamaVersion = version),
     /** Every completion request received so far, in order. */
@@ -259,12 +270,14 @@ export const startFakeProvider = Effect.gen(function* () {
     get usageRequests(): ReadonlyArray<ProviderRequest> {
       return usageRequests;
     },
-    /** Answers `GET /usage` with `body`, as OpenCode Go does; until then, it answers 500. */
-    usage: (body: Schema.Json, status = 200) =>
-      void (usageAnswer = { status, body: JSON.stringify(body) }),
+    /**
+     * Answers `GET /usage` with `body`, as OpenCode Go does, or with a string as it
+     * is, such as a page that isn't JSON; until then, it answers 500.
+     */
+    usage: (body: Schema.Json, status = 200) => void (usageAnswer = { status, body: textOf(body) }),
     /** Answers `GET /usage` sent with `apiKey` with `body`, whatever `usage` says. */
     usageFor: (apiKey: string, body: Schema.Json, status = 200) =>
-      void usageByKey.set(apiKey, { status, body: JSON.stringify(body) }),
+      void usageByKey.set(apiKey, { status, body: textOf(body) }),
     /** Answers `GET /usage` only once `held` completes, as a slow OpenCode Go does. */
     holdUsage: (held: Effect.Effect<void>) => void (usageHeld = held),
     /** Waits until at least `count` `GET /models` requests have arrived. */
