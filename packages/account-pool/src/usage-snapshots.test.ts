@@ -110,6 +110,25 @@ describe("UsageSnapshots", () => {
     ),
   );
 
+  it.effect("says in words why an answer it can't read gave no usage, not the parser's error", () =>
+    withSnapshots(({ snapshots, codex, provider }) =>
+      Effect.gen(function* () {
+        codex.usage("acc-b", { rate_limit: "full" });
+        provider.usage({ usage: "full" });
+        yield* snapshots.refresh;
+        const stored = yield* snapshots.get;
+
+        expect(stored.accounts.map((usage) => ("error" in usage ? usage.error : "ok"))).toEqual([
+          "ok",
+          "ChatGPT's usage answer couldn't be read",
+        ]);
+        expect(stored.opencodeGo.map((usage) => ("error" in usage ? usage.error : "ok"))).toEqual([
+          "opencode-go's usage answer couldn't be read",
+        ]);
+      }),
+    ),
+  );
+
   it.effect("keeps OpenRouter's budget, or why it couldn't be read, and when", () =>
     withSnapshots(({ snapshots, codex, provider }) =>
       Effect.gen(function* () {
@@ -120,7 +139,7 @@ describe("UsageSnapshots", () => {
         yield* snapshots.refresh;
         expect((yield* snapshots.get).openrouter).toEqual({
           fetchedAt: now,
-          error: expect.stringContaining("OpenRouter didn't tell the key's budget"),
+          error: "OpenRouter refused its key (HTTP 401)",
         });
 
         provider.openrouterKey("sk-or", { limit: 10, limit_remaining: 4, limit_reset: null });

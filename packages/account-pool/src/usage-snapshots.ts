@@ -67,7 +67,14 @@ const make = Effect.gen(function* () {
   /** One account's usage, now; a failure, for whatever reason, is kept as why. */
   const fetchAccount = (account: Account) =>
     accountUsage(account).pipe(
-      Effect.map((windows) => ({ windows })),
+      Effect.map((windows): { windows: ReadonlyArray<UsageWindow> } | { error: string } => ({
+        windows,
+      })),
+      // The page shows why in words: a network or parser error's message is for logs.
+      Effect.catchTags({
+        HttpClientError: () => Effect.succeed({ error: "ChatGPT couldn't be reached" }),
+        SchemaError: () => Effect.succeed({ error: "ChatGPT's usage answer couldn't be read" }),
+      }),
       Effect.catch((error) => Effect.succeed({ error: error.message })),
       Effect.flatMap((usage) =>
         Effect.map(Clock.currentTimeMillis, (fetchedAt) => ({ account, fetchedAt, ...usage })),
