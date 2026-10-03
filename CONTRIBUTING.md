@@ -14,7 +14,7 @@ Security problems go through [SECURITY.md](SECURITY.md), never a public issue.
 
 ## Setup
 
-You need [Bun](https://bun.sh) 1.4.0 (pinned in `package.json`). Node 24 is only
+You need [Bun](https://bun.sh) 1.4.2 (pinned in `package.json`). Node 24 is only
 needed for `bun run smoke`.
 
 ```sh
@@ -86,6 +86,20 @@ VIA_E2E_BIN=$PWD/npm/via-darwin-arm64/bin/via bun run --filter @via/e2e test
 
 A failed browser test leaves a trace in `apps/e2e/test-results/`; open it with
 `bunx playwright show-trace <file>`.
+
+### Model prices
+
+`packages/usage/src/price-snapshot.ts` is generated: `bun run prices:update`
+reads models.dev's table and LiteLLM's at the commit its main branch is at,
+and writes the file with the date and that commit in its header. When no price
+changed, it leaves the file as it was, header included.
+
+The [Prices workflow](.github/workflows/prices.yml) runs it every Monday and,
+when a price changed, opens a pull request from `chore/prices`. Its commit is
+made through GitHub's API, which signs it, so it shows as Verified. A pull
+request the workflow opens starts no CI: close and reopen it to run CI. It
+needs **Allow GitHub Actions to create and approve pull requests** turned on
+under **Settings → Actions → General**.
 
 ## How we work
 
@@ -191,18 +205,18 @@ This repo's `.claude/settings.json` already stops Claude Code from adding them.
 
 These checks must pass:
 
-| Check                                        | What it checks                                            |
-| -------------------------------------------- | --------------------------------------------------------- |
-| Lint & format                                | `bun run lint`, `bun run format:check` and `bun run knip` |
-| Typecheck (TS 7 + Effect diagnostics)        | `bun run typecheck`                                       |
-| Test (ubuntu-latest), Test (macos-latest)    | `bun run test`                                            |
-| Build & npm smoke test                       | The binaries build and run under Node                     |
-| Docker image                                 | The image builds for amd64 and arm64 and runs as deployed |
-| PR body keeps the required template sections | The template wasn't deleted                               |
-| PR title follows type(scope) subject         | The PR title format                                       |
-| Commits follow type(scope) subject           | Every commit subject                                      |
-| Commits are signed and verified              | Every commit shows as Verified                            |
-| Commits omit AI attribution trailers         | No bot co-authors or generator footers                    |
+| Check                                        | What it checks                                             |
+| -------------------------------------------- | ---------------------------------------------------------- |
+| Lint & format                                | `bun run lint`, `bun run format:check` and `bun run knip`  |
+| Typecheck (TS 7 + Effect diagnostics)        | `bun run typecheck`                                        |
+| Test (ubuntu-latest), Test (macos-latest)    | `bun run test`, all but `@via/e2e`                         |
+| Build & npm smoke test                       | The binaries build and run under Node, and pass `@via/e2e` |
+| Docker image                                 | The image builds for amd64 and arm64 and runs as deployed  |
+| PR body keeps the required template sections | The template wasn't deleted                                |
+| PR title follows type(scope) subject         | The PR title format                                        |
+| Commits follow type(scope) subject           | Every commit subject                                       |
+| Commits are signed and verified              | Every commit shows as Verified                             |
+| Commits omit AI attribution trailers         | No bot co-authors or generator footers                     |
 
 ## Tests in pull requests
 
@@ -220,9 +234,16 @@ If your PR adds no tests, say why in the description.
 A maintainer releases from GitHub: **Actions → Release → Run workflow** on
 `main`, choosing whether to raise the patch, minor or major version. The
 workflow checks that CI passed for that commit, then takes the latest `vX.Y.Z`
-tag and raises it (from `v0.0.0` for the first release). It publishes the
-Docker image to `ghcr.io`, runs the image smoke test against it, and tags the
-commit with a GitHub release whose notes list the merged pull requests.
+tag and raises it (from `v0.0.0` for the first release), and compiles the four
+binaries. It pushes the Docker image to `ghcr.io` by digest alone, runs the
+image smoke test against that digest, and only then gives it the version tags
+and `latest`. Last, it tags the commit with a GitHub release whose notes list
+the merged pull requests, with the binaries attached as `via-<os>-<arch>` and
+their `SHA256SUMS`. The image and the binaries get build provenance
+attestations.
+
+The npm packages aren't published yet: the release workflow has no npm
+credentials, so `npm/` is built and smoke-tested but not uploaded.
 
 That tag is the only place a version is written down. Every `package.json` in
 the repository stays at `0.0.0`: the build runs `npm/set-version.ts` to stamp

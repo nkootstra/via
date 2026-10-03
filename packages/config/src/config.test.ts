@@ -79,6 +79,7 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
           "  opencode-go/kimi-k3:",
           "    input: 0.6",
           "    cachedInput: 0.1",
+          "    cacheWrite: 0.75",
           "    output: 2.5",
           "  local/llama:",
           "    input: 0",
@@ -87,7 +88,7 @@ layer(BunFileSystem.layer)("loadConfig", (it) => {
         ].join("\n"),
       );
       expect((yield* loadConfig(file)).prices).toEqual({
-        "opencode-go/kimi-k3": { input: 0.6, cachedInput: 0.1, output: 2.5 },
+        "opencode-go/kimi-k3": { input: 0.6, cachedInput: 0.1, cacheWrite: 0.75, output: 2.5 },
         "local/llama": { input: 0, output: 0 },
       });
     }),

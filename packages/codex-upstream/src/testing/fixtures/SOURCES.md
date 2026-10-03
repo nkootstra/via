@@ -142,6 +142,15 @@ substitutions for `"code"`: `credit_balance_exhausted`,
   from `codex-rs/core/tests/suite/retry_after.rs`, function
   `responses_http_uses_retry_after`, lines 288-290.
   (commit `282cd7b019378746cb87bd91a95d8b4bcae12aa3`)
+- `cloudflare_blocked_403`: **VERBATIM** header (`cf-ray: ray-id`) and
+  HTML body from `codex-rs/codex-api/src/api_bridge_tests.rs`, function
+  `map_api_error_maps_cloudflare_blocked_response_to_user_message`, lines
+  164-175. The body is a string, not JSON.
+  (commit `6ba4bf9e647cf8bc17eb9005af5ca9498bd7e654`)
+- `misalignment_policy_violation_403`: **VERBATIM** body from the same file,
+  function `assert_misalignment_policy_violation_from_http_body`, lines
+  353-361, which codex runs with both 400 and 403; this is the 403 one. No
+  headers. (commit `6ba4bf9e647cf8bc17eb9005af5ca9498bd7e654`)
 - `internal_server_error_500`: **INFERRED.** `map_api_error` in
   `codex-rs/codex-api/src/api_bridge.rs` line 174-175 maps _any_ HTTP 500 to
   `CodexErr::InternalServerError` purely on status code — it never parses
@@ -149,6 +158,23 @@ substitutions for `"code"`: `credit_balance_exhausted`,
   transcribe. The body here is a generic placeholder OpenAI-style error
   envelope for completeness; its field values are not verified against any
   source and are not read by codex or by via's classifier either.
+
+## Reset headers and `resets_in_seconds` (in rejection.test.ts)
+
+Not a fixture file: `rejection.test.ts` uses these inline.
+
+- `x-codex-primary-reset-at: 1704069000` and
+  `x-codex-secondary-reset-at: 1704074400` (epoch seconds), with the
+  `x-codex-*-used-percent` headers, are **VERBATIM** from
+  `codex-rs/core/tests/suite/client.rs`, function
+  `token_count_includes_rate_limits_snapshot`, lines 3367-3373
+  (commit `c73775f19ef05b40dcb17da4fc5506960c52fe7c`). Codex reads them as
+  `{prefix}-primary-reset-at` / `{prefix}-secondary-reset-at` in
+  `codex-rs/codex-api/src/rate_limits.rs`.
+- `resets_in_seconds: 1234` next to `resets_at` in a `usage_limit_reached`
+  error is **VERBATIM** from `codex-rs/core/tests/suite/client_websockets.rs`,
+  function `responses_websocket_usage_limit_error_emits_rate_limit_event`,
+  lines 1758-1778 (commit `3f4668da20a56907f0a8c546c8cffa16e5e03f28`).
 
 ## usage.json
 

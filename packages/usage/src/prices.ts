@@ -83,13 +83,19 @@ export const costOf = (models: ReadonlyArray<ModelUsage>, prices: PriceBook): Co
       continue;
     }
 
-    const { input, cachedInput = input, output } = price.value;
-    // Cached tokens are part of the input; an upstream reporting more is not taken at its word.
+    const { input, cachedInput = input, cacheWrite = input, output } = price.value;
+    // Tokens read from and written to the cache are part of the input; an upstream reporting
+    // more is not taken at its word.
     const cached = Math.min(unbilled.cachedTokens, unbilled.inputTokens);
-    const uncached = unbilled.inputTokens - cached;
+    const written = Math.min(unbilled.cacheWriteTokens, unbilled.inputTokens - cached);
+    const uncached = unbilled.inputTokens - cached - written;
 
     apiEquivalentUsd +=
-      (uncached * input + cached * cachedInput + unbilled.outputTokens * output) / PER_MILLION;
+      (uncached * input +
+        cached * cachedInput +
+        written * cacheWrite +
+        unbilled.outputTokens * output) /
+      PER_MILLION;
   }
 
   return { apiEquivalentUsd, billedUsd, unpriced: [...unpriced] };

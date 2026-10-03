@@ -3,7 +3,7 @@ import { CodexUpstream } from "@via/codex-upstream";
 import { pollable, PoolStates, retryAfter, select } from "@via/pool";
 import { Clock, Context, Effect, Layer, Option } from "effect";
 
-/** How long an auth-server hiccup keeps an account out of rotation. */
+/** How long an auth-server hiccup, or a token file via can't use, keeps an account out of rotation. */
 const AUTH_HICCUP_MS = 60_000;
 
 const make = Effect.gen(function* () {
@@ -36,9 +36,18 @@ const make = Effect.gen(function* () {
       yield* Effect.logWarning(`${account.label} is locked out until it logs in again (${reason})`);
     });
 
+  /** Cools `account` down for a minute for `reason`. */
+  const rest = (account: Account, reason: string) =>
+    Clock.currentTimeMillis.pipe(
+      Effect.flatMap((now) => coolDown(account, now + AUTH_HICCUP_MS, reason)),
+      Effect.as(Option.none<Account>()),
+    );
+
   /**
    * Runs a refresh of `account`'s token, none when it fails: a dead refresh token
-   * locks the account out; an auth-server hiccup cools it down for a minute.
+   * locks the account out; an auth-server hiccup, or a token file busy, corrupt
+   * or unreadable, cools it down for a minute; an account removed meanwhile is
+   * just skipped.
    */
   const setAsideOnFailedRefresh =
     (account: Account) => (refresh: ReturnType<AccountTokens["Service"]["fresh"]>) =>
@@ -47,12 +56,18 @@ const make = Effect.gen(function* () {
         Effect.catchTags({
           RefreshRejectedError: (error) =>
             Effect.as(lockOut(account, error.code), Option.none<Account>()),
-          AuthRequestError: () =>
-            Clock.currentTimeMillis.pipe(
-              Effect.flatMap((now) => coolDown(account, now + AUTH_HICCUP_MS, "auth_unavailable")),
-              Effect.as(Option.none<Account>()),
+          AuthRequestError: () => rest(account, "auth_unavailable"),
+          AccountNotFoundError: () =>
+            Effect.as(
+              Effect.logWarning(`Skipping ${account.label}: it was removed`),
+              Option.none<Account>(),
             ),
         }),
+        Effect.catchTag(["FileLockTimeoutError", "CorruptFileError", "PlatformError"], (error) =>
+          Effect.logWarning(`Could not refresh ${account.label}'s token: ${error.message}`).pipe(
+            Effect.andThen(rest(account, "token_unavailable")),
+          ),
+        ),
       );
 
   /** The account with an access token fresh enough to send; none when refreshing fails. */
@@ -71,14 +86,19 @@ const make = Effect.gen(function* () {
    */
   const next = (allowed: (accountId: string) => boolean, preferred: Option.Option<string>) =>
     Effect.gen(function* () {
+      // Accounts set aside without a cooldown, such as one removed meanwhile: not chosen again.
+      const skipped = new Set<string>();
+      const candidate = (accountId: string) => allowed(accountId) && !skipped.has(accountId);
+
       while (true) {
         const now = yield* Clock.currentTimeMillis;
-        const chosen = select(yield* accountsAllowed(allowed), yield* states.get, now, preferred);
+        const chosen = select(yield* accountsAllowed(candidate), yield* states.get, now, preferred);
 
         if (Option.isNone(chosen)) return Option.none<Account>();
         const fresh = yield* withFreshToken(chosen.value);
 
         if (Option.isSome(fresh)) return fresh;
+        skipped.add(chosen.value.id);
       }
     });
 

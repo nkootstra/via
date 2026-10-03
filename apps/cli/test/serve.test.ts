@@ -444,6 +444,25 @@ layer(BunFileSystem.layer)("via serve", (it) => {
     }),
   );
 
+  it.effect("sends upstreams no trace headers when OTEL_SDK_DISABLED is true", () =>
+    Effect.gen(function* () {
+      const { home, key, env, codex } = yield* loggedIn;
+      const collector = yield* startCollector;
+
+      const url = yield* serveVia(home, ["--port", "0"], {
+        ...env,
+        OTEL_EXPORTER_OTLP_ENDPOINT: collector.url,
+        OTEL_SDK_DISABLED: "true",
+      });
+
+      expect((yield* postResponses(url, key)).status).toBe(200);
+      const headers = responsesOf(codex)[0]?.headers;
+      expect(headers).toBeDefined();
+      expect(headers).not.toHaveProperty("traceparent");
+      expect(headers).not.toHaveProperty("b3");
+    }),
+  );
+
   it.effect(
     "forwards a provider's model with the API key from the variable config.yaml names",
     () =>

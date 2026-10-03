@@ -99,6 +99,29 @@ layer(BunFileSystem.layer)("admin API, OpenRouter", (it) => {
     ),
   );
 
+  it.effect("lists a model whose price varies or is blank as unpriced, not at a made-up one", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.openrouterKey(apiKey, { label: "sk-or-v1-abc...", usage: 0, limit: null });
+          via.provider.models([
+            // OpenRouter's router costs what the model it picks does, which it writes as -1.
+            { id: "openrouter/auto", pricing: { prompt: "-1", completion: "-1" } },
+            { id: "acme/blank", pricing: { prompt: "", completion: " " } },
+          ]);
+          yield* via.put("/admin/openrouter/key", { apiKey }, adminKey);
+          const catalog = yield* via.get("/admin/openrouter/catalog", adminKey);
+
+          expect(yield* catalog.json).toMatchObject([
+            { id: "openrouter/auto", inputPerMillion: null, outputPerMillion: null },
+            { id: "acme/blank", inputPerMillion: null, outputPerMillion: null },
+          ]);
+        }),
+      options,
+    ),
+  );
+
   it.effect("offers only the models enabled, and refuses the rest by name", () =>
     withVia(
       ok,

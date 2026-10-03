@@ -7,8 +7,10 @@ ARG TARGETARCH
 # The release workflow passes the version it tags; `via --version` prints it.
 ARG VERSION=0.0.0
 WORKDIR /src
-COPY . .
+# The manifests and lockfile alone first, so a source change reuses the installed dependencies.
+COPY --parents package.json bun.lock apps/*/package.json packages/*/package.json npm/package.json ./
 RUN bun install --frozen-lockfile --ignore-scripts
+COPY . .
 RUN bun npm/set-version.ts "$VERSION"
 # The admin UI, which the binary embeds from apps/web/dist.
 RUN bun run --cwd apps/web build

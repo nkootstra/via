@@ -236,6 +236,27 @@ layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
     ),
   );
 
+  it.effect("locks out an account that is forbidden and fails over", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(
+            providerReply.byKey({
+              "sk-go-1": providerReply.json({ error: { message: "account suspended" } }, 403),
+              "sk-go-2": served("two"),
+            }),
+          );
+
+          expect(yield* (yield* ask(via, "first")).json).toEqual({ id: "two" });
+          yield* TestClock.adjust("1 day");
+          expect(yield* (yield* ask(via, "second")).json).toEqual({ id: "two" });
+          expect(keysUsed(via)).toEqual(["sk-go-1", "sk-go-2", "sk-go-2"]);
+        }),
+      keys,
+    ),
+  );
+
   it.effect("passes any other error through without failing over", () =>
     withVia(
       ok,

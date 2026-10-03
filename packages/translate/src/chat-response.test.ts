@@ -53,6 +53,35 @@ describe("toChatCompletion", () => {
     });
   });
 
+  it("puts the reasoning summaries in reasoning content, a blank line between parts", () => {
+    const completion = translate({
+      id: "resp_1",
+      created_at: 1_700_000_000,
+      model: "gpt-6-astra",
+      output: [
+        {
+          type: "reasoning",
+          id: "rs_1",
+          summary: [
+            { type: "summary_text", text: "Weighing it" },
+            { type: "summary_text", text: "" },
+            { type: "summary_text", text: "Decided" },
+          ],
+          encrypted_content: "gAAA",
+        },
+        { type: "reasoning", id: "rs_2", summary: [{ type: "summary_text", text: "Again" }] },
+        { type: "message", content: [{ type: "output_text", text: "Hi" }] },
+      ],
+      usage,
+    });
+
+    expect(completion.choices[0]?.message).toEqual({
+      role: "assistant",
+      content: "Hi",
+      reasoning_content: "Weighing it\n\nDecided\n\nAgain",
+    });
+  });
+
   it("puts a refusal in the message's refusal, with no content", () => {
     const completion = translate({
       id: "resp_1",
@@ -143,6 +172,22 @@ describe("toChatCompletion", () => {
       prompt_tokens_details: { cached_tokens: 8 },
       completion_tokens_details: { reasoning_tokens: 2 },
     });
+  });
+
+  it.each([
+    { case: "leaves it out", reported: {} },
+    { case: "sends null", reported: { usage: null } },
+  ])("answers with no usage when Codex $case", ({ reported }) => {
+    const completion = translate({
+      id: "resp_1",
+      created_at: 1_700_000_000,
+      model: "gpt-6-astra",
+      output: [{ type: "message", content: [{ type: "output_text", text: "Hello" }] }],
+      ...reported,
+    });
+
+    expect(completion.choices[0]).toMatchObject({ message: { content: "Hello" } });
+    expect(completion).not.toHaveProperty("usage");
   });
 
   it("leaves out the token details Codex did not send", () => {

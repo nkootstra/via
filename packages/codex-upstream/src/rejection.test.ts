@@ -23,6 +23,66 @@ describe("readRejection", () => {
       Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: RESETS_AT_SECONDS * 1000 }),
     ],
     [
+      "resets_at wins over resets_in_seconds",
+      429,
+      {},
+      codexError({
+        type: "usage_limit_reached",
+        resets_at: RESETS_AT_SECONDS,
+        resets_in_seconds: 1234,
+      }),
+      Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: RESETS_AT_SECONDS * 1000 }),
+    ],
+    [
+      "resets_in_seconds counts from now",
+      429,
+      {},
+      codexError({ type: "usage_limit_reached", resets_in_seconds: 1234 }),
+      Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: NOW + 1_234_000 }),
+    ],
+    [
+      // Header names and values as in codex's token_count_includes_rate_limits_snapshot.
+      "without a reset in the body, the used-up window's reset header",
+      429,
+      {
+        "x-codex-primary-used-percent": "100.0",
+        "x-codex-secondary-used-percent": "40.0",
+        "x-codex-primary-reset-at": "1704069000",
+        "x-codex-secondary-reset-at": "1704074400",
+      },
+      codexError({ type: "usage_limit_reached" }),
+      Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: 1_704_069_000_000 }),
+    ],
+    [
+      "the later reset when both windows are used up",
+      429,
+      {
+        "x-codex-primary-used-percent": "100.0",
+        "x-codex-secondary-used-percent": "100.0",
+        "x-codex-primary-reset-at": "1704069000",
+        "x-codex-secondary-reset-at": "1704074400",
+      },
+      "",
+      Rejection.Exhausted({ reason: "rate_limited", resetsAt: 1_704_074_400_000 }),
+    ],
+    [
+      "no reset header for a window that isn't used up",
+      429,
+      {
+        "x-codex-primary-used-percent": "12.5",
+        "x-codex-primary-reset-at": "1704069000",
+      },
+      "",
+      Rejection.Exhausted({ reason: "rate_limited" }),
+    ],
+    [
+      "the body's reset wins over the headers'",
+      429,
+      { "x-codex-primary-used-percent": "100.0", "x-codex-primary-reset-at": "1704069000" },
+      codexError({ type: "usage_limit_reached", resets_at: RESETS_AT_SECONDS }),
+      Rejection.Exhausted({ reason: "usage_limit_reached", resetsAt: RESETS_AT_SECONDS * 1000 }),
+    ],
+    [
       "Retry-After comes along in milliseconds",
       429,
       { "retry-after": "7200" },
@@ -126,6 +186,27 @@ describe("readRejection", () => {
     ],
     ["a 401 refuses the token", 401, {}, "", Rejection.Unauthorized()],
     [
+      "a 403 bars the account",
+      403,
+      {},
+      codexError({ code: "account_deactivated", message: "deactivated" }),
+      Rejection.Forbidden({ reason: "account_deactivated" }),
+    ],
+    [
+      "a 403 with no error code bars the account",
+      403,
+      {},
+      "<html><body>Just a moment...</body></html>",
+      Rejection.Forbidden({ reason: "forbidden" }),
+    ],
+    [
+      "a 403 for a misalignment policy violation is the request's fault",
+      403,
+      {},
+      codexError({ type: "invalid_request_error", code: "misalignment_policy_violation" }),
+      Rejection.Invalid(),
+    ],
+    [
       "any other client error is the request's fault",
       400,
       {},
@@ -153,7 +234,7 @@ describe("readRejection", () => {
   });
 
   it.prop(
-    "a quota code or 429 outranks a 5xx or overload, which outranks a 401",
+    "a quota code or 429 outranks a 5xx or overload, which outranks a 401 or 403",
     { failure: Arbitrary.schema(Failure) },
     ({ failure: { status, code } }) => {
       const body = code === "none" ? "" : codexError({ code });
@@ -166,7 +247,9 @@ describe("readRejection", () => {
             ? Rejection.Unavailable({ reason: named ?? `upstream_${status}` })
             : status === 401
               ? Rejection.Unauthorized()
-              : Rejection.Invalid();
+              : status === 403
+                ? Rejection.Forbidden({ reason: named ?? "forbidden" })
+                : Rejection.Invalid();
 
       expect(readRejection(status, {}, body, NOW)).toEqual(expected);
     },

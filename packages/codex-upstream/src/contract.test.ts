@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Rejection } from "@via/pool";
-import { Effect, Stream } from "effect";
+import { Effect, Predicate, Stream } from "effect";
 import { collectResponse, UpstreamFailedError } from "./index.ts";
 import { readRejection } from "./rejection.ts";
 import { codexErrorFixture, codexFixture } from "./testing/fixtures.ts";
@@ -106,7 +106,8 @@ const readFixture = (name: string) =>
     readRejection(
       status,
       Object.fromEntries(Object.entries(headers).map(([key, value]) => [key.toLowerCase(), value])),
-      JSON.stringify(body),
+      // A body that isn't JSON, such as Cloudflare's HTML page, is recorded as a string.
+      Predicate.isString(body) ? body : JSON.stringify(body),
       0,
     ),
   );
@@ -123,6 +124,20 @@ layer(BunFileSystem.layer)("readRejection against codex's error fixtures", (it) 
   it.effect("reads a 401 as a refused token", () =>
     Effect.gen(function* () {
       expect(yield* readFixture("unauthorized_401")).toEqual(Rejection.Unauthorized());
+    }),
+  );
+
+  it.effect("reads Cloudflare blocking an account as a forbidden account", () =>
+    Effect.gen(function* () {
+      expect(yield* readFixture("cloudflare_blocked_403")).toEqual(
+        Rejection.Forbidden({ reason: "forbidden" }),
+      );
+    }),
+  );
+
+  it.effect("reads a 403 for a misalignment policy violation as the request's fault", () =>
+    Effect.gen(function* () {
+      expect(yield* readFixture("misalignment_policy_violation_403")).toEqual(Rejection.Invalid());
     }),
   );
 

@@ -162,8 +162,22 @@ describe("toChatCompletionFromMessage", () => {
         prompt_tokens: 40,
         completion_tokens: 5,
         total_tokens: 45,
-        prompt_tokens_details: { cached_tokens: 30 },
+        prompt_tokens_details: { cached_tokens: 30, cache_write_tokens: 0 },
       },
+    });
+  });
+
+  it("counts input written to the cache as input, and says how much it was", () => {
+    const written = {
+      ...message,
+      usage: { ...message.usage, cache_creation_input_tokens: 20 },
+    };
+
+    expect(toChatCompletionFromMessage(written, 1_700_000_000).usage).toEqual({
+      prompt_tokens: 60,
+      completion_tokens: 5,
+      total_tokens: 65,
+      prompt_tokens_details: { cached_tokens: 30, cache_write_tokens: 20 },
     });
   });
 });
@@ -258,7 +272,7 @@ describe("toChatStreamFromMessages", () => {
         prompt_tokens: 40,
         completion_tokens: 5,
         total_tokens: 45,
-        prompt_tokens_details: { cached_tokens: 30 },
+        prompt_tokens_details: { cached_tokens: 30, cache_write_tokens: 0 },
       };
 
       expect(last.at(-1)?.usage).toEqual(usage);

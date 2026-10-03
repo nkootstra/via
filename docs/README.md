@@ -24,6 +24,13 @@ its rate limit, via moves on to the next (see
 
 > **Status:** early (`0.x`). Commands and file formats may still change before 1.0.
 
+> **Risk:** pooling ChatGPT subscriptions through the Codex backend may break
+> OpenAI's terms of use, and OpenAI could limit or ban the accounts. By default
+> via presents itself to Codex as the Codex CLI; set `codex.cloak: false` in
+> [`config.yaml`](#configuration) to send its own name instead. OpenCode Go's
+> terms apply to its keys too. Use only accounts you own, at your own risk (see
+> [Disclaimer](#disclaimer)).
+
 ![The web UI's Overview page: four accounts and providers, all available, with each one's limits](assets/screenshots/overview.png)
 
 A [web UI](#web-ui) at `/ui` shows the pool and manages accounts, keys and
@@ -36,13 +43,30 @@ so they run on CPUs without AVX2 too. There is no Windows build.
 
 ## Install
 
+Each [release](https://github.com/nkootstra/via/releases) attaches a
+standalone binary for each platform, `via-<os>-<arch>` (`via-darwin-arm64`,
+`via-darwin-x64`, `via-linux-arm64`, `via-linux-x64`), and a `SHA256SUMS` file.
+Download yours, check it, and put it on your `PATH`; it doesn't need Bun or
+Node to run:
+
+```sh
+curl -fLO https://github.com/nkootstra/via/releases/latest/download/via-darwin-arm64
+curl -fLO https://github.com/nkootstra/via/releases/latest/download/SHA256SUMS
+shasum -a 256 --check --ignore-missing SHA256SUMS
+chmod +x via-darwin-arm64 && mv via-darwin-arm64 /usr/local/bin/via
+```
+
+`gh attestation verify via-darwin-arm64 --repo nkootstra/via` also checks that
+the release workflow built it.
+
 Prebuilt npm packages are coming: `npm i -g @nkootstra/via` will install them.
-Until then, build from source with [Bun](https://bun.sh) 1.4:
+Or build from source with [Bun](https://bun.sh) 1.4:
 
 ```sh
 git clone https://github.com/nkootstra/via.git
 cd via
 bun install
+bun run --cwd apps/web build    # the web UI, which the binary embeds
 cd npm && bun build.ts --host
 ```
 
@@ -64,7 +88,12 @@ via keys create --name laptop
 via serve
 ```
 
-Point any OpenAI client at it:
+Point any OpenAI client at it. In another terminal, put the key `via keys create`
+printed in `VIA_KEY`:
+
+```sh
+export VIA_KEY=via_...
+```
 
 ```sh
 curl http://127.0.0.1:8317/v1/chat/completions \
@@ -149,7 +178,23 @@ with Compose or a platform with volumes. What via needs from it:
 The image is public, so the host needs no registry login. Add accounts on the
 host with `docker exec -it via via accounts add`; the
 device-code login needs no browser there. Or copy an existing `~/.config/via`
-into the volume, owned by uid 65532, with the files kept at `0600`.
+into the volume, owned by uid 65532. Stop `via serve` on your machine first,
+so `usage.db` and its `-wal` file are copied as one, and then stop the
+container, as the image has no shell to copy with:
+
+```sh
+docker stop via
+docker run --rm -v ~/.config/via:/from:ro -v via-data:/data alpine \
+  sh -c 'cp -a /from/. /data/ && chown -R 65532:65532 /data'
+docker start via
+```
+
+That's for Docker on the same machine, such as Docker Desktop on a Mac. For a
+remote host, copy the folder there first, as with
+`scp -rp ~/.config/via host:via-home`, and mount `~/via-home` there instead.
+`cp -a` keeps the files at `0600`. Stop the via you copied from for good
+afterwards: two vias refreshing the same accounts log each other out (see
+above).
 
 ## API
 
@@ -172,6 +217,22 @@ them: `temperature`, `top_p`, `max_tokens`, `max_completion_tokens` and
 `max_output_tokens`, as well as `user`, `metadata`, `previous_response_id` and
 `context_management`.
 A refusal comes back as the chat message's `refusal`, as OpenAI sends it.
+
+A Chat Completions request to Codex is translated as OpenAI would read it:
+
+- A function tool that leaves out `strict` isn't strict, as in Chat
+  Completions, where the Responses API would make it strict.
+- via asks Codex for reasoning summaries, and they come back as the message's
+  `reasoning_content`, streamed as `reasoning_content` deltas, with a blank line
+  between summary parts. Codex's encrypted reasoning isn't handed to the
+  client, as Chat Completions has no field for a client to send it back in.
+- A response Codex completes without reporting usage still finishes; the
+  answer then has no `usage`, and a stream no usage chunk.
+- A request Codex refuses gets OpenAI's error,
+  `{"error":{"message","type","code"}}`, with Codex's status, message and code.
+  When Codex's answer isn't readable, such as an HTML page, the message says
+  only that Codex refused the request. `/v1/responses` passes Codex's refusal
+  on as Codex sent it.
 
 via's server never closes a connection as idle, so an answer that goes quiet
 while the model works still reaches the client, streamed or not. A streamed
@@ -213,7 +274,8 @@ the list as it starts and answers from it at once; once it is five minutes old,
 via fetches a new one in the background for the next request. Disabling,
 enabling, adding or removing an account, or one being locked out, changes the
 list at once. When Codex can't be asked, it lists the models via knows:
-`gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna`.
+`gpt-6-astra`, `gpt-6-sol` and `gpt-6-luna`, logs a warning, and asks again
+no sooner than a minute later; meanwhile any account may serve any model.
 
 Add an effort suffix to a model id to pick the reasoning effort, as in
 `gpt-6-astra-high`. The list shows each model with the suffixes it supports,
@@ -553,6 +615,11 @@ The page is the admin key's reach in a browser, so give it the same care:
 
 `<account>` matches an account's id, label or email.
 
+A running `via serve` sees what these commands change from its next request
+on: a revoked key is refused and a disabled account is skipped once the command
+has finished. It keeps the accounts and keys in memory and checks each request
+whether their files changed (`stat`, no read), reading them again only then.
+
 Adding a ChatGPT account that is already in the pool signs it in again: via
 replaces its tokens and keeps its label and whether it's enabled, rather than
 adding it twice. Adding an OpenCode Go key via already has is refused.
@@ -581,11 +648,14 @@ first; a key it refuses is taken out of use at its first request. `list` and
 - A rate-limit or usage-limit answer puts that account on a cooldown until the
   reset time the upstream gives or its `Retry-After` (seconds or a date),
   whichever is later, or 30 minutes if it gives neither, and via retries
-  on the next account. Codex sometimes starts a response and then fails it with
-  a rate or usage limit (`response.failed`); that counts the same. A client that
-  isn't streaming gets its answer from the next account; a streaming client has
-  already been sent the start of the response, so it gets the failure, and the
-  next request goes to the next account.
+  on the next account. Codex's reset time is the error's `resets_at`, else its
+  `resets_in_seconds`, else the `x-codex-primary-reset-at` or
+  `x-codex-secondary-reset-at` header of the window that is used up. Codex
+  sometimes starts a response and then fails it with a rate or usage limit
+  (`response.failed`); that counts the same. A client that isn't streaming
+  gets its answer from the next account; a streaming client has already been
+  sent the start of the response, so it gets the failure, and the next request
+  goes to the next account.
 - A server error (5xx) or an overloaded Codex is an outage, not the account's
   fault: via cools no account down and doesn't try the others, which would
   meet the same outage. The client gets `503` if Codex is overloaded, else
@@ -595,10 +665,16 @@ first; a key it refuses is taken out of use at its first request. `list` and
   from the web UI's **Add account** and it's back in rotation at once. With
   `via accounts add` instead, restart `via serve`: the CLI can't reach the
   running server's lockouts. A login lifts only a lockout, never a cooldown.
+- A 403 means Codex bars the account (suspended, its workspace deactivated, or
+  blocked by Cloudflare): via cools it down for 30 minutes and tries the next
+  one. A 403 for a request Codex's policy refuses
+  (`misalignment_policy_violation`) goes back to the client as-is.
 - A Codex backend via can't reach at all answers `502` without trying the next
   account. A token refresh that fails because the sign-in server can't be
-  reached rests that account for 1 minute, and via tries the next one; only a
-  refused refresh locks an account out.
+  reached, or because its file in `auth/` is locked by another via process,
+  corrupt or unreadable, rests that account for 1 minute, and via tries the
+  next one; an account removed meanwhile is skipped. Only a refused refresh
+  locks an account out.
 - One via process refreshes an account at a time, so `via accounts status` next
   to a running `via serve` never spends a refresh token twice. If the new
   tokens can't be saved (a full disk, say), via keeps them in memory and saves
@@ -620,8 +696,8 @@ handled as above. A key's cooldown lasts until its used-up usage window resets,
 or as long as the answer's `Retry-After` asks, whichever is later. via doesn't
 wait for the usage before trying the next key: the key rests at once for its
 `Retry-After`, or 1 minute without one, while via asks its usage in the
-background and then lengthens the cooldown to match. A key
-OpenCode Go refuses (401) is taken out of use until `via serve` restarts. via
+background and then lengthens the cooldown to match. A key OpenCode Go refuses
+or forbids (401 or 403) is taken out of use until `via serve` restarts. via
 asks OpenCode Go for each key's usage every 15 minutes too.
 
 ## Configuration
@@ -648,7 +724,7 @@ other accounts keep working. Delete it and sign that account in again.
 host: 127.0.0.1
 port: 8317
 codex:
-  # Present requests to the upstream as the official Codex CLI.
+  # Present requests to Codex as the official Codex CLI; false sends via's own name.
   cloak: true
 ```
 
@@ -661,9 +737,11 @@ The [usage history](#usage-history) prices tokens with a snapshot of two
 price tables that ships with via: [models.dev](https://models.dev) for what
 OpenCode Go charges for each of its models, and
 [LiteLLM's](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)
-for the rest. For a model neither lists, or at another price, add it under
-`prices`, in USD per million tokens. `cachedInput` is optional: cached input
-costs what input does unless it's set. A price that grows past a long context
+for the rest. The snapshot's header says on which day it was taken, and from
+which commit of LiteLLM's table. For a model neither lists, or at another price, add it under
+`prices`, in USD per million tokens. `cachedInput` and `cacheWrite` are
+optional: input read from the cache, and input written to it, cost what other
+input does unless they're set. A price that grows past a long context
 is taken at its base rate.
 
 ```yaml
@@ -671,6 +749,7 @@ prices:
   opencode-go/kimi-k3:
     input: 0.6
     cachedInput: 0.1
+    cacheWrite: 0.75
     output: 2.5
 ```
 
@@ -717,7 +796,9 @@ Add your OpenRouter API key on the Accounts page of the [web UI](#web-ui). via
 checks it with OpenRouter first, then keeps it in `openrouter.json`, and shows
 it only by its last four characters. OpenRouter lists hundreds of models, so
 none is offered until you choose some: **Choose models…** in its row lists
-them all, with OpenRouter's prices, to search and switch on. Only those show
+them all, with OpenRouter's prices, to search and switch on. A model whose
+price OpenRouter doesn't fix, such as `openrouter/auto`, which costs what the
+model it routes to does, shows "Price unknown". Only those show
 in `/v1/models`; a request for another answers `404` (`model_not_found`),
 saying to enable it. Replacing the key keeps the models chosen. It all takes
 effect at once, with no restart.
@@ -830,7 +911,9 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   answered.
 - `input_tokens` and `output_tokens` are the token counts the upstream
   reported for an answered request, and `cached_tokens` joins them when the
-  upstream reports a cache hit. `reasoning_tokens` is the part of the output
+  upstream reports a cache hit, and `cache_write_tokens` when it reports
+  input written to its cache (OpenRouter does, as do models OpenCode Go
+  serves in Messages). `reasoning_tokens` is the part of the output
   the model spent reasoning, and `cost_usd` what the upstream says it billed,
   when it reports either (OpenRouter reports its cost). Absent usage stays
   absent, never a zero.
@@ -856,7 +939,7 @@ new tokens can't be saved.
 database: when it came in, the API key's id and name, the model, the provider
 and account that served it, its status, why it failed if it did (the error
 code and message, via's own or the upstream's, the message cut to 500
-characters), its input, cached,
+characters), its input, cached, cache-write,
 output and reasoning tokens as the upstream reported them, any cost the
 upstream billed (OpenRouter reports one), and how long it took to answer and,
 for a streamed answer, to send its first chunk. It never keeps a prompt or an answer. Requests older
@@ -871,6 +954,20 @@ account served, such as one to a plain provider, counts under
 `provider:<name>` when grouped by account. All three also take filters:
 `model`, `accountId` (an account's id, or `provider:<name>`), `keyId`, and
 `outcome` (`error` for failed requests only, `ok` for the rest).
+
+`requests` answers `{"requests": [...], "next": ...}`, 50 requests a page, or
+`limit` of them (1 to 500). `next` is `null` on the last page; otherwise pass
+its `at` and `requestId` back as `afterAt` and `afterId`, with the same range
+and filters, for the page after it:
+
+```sh
+RANGE="from=1790000000000&to=1790086400000"
+curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
+  "http://127.0.0.1:8317/admin/history/requests?$RANGE&limit=100"
+# {"requests":[...],"next":{"at":1790040000000,"requestId":"<id>"}}
+curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
+  "http://127.0.0.1:8317/admin/history/requests?$RANGE&limit=100&afterAt=1790040000000&afterId=<id>"
+```
 
 Cost is worked out when you ask, from the tokens and the [model prices](#model-prices),
 so a price change applies to old requests too:
@@ -895,6 +992,117 @@ address, such as `http://localhost:4318`, and `via serve` exports a trace of
 each request it serves. The other standard variables work too:
 `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`,
 `OTEL_BSP_SCHEDULE_DELAY`, and `OTEL_SDK_DISABLED=true` to turn it off.
+
+## Upgrading
+
+[Back up](#backups) first. Until 1.0, a release may change commands and file
+formats. via upgrades `usage.db` itself when it starts, and leaves its other
+files as they are; the release notes say when you need to change something,
+such as a `config.yaml` key. An older via may not read a newer via's files, so
+a backup is how you go back.
+
+From source, pull and build again, then replace the binary on your `PATH` and
+restart `via serve`:
+
+```sh
+git pull
+bun install
+bun run --cwd apps/web build
+cd npm && bun build.ts --host
+```
+
+With Docker, pull the new image and start a new container on the same volume:
+
+```sh
+docker pull ghcr.io/nkootstra/via:latest
+docker rm -f via
+docker run -d --name via --restart unless-stopped \
+  -p 127.0.0.1:8317:8317 -v via-data:/data \
+  ghcr.io/nkootstra/via:latest
+```
+
+With Compose, `docker compose pull && docker compose up -d`. If you pinned a
+version, change the tag first.
+
+## Backups
+
+These files in via's [home](#configuration) are worth keeping:
+
+- `auth/`, `opencode-go.json` and `openrouter.json`: your accounts' tokens and
+  keys. Without them you sign every account in again.
+- `keys.json`: your API keys. Without it every client needs a new key.
+- `config.yaml`, if you wrote one, and `ollama.json`.
+- `usage.db`: the usage history.
+
+`state.json` only holds running cooldowns, so it can go.
+
+The backup holds tokens and keys in plaintext: keep it as private as the
+folder itself. A token in it goes stale: via replaces an account's refresh
+token each time it refreshes, so an account restored from an old backup may be
+locked out until you sign it in again.
+
+`usage.db` is SQLite in WAL mode: recent writes sit in `usage.db-wal` until
+SQLite moves them into `usage.db`. Copying `usage.db` alone while via runs can
+lose them or give you a damaged copy. Stop via before you copy the folder, or
+let SQLite make the copy, which is safe while via runs:
+
+```sh
+sqlite3 ~/.config/via/usage.db ".backup usage-backup.db"
+```
+
+With Docker, stop the container and archive the volume:
+
+```sh
+docker stop via
+docker run --rm -v via-data:/data:ro -v "$PWD":/backup alpine \
+  tar czf /backup/via-data.tgz -C /data .
+docker start via
+```
+
+## Uninstalling
+
+1. Stop `via serve`.
+2. Delete the binary from your `PATH`.
+3. Delete via's home: `~/.config/via`, or `$VIA_HOME` if you set it. That
+   removes the accounts' tokens, the API keys and the usage history.
+
+With Docker, remove the container, the volume with everything in it, and the
+image:
+
+```sh
+docker rm -f via
+docker volume rm via-data
+docker image rm ghcr.io/nkootstra/via:latest
+```
+
+Deleting the files, like `via accounts remove`, doesn't revoke anything. To
+end the access for good, log out of the sessions in your ChatGPT account's
+security settings, and revoke the OpenCode Go and OpenRouter keys on their
+sites.
+
+## Troubleshooting
+
+**`error: ... port 8317 ... in use`.** Something else listens on the port,
+often another `via serve`. Stop it, or start via on another port with
+`via serve --port <n>` or `port:` in `config.yaml`.
+
+**`error: Invalid config in <path>: <reason>`.** `config.yaml` doesn't parse,
+or has a key via doesn't know or a value it can't take; the reason names it.
+Fix that line, or move the file away to start from the defaults.
+
+**`error: VIA_ADMIN_KEY must be at least 32 characters; it has <n>`.** Make a
+longer key with `openssl rand -hex 32`, or unset `VIA_ADMIN_KEY` to serve
+without the admin API and web UI.
+
+**An account is locked out.** via logs
+`<account> is locked out until it logs in again (<reason>)`, the web UI's
+Overview shows it as **Locked out**, and `GET /admin/pool` as `auth_error`.
+Codex refused its tokens even after a refresh, as when its sign-in was revoked
+or it was restored from an old backup. Sign it in again with the
+web UI's **Add account**, which puts it back in use at once, or with
+`via accounts add` and then a restart of `via serve`. via replaces its tokens
+and keeps its label (see
+[How the pool picks an account](#how-the-pool-picks-an-account)).
 
 ## Security
 
@@ -925,9 +1133,11 @@ To report a vulnerability, see [SECURITY.md](https://github.com/nkootstra/via/bl
 
 ## Disclaimer
 
-via is not affiliated with or endorsed by OpenAI. It talks to the backend the
-Codex CLI uses and, by default, presents itself as that CLI. Pooling
-subscriptions this way may conflict with OpenAI's terms of use. Use only
+via is not affiliated with or endorsed by OpenAI or OpenCode. It talks to the
+backend the Codex CLI uses and, by default, presents itself as that CLI
+(`codex.cloak` in [`config.yaml`](#configuration) turns that off). Pooling
+subscriptions this way may conflict with OpenAI's terms of use, and accounts
+could be limited or banned; OpenCode Go's terms apply to its keys. Use only
 accounts you own, at your own risk.
 
 ## Contributing

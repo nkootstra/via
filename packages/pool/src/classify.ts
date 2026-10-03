@@ -21,6 +21,14 @@ export type Rejection = Data.TaggedEnum<{
     /** How long the upstream asks to wait before trying again, in milliseconds. */
     readonly retryAfterMs?: number | undefined;
   };
+  /**
+   * The account itself is barred for now (suspended, its workspace deactivated,
+   * or blocked by a bot check), though its token is good.
+   */
+  Forbidden: {
+    /** Names the refusal; kept as the account's cooldown reason. */
+    readonly reason: string;
+  };
   /** The access token was refused. */
   Unauthorized: {};
   /** The request itself is at fault. */
@@ -48,6 +56,9 @@ export const Verdict = Data.taggedEnum<Verdict>();
 
 const QUOTA_FALLBACK = Duration.minutes(30);
 
+// Long enough not to hammer a barred account, short enough to notice it was let back in.
+const FORBIDDEN_COOLDOWN = Duration.minutes(30);
+
 export const classify = (rejection: Rejection, now: number): Verdict =>
   Rejection.$match(rejection, {
     Exhausted: ({ reason, resetsAt, retryAfterMs }) => {
@@ -61,6 +72,8 @@ export const classify = (rejection: Rejection, now: number): Verdict =>
       return Verdict.Cooldown({ until, reason });
     },
     Unavailable: ({ reason, retryAfterMs }) => Verdict.Unavailable({ reason, retryAfterMs }),
+    Forbidden: ({ reason }) =>
+      Verdict.Cooldown({ until: now + Duration.toMillis(FORBIDDEN_COOLDOWN), reason }),
     Unauthorized: () => Verdict.Unauthorized(),
     Invalid: () => Verdict.PassThrough(),
   });

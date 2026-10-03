@@ -188,6 +188,16 @@ describe("toResponsesRequest", () => {
     });
   });
 
+  it("sends a function tool that leaves out strict as not strict, as Chat Completions reads it", () => {
+    expect(
+      translate({
+        model: "gpt-6-astra",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "function", function: { name: "weather" } }],
+      }),
+    ).toMatchObject({ tools: [{ type: "function", name: "weather", strict: false }] });
+  });
+
   it("passes a tool choice mode through", () => {
     expect(
       translate({ model: "gpt-6-astra", messages: [], tool_choice: "required" }),

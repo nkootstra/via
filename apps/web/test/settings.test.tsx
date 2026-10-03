@@ -108,6 +108,7 @@ describe("deleting the usage history", () => {
     accountLabel: Option.none(),
     inputTokens: Option.some(1),
     cachedTokens: Option.none(),
+    cacheWriteTokens: Option.none(),
     outputTokens: Option.some(1),
     reasoningTokens: Option.none(),
     costUsd: Option.none(),

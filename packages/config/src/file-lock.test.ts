@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Deferred, Duration, Effect, Fiber, FileSystem } from "effect";
+import { Deferred, Duration, Effect, Fiber, FileSystem, Option } from "effect";
 import { TestClock } from "effect/testing";
 import { FileLockTimeoutError, withFileLock } from "./index.ts";
 
@@ -146,6 +146,76 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
       yield* fs.utimes(`${file}.lock`, crashedAt, crashedAt);
 
       expect(yield* withFileLock(file, Effect.succeed("ran"))).toBe("ran");
+    }),
+  );
+
+  it.effect("leaves the lock alone once another holder has taken it over as stale", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* TestClock.setTime(START);
+      const file = yield* tempFile;
+      const lock = `${file}.lock`;
+      const releaseFirst = yield* Deferred.make<void>();
+      const releaseSecond = yield* Deferred.make<void>();
+      const firstHeld = yield* Deferred.make<void>();
+      const secondHeld = yield* Deferred.make<void>();
+
+      const first = yield* withFileLock(
+        file,
+        Deferred.succeed(firstHeld, undefined).pipe(Effect.andThen(Deferred.await(releaseFirst))),
+      ).pipe(Effect.forkChild);
+
+      yield* Deferred.await(firstHeld);
+      // The first holder stalled long enough for its lock to look abandoned.
+      const stalledAt = new Date(START - 60_000);
+      yield* fs.utimes(lock, stalledAt, stalledAt);
+
+      const second = yield* withFileLock(
+        file,
+        Deferred.succeed(secondHeld, undefined).pipe(Effect.andThen(Deferred.await(releaseSecond))),
+      ).pipe(Effect.forkChild);
+
+      yield* Deferred.await(secondHeld);
+      yield* Deferred.succeed(releaseFirst, undefined);
+      yield* Fiber.join(first);
+
+      expect(yield* fs.exists(lock)).toBe(true);
+      yield* Deferred.succeed(releaseSecond, undefined);
+      yield* Fiber.join(second);
+      expect(yield* fs.exists(lock)).toBe(false);
+    }),
+  );
+
+  it.effect("stops renewing a lock another holder has taken over", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* TestClock.setTime(START);
+      const file = yield* tempFile;
+      const lock = `${file}.lock`;
+      const release = yield* Deferred.make<void>();
+      const held = yield* Deferred.make<void>();
+
+      const holder = yield* withFileLock(
+        file,
+        Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release))),
+      ).pipe(Effect.forkChild);
+
+      yield* Deferred.await(held);
+      // Stands in for another process that judged the lock stale and took it over.
+      yield* fs.writeFileString(lock, "someone-else");
+      const takenAt = new Date(START - 60_000);
+      yield* fs.utimes(lock, takenAt, takenAt);
+
+      yield* Effect.replicateEffect(step("1 second"), 3, { discard: true });
+      yield* TestClock.withLive(Effect.sleep("50 millis"));
+
+      const info = yield* fs.stat(lock);
+      expect(info.mtime.pipe(Option.map((mtime) => mtime.getTime()))).toEqual(
+        Option.some(takenAt.getTime()),
+      );
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(holder);
+      expect(yield* fs.readFileString(lock)).toBe("someone-else");
     }),
   );
 

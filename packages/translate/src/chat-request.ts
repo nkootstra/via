@@ -170,7 +170,12 @@ const inputItems = (message: typeof Message.Type): ReadonlyArray<Schema.JsonObje
   return [...text, ...calls];
 };
 
-const tool = ({ function: fn }: typeof FunctionTool.Type) => ({ type: "function", ...fn });
+// A chat tool that leaves out `strict` is not strict, where a Responses one would be.
+const tool = ({ function: fn }: typeof FunctionTool.Type) => ({
+  type: "function",
+  strict: false,
+  ...fn,
+});
 
 const toolChoice = (choice: typeof ToolChoice.Type) =>
   isToolChoiceMode(choice) ? choice : { type: "function", name: choice.function.name };

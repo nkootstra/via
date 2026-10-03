@@ -51,6 +51,20 @@ describe("usageOf", () => {
     ).toEqual(Option.some({ inputTokens: 10, outputTokens: 2, cachedTokens: 4 }));
   });
 
+  it("reads the input a Chat Completions usage object says was written to the cache", () => {
+    // As OpenRouter reports it, and via's translation of a Messages answer.
+    expect(
+      usageOf({
+        prompt_tokens: 10,
+        completion_tokens: 2,
+        total_tokens: 12,
+        prompt_tokens_details: { cached_tokens: 4, cache_write_tokens: 5 },
+      }),
+    ).toEqual(
+      Option.some({ inputTokens: 10, outputTokens: 2, cachedTokens: 4, cacheWriteTokens: 5 }),
+    );
+  });
+
   it("reads a Responses usage object's reasoning tokens", () => {
     expect(
       usageOf({
