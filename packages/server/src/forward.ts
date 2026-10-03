@@ -1,7 +1,8 @@
+import { streamIncomplete } from "@via/codex-upstream";
 import { OpencodeGoPool, type ProviderPath, Providers, type Route } from "@via/providers";
 import { ChatRequest, toMessagesRequest, toResponsesRequest } from "@via/translate";
 import { Effect, identity, Option, Schema } from "effect";
-import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
+import { Headers, type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
 import { chatFromMessages, chatFromResponses } from "./chat-answer.ts";
 import { ModelProtocols, type Protocol } from "./model-protocols.ts";
 import { noAccountLeft, streams } from "./dispatch.ts";
@@ -11,13 +12,44 @@ import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
 
-/** The provider's answer piped back as it comes, errors included. */
-const relay = (upstream: HttpClientResponse.HttpClientResponse) =>
+/** The headers of a provider's answer a client may act on: when to try again, and its rate limits. */
+const passedOn = (upstream: HttpClientResponse.HttpClientResponse) =>
+  Headers.fromInput(
+    Object.entries(upstream.headers).filter(
+      ([key]) => key === "retry-after" || key.startsWith("x-ratelimit-"),
+    ),
+  );
+
+const cutShort = "The provider's stream ended before its answer was complete";
+
+/**
+ * The event a provider's SSE answer to a request at each path ends in when it
+ * breaks off, as that API reports an error mid-stream.
+ */
+const incomplete: Partial<Record<ProviderPath, string>> = {
+  "/chat/completions": `data: ${JSON.stringify({
+    error: { message: cutShort, type: "server_error", code: streamIncomplete.code },
+  })}\n\n`,
+  "/responses": `event: error\ndata: ${JSON.stringify({
+    type: "error",
+    code: streamIncomplete.code,
+    message: cutShort,
+    param: null,
+  })}\n\n`,
+};
+
+/**
+ * The provider's answer to a request at `path`, piped back as it comes, errors
+ * included, with its `passedOn` headers.
+ */
+const relay = (path: ProviderPath) => (upstream: HttpClientResponse.HttpClientResponse) =>
   relayed(
     upstream,
     {
       status: upstream.status,
       contentType: upstream.headers["content-type"] ?? "application/json",
+      headers: passedOn(upstream),
+      ...(incomplete[path] === undefined ? {} : { incomplete: incomplete[path] }),
     },
     identity,
   );
@@ -49,7 +81,7 @@ const attempts = (
   body: Schema.JsonObject,
   known: Option.Option<Protocol>,
 ): ReadonlyArray<Attempt> => {
-  const asSent: Attempt = { protocol: "chat", path, body, answer: relay };
+  const asSent: Attempt = { protocol: "chat", path, body, answer: relay(path) };
   const chat = path === "/chat/completions" ? decodeChat(body) : Option.none();
 
   if (Option.isNone(chat)) return [asSent];
@@ -98,6 +130,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
   path: ProviderPath,
   body: Schema.JsonObject,
   session: string,
+  headers: Headers.Headers,
 ) {
   const log = yield* RequestLog;
   const providers = yield* Providers;
@@ -121,7 +154,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
     // Every way to send it, on this account; a 429 or a refused key moves on to the next account.
     for (const [index, attempt] of tries.entries()) {
       const sent = yield* providers
-        .send(route, attempt.path, attempt.body, session, account.apiKey)
+        .send(route, attempt.path, attempt.body, session, { apiKey: account.apiKey, headers })
         .pipe(
           Effect.asSome,
           // OpenCode Go is unreachable for every account alike, so there is no one to fail over to.
@@ -151,7 +184,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
         return yield* attempt.answer(upstream);
       }
 
-      if (upstream.status !== 400) return yield* relay(upstream);
+      if (upstream.status !== 400) return yield* relay(attempt.path)(upstream);
 
       // A 400 is read whole: it may only mean the model speaks another protocol.
       const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
@@ -164,20 +197,23 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
       return HttpServerResponse.text(text, {
         status: upstream.status,
         contentType: upstream.headers["content-type"] ?? "application/json",
+        headers: passedOn(upstream),
       });
     }
   }
 });
 
 /**
- * Sends a request for a provider's model to that provider and pipes its answer
- * back as it comes, errors included. OpenCode Go's go through its accounts.
+ * Sends a request for a provider's model to that provider, with those of the
+ * client's `headers` it may need, and pipes its answer back as it comes,
+ * errors included. OpenCode Go's go through its accounts.
  */
 export const forward = Effect.fn("forward")(function* (
   route: Route,
   path: ProviderPath,
   body: Schema.JsonObject,
   session: string,
+  headers: Headers.Headers,
 ) {
   const log = yield* RequestLog;
   yield* log.asked(`${route.provider}/${route.model}`, streams(body));
@@ -190,11 +226,11 @@ export const forward = Effect.fn("forward")(function* (
     );
   }
 
-  if (route.pooled) return yield* forwardPooled(route, path, body, session);
+  if (route.pooled) return yield* forwardPooled(route, path, body, session, headers);
   yield* log.served(route.provider);
 
-  return yield* (yield* Providers).send(route, path, body, session).pipe(
-    Effect.flatMap(relay),
+  return yield* (yield* Providers).send(route, path, body, session, { headers }).pipe(
+    Effect.flatMap(relay(path)),
     Effect.catchTag("HttpClientError", () => unreachable(route)),
   );
 });

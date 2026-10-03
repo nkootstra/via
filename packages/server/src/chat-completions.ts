@@ -30,7 +30,7 @@ export const chatCompletions = authenticated(
     const route = Option.flatMap(modelOf(body), (yield* Providers).route);
 
     if (Option.isSome(route))
-      return yield* forward(route.value, "/chat/completions", body, session);
+      return yield* forward(route.value, "/chat/completions", body, session, headers);
 
     const chat = yield* decodeChat(body).pipe(Effect.option);
 

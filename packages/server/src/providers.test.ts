@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { providerReply } from "@via/providers/testing";
 import { Effect } from "effect";
-import { ok, withVia } from "./testing/harness.ts";
+import { ok, outwait, withVia } from "./testing/harness.ts";
 
 const completion = { id: "chatcmpl-or", object: "chat.completion", choices: [] };
 
@@ -55,6 +55,71 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
+  it.effect("tells proxies not to cache or buffer any SSE answer, Codex's included", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.sse("data: [DONE]\n\n"));
+        const messages = [{ role: "user", content: "hi" }];
+
+        for (const [path, body] of [
+          ["/v1/responses", { model: "gpt-6-astra", input: "hi", stream: true }],
+          ["/v1/chat/completions", { model: "gpt-6-astra", messages, stream: true }],
+          ["/v1/chat/completions", { model: "openrouter/qwen/qwen3", messages, stream: true }],
+        ] as const) {
+          const response = yield* via.post(path, body);
+          expect(response.headers).toMatchObject({
+            "content-type": expect.stringContaining("text/event-stream"),
+            "cache-control": "no-cache",
+            "x-accel-buffering": "no",
+          });
+          yield* response.text;
+        }
+      }),
+    ),
+  );
+
+  for (const [path, body, error] of [
+    [
+      "/v1/chat/completions",
+      { messages: [{ role: "user", content: "hi" }] },
+      (text: string) => JSON.parse(text.slice("data: ".length)).error,
+    ],
+    [
+      "/v1/responses",
+      { input: "hi" },
+      (text: string) => JSON.parse(text.slice(text.indexOf("data: ") + "data: ".length)),
+    ],
+  ] as const) {
+    it.effect(`ends a provider's ${path} stream that goes quiet for 5 minutes with an error`, () =>
+      withVia(ok, (via) =>
+        Effect.gen(function* () {
+          const sse = 'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n';
+          via.provider.respond(providerReply.sseThenHang(sse));
+
+          const response = yield* via.post(path, {
+            model: "openrouter/qwen/qwen3",
+            stream: true,
+            ...body,
+          });
+
+          yield* Effect.forkChild(outwait(via, "5 minutes"));
+
+          const events = (yield* response.text)
+            .split("\n\n")
+            .filter((event) => event !== "" && !event.startsWith(":"));
+
+          expect(events[0]).toBe(sse.trimEnd());
+          expect(events).toHaveLength(2);
+          expect(error(events[1] ?? "")).toMatchObject({ code: "upstream_incomplete" });
+          // The log still says the provider's stream broke off.
+          expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+            stream_end: "failed",
+          });
+        }),
+      ),
+    );
+  }
+
   it.effect("forwards a Responses request with the client's session", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
@@ -90,6 +155,59 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
 
         expect(response.status).toBe(429);
         expect(yield* response.json).toEqual(error);
+      }),
+    ),
+  );
+
+  it.effect("passes on only the client's headers a provider needs", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.json(completion));
+
+        const needed = {
+          "anthropic-beta": "prompt-caching-2024-07-31",
+          "openai-beta": "assistants=v2",
+          "http-referer": "https://example.com",
+          "x-title": "My app",
+        };
+
+        yield* via.post(
+          "/v1/chat/completions",
+          { model: "openrouter/qwen/qwen3", messages: [] },
+          undefined,
+          { ...needed, cookie: "session=secret", "x-api-key": "sk-client", "x-other": "1" },
+        );
+
+        const { headers } = via.provider.requests[0] ?? { headers: {} };
+        expect(headers).toMatchObject({ ...needed, authorization: "Bearer sk-provider" });
+        expect(headers).not.toHaveProperty("cookie");
+        expect(headers).not.toHaveProperty("x-api-key");
+        expect(headers).not.toHaveProperty("x-other");
+      }),
+    ),
+  );
+
+  it.effect("passes a provider's Retry-After and rate-limit headers through", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const limits = {
+          "x-ratelimit-limit-requests": "60",
+          "x-ratelimit-remaining-requests": "0",
+          "x-ratelimit-reset-requests": "20s",
+        };
+
+        via.provider.respond(
+          providerReply.rateLimited({ "retry-after": "20", ...limits, "x-internal": "secret" }),
+        );
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "openrouter/qwen/qwen3",
+          messages: [],
+        });
+
+        expect(response.status).toBe(429);
+        expect(response.headers).toMatchObject({ "retry-after": "20", ...limits });
+        expect(response.headers).not.toHaveProperty("x-internal");
       }),
     ),
   );

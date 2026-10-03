@@ -13,6 +13,7 @@ import {
   Stream,
 } from "effect";
 import {
+  Headers,
   HttpBody,
   HttpClient,
   HttpClientError,
@@ -54,8 +55,25 @@ export type Route = {
  */
 export type ProviderPath = "/chat/completions" | "/responses" | "/messages" | "/systemone";
 
-/** The Messages API version via speaks. */
+/** The Messages API version via speaks, unless the client names another. */
 const ANTHROPIC_VERSION = "2023-06-01";
+
+/**
+ * The client's request headers a provider may act on, which via passes on:
+ * Anthropic's and OpenAI's beta features, the Messages version, and the app
+ * OpenRouter credits. Never its key, cookies or host: via sends its own.
+ */
+const PASSED_ON = new Set([
+  "anthropic-beta",
+  "anthropic-version",
+  "openai-beta",
+  "http-referer",
+  "x-title",
+]);
+
+/** Those of the client's `headers` via passes on to a provider. */
+const passedOn = (headers: Headers.Headers) =>
+  Object.fromEntries(Object.entries(headers).filter(([name]) => PASSED_ON.has(name)));
 
 /**
  * Where a provider wants the conversation's session id, so it can keep the
@@ -776,7 +794,13 @@ const make = (
           onSome: (settings) => settings.changes,
         }),
       },
-      send: Effect.fn("Providers.send")(function* (route, path, body, session, accountKey) {
+      send: Effect.fn("Providers.send")(function* (
+        route,
+        path,
+        body,
+        session,
+        { apiKey: accountKey, headers = Headers.empty } = {},
+      ) {
         // `route` comes from `route`, so its provider is configured.
         const provider = providers.get(route.provider);
 
@@ -789,11 +813,12 @@ const make = (
         }
 
         const request = HttpClientRequest.post(path).pipe(
+          HttpClientRequest.setHeaders(passedOn(headers)),
           // Anthropic's SDK sends the key as `x-api-key`, and names the version it speaks.
           path === "/messages" && apiKey !== undefined
             ? HttpClientRequest.setHeaders({
                 "x-api-key": Redacted.value(apiKey),
-                "anthropic-version": ANTHROPIC_VERSION,
+                "anthropic-version": headers["anthropic-version"] ?? ANTHROPIC_VERSION,
               })
             : identity,
           Predicate.isObject(provider.session)
@@ -934,16 +959,20 @@ export class Providers extends Context.Service<
       apiKey: Redacted.Redacted<string>,
     ) => Effect.Effect<void, OpencodeGoKeyRejectedError | OpencodeGoUnavailableError>;
     /**
-     * Posts `body` to the route's provider, with its model in place of via's and
-     * `session` where the provider looks for it. A pooled route is sent with
-     * `apiKey`, the key of the account serving it.
+     * Posts `body` to the route's provider, with its model in place of via's,
+     * `session` where the provider looks for it, and those of the client's
+     * `headers` a provider may need. A pooled route is sent with `apiKey`, the
+     * key of the account serving it.
      */
     readonly send: (
       route: Route,
       path: ProviderPath,
       body: Schema.JsonObject,
       session: string,
-      apiKey?: Redacted.Redacted<string>,
+      options?: {
+        readonly apiKey?: Redacted.Redacted<string> | undefined;
+        readonly headers?: Headers.Headers | undefined;
+      },
     ) => Effect.Effect<HttpClientResponse.HttpClientResponse, HttpClientError.HttpClientError>;
   }
 >()("via/Providers") {

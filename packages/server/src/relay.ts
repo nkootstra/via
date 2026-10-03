@@ -4,9 +4,10 @@ import {
   streamIncomplete,
   UpstreamFailedError,
 } from "@via/codex-upstream";
-import { Effect, Option, Schema, Stream } from "effect";
+import { Data, Duration, Effect, Option, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import {
+  Headers,
   type HttpClientError,
   type HttpClientResponse,
   HttpServerResponse,
@@ -17,6 +18,27 @@ import { RequestLog } from "./request-log.ts";
 import { spotUsage, usageOf } from "./token-usage.ts";
 import { spotUpstreamError } from "./upstream-error.ts";
 
+/**
+ * How long an upstream may go quiet in the middle of an answer before via
+ * gives up on it: as long as the Codex CLI waits (`stream_idle_timeout_ms`).
+ * A reasoning model can think for minutes between chunks, so this is generous.
+ */
+const QUIET_LIMIT = Duration.minutes(5);
+
+/** An upstream sent nothing for `QUIET_LIMIT` in the middle of an answer. */
+export class UpstreamStalledError extends Data.TaggedError("UpstreamStalledError") {
+  override get message() {
+    return `The upstream sent nothing for ${Duration.format(QUIET_LIMIT)}`;
+  }
+}
+
+/** `body`, failing once it has gone `QUIET_LIMIT` without a chunk, which ends the upstream request. */
+const untilQuiet = <E>(body: Stream.Stream<Uint8Array, E>) =>
+  Stream.timeoutOrElse(body, {
+    duration: QUIET_LIMIT,
+    orElse: () => Stream.fail(new UpstreamStalledError()),
+  });
+
 const unreadable = openAiError(
   502,
   streamIncomplete.code,
@@ -26,7 +48,7 @@ const unreadable = openAiError(
 /**
  * Reads a Codex stream to its final response for a non-streaming client, and
  * answers a response that broke off or grew too large with a 502, and one that
- * took too long with a 504. A response Codex failed is left to the caller,
+ * took too long or went quiet too long with a 504. A response Codex failed is left to the caller,
  * since nothing has reached the client yet: another account may serve it.
  */
 export const collected = (
@@ -35,7 +57,7 @@ export const collected = (
     response: Schema.JsonObject,
   ) => Effect.Effect<HttpServerResponse.HttpServerResponse, Schema.SchemaError>,
 ) =>
-  collectResponse(upstream.stream).pipe(
+  collectResponse(untilQuiet(upstream.stream)).pipe(
     Effect.tap((response) =>
       Effect.flatMap(RequestLog, (log) =>
         Option.match(usageOf(response["usage"]), {
@@ -49,6 +71,7 @@ export const collected = (
       IncompleteStreamError: (error) => openAiError(502, streamIncomplete.code, error.message),
       ResponseTooLargeError: (error) => openAiError(502, "upstream_too_large", error.message),
       ResponseTimeoutError: (error) => openAiError(504, "upstream_timeout", error.message),
+      UpstreamStalledError: (error) => openAiError(504, "upstream_timeout", error.message),
       // The body broke off, was not SSE, or held an event that is not a Responses one.
       HttpClientError: () => unreadable,
       SseError: () => unreadable,
@@ -99,6 +122,12 @@ const spotFailure = <E>(
   );
 
 /**
+ * Headers an SSE answer carries, so a proxy between via and the client, such
+ * as nginx, passes each event on as it comes rather than holding it back.
+ */
+const UNBUFFERED = Headers.fromInput({ "cache-control": "no-cache", "x-accel-buffering": "no" });
+
+/**
  * A response relaying `upstream`'s body through `relay` as it comes, with the
  * token usage it reports and the time of its first chunk noted in the
  * request's log line. An SSE body is kept alive through quiet spells.
@@ -112,14 +141,21 @@ export const relayed = <E>(
   options: {
     readonly status?: number;
     readonly contentType: string;
+    /** Headers of `upstream`'s the answer keeps. */
+    readonly headers?: Headers.Headers;
     readonly sse?: boolean;
+    /**
+     * The event an SSE body that breaks off, or goes quiet too long, ends in,
+     * so the client knows the answer is cut short; without one, the body fails.
+     */
+    readonly incomplete?: string;
     /** False when `relay` reports the usage itself, from a body via can't read it in. */
     readonly spotUsage?: boolean;
     /** Told when the upstream fails the response in its SSE stream. */
     readonly onFailed?: (error: UpstreamFailedError) => Effect.Effect<void>;
   },
   relay: (
-    body: Stream.Stream<Uint8Array, HttpClientError.HttpClientError>,
+    body: Stream.Stream<Uint8Array, HttpClientError.HttpClientError | UpstreamStalledError>,
   ) => Stream.Stream<Uint8Array, E>,
 ) =>
   Effect.gen(function* () {
@@ -128,10 +164,10 @@ export const relayed = <E>(
     const sse =
       options.sse ?? (upstream.headers["content-type"] ?? "").includes("text/event-stream");
 
+    const body = untilQuiet(upstream.stream);
+
     const answer =
-      sse && options.onFailed !== undefined
-        ? spotFailure(upstream.stream, options.onFailed)
-        : upstream.stream;
+      sse && options.onFailed !== undefined ? spotFailure(body, options.onFailed) : body;
 
     // An error answer says why in its body; any other carries its usage.
     const relaying = relay(
@@ -143,10 +179,19 @@ export const relayed = <E>(
     );
 
     // Timed outermost: the request log counts the stream from when the server starts it.
-    const body = log.timed(sse ? keepAlive(relaying) : relaying);
+    const passed = options.headers ?? Headers.empty;
+    const timed = log.timed(sse ? keepAlive(relaying) : relaying);
+    const { incomplete } = options;
 
-    return HttpServerResponse.stream(body, {
+    // Ended after the log has seen the stream fail, so its line still says it did.
+    const ended =
+      sse && incomplete !== undefined
+        ? Stream.orElseSucceed(timed, () => new TextEncoder().encode(incomplete))
+        : timed;
+
+    return HttpServerResponse.stream(ended, {
       ...(options.status === undefined ? {} : { status: options.status }),
+      headers: sse ? Headers.merge(passed, UNBUFFERED) : passed,
       contentType: options.contentType,
     });
   });

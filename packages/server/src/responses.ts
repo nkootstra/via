@@ -23,7 +23,8 @@ export const responses = authenticated(
     const session = resolveSession(headers, body);
     const route = Option.flatMap(modelOf(body), (yield* Providers).route);
 
-    if (Option.isSome(route)) return yield* forward(route.value, "/responses", body, session);
+    if (Option.isSome(route))
+      return yield* forward(route.value, "/responses", body, session, headers);
 
     return yield* dispatch(body, session, (upstream, failed) =>
       body.stream === true

@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { reply, sse, sseFrames } from "@via/codex-upstream/testing";
 import { Clock, Deferred, Effect, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { withVia } from "./testing/harness.ts";
+import { outwait, withVia } from "./testing/harness.ts";
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
 const response = {
@@ -142,6 +142,22 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
       ),
     );
 
+    it.effect(`${path} answers a Codex response that goes quiet for 5 minutes with 504`, () =>
+      withVia(
+        () => reply.stalled(reply.text("hello"), 2),
+        (via) =>
+          Effect.gen(function* () {
+            yield* Effect.forkChild(outwait(via, "5 minutes"));
+            const answer = yield* via.post(path, bodies[path]);
+            expect(answer.status).toBe(504);
+            expect(yield* answer.json).toMatchObject({
+              error: { type: "server_error", code: "upstream_timeout" },
+            });
+            yield* via.upstreamHungUp(1);
+          }),
+      ),
+    );
+
     // Past a cap of 4 MiB rather than the real 128 MiB, which is slow to stream through via.
     it.effect(`${path} answers a Codex stream that runs past its size cap with 502`, () =>
       withVia(
@@ -223,6 +239,24 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
       ),
     );
   }
+
+  it.effect(`a ${RESPONSES} stream Codex goes quiet on for 5 minutes ends in an error event`, () =>
+    withVia(
+      () => reply.stalled(reply.text("hello"), 2),
+      (via) =>
+        Effect.gen(function* () {
+          const answer = yield* via.post(RESPONSES, { ...bodies[RESPONSES], stream: true });
+          // via waits 5 minutes for Codex's next chunk, then gives up on it.
+          yield* Effect.forkChild(outwait(via, "5 minutes"));
+          const frames = sseFrames(yield* answer.text);
+          expect(frames.at(-1)?.event).toBe("error");
+          expect(JSON.parse(frames.at(-1)?.data ?? "")).toMatchObject({
+            code: "upstream_incomplete",
+          });
+          yield* via.upstreamHungUp(1);
+        }),
+    ),
+  );
 
   it.effect(`a ${RESPONSES} stream cut off by Codex ends in an error event`, () =>
     withVia(cutOff, (via) =>

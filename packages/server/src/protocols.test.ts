@@ -183,6 +183,26 @@ layer(BunFileSystem.layer)("OpenCode Go's protocols", (it) => {
     ),
   );
 
+  it.effect("asks in Messages with the Anthropic version the client names", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(messagesOnly);
+
+        yield* via.post(
+          "/v1/chat/completions",
+          { model: "opencode-go/grok-4.7", messages: [{ role: "user", content: "hi" }] },
+          undefined,
+          { "anthropic-version": "2024-01-01", "anthropic-beta": "context-1m" },
+        );
+
+        expect(via.provider.requests.at(-1)).toMatchObject({
+          path: "/messages",
+          headers: { "anthropic-version": "2024-01-01", "anthropic-beta": "context-1m" },
+        });
+      }),
+    ),
+  );
+
   it.effect("streams a Messages answer as Chat chunks, with its usage kept", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

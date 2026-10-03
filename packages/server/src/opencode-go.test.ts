@@ -62,6 +62,28 @@ layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
     ),
   );
 
+  it.effect("fails over at once, without waiting for a slow usage lookup", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          // OpenCode Go never answers the usage lookup a 429 starts.
+          via.provider.holdUsage(Effect.never);
+          via.provider.respond(
+            providerReply.byKey({
+              "sk-go-1": providerReply.rateLimited(),
+              "sk-go-2": served("two"),
+            }),
+          );
+
+          expect(yield* (yield* ask(via)).json).toEqual({ id: "two" });
+          expect(yield* (yield* ask(via, "ses_2")).json).toEqual({ id: "two" });
+          expect(keysUsed(via)).toEqual(["sk-go-1", "sk-go-2", "sk-go-2"]);
+        }),
+      keys,
+    ),
+  );
+
   it.effect("rests a rate-limited account until its used-up usage window resets", () =>
     withVia(
       ok,
@@ -88,11 +110,12 @@ layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
 
           yield* ask(via, "first");
           limited = false;
+          // The usage is asked in the background, after the request has failed over.
+          expect((yield* via.logged("weekly_exhausted")).message).toContain("go-1 is cooling down");
           yield* TestClock.adjust("2 hours");
           expect(yield* (yield* ask(via, "second")).json).toEqual({ id: "two" });
           yield* TestClock.adjust("1 hour");
           expect(yield* (yield* ask(via, "third")).json).toEqual({ id: "one" });
-          expect((yield* via.logged("go-1 is cooling down")).message).toContain("weekly_exhausted");
         }),
       keys,
     ),

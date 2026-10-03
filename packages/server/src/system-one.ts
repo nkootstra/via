@@ -33,6 +33,6 @@ export const systemOne = authenticated(
 
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
 
-    return yield* forward(route.value, "/systemone", body, resolveSession(headers, body));
+    return yield* forward(route.value, "/systemone", body, resolveSession(headers, body), headers);
   }),
 );

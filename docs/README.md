@@ -238,7 +238,9 @@ via's server never closes a connection as idle, so an answer that goes quiet
 while the model works still reaches the client, streamed or not. A streamed
 answer that goes quiet also gets a `: keepalive` SSE comment every five seconds,
 so a proxy in between doesn't close the connection as idle. SSE clients skip
-comments.
+comments. Every streamed answer also carries `cache-control: no-cache` and
+`x-accel-buffering: no`, so a proxy such as nginx passes each event on as it
+comes.
 
 via bounds what one request can take:
 
@@ -249,6 +251,13 @@ via bounds what one request can take:
   provider that doesn't stream answers only once the model is done. After
   that, a stream runs as long as the model takes. An upstream that doesn't
   start in time answers `502`, like one that can't be reached.
+- Once an answer has started, the upstream may go 5 minutes without sending
+  anything, as long as the Codex CLI waits; a reasoning model can think for
+  minutes between chunks. After that via ends its request upstream. A
+  streamed answer then ends in an `upstream_incomplete` error event, as one
+  the upstream broke off does, and one via collects for a client that doesn't
+  stream answers `504 upstream_timeout`. A provider's answer that isn't
+  streamed but passed through as it comes breaks off.
 - A non-streaming Codex response that hasn't completed after 30 minutes
   answers `504 upstream_timeout`, and one whose stream runs past 128 MiB
   answers `502 upstream_too_large`.
@@ -706,9 +715,12 @@ OpenCode Go accounts, for `opencode-go/` models, make a pool of their own that
 works the same way: fill-first in the order you added the keys, a conversation
 kept on the key that last answered it, and a `429` (or every key resting)
 handled as above. A key's cooldown lasts until its used-up usage window resets,
-or as long as the answer's `Retry-After` asks, whichever is later. A key
-OpenCode Go refuses or forbids (401 or 403) is taken out of use until `via
-serve` restarts. via asks OpenCode Go for each key's usage every 15 minutes too.
+or as long as the answer's `Retry-After` asks, whichever is later. via doesn't
+wait for the usage before trying the next key: the key rests at once for its
+`Retry-After`, or 1 minute without one, while via asks its usage in the
+background and then lengthens the cooldown to match. A key OpenCode Go refuses
+or forbids (401 or 403) is taken out of use until `via serve` restarts. via
+asks OpenCode Go for each key's usage every 15 minutes too.
 
 ## Configuration
 
@@ -865,7 +877,17 @@ Prefix a model with the provider's name to use it, as in
 `openrouter/qwen/qwen3-coder` or `opencode-go/kimi-k3`. via passes
 `/v1/chat/completions` and `/v1/responses` requests on as they are, with only
 the prefix taken off the model, and passes the provider's answer back the same
-way, errors included.
+way, errors included. Of the answer's headers, the client gets its
+`content-type`, `Retry-After` and `x-ratelimit-*` ones. A streamed answer the
+provider breaks off ends in an `upstream_incomplete` error, as an event of
+the API the client asked in.
+
+Of the client's request headers, via passes on only those a provider may act
+on: `anthropic-beta`, `anthropic-version`, `openai-beta`, and OpenRouter's
+`http-referer` and `x-title`. A Messages request goes out with the client's
+`anthropic-version`, or `2023-06-01` without one. Every other header,
+`authorization`, cookies and `host` included, stays with via, which sends the
+provider its own key.
 
 OpenCode Go serves each model in one API of its own choosing: Chat
 Completions, the Responses API, or Anthropic's Messages, and refuses a
