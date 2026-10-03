@@ -30,6 +30,16 @@ const configureOpenCodeGo = (home: string, provider: FakeProvider) =>
     `providers:\n  opencode-go:\n    baseUrl: ${provider.url}\n    apiKeyEnv: GO_KEY\n`,
   );
 
+/** Sets OpenCode Go up in `home` as a fake that takes every key, as `add` checks them with it. */
+const acceptOpenCodeGoKeys = (home: string) =>
+  Effect.gen(function* () {
+    const provider = yield* startFakeProvider;
+    provider.usage({ usage: {} });
+    yield* writeConfig(home, `providers:\n  opencode-go:\n    baseUrl: ${provider.url}\n`);
+
+    return provider;
+  });
+
 layer(BunFileSystem.layer)("via accounts", (it) => {
   it.effect("add shows the device code, then saves the approved account", () =>
     Effect.gen(function* () {
@@ -110,6 +120,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
   it.effect("add --provider opencode-go stores the key it reads from stdin", () =>
     Effect.gen(function* () {
       const { home, env, via } = yield* setup();
+      yield* acceptOpenCodeGoKeys(home);
 
       const added = yield* runVia(
         home,
@@ -137,9 +148,54 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
     }),
   );
 
+  it.effect("add --provider opencode-go does not store a key OpenCode Go refuses", () =>
+    Effect.gen(function* () {
+      const { home, env, via } = yield* setup();
+      const provider = yield* acceptOpenCodeGoKeys(home);
+      provider.usageFor("sk-go-wrong", { error: "unauthorized" }, 401);
+
+      const added = yield* runVia(
+        home,
+        ["accounts", "add", "--provider", "opencode-go"],
+        env,
+        "sk-go-wrong",
+      );
+
+      expect(added.exitCode).toBe(1);
+      expect(added.stderr).toBe(
+        "error: OpenCode Go refused this API key (HTTP 401); check that it is right\n",
+      );
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
+  it.effect("add --provider opencode-go does not store a key it can't check", () =>
+    Effect.gen(function* () {
+      const { home, env, via } = yield* setup();
+      yield* writeConfig(
+        home,
+        `providers:\n  opencode-go:\n    baseUrl: http://127.0.0.1:${yield* freePort}\n`,
+      );
+
+      const added = yield* runVia(
+        home,
+        ["accounts", "add", "--provider", "opencode-go"],
+        env,
+        "sk-go-1234",
+      );
+
+      expect(added.exitCode).toBe(1);
+      expect(added.stderr).toBe(
+        "error: Could not check the key with OpenCode Go: it could not be reached\n",
+      );
+      expect((yield* via("accounts", "list")).stdout).toContain("via accounts add");
+    }),
+  );
+
   it.effect("add --provider opencode-go refuses a key it already stores", () =>
     Effect.gen(function* () {
       const { home, env } = yield* setup();
+      yield* acceptOpenCodeGoKeys(home);
       const args = ["accounts", "add", "--provider", "opencode-go"];
       yield* runVia(home, args, env, "sk-go-1234");
       const again = yield* runVia(home, args, env, "sk-go-1234");
@@ -153,6 +209,7 @@ layer(BunFileSystem.layer)("via accounts", (it) => {
   it.effect("label, disable, enable and remove an OpenCode Go account", () =>
     Effect.gen(function* () {
       const { home, env, via } = yield* setup();
+      yield* acceptOpenCodeGoKeys(home);
       yield* runVia(home, ["accounts", "add", "--provider", "opencode-go"], env, "sk-go-1234");
       expect((yield* via("accounts", "label", "OpenCode Go …1234", "go")).exitCode).toBe(0);
       yield* via("accounts", "disable", "go");
