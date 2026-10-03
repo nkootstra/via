@@ -56,6 +56,29 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
+  it.effect("tells proxies not to cache or buffer any SSE answer, Codex's included", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(providerReply.sse("data: [DONE]\n\n"));
+        const messages = [{ role: "user", content: "hi" }];
+
+        for (const [path, body] of [
+          ["/v1/responses", { model: "gpt-6-astra", input: "hi", stream: true }],
+          ["/v1/chat/completions", { model: "gpt-6-astra", messages, stream: true }],
+          ["/v1/chat/completions", { model: "openrouter/qwen/qwen3", messages, stream: true }],
+        ] as const) {
+          const response = yield* via.post(path, body);
+          expect(response.headers).toMatchObject({
+            "content-type": expect.stringContaining("text/event-stream"),
+            "cache-control": "no-cache",
+            "x-accel-buffering": "no",
+          });
+          yield* response.text;
+        }
+      }),
+    ),
+  );
+
   it.effect("ends a provider's stream that goes quiet for 5 minutes", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

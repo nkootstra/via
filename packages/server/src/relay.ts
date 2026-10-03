@@ -7,7 +7,7 @@ import {
 import { Data, Duration, Effect, Option, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import {
-  type Headers,
+  Headers,
   type HttpClientError,
   type HttpClientResponse,
   HttpServerResponse,
@@ -122,6 +122,12 @@ const spotFailure = <E>(
   );
 
 /**
+ * Headers an SSE answer carries, so a proxy between via and the client, such
+ * as nginx, passes each event on as it comes rather than holding it back.
+ */
+const UNBUFFERED = Headers.fromInput({ "cache-control": "no-cache", "x-accel-buffering": "no" });
+
+/**
  * A response relaying `upstream`'s body through `relay` as it comes, with the
  * token usage it reports and the time of its first chunk noted in the
  * request's log line. An SSE body is kept alive through quiet spells.
@@ -168,11 +174,12 @@ export const relayed = <E>(
     );
 
     // Timed outermost: the request log counts the stream from when the server starts it.
+    const passed = options.headers ?? Headers.empty;
     const timed = log.timed(sse ? keepAlive(relaying) : relaying);
 
     return HttpServerResponse.stream(timed, {
       ...(options.status === undefined ? {} : { status: options.status }),
-      ...(options.headers === undefined ? {} : { headers: options.headers }),
+      headers: sse ? Headers.merge(passed, UNBUFFERED) : passed,
       contentType: options.contentType,
     });
   });

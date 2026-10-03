@@ -177,7 +177,9 @@ via's server never closes a connection as idle, so an answer that goes quiet
 while the model works still reaches the client, streamed or not. A streamed
 answer that goes quiet also gets a `: keepalive` SSE comment every five seconds,
 so a proxy in between doesn't close the connection as idle. SSE clients skip
-comments.
+comments. Every streamed answer also carries `cache-control: no-cache` and
+`x-accel-buffering: no`, so a proxy such as nginx passes each event on as it
+comes.
 
 via bounds what one request can take:
 
