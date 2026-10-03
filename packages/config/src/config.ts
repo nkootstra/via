@@ -15,10 +15,14 @@ export type ProviderConfig = typeof ProviderConfig.Type;
 
 const UsdPerMillion = Schema.Finite.check(Schema.isGreaterThanOrEqualTo(0));
 
-/** What a model costs, in USD per million tokens; cached input costs as much as input unless set. */
+/**
+ * What a model costs, in USD per million tokens. Input read from the cache, and
+ * input written to it, cost as much as other input unless set.
+ */
 export const ModelPrice = Schema.Struct({
   input: UsdPerMillion,
   cachedInput: Schema.optionalKey(UsdPerMillion),
+  cacheWrite: Schema.optionalKey(UsdPerMillion),
   output: UsdPerMillion,
 });
 

@@ -1,0 +1,122 @@
+name: Prices
+
+# Every Monday, refreshes the model prices via ships with (`bun run
+# prices:update`) and, when a price changed, opens a pull request with the new
+# snapshot from the `chore/prices` branch, or updates the one already open.
+#
+# main takes only verified commits, and this runner has no signing key. So the
+# commit isn't made with git: GraphQL's createCommitOnBranch makes it through
+# the API, and GitHub signs a commit made that way with its own key, so it shows
+# as Verified, as a commit made in the web UI does.
+#
+# A pull request opened with GITHUB_TOKEN starts no workflows, CI included. To
+# run CI on it, close and reopen it. It needs the repository setting "Allow
+# GitHub Actions to create and approve pull requests" (Settings → Actions →
+# General) to open one.
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: prices
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Refresh the price snapshot
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      # Points `chore/prices` at main and commits the snapshot to it.
+      contents: write
+      # Opens the pull request.
+      pull-requests: write
+    env:
+      BRANCH: chore/prices
+      SNAPSHOT: packages/usage/src/price-snapshot.ts
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: package.json
+      - run: bun install --frozen-lockfile
+      - run: bun run prices:update
+
+      - name: See whether a price changed
+        id: diff
+        run: |
+          if git diff --quiet -- "$SNAPSHOT"; then
+            echo "No price changed."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff --stat -- "$SNAPSHOT"
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit the snapshot to the branch, signed by GitHub
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # The branch starts again from this main commit each week, so the PR holds one commit.
+          if gh api "repos/$REPO/git/ref/heads/$BRANCH" --silent 2>/dev/null; then
+            gh api -X PATCH "repos/$REPO/git/refs/heads/$BRANCH" -f sha="$GITHUB_SHA" -F force=true --silent
+          else
+            gh api "repos/$REPO/git/refs" -f ref="refs/heads/$BRANCH" -f sha="$GITHUB_SHA" --silent
+          fi
+
+          jq -n \
+            --arg repo "$REPO" \
+            --arg branch "$BRANCH" \
+            --arg head "$GITHUB_SHA" \
+            --arg path "$SNAPSHOT" \
+            --arg contents "$(base64 -w0 "$SNAPSHOT")" \
+            '{
+              query: "mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }",
+              variables: { input: {
+                branch: { repositoryNameWithOwner: $repo, branchName: $branch },
+                expectedHeadOid: $head,
+                message: { headline: "chore(usage): refresh the price snapshot" },
+                fileChanges: { additions: [{ path: $path, contents: $contents }] }
+              } }
+            }' | gh api graphql --input - --jq '.data.createCommitOnBranch.commit.oid'
+
+      - name: Open the pull request, unless one is open
+        if: steps.diff.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          open=$(gh pr list --repo "$REPO" --head "$BRANCH" --state open --json number --jq 'length')
+          if [ "$open" != 0 ]; then
+            echo "The open pull request now has this week's snapshot."
+            exit 0
+          fi
+
+          cat > body.md <<'EOF'
+          ## Summary
+
+          This week's `bun run prices:update`: the model prices from models.dev and LiteLLM changed. The snapshot's header names LiteLLM's commit. Review the diff for prices that look wrong before merging.
+
+          A pull request this workflow opens starts no CI: close and reopen it to run CI.
+
+          ## Type of change
+
+          - [x] Docs / chore (`docs`, `chore`, `ci`, `build`, `refactor`, `test`)
+
+          ## Checklist
+
+          - [x] Commits are signed and show as verified on GitHub
+          - [x] Commits carry no AI attribution trailers
+          - [x] PR title and commit subjects follow `type(scope): subject`
+          EOF
+
+          gh pr create --repo "$REPO" --base main --head "$BRANCH" \
+            --title "chore(usage): refresh the price snapshot" --body-file body.md

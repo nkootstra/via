@@ -87,6 +87,20 @@ VIA_E2E_BIN=$PWD/npm/via-darwin-arm64/bin/via bun run --filter @via/e2e test
 A failed browser test leaves a trace in `apps/e2e/test-results/`; open it with
 `bunx playwright show-trace <file>`.
 
+### Model prices
+
+`packages/usage/src/price-snapshot.ts` is generated: `bun run prices:update`
+reads models.dev's table and LiteLLM's at the commit its main branch is at,
+and writes the file with the date and that commit in its header. When no price
+changed, it leaves the file as it was, header included.
+
+The [Prices workflow](.github/workflows/prices.yml) runs it every Monday and,
+when a price changed, opens a pull request from `chore/prices`. Its commit is
+made through GitHub's API, which signs it, so it shows as Verified. A pull
+request the workflow opens starts no CI: close and reopen it to run CI. It
+needs **Allow GitHub Actions to create and approve pull requests** turned on
+under **Settings → Actions → General**.
+
 ## How we work
 
 - **Test first.** Every behaviour starts as a failing test. Write the least code

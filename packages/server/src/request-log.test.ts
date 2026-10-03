@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Deferred, Effect, Exit, Stream } from "effect";
+import { Deferred, Effect, Exit, Option, Stream } from "effect";
 import { ok, withVia } from "./testing/harness.ts";
 
 const cachedTokens = () =>
@@ -296,6 +296,36 @@ layer(BunFileSystem.layer)("request log", (it) => {
           reasoning_tokens: 6,
           cost_usd: 0.00042,
         });
+      }),
+    ),
+  );
+
+  it.effect("logs and keeps the input a provider says it wrote to the cache", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.json({
+            choices: [],
+            usage: {
+              prompt_tokens: 10,
+              completion_tokens: 2,
+              total_tokens: 12,
+              prompt_tokens_details: { cached_tokens: 0, cache_write_tokens: 7 },
+            },
+          }),
+        );
+
+        yield* (yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/kimi-k3",
+          messages: [],
+        })).text;
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          input_tokens: 10,
+          cache_write_tokens: 7,
+        });
+
+        const page = yield* via.usage.requests({ from: 0, to: Number.MAX_SAFE_INTEGER, limit: 1 });
+        expect(page.requests[0]?.cacheWriteTokens).toEqual(Option.some(7));
       }),
     ),
   );

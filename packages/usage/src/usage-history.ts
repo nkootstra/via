@@ -114,6 +114,7 @@ export interface ModelUsage {
   readonly unbilled: {
     readonly inputTokens: number;
     readonly cachedTokens: number;
+    readonly cacheWriteTokens: number;
     readonly outputTokens: number;
   };
 }
@@ -157,6 +158,7 @@ const ModelRow = Schema.Struct({
   billedRequests: Schema.Finite,
   unbilledInput: Schema.Finite,
   unbilledCached: Schema.Finite,
+  unbilledCacheWrite: Schema.Finite,
   unbilledOutput: Schema.Finite,
 });
 
@@ -219,6 +221,10 @@ const migrations = Migrator.fromRecord({
     SqlClient.SqlClient,
     (sql) => sql`ALTER TABLE requests ADD COLUMN error_message TEXT`,
   ),
+  "3_cache_write_tokens": Effect.flatMap(
+    SqlClient.SqlClient,
+    (sql) => sql`ALTER TABLE requests ADD COLUMN cache_write_tokens INTEGER`,
+  ),
 });
 
 const make = Effect.gen(function* () {
@@ -262,6 +268,7 @@ const make = Effect.gen(function* () {
     key_id AS "keyId", key_name AS "keyName", model, provider,
     account_id AS "accountId", account_label AS "accountLabel",
     input_tokens AS "inputTokens", cached_tokens AS "cachedTokens",
+    cache_write_tokens AS "cacheWriteTokens",
     output_tokens AS "outputTokens", reasoning_tokens AS "reasoningTokens",
     cost_usd AS "costUsd", duration_ms AS "durationMs", first_chunk_ms AS "firstChunkMs"
   `;
@@ -285,6 +292,7 @@ const make = Effect.gen(function* () {
       account_label: row.accountLabel,
       input_tokens: row.inputTokens,
       cached_tokens: row.cachedTokens,
+      cache_write_tokens: row.cacheWriteTokens,
       output_tokens: row.outputTokens,
       reasoning_tokens: row.reasoningTokens,
       cost_usd: row.costUsd,
@@ -418,6 +426,8 @@ const make = Effect.gen(function* () {
         COUNT(cost_usd) AS "billedRequests",
         COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN input_tokens END), 0) AS "unbilledInput",
         COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN cached_tokens END), 0) AS "unbilledCached",
+        COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN cache_write_tokens END), 0)
+          AS "unbilledCacheWrite",
         COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN output_tokens END), 0) AS "unbilledOutput"
       FROM requests
       WHERE ${matching(query)}
@@ -462,6 +472,7 @@ const make = Effect.gen(function* () {
           unbilled: {
             inputTokens: row.unbilledInput,
             cachedTokens: row.unbilledCached,
+            cacheWriteTokens: row.unbilledCacheWrite,
             outputTokens: row.unbilledOutput,
           },
         })),

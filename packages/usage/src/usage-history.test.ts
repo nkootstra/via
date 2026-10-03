@@ -23,6 +23,7 @@ const entry = (overrides: Partial<UsageEntry> = {}): UsageEntry => ({
   accountLabel: Option.some("a@example.com"),
   inputTokens: Option.some(100),
   cachedTokens: Option.some(40),
+  cacheWriteTokens: Option.none(),
   outputTokens: Option.some(20),
   reasoningTokens: Option.none(),
   costUsd: Option.none(),
@@ -360,7 +361,12 @@ describe("UsageHistory.breakdown", () => {
                 model: "gpt-6-astra",
                 billedUsd: 0,
                 billedRequests: 0,
-                unbilled: { inputTokens: 500, cachedTokens: 200, outputTokens: 100 },
+                unbilled: {
+                  inputTokens: 500,
+                  cachedTokens: 200,
+                  cacheWriteTokens: 0,
+                  outputTokens: 100,
+                },
               },
             ],
           },
@@ -407,9 +413,32 @@ describe("UsageHistory.breakdown", () => {
             model: "gpt-6-astra",
             billedUsd: 0.75,
             billedRequests: 2,
-            unbilled: { inputTokens: 100, cachedTokens: 40, outputTokens: 20 },
+            unbilled: { inputTokens: 100, cachedTokens: 40, cacheWriteTokens: 0, outputTokens: 20 },
           },
         ]);
+      }),
+    ),
+  );
+
+  it.effect("keeps the input written to the cache, to price what wasn't billed", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const written = entry({ requestId: "a", cacheWriteTokens: Option.some(30) });
+        yield* usage.record(written);
+        yield* usage.record(
+          entry({ requestId: "b", cacheWriteTokens: Option.some(50), costUsd: Option.some(1) }),
+        );
+
+        const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
+        expect(page.requests).toContainEqual(written);
+
+        const { groups } = yield* usage.breakdown({ from: 0, to: 2_000 * HOUR, groupBy: "model" });
+        expect(groups[0]?.models[0]?.unbilled).toEqual({
+          inputTokens: 100,
+          cachedTokens: 40,
+          cacheWriteTokens: 30,
+          outputTokens: 20,
+        });
       }),
     ),
   );

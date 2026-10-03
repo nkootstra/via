@@ -7,6 +7,8 @@ export interface TokenUsage {
   readonly inputTokens: number;
   readonly outputTokens: number;
   readonly cachedTokens?: number;
+  /** The part of `inputTokens` written to the prompt cache, which can cost more than other input. */
+  readonly cacheWriteTokens?: number;
   /** The part of `outputTokens` the model spent reasoning. */
   readonly reasoningTokens?: number;
   /** What the upstream says it billed, in USD, as OpenRouter reports in `usage.cost`. */
@@ -17,7 +19,12 @@ const ChatUsage = Schema.Struct({
   prompt_tokens: Schema.Finite,
   completion_tokens: Schema.Finite,
   prompt_tokens_details: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) })),
+    Schema.NullOr(
+      Schema.Struct({
+        cached_tokens: Schema.optionalKey(Schema.Finite),
+        cache_write_tokens: Schema.optionalKey(Schema.Finite),
+      }),
+    ),
   ),
   completion_tokens_details: Schema.optionalKey(
     Schema.NullOr(Schema.Struct({ reasoning_tokens: Schema.optionalKey(Schema.Finite) })),
@@ -38,6 +45,7 @@ const tokenUsage = (
   outputTokens: number,
   optional: {
     readonly cachedTokens: number | undefined;
+    readonly cacheWriteTokens?: number | undefined;
     readonly reasoningTokens: number | undefined;
     readonly costUsd: number | undefined;
   },
@@ -45,6 +53,9 @@ const tokenUsage = (
   inputTokens,
   outputTokens,
   ...(optional.cachedTokens === undefined ? {} : { cachedTokens: optional.cachedTokens }),
+  ...(optional.cacheWriteTokens === undefined
+    ? {}
+    : { cacheWriteTokens: optional.cacheWriteTokens }),
   ...(optional.reasoningTokens === undefined ? {} : { reasoningTokens: optional.reasoningTokens }),
   ...(optional.costUsd === undefined ? {} : { costUsd: optional.costUsd }),
 });
@@ -53,7 +64,7 @@ const tokenUsage = (
  * Reads token counts out of a Responses `usage` object
  * (`input_tokens`/`output_tokens`, with `cached_tokens` and `reasoning_tokens`
  * in their details) or a Chat Completions one (`prompt_tokens`/
- * `completion_tokens`, likewise), plus the `cost` an upstream such as
+ * `completion_tokens`, likewise, and `cache_write_tokens`), plus the `cost` an upstream such as
  * OpenRouter adds. Anything else is absent, not zero.
  */
 export const usageOf = (usage: Schema.Json | undefined): Option.Option<TokenUsage> => {
@@ -73,6 +84,7 @@ export const usageOf = (usage: Schema.Json | undefined): Option.Option<TokenUsag
     return Option.some(
       tokenUsage(usage.prompt_tokens, usage.completion_tokens, {
         cachedTokens: usage.prompt_tokens_details?.cached_tokens,
+        cacheWriteTokens: usage.prompt_tokens_details?.cache_write_tokens,
         reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
         costUsd,
       }),

@@ -158,8 +158,9 @@ const counted = (counts: Counts, usage: typeof MessagesUsage.Type): Counts => ({
 });
 
 /**
- * Chat Completions usage from Messages counts. Messages counts cached input
- * apart from input; Chat counts it as part of the prompt, as via does.
+ * Chat Completions usage from Messages counts. Messages counts cached input,
+ * and input written to the cache, apart from input; Chat counts both as part
+ * of the prompt, as via does, and the written part as OpenRouter does.
  */
 const chatUsage = (counts: Counts) => {
   const prompt = counts.input + counts.cacheRead + counts.cacheCreation;
@@ -168,7 +169,10 @@ const chatUsage = (counts: Counts) => {
     prompt_tokens: prompt,
     completion_tokens: counts.output,
     total_tokens: prompt + counts.output,
-    prompt_tokens_details: { cached_tokens: counts.cacheRead },
+    prompt_tokens_details: {
+      cached_tokens: counts.cacheRead,
+      cache_write_tokens: counts.cacheCreation,
+    },
   };
 };
 

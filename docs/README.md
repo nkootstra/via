@@ -680,9 +680,11 @@ The [usage history](#usage-history) prices tokens with a snapshot of two
 price tables that ships with via: [models.dev](https://models.dev) for what
 OpenCode Go charges for each of its models, and
 [LiteLLM's](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)
-for the rest. For a model neither lists, or at another price, add it under
-`prices`, in USD per million tokens. `cachedInput` is optional: cached input
-costs what input does unless it's set. A price that grows past a long context
+for the rest. The snapshot's header says on which day it was taken, and from
+which commit of LiteLLM's table. For a model neither lists, or at another price, add it under
+`prices`, in USD per million tokens. `cachedInput` and `cacheWrite` are
+optional: input read from the cache, and input written to it, cost what other
+input does unless they're set. A price that grows past a long context
 is taken at its base rate.
 
 ```yaml
@@ -690,6 +692,7 @@ prices:
   opencode-go/kimi-k3:
     input: 0.6
     cachedInput: 0.1
+    cacheWrite: 0.75
     output: 2.5
 ```
 
@@ -736,7 +739,9 @@ Add your OpenRouter API key on the Accounts page of the [web UI](#web-ui). via
 checks it with OpenRouter first, then keeps it in `openrouter.json`, and shows
 it only by its last four characters. OpenRouter lists hundreds of models, so
 none is offered until you choose some: **Choose models…** in its row lists
-them all, with OpenRouter's prices, to search and switch on. Only those show
+them all, with OpenRouter's prices, to search and switch on. A model whose
+price OpenRouter doesn't fix, such as `openrouter/auto`, which costs what the
+model it routes to does, shows "Price unknown". Only those show
 in `/v1/models`; a request for another answers `404` (`model_not_found`),
 saying to enable it. Replacing the key keeps the models chosen. It all takes
 effect at once, with no restart.
@@ -839,7 +844,9 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   answered.
 - `input_tokens` and `output_tokens` are the token counts the upstream
   reported for an answered request, and `cached_tokens` joins them when the
-  upstream reports a cache hit. `reasoning_tokens` is the part of the output
+  upstream reports a cache hit, and `cache_write_tokens` when it reports
+  input written to its cache (OpenRouter does, as do models OpenCode Go
+  serves in Messages). `reasoning_tokens` is the part of the output
   the model spent reasoning, and `cost_usd` what the upstream says it billed,
   when it reports either (OpenRouter reports its cost). Absent usage stays
   absent, never a zero.
@@ -865,7 +872,7 @@ new tokens can't be saved.
 database: when it came in, the API key's id and name, the model, the provider
 and account that served it, its status, why it failed if it did (the error
 code and message, via's own or the upstream's, the message cut to 500
-characters), its input, cached,
+characters), its input, cached, cache-write,
 output and reasoning tokens as the upstream reported them, any cost the
 upstream billed (OpenRouter reports one), and how long it took to answer and,
 for a streamed answer, to send its first chunk. It never keeps a prompt or an answer. Requests older
