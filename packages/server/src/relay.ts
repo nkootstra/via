@@ -183,10 +183,11 @@ export const relayed = <E>(
     const timed = log.timed(sse ? keepAlive(relaying) : relaying);
     const { incomplete } = options;
 
-    // Ended after the log has seen the stream fail, so its line still says it did.
+    // Ended after the log has seen the stream fail, so its line still says it did. The blank
+    // line ends whatever event the upstream broke off in, so the error is an event of its own.
     const ended =
       sse && incomplete !== undefined
-        ? Stream.orElseSucceed(timed, () => new TextEncoder().encode(incomplete))
+        ? Stream.orElseSucceed(timed, () => new TextEncoder().encode(`\n\n${incomplete}`))
         : timed;
 
     return HttpServerResponse.stream(ended, {

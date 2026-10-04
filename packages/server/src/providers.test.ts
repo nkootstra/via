@@ -120,6 +120,36 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     );
   }
 
+  it.effect(
+    "ends a provider's stream that breaks off mid-event with an error event of its own",
+    () =>
+      withVia(ok, (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(
+            providerReply.sseThenHang('data: {"choices":[{"delta":{"content":"hel'),
+          );
+
+          const response = yield* via.post("/v1/chat/completions", {
+            model: "openrouter/qwen/qwen3",
+            stream: true,
+            messages: [{ role: "user", content: "hi" }],
+          });
+
+          yield* Effect.forkChild(outwait(via, "5 minutes"));
+
+          const last = (yield* response.text)
+            .split("\n\n")
+            .filter((event) => event !== "" && !event.startsWith(":"))
+            .at(-1);
+
+          expect(last).toMatch(/^data: /);
+          expect(JSON.parse((last ?? "").slice("data: ".length)).error).toMatchObject({
+            code: "upstream_incomplete",
+          });
+        }),
+      ),
+  );
+
   it.effect("forwards a Responses request with the client's session", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
