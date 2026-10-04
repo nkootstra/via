@@ -206,7 +206,11 @@ const make = (authDir: string) => {
      * account's own, so a slow refresh doesn't hold up changes to the others.
      */
     const lockedForRefresh = <A, E, R>(id: string, effect: Effect.Effect<A, E, R>) =>
-      withFileLock(fileOf(id), effect).pipe(Effect.provideService(FileSystem.FileSystem, fs));
+      // A refresh can hold the lock for as long as the issuer takes to answer; a waiter that gave
+      // up sooner would set a healthy account aside.
+      withFileLock(fileOf(id), effect, { giveUpAfter: "3 minutes" }).pipe(
+        Effect.provideService(FileSystem.FileSystem, fs),
+      );
 
     /** Signals now, then after every change this process makes to the accounts. */
     const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));

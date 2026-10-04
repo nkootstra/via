@@ -1,6 +1,7 @@
 import {
   Clock,
   Data,
+  type Duration,
   Effect,
   FileSystem,
   Option,
@@ -19,7 +20,7 @@ const STALE_AFTER_MS = 5_000;
 const RENEW_EVERY = "1 second";
 
 // Longer than STALE_AFTER_MS, so a crashed holder's lock is taken over before a waiter gives up.
-const GIVE_UP_AFTER = "10 seconds";
+const GIVE_UP_AFTER: Duration.Input = "10 seconds";
 
 class LockBusy extends Data.TaggedError("LockBusy") {}
 
@@ -54,7 +55,7 @@ const owns = (fs: FileSystem.FileSystem, lock: string, token: string) =>
     Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed(false)),
   );
 
-const acquire = (path: string, lock: string, token: string) =>
+const acquire = (path: string, lock: string, token: string, giveUpAfter: Duration.Input) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
 
@@ -78,7 +79,7 @@ const acquire = (path: string, lock: string, token: string) =>
     return yield* new LockBusy();
   }).pipe(
     Effect.retry({
-      schedule: Schedule.spaced("50 millis").pipe(Schedule.upTo({ duration: GIVE_UP_AFTER })),
+      schedule: Schedule.spaced("50 millis").pipe(Schedule.upTo({ duration: giveUpAfter })),
       while: Predicate.isTagged("LockBusy"),
     }),
     Effect.catchTag("LockBusy", () => Effect.fail(new FileLockTimeoutError({ path }))),
@@ -106,9 +107,14 @@ const renew = (fs: FileSystem.FileSystem, lock: string, token: string) =>
  * renewed while `effect` runs and removed afterwards, each only while the file still holds that
  * token. Checking the token and then acting isn't atomic; like a takeover, that race needs a
  * stalled holder first. Guards a read-modify-write of `path` against another via process (the
- * CLI next to `via serve`).
+ * CLI next to `via serve`). A waiter gives up after ten seconds, or `giveUpAfter` when the
+ * lock guards something that takes longer.
  */
-export const withFileLock = <A, E, R>(path: string, effect: Effect.Effect<A, E, R>) =>
+export const withFileLock = <A, E, R>(
+  path: string,
+  effect: Effect.Effect<A, E, R>,
+  { giveUpAfter = GIVE_UP_AFTER }: { readonly giveUpAfter?: Duration.Input } = {},
+) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
     const lock = `${path}.lock`;
@@ -116,7 +122,7 @@ export const withFileLock = <A, E, R>(path: string, effect: Effect.Effect<A, E, 
     yield* fs.makeDirectory(dirname(path), { recursive: true, mode: 0o700 });
 
     return yield* Effect.acquireUseRelease(
-      acquire(path, lock, token),
+      acquire(path, lock, token, giveUpAfter),
       () => Effect.raceFirst(effect, renew(fs, lock, token)),
       () =>
         Effect.gen(function* () {
