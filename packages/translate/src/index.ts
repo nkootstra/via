@@ -10,3 +10,5 @@ export {
   toChatStreamFromMessages,
   toMessagesRequest,
 } from "./chat-messages.ts";
+
+export { thinkSeparatedJson, thinkSeparatedStream } from "./think-tags.ts";
