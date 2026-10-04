@@ -188,6 +188,8 @@ function CreateKeyDialog({
                   mutation.reset();
                 }}
                 name="name"
+                // As long as via takes a key's name.
+                maxLength={200}
                 autoComplete="off"
                 spellCheck={false}
                 placeholder="laptop, ci, cursor…"

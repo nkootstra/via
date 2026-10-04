@@ -235,12 +235,12 @@ A maintainer releases from GitHub: **Actions → Release → Run workflow** on
 `main`, choosing whether to raise the patch, minor or major version. The
 workflow checks that CI passed for that commit, then takes the latest `vX.Y.Z`
 tag and raises it (from `v0.0.0` for the first release), and compiles the four
-binaries. It pushes the Docker image to `ghcr.io` by digest alone, runs the
-image smoke test against that digest, and only then gives it the version tags
-and `latest`. Last, it tags the commit with a GitHub release whose notes list
-the merged pull requests, with the binaries attached as `via-<os>-<arch>` and
-their `SHA256SUMS`. The image and the binaries get build provenance
-attestations.
+binaries. It pushes the Docker image to `ghcr.io` by digest alone and runs the
+image smoke test against that digest. Then it tags the commit with a GitHub
+release whose notes list the merged pull requests, with the binaries attached
+as `via-<os>-<arch>` and their `SHA256SUMS`. Last, it gives the tested image
+the version tags and `latest`, so `latest` never names a version without a
+release. The image and the binaries get build provenance attestations.
 
 The npm packages aren't published yet: the release workflow has no npm
 credentials, so `npm/` is built and smoke-tested but not uploaded.

@@ -60,6 +60,8 @@ chmod +x via-darwin-arm64 && mv via-darwin-arm64 /usr/local/bin/via
 the release workflow built it.
 
 Prebuilt npm packages are coming: `npm i -g @nkootstra/via` will install them.
+The Linux ones need glibc, so on Alpine and other musl systems use the Docker
+image or build from source.
 Or build from source with [Bun](https://bun.sh) 1.4:
 
 ```sh
@@ -437,6 +439,12 @@ cookie instead, so the key is never kept in the page:
   is `Secure` when the browser signed in over HTTPS, which via tells from the
   request's `Origin` header, so a proxy that ends TLS in front of via needs
   no setting for it.
+- Browsers keep cookies by host, not by port, so the browser also sends
+  `via_session` to every other service on via's host, such as another app on
+  `localhost:3000`, and `SameSite=Strict` doesn't stop it: to a browser, every
+  port on a host is the same site. Any such service can read the cookie and
+  act as the admin until the session ends. Serve the web UI from a host name
+  of its own, or sign out when you're done.
 - A session ends 12 hours after sign-in, after an hour unused, on
   `DELETE /admin/session`, or when via restarts; sessions are kept in memory.
 - A request that changes something (anything but `GET`) with only the cookie

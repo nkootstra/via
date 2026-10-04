@@ -84,7 +84,9 @@ const make = Effect.gen(function* () {
       yield* Effect.gen(function* () {
         const usage = yield* providers.usage(account.apiKey);
         const at = yield* Clock.currentTimeMillis;
-        const verdict = classify(rateLimitRejection(usage, retryAfterHeader, at), at);
+        // The usage is read as it stands now; Retry-After counts from the 429, however long
+        // the usage took to come back.
+        const verdict = classify(rateLimitRejection(usage, retryAfterHeader, at), now);
 
         // An exhausted account always gets a cooldown.
         if (Verdict.$is("Cooldown")(verdict))
