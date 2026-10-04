@@ -226,21 +226,19 @@ const opencodeGoById = Effect.fn("admin.opencodeGoById")(function* (id: string) 
   return account ?? (yield* new OpencodeGoAccountNotFoundError({ query: id }));
 });
 
-// The account file is via's own; one it can't read or write is a bug, not a request error.
 /** OpenRouter as just saved: there is one, as saving it succeeded. */
-const savedOpenrouter = Effect.flatMap(adminOpenrouter, (saved) =>
-  saved === null
-    ? // Saving went through, so the settings are there; not finding them is a defect.
-      Effect.die("OpenRouter's settings are gone just after saving them")
-    : Effect.succeed(saved),
+const savedOpenrouter = adminOpenrouter.pipe(
+  // Saving went through, so the settings are there; not finding them is a defect.
+  Effect.filterOrElse(Predicate.isNotNull, () =>
+    Effect.die("OpenRouter's settings are gone just after saving them"),
+  ),
 );
 
 /** `address` as via keeps Ollama's, or why it isn't one. */
 const ollamaAddress = (address: string) =>
-  Option.match(parseOllamaAddress(address), {
-    onNone: () => Effect.fail(new OllamaAddressInvalidError({ address })),
-    onSome: Effect.succeed,
-  });
+  Effect.fromOption(parseOllamaAddress(address)).pipe(
+    Effect.mapError(() => new OllamaAddressInvalidError({ address })),
+  );
 
 const ollama = HttpApiBuilder.group(AdminApi, "ollama", (handlers) =>
   handlers

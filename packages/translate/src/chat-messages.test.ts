@@ -117,6 +117,36 @@ describe("toMessagesRequest", () => {
     expect(toMessagesRequest(chat({ messages: [], tools })).tool_choice).toBeUndefined();
   });
 
+  it("leaves out empty text and turns, which Messages refuses", () => {
+    const request = toMessagesRequest(
+      chat({
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: "" },
+          { role: "assistant", content: null },
+          { role: "user", content: "" },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "" },
+              { type: "text", text: "again" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(request.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "hi" },
+          { type: "text", text: "again" },
+        ],
+      },
+    ]);
+  });
+
   it("sends an image by URL, or by its data when the URL carries it", () => {
     const request = toMessagesRequest(
       chat({
@@ -207,6 +237,12 @@ describe("toChatCompletionFromMessage", () => {
         prompt_tokens_details: { cached_tokens: 30, cache_write_tokens: 0 },
       },
     });
+  });
+
+  it("answers a turn of only tool calls with null content, as OpenAI does", () => {
+    const toolsOnly = { ...message, content: message.content.filter((block) => "input" in block) };
+
+    expect(toChatCompletionFromMessage(toolsOnly, 1).choices[0]?.message.content).toBeNull();
   });
 
   it("counts input written to the cache as input, and says how much it was", () => {

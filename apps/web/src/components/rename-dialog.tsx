@@ -103,6 +103,8 @@ export function RenameDialog({
                 mutation.reset();
               }}
               name={field.toLowerCase()}
+              // As long as via takes a name or label.
+              maxLength={200}
               autoComplete="off"
               spellCheck={false}
             />

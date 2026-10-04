@@ -165,24 +165,6 @@ jobs:
           # Storage records exist only for organization-owned repositories.
           create-storage-record: false
 
-      # A carbon copy (--prefer-index=false) of the tested index, so the tags
-      # point at the very digest that was tested and attested.
-      - name: Tag the tested image
-        env:
-          DIGEST: ${{ steps.push.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
-        run: |
-          args=()
-          while read -r tag; do
-            if [ -n "$tag" ]; then args+=(--tag "$tag"); fi
-          done <<< "$TAGS"
-          docker buildx imagetools create --prefer-index=false "${args[@]}" "$IMAGE@$DIGEST"
-          tagged=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest.Digest}}')
-          if [ "$tagged" != "\"$DIGEST\"" ]; then
-            echo "::error::$IMAGE:$VERSION is $tagged, not the tested $DIGEST."
-            exit 1
-          fi
-
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: binaries
@@ -200,3 +182,22 @@ jobs:
         run: |
           gh release create "v$VERSION" --target "$GITHUB_SHA" --title "v$VERSION" --generate-notes \
             dist/via-darwin-arm64 dist/via-darwin-x64 dist/via-linux-arm64 dist/via-linux-x64 dist/SHA256SUMS
+
+      # A carbon copy (--prefer-index=false) of the tested index, so the tags
+      # point at the very digest that was tested and attested. Last, once the
+      # release exists: `latest` must never name a version that has no release.
+      - name: Tag the tested image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          args=()
+          while read -r tag; do
+            if [ -n "$tag" ]; then args+=(--tag "$tag"); fi
+          done <<< "$TAGS"
+          docker buildx imagetools create --prefer-index=false "${args[@]}" "$IMAGE@$DIGEST"
+          tagged=$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest.Digest}}')
+          if [ "$tagged" != "\"$DIGEST\"" ]; then
+            echo "::error::$IMAGE:$VERSION is $tagged, not the tested $DIGEST."
+            exit 1
+          fi
