@@ -1,6 +1,6 @@
 import { BunHttpServer } from "@effect/platform-bun";
 import { describe, expect, it } from "@effect/vitest";
-import { Deferred, Effect, Fiber, Layer } from "effect";
+import { Deferred, Effect, Fiber, Layer, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import {
   FetchHttpClient,
@@ -9,7 +9,7 @@ import {
   HttpServerRequest,
   HttpServerResponse,
 } from "effect/unstable/http";
-import { issuedTokens } from "./testing/index.ts";
+import { issuedTokens, refreshedTokens } from "./testing/index.ts";
 import { AuthRequestError, CodexAuth, type DeviceCode, type Tokens } from "./index.ts";
 
 /** What the issuer answers a poll with once the user approved the login. */
@@ -87,4 +87,48 @@ describe("CodexAuth against an issuer that never answers", () => {
       }),
     );
   }
+});
+
+describe("CodexAuth against an issuer that answers slowly", () => {
+  it.effect("keeps the rotated tokens of a refresh answer that started in time but ends late", () =>
+    Effect.gen(function* () {
+      const started = yield* Deferred.make<void>();
+
+      const [head, tail] = [
+        JSON.stringify(refreshedTokens).slice(0, 20),
+        JSON.stringify(refreshedTokens).slice(20),
+      ];
+
+      // The answer starts at once, then its body takes longer than any one request may.
+      const answer = HttpServerResponse.stream(
+        Stream.concat(
+          Stream.fromEffect(Effect.as(Deferred.succeed(started, undefined), head)),
+          Stream.fromEffect(Effect.as(Effect.sleep("40 seconds"), tail)),
+        ).pipe(Stream.encodeText),
+        { contentType: "application/json" },
+      );
+
+      const server = yield* Layer.build(
+        HttpRouter.serve(HttpRouter.add("*", "*", answer)).pipe(
+          Layer.provideMerge(BunHttpServer.layer({ port: 0, idleTimeout: 0 })),
+        ),
+      );
+
+      const url = yield* HttpServer.addressFormattedWith(Effect.succeed).pipe(
+        Effect.provide(server),
+      );
+
+      const refreshing = yield* Effect.flatMap(CodexAuth, (auth) => auth.refresh(current)).pipe(
+        Effect.provide(CodexAuth.layer(url).pipe(Layer.provide(FetchHttpClient.layer))),
+        Effect.forkChild,
+      );
+
+      yield* Deferred.await(started);
+      // Real time for the answer's start to reach the client before the clock moves.
+      yield* TestClock.withLive(Effect.sleep("100 millis"));
+      yield* TestClock.adjust("40 seconds");
+      const tokens = yield* Fiber.join(refreshing);
+      expect(tokens.refreshToken).toBe(refreshedTokens.refresh_token);
+    }),
+  );
 });

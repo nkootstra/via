@@ -262,7 +262,9 @@ via bounds what one request can take:
   answers `504 upstream_timeout`, and one whose stream runs past 128 MiB
   answers `502 upstream_too_large`.
 - Usage, model lists, key checks and sign-in requests to OpenAI give up after
-  30 seconds.
+  30 seconds. A token refresh gives up when OpenAI hasn't started answering
+  within 30 seconds; once it has, the answer gets 2 minutes to arrive, as it
+  holds the new refresh token and the old one is already spent.
 - A client that hangs up on a stream ends via's request upstream too.
 
 `/v1/models` lists what the Codex model picker shows your accounts, combined,
