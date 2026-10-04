@@ -12,6 +12,13 @@ const LOGIN_TIMEOUT = Duration.minutes(15);
 /** How long one request to the issuer may take, which it answers at once. */
 const REQUEST_TIMEOUT = Duration.seconds(30);
 
+/**
+ * How long a refresh answer may take to arrive once it started. The issuer has
+ * spent the old refresh token by then, so cutting the answer off would lose
+ * the new one; only a connection that stalled takes this long.
+ */
+const REFRESH_BODY_TIMEOUT = Duration.minutes(2);
+
 const UserCodeResponse = Schema.Struct({
   device_auth_id: Schema.String,
   user_code: Schema.String,
@@ -90,15 +97,18 @@ const decodeJson =
 const toAuthRequestError = (error: { message: string }) =>
   new AuthRequestError({ reason: error.message });
 
+/** `effect`, failing once it has run for `limit`, as a request the issuer never answered. */
+const answeredWithin =
+  (limit: Duration.Duration) =>
+  <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+    Effect.timeoutOrElse(effect, {
+      duration: limit,
+      orElse: () =>
+        Effect.fail(new AuthRequestError({ reason: `no answer within ${Duration.format(limit)}` })),
+    });
+
 /** `effect`, failing once it has run for `REQUEST_TIMEOUT`, as a request the issuer never answered. */
-const answeredInTime = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.timeoutOrElse(effect, {
-    duration: REQUEST_TIMEOUT,
-    orElse: () =>
-      Effect.fail(
-        new AuthRequestError({ reason: `no answer within ${Duration.format(REQUEST_TIMEOUT)}` }),
-      ),
-  });
+const answeredInTime = answeredWithin(REQUEST_TIMEOUT);
 
 const toTokens = Effect.fn("toTokens")(function* (response: typeof TokenResponse.Type) {
   const [, payload = ""] = response.access_token.split(".");
@@ -210,8 +220,17 @@ const make = (issuer: string) =>
         }),
         http.execute,
         Effect.mapError(toAuthRequestError),
+        answeredInTime,
       );
 
+      return yield* readRefresh(current, response).pipe(answeredWithin(REFRESH_BODY_TIMEOUT));
+    });
+
+    /** The tokens a refresh `response` carries, or why it carries none. */
+    const readRefresh = Effect.fnUntraced(function* (
+      current: Tokens,
+      response: HttpClientResponse.HttpClientResponse,
+    ) {
       if (response.status === 400 || response.status === 401) {
         const rejected = yield* decodeJson(RefreshErrorBody)(response).pipe(Effect.option);
 
@@ -240,7 +259,7 @@ const make = (issuer: string) =>
         ),
         Effect.mapError(toAuthRequestError),
       );
-    }, answeredInTime);
+    });
 
     return { requestDeviceCode, awaitDeviceTokens, refresh };
   });
