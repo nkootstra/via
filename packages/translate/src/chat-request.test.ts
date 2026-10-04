@@ -198,6 +198,18 @@ describe("toResponsesRequest", () => {
     ).toMatchObject({ tools: [{ type: "function", name: "weather", strict: false }] });
   });
 
+  it("gives a function tool that leaves out its parameters an empty object schema", () => {
+    expect(
+      translate({
+        model: "gpt-6-astra",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [{ type: "function", function: { name: "now" } }],
+      }),
+    ).toMatchObject({
+      tools: [{ type: "function", name: "now", parameters: { type: "object", properties: {} } }],
+    });
+  });
+
   it("passes a tool choice mode through", () => {
     expect(
       translate({ model: "gpt-6-astra", messages: [], tool_choice: "required" }),
