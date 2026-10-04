@@ -225,6 +225,11 @@ const migrations = Migrator.fromRecord({
     SqlClient.SqlClient,
     (sql) => sql`ALTER TABLE requests ADD COLUMN cache_write_tokens INTEGER`,
   ),
+  "4_fallbacks": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`ALTER TABLE requests ADD COLUMN requested_model TEXT`;
+    yield* sql`ALTER TABLE requests ADD COLUMN fallback_reason TEXT`;
+  }),
 });
 
 const make = Effect.gen(function* () {
@@ -270,7 +275,8 @@ const make = Effect.gen(function* () {
     input_tokens AS "inputTokens", cached_tokens AS "cachedTokens",
     cache_write_tokens AS "cacheWriteTokens",
     output_tokens AS "outputTokens", reasoning_tokens AS "reasoningTokens",
-    cost_usd AS "costUsd", duration_ms AS "durationMs", first_chunk_ms AS "firstChunkMs"
+    cost_usd AS "costUsd", duration_ms AS "durationMs", first_chunk_ms AS "firstChunkMs",
+    requested_model AS "requestedModel", fallback_reason AS "fallbackReason"
   `;
 
   const record = Effect.fn("UsageHistory.record")(function* (entry: UsageEntry) {
@@ -298,6 +304,8 @@ const make = Effect.gen(function* () {
       cost_usd: row.costUsd,
       duration_ms: row.durationMs,
       first_chunk_ms: row.firstChunkMs,
+      requested_model: row.requestedModel,
+      fallback_reason: row.fallbackReason,
     })}`;
   });
 

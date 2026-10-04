@@ -38,6 +38,10 @@ export const UsageEntry = Schema.Struct({
   costUsd: Nullable(Schema.Finite),
   durationMs: Schema.Finite,
   firstChunkMs: Nullable(Schema.Finite),
+  /** The model the client asked for, when it couldn't serve and `model` answered instead. */
+  requestedModel: Nullable(Schema.String),
+  /** Why the model asked for couldn't serve, as a code, such as `rate_limit_exceeded`. */
+  fallbackReason: Nullable(Schema.String),
 });
 
 export type UsageEntry = typeof UsageEntry.Type;

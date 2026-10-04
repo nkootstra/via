@@ -108,7 +108,7 @@ describe("candidatesFor", () => {
     { rules: Schema.Array(Rule), requested: Id },
     ({ rules, requested }) => {
       const kept = valid(rules);
-      const targets = kept.flatMap((rule) => rule.fallbacks);
+      const targets: ReadonlyArray<string> = kept.flatMap((rule) => rule.fallbacks);
 
       return candidatesFor(kept, requested, catalog).every(
         (candidate) =>

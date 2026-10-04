@@ -42,6 +42,16 @@ export class RequestLog extends Context.Service<
     readonly refused: (code: string, message: string) => Effect.Effect<void>;
     /** Records why an upstream refused the request, as its answer says. */
     readonly upstreamFailed: (error: UpstreamError) => Effect.Effect<void>;
+    /**
+     * Records that the model the client asked for, `requested`, couldn't serve, for `reason`,
+     * and that another model now takes the request.
+     */
+    readonly fellBack: (requested: string, reason: string) => Effect.Effect<void>;
+    /**
+     * Sets aside what was noted about the model last asked, so the next one asked starts
+     * afresh, and gives back what puts it back, should no other model serve.
+     */
+    readonly setAside: Effect.Effect<Effect.Effect<void>>;
     /** Records the token usage the upstream reported for the answer. */
     readonly usage: (usage: TokenUsage) => Effect.Effect<void>;
     /** Leaves the request out of the log, as a file a page fetches with it. */
@@ -167,6 +177,8 @@ const entryOf = (
     firstChunkMs: streamedAnswer(line)
       ? Option.map(line.firstChunkAt, (at) => at - start)
       : Option.none(),
+    requestedModel: line.requestedModel,
+    fallbackReason: line.fallbackReason,
   };
 };
 
@@ -187,6 +199,10 @@ interface Noted {
   readonly upstreamError: Option.Option<UpstreamError>;
   readonly error: Option.Option<string>;
   readonly usage: Option.Option<TokenUsage>;
+  /** The model the client asked for, when it couldn't serve and another model took the request. */
+  readonly requestedModel: Option.Option<string>;
+  /** Why the model asked for couldn't serve. */
+  readonly fallbackReason: Option.Option<string>;
   readonly retryAfter: Option.Option<string>;
   readonly status: number;
   readonly headersAt: number;
@@ -245,6 +261,8 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       upstreamError: Option.none(),
       error: Option.none(),
       usage: Option.none(),
+      requestedModel: Option.none(),
+      fallbackReason: Option.none(),
       retryAfter: Option.none(),
       status: 0,
       headersAt: start,
@@ -276,6 +294,8 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
             Option.flatMap(line.upstreamError, (upstream) => upstream.code),
           ),
           ...noted("retry_after", line.retryAfter),
+          ...noted("requested_model", line.requestedModel),
+          ...noted("fallback_reason", line.fallbackReason),
           ...usageAnnotations(line.usage),
           ...(streamedAnswer(line)
             ? {
@@ -328,6 +348,35 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       refused: (code, message) =>
         note({ error: Option.some(code), errorMessage: Option.some(message) }),
       upstreamFailed: (error) => note({ upstreamError: Option.some(error) }),
+      fellBack: (requested, reason) =>
+        note({ requestedModel: Option.some(requested), fallbackReason: Option.some(reason) }),
+      setAside: Ref.modify(noting, (sofar): [Effect.Effect<void>, Noted] => {
+        const attempt = {
+          model: sofar.model,
+          streamAsked: sofar.streamAsked,
+          servedBy: sofar.servedBy,
+          accountId: sofar.accountId,
+          error: sofar.error,
+          errorMessage: sofar.errorMessage,
+          upstreamError: sofar.upstreamError,
+          usage: sofar.usage,
+          requestedModel: sofar.requestedModel,
+          fallbackReason: sofar.fallbackReason,
+        };
+
+        return [
+          note(attempt),
+          {
+            ...sofar,
+            servedBy: Option.none(),
+            accountId: Option.none(),
+            error: Option.none(),
+            errorMessage: Option.none(),
+            upstreamError: Option.none(),
+            usage: Option.none(),
+          },
+        ];
+      }),
       usage: (usage) => note({ usage: Option.some(usage) }),
       unlogged: note({ logged: false }),
       timed: (stream) =>
