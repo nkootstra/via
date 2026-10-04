@@ -12,7 +12,12 @@ import {
   Stream,
 } from "effect";
 import { UsageHistory } from "@via/usage";
-import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import {
+  HttpEffect,
+  HttpServerRequest,
+  HttpServerRespondable,
+  HttpServerResponse,
+} from "effect/unstable/http";
 import type { UsageEntry } from "@via/usage";
 import type { TokenUsage } from "./token-usage.ts";
 import { cut, type UpstreamError } from "./upstream-error.ts";
@@ -194,6 +199,19 @@ interface Noted {
 }
 
 /**
+ * Whether `cause` holds a real defect: not one that is itself the answer, as
+ * the platform dies with a 404 for no matching route or a 499 for a client that
+ * gave up, which the request's own line already reports.
+ */
+const isUnexpected = <E>(cause: Cause.Cause<E>) =>
+  cause.reasons.some(
+    (reason) =>
+      Cause.isDieReason(reason) &&
+      !HttpServerResponse.isHttpServerResponse(reason.defect) &&
+      !HttpServerRespondable.isRespondable(reason.defect),
+  );
+
+/**
  * Runs `app` for one request and then logs it as Effect's own request log does
  * ("Sent HTTP response" in an `http.span`), adding the model, who served it,
  * and, for an error via answers itself, its code and any `Retry-After`. A
@@ -356,7 +374,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       Effect.provideService(RequestLog, service),
       // The server answers a defect with a bare 500 and, with its own logger off, says no more.
       Effect.tapCause((cause) =>
-        Cause.hasDies(cause)
+        isUnexpected(cause)
           ? Effect.logError("Request failed unexpectedly", Cause.pretty(cause))
           : Effect.void,
       ),
