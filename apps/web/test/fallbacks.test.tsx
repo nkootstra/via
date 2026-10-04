@@ -173,6 +173,32 @@ describe("the fallbacks page", () => {
     expect((await rowOf("gpt-5.6-sol")).textContent).toContain("No account can serve it");
   });
 
+  it("notes each fallback via can't use, and why", async () => {
+    renderApp("/fallbacks", {
+      models,
+      fallbacks: [
+        {
+          ...standingBy("gpt-5.6-sol", ["openrouter/minimax-m3", "opencode-go/kimi-k3", "gpt-4o"]),
+          status: {
+            source: available,
+            fallbacks: [
+              { status: "unavailable", reason: "not_enabled" },
+              { status: "unavailable", reason: "no_accounts" },
+              available,
+            ],
+            serving: "gpt-5.6-sol",
+          },
+        },
+      ],
+    });
+
+    const row = await rowOf("gpt-5.6-sol");
+
+    expect(row.textContent).toContain("minimax-m3 isn't enabled, so via skips it.");
+    expect(row.textContent).toContain("kimi-k3 has no account to serve it, so via skips it.");
+    expect(row.textContent).toContain("gpt-4o isn't in the models list, so via skips it.");
+  });
+
   it("says when no model in a rule's list can answer either", async () => {
     renderApp("/fallbacks", {
       models,

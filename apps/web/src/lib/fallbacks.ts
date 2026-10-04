@@ -1,4 +1,4 @@
-import type { Fallback } from "../api/types.ts";
+import type { Availability, Fallback } from "../api/types.ts";
 import { withoutPrefix } from "./model-entries.ts";
 
 /**
@@ -16,6 +16,27 @@ export const standingOf = ({ model, status }: Fallback): Standing =>
     : status.serving === model
       ? { state: "standing-by" }
       : { state: "falling-back", to: status.serving };
+
+/**
+ * Why via skips `target` when it falls back, if it does: a model it has no
+ * account for, one not enabled, or one it doesn't list at all. A model cooling
+ * down is only resting, so that's no reason.
+ */
+export const skipped = (
+  target: string,
+  availability: Availability | undefined,
+  listed: ReadonlySet<string>,
+) => {
+  const name = withoutPrefix(target);
+
+  if (availability?.status === "unavailable") {
+    return availability.reason === "not_enabled"
+      ? `${name} isn't enabled, so via skips it.`
+      : `${name} has no account to serve it, so via skips it.`;
+  }
+
+  return listed.has(target) ? undefined : `${name} isn't in the models list, so via skips it.`;
+};
 
 /** Two standings alike: the same state, falling back to the same model. */
 export const sameStanding = (a: Standing, b: Standing) =>

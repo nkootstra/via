@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import { Badge, EmptyState, Skeleton, VisuallyHidden } from "@via/ui";
 import { colors, fontWeights, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
-import { fallbacksQuery } from "../../api/admin.ts";
+import { fallbacksQuery, modelsQuery } from "../../api/admin.ts";
 import { useLiveOptions } from "../../api/live.ts";
 import type { Availability, Fallback } from "../../api/types.ts";
 import { BackIn } from "../../components/back-in.tsx";
@@ -12,14 +12,25 @@ import { ArrowRightIcon, FallbacksIcon } from "../../components/icons.tsx";
 import { ModelName } from "../../components/model-name.tsx";
 import { Page, Panel } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
-import { announcement, sameStanding, type Standing, standingOf } from "../../lib/fallbacks.ts";
+import {
+  announcement,
+  sameStanding,
+  skipped,
+  type Standing,
+  standingOf,
+} from "../../lib/fallbacks.ts";
 import { poolReason } from "../../lib/pool-reason.ts";
 import { formatTime } from "../../lib/time.ts";
 import { useTimeFormat } from "../../lib/time-format.ts";
 
 export const Route = createFileRoute("/_app/fallbacks")({
   head: () => ({ meta: [{ title: "Fallbacks · via" }] }),
-  loader: ({ context }) => context.queryClient.ensureQueryData(fallbacksQuery),
+  // The models say which fallbacks via no longer lists, and what the dialog offers.
+  loader: ({ context: { queryClient } }) =>
+    Promise.all([
+      queryClient.ensureQueryData(fallbacksQuery),
+      queryClient.ensureQueryData(modelsQuery),
+    ]),
   pendingComponent: FallbacksLoading,
   errorComponent: FallbacksError,
   component: Fallbacks,
@@ -124,6 +135,11 @@ const styles = stylex.create({
     borderColor: colors.warning,
     boxShadow: `0 0 0 1px ${colors.warning}`,
     backgroundColor: colors.warningSubtle,
+  },
+  // A model via skips: drawn dashed and faded, with a note under the chain that says why.
+  skipped: {
+    borderStyle: "dashed",
+    color: colors.mutedForeground,
   },
   now: {
     fontSize: text.caption,
@@ -233,8 +249,19 @@ function WhyNot({ availability }: { readonly availability: Availability }) {
 }
 
 /** A rule: its model, then the models it falls back to, in order, and how it stands. */
-function Rule({ rule }: { readonly rule: Fallback }) {
+function Rule({
+  rule,
+  listed,
+}: {
+  readonly rule: Fallback;
+  /** Every model id via lists now. */
+  readonly listed: ReadonlySet<string>;
+}) {
   const standing = standingOf(rule);
+
+  const notes = rule.fallbacks.flatMap(
+    (target, index) => skipped(target, rule.status.fallbacks[index], listed) ?? [],
+  );
 
   return (
     <article aria-label={rule.model} {...stylex.props(styles.row)}>
@@ -244,8 +271,9 @@ function Rule({ rule }: { readonly rule: Fallback }) {
             <ModelName id={rule.model} />
           </h2>
           <ol aria-label="Falls back to" {...stylex.props(styles.targets)}>
-            {rule.fallbacks.map((target) => {
+            {rule.fallbacks.map((target, index) => {
               const serving = standing.state === "falling-back" && standing.to === target;
+              const skip = skipped(target, rule.status.fallbacks[index], listed) !== undefined;
 
               return (
                 <li key={target} {...stylex.props(styles.target)}>
@@ -254,7 +282,11 @@ function Rule({ rule }: { readonly rule: Fallback }) {
                   </span>
                   <span
                     aria-current={serving ? "true" : undefined}
-                    {...stylex.props(styles.chip, serving && styles.serving)}
+                    {...stylex.props(
+                      styles.chip,
+                      serving && styles.serving,
+                      skip && styles.skipped,
+                    )}
                   >
                     <ModelName id={target} />
                   </span>
@@ -268,14 +300,19 @@ function Rule({ rule }: { readonly rule: Fallback }) {
           <StandingBadge standing={standing} />
         </div>
       </div>
-      {standing.state !== "standing-by" && (
+      {(standing.state !== "standing-by" || notes.length > 0) && (
         <div {...stylex.props(styles.details)}>
           {standing.state === "none" && (
             <p {...stylex.props(styles.detail, styles.failing)}>
               Every model in the list is unavailable too, so requests fail.
             </p>
           )}
-          <WhyNot availability={rule.status.source} />
+          {standing.state !== "standing-by" && <WhyNot availability={rule.status.source} />}
+          {notes.map((note) => (
+            <p key={note} {...stylex.props(styles.detail)}>
+              {note}
+            </p>
+          ))}
         </div>
       )}
     </article>
@@ -314,7 +351,10 @@ function useTransitions(rules: ReadonlyArray<Fallback>) {
 
 function Fallbacks() {
   // While via pushes the state, the rules and how they stand needn't be asked for.
-  const fallbacks = useSuspenseQuery({ ...fallbacksQuery, ...useLiveOptions() });
+  const live = useLiveOptions();
+  const fallbacks = useSuspenseQuery({ ...fallbacksQuery, ...live });
+  const models = useSuspenseQuery({ ...modelsQuery, ...live });
+  const listed = new Set(models.data.map((model) => model.id));
   const news = useTransitions(fallbacks.data);
 
   return (
@@ -332,7 +372,7 @@ function Fallbacks() {
         <Panel>
           <div {...stylex.props(styles.rows)}>
             {fallbacks.data.map((rule) => (
-              <Rule key={rule.model} rule={rule} />
+              <Rule key={rule.model} rule={rule} listed={listed} />
             ))}
           </div>
         </Panel>
