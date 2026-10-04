@@ -405,6 +405,28 @@ describe("toChatStream", () => {
       expect(events.at(-1)).toBe("[DONE]");
     }),
   );
+
+  it.effect("finishes an incomplete response that reports its usage as null", () =>
+    Effect.gen(function* () {
+      const events = yield* chatEvents(
+        [
+          created,
+          {
+            type: "response.incomplete",
+            response: {
+              status: "incomplete",
+              incomplete_details: { reason: "max_output_tokens" },
+              usage: null,
+            },
+          },
+        ],
+        { includeUsage: true },
+      );
+
+      expect(deltas(events).at(-1)).toMatchObject({ finish_reason: "length" });
+      expect(events.at(-1)).toBe("[DONE]");
+    }),
+  );
 });
 
 describe("toChatStream and toChatCompletion", () => {

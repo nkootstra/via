@@ -57,7 +57,8 @@ const Incomplete = Schema.Struct({
   ...ResponseIncomplete.fields,
   response: Schema.Struct({
     incomplete_details: Schema.Struct({ reason: Schema.String }),
-    usage: Schema.optionalKey(Usage),
+    // As with a completed response, Codex may send `null` for the usage.
+    usage: Schema.optionalKey(Schema.NullOr(Usage)),
   }),
 });
 
