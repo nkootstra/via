@@ -236,6 +236,13 @@ A Chat Completions request to Codex is translated as OpenAI would read it:
   only that Codex refused the request. `/v1/responses` passes Codex's refusal
   on as Codex sent it.
 
+A provider's chat answer is passed through, with one change: some models, such
+as MiniMax's on OpenCode Go, write their reasoning in a `<think>…</think>`
+block at the start of the answer. via moves that block to `reasoning_content`,
+where other models put their reasoning, streamed or not, so a client shows it
+as reasoning rather than as the answer. A `<think>` anywhere later in the
+answer is left alone.
+
 via's server never closes a connection as idle, so an answer that goes quiet
 while the model works still reaches the client, streamed or not. A streamed
 answer that goes quiet also gets a `: keepalive` SSE comment every five seconds,

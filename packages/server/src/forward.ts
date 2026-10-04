@@ -1,7 +1,13 @@
 import { streamIncomplete } from "@via/codex-upstream";
 import { OpencodeGoPool, type ProviderPath, Providers, type Route } from "@via/providers";
-import { ChatRequest, toMessagesRequest, toResponsesRequest } from "@via/translate";
-import { Effect, identity, Option, Schema } from "effect";
+import {
+  ChatRequest,
+  thinkSeparatedJson,
+  thinkSeparatedStream,
+  toMessagesRequest,
+  toResponsesRequest,
+} from "@via/translate";
+import { Effect, identity, Option, Schema, Stream } from "effect";
 import { Headers, type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
 import { chatFromMessages, chatFromResponses } from "./chat-answer.ts";
 import { ModelProtocols, type Protocol } from "./model-protocols.ts";
@@ -38,9 +44,32 @@ const incomplete: Partial<Record<ProviderPath, string>> = {
   })}\n\n`,
 };
 
+/** A whole JSON body passed through `separate` once it has all come. */
+const separatedWhole =
+  <E>(separate: (body: string) => string) =>
+  (body: Stream.Stream<Uint8Array, E>) =>
+    Stream.unwrap(
+      Effect.map(Stream.mkString(Stream.decodeText(body)), (text) =>
+        Stream.make(new TextEncoder().encode(separate(text))),
+      ),
+    );
+
+/**
+ * How a provider's successful chat answer is relayed: with a leading
+ * `<think>` block, which some models write their reasoning in, moved to
+ * `reasoning_content`, streamed or whole.
+ */
+const chatRelay = (upstream: HttpClientResponse.HttpClientResponse) =>
+  upstream.status >= 400
+    ? identity
+    : (upstream.headers["content-type"] ?? "").includes("text/event-stream")
+      ? thinkSeparatedStream
+      : separatedWhole(thinkSeparatedJson);
+
 /**
  * The provider's answer to a request at `path`, piped back as it comes, errors
- * included, with its `passedOn` headers.
+ * included, with its `passedOn` headers. A chat answer's reasoning is moved
+ * out of its content (see `chatRelay`).
  */
 const relay = (path: ProviderPath) => (upstream: HttpClientResponse.HttpClientResponse) =>
   relayed(
@@ -51,7 +80,7 @@ const relay = (path: ProviderPath) => (upstream: HttpClientResponse.HttpClientRe
       headers: passedOn(upstream),
       ...(incomplete[path] === undefined ? {} : { incomplete: incomplete[path] }),
     },
-    identity,
+    path === "/chat/completions" ? chatRelay(upstream) : identity,
   );
 
 const unreachable = (route: Route) =>

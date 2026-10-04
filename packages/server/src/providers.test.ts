@@ -55,6 +55,60 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
+  it.effect("streams a leading <think> block as reasoning_content, not as the answer", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.sse(
+            'data: {"choices":[{"index":0,"delta":{"content":"<think>Easy.</think>\\n"}}]}\n\n' +
+              'data: {"choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n' +
+              "data: [DONE]\n\n",
+          ),
+        );
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/minimax-m3",
+          stream: true,
+          messages: [{ role: "user", content: "hi" }],
+        });
+
+        expect(yield* response.text).toBe(
+          'data: {"choices":[{"index":0,"delta":{"content":"","reasoning_content":"Easy."}}]}\n\n' +
+            'data: {"choices":[{"index":0,"delta":{"content":"OK"},"finish_reason":"stop"}]}\n\n' +
+            "data: [DONE]\n\n",
+        );
+      }),
+    ),
+  );
+
+  it.effect("answers a completion's leading <think> block as reasoning_content", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.json({
+            choices: [
+              { index: 0, message: { role: "assistant", content: "<think>Easy.</think>\n\nOK" } },
+            ],
+          }),
+        );
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/minimax-m3",
+          messages: [{ role: "user", content: "hi" }],
+        });
+
+        expect(yield* response.json).toEqual({
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "OK", reasoning_content: "Easy." },
+            },
+          ],
+        });
+      }),
+    ),
+  );
+
   it.effect("tells proxies not to cache or buffer any SSE answer, Codex's included", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
@@ -129,13 +183,14 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
             providerReply.sseThenHang('data: {"choices":[{"delta":{"content":"hel'),
           );
 
+          // Waited out first: nothing goes out, headers included, until the event is whole.
+          yield* Effect.forkChild(outwait(via, "5 minutes"));
+
           const response = yield* via.post("/v1/chat/completions", {
             model: "openrouter/qwen/qwen3",
             stream: true,
             messages: [{ role: "user", content: "hi" }],
           });
-
-          yield* Effect.forkChild(outwait(via, "5 minutes"));
 
           const last = (yield* response.text)
             .split("\n\n")
