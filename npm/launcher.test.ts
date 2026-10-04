@@ -38,9 +38,10 @@ it.live(
         .stdout.toString()
         .trim();
 
+      // To a file: a pipe would stay open as long as a via the launcher left running.
       const launcher = Bun.spawn(["node", `${dir}/via.js`], {
         env: { ...process.env, PATH },
-        stdio: ["ignore", "ignore", "pipe"],
+        stdio: ["ignore", "ignore", Bun.file(`${dir}/stderr`)],
       });
 
       yield* Effect.addFinalizer(() => Effect.sync(() => launcher.kill("SIGKILL")));
@@ -48,7 +49,7 @@ it.live(
       /** What went on, for a failed expectation to say. */
       const story = (what: string) =>
         Effect.map(
-          Effect.promise(() => new Response(launcher.stderr).text()),
+          fs.readFileString(`${dir}/stderr`).pipe(Effect.orElseSucceed(() => "")),
           (stderr) =>
             `${what} (node: ${runtime}; launcher exit ${launcher.exitCode} ${launcher.signalCode}; stderr: ${stderr})`,
         );
