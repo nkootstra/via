@@ -4,9 +4,10 @@ import { Effect, Option, Result, Schema } from "effect";
 import { HttpServerRequest } from "effect/unstable/http";
 import { authenticated } from "./authenticated.ts";
 import { asOpenAiError, dispatch, modelOf } from "./dispatch.ts";
+import { withFallbacks } from "./fallback.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
-import { responseOf } from "./outcome.ts";
+import { answered } from "./outcome.ts";
 import { chatFromResponses } from "./chat-answer.ts";
 import { resolveSession } from "./session.ts";
 import { withSharedPrefix } from "./shared-prefix.ts";
@@ -36,27 +37,34 @@ export const chatCompletions = authenticated(
     const body = withSharedPrefix(json.value);
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const session = resolveSession(headers, body);
-    const route = Option.flatMap(modelOf(body), (yield* Providers).route);
+    const providers = yield* Providers;
 
-    if (Option.isSome(route))
-      return responseOf(yield* forward(route.value, "/chat/completions", body, session, headers));
+    /** Asks for the model `request` names: its provider as it is, or Codex, translated. */
+    const attempt = (request: Schema.JsonObject) =>
+      Effect.gen(function* () {
+        const route = Option.flatMap(modelOf(request), providers.route);
 
-    const chat = yield* decodeChat(body).pipe(Effect.result);
+        if (Option.isSome(route)) {
+          return yield* forward(route.value, "/chat/completions", request, session, headers);
+        }
 
-    if (Result.isFailure(chat)) return yield* unreadable(chat.failure);
+        const chat = yield* decodeChat(request).pipe(Effect.result);
 
-    const responses = toResponsesRequest(chat.success);
-    // Codex sends reasoning summaries, the chat answer's reasoning content, only when asked.
-    const reasoning = { ...responses.reasoning, summary: "auto" };
+        if (Result.isFailure(chat)) return yield* answered(unreadable(chat.failure));
 
-    const outcome = yield* dispatch(
-      { ...responses, reasoning },
-      session,
-      (upstream, failed) => chatFromResponses(upstream, chat.success, failed),
-      // A chat client speaks OpenAI's API, not Codex's: it reads OpenAI's errors.
-      asOpenAiError,
-    );
+        const responses = toResponsesRequest(chat.success);
+        // Codex sends reasoning summaries, the chat answer's reasoning content, only when asked.
+        const reasoning = { ...responses.reasoning, summary: "auto" };
 
-    return responseOf(outcome);
+        return yield* dispatch(
+          { ...responses, reasoning },
+          session,
+          (upstream, failed) => chatFromResponses(upstream, chat.success, failed),
+          // A chat client speaks OpenAI's API, not Codex's: it reads OpenAI's errors.
+          asOpenAiError,
+        );
+      });
+
+    return yield* withFallbacks(body, attempt);
   }),
 );
