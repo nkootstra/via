@@ -302,6 +302,24 @@ layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
     ),
   );
 
+  it.effect("passes an outage through as it is, without failing over", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const error = { error: { message: "upstream down" } };
+          via.provider.respond(providerReply.json(error, 502));
+
+          const response = yield* ask(via);
+
+          expect(response.status).toBe(502);
+          expect(yield* response.json).toEqual(error);
+          expect(keysUsed(via)).toEqual(["sk-go-1"]);
+        }),
+      keys,
+    ),
+  );
+
   it.effect("fails over a streamed request before any of it is sent", () =>
     withVia(
       ok,
