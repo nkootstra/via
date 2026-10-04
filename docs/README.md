@@ -283,10 +283,16 @@ no sooner than a minute later; meanwhile any account may serve any model.
 
 Add an effort suffix to a model id to pick the reasoning effort, as in
 `gpt-6-astra-high`. The list shows each model with the suffixes it supports,
-from `-none`, `-low`, `-medium`, `-high`, `-xhigh`, `-max` and `-ultra`. A
+from `-none`, `-low`, `-medium`, `-high`, `-xhigh` and `-max`. A
 model Codex lists under a name that already ends in one of them, such as
 `gpt-5.1-codex-max`, is sent by that name, not as an alias. Other model ids are
 passed through to Codex unchanged.
+
+The Codex app also offers an `ultra` effort on some models. It is maximum
+reasoning with tasks handed to agents the Codex app runs itself, and Codex's
+API refuses it, so via can't serve it. via doesn't list `-ultra` ids, and
+answers one with a 400 `unsupported_effort` error without asking Codex. Use
+`-max` for the most reasoning via can give.
 
 ### Admin API
 
