@@ -726,7 +726,7 @@ asks OpenCode Go for each key's usage every 15 minutes too.
 
 ## Configuration
 
-via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set.
+via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set and not empty.
 
 | File               | Contents                                            |
 | ------------------ | --------------------------------------------------- |
