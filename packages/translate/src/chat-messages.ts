@@ -258,7 +258,8 @@ export const toChatCompletionFromMessage = (message: MessagesMessage, created: n
         index: 0,
         message: {
           role: "assistant",
-          content: text,
+          // OpenAI answers a turn of only tool calls with no content, not an empty one.
+          content: text === "" && calls.length > 0 ? null : text,
           ...(reasoning !== "" && { reasoning_content: reasoning }),
           ...(calls.length > 0 && { tool_calls: calls }),
         },

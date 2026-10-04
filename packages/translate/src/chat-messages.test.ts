@@ -187,6 +187,12 @@ describe("toChatCompletionFromMessage", () => {
     });
   });
 
+  it("answers a turn of only tool calls with null content, as OpenAI does", () => {
+    const toolsOnly = { ...message, content: message.content.filter((block) => "input" in block) };
+
+    expect(toChatCompletionFromMessage(toolsOnly, 1).choices[0]?.message.content).toBeNull();
+  });
+
   it("counts input written to the cache as input, and says how much it was", () => {
     const written = {
       ...message,
