@@ -117,6 +117,36 @@ describe("toMessagesRequest", () => {
     expect(toMessagesRequest(chat({ messages: [], tools })).tool_choice).toBeUndefined();
   });
 
+  it("leaves out empty text and turns, which Messages refuses", () => {
+    const request = toMessagesRequest(
+      chat({
+        messages: [
+          { role: "user", content: "hi" },
+          { role: "assistant", content: "" },
+          { role: "assistant", content: null },
+          { role: "user", content: "" },
+          {
+            role: "user",
+            content: [
+              { type: "text", text: "" },
+              { type: "text", text: "again" },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(request.messages).toEqual([
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "hi" },
+          { type: "text", text: "again" },
+        ],
+      },
+    ]);
+  });
+
   it("sends an image by URL, or by its data when the URL carries it", () => {
     const request = toMessagesRequest(
       chat({
