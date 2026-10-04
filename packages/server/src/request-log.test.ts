@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Deferred, Effect, Exit, Option, Stream } from "effect";
+import { Deferred, Effect, Exit, FileSystem, Option, Stream } from "effect";
 import { ok, withVia } from "./testing/harness.ts";
 
 const cachedTokens = () =>
@@ -13,6 +13,26 @@ const cachedTokens = () =>
 const aRequestId = expect.stringMatching(/^[0-9a-f-]{36}$/);
 
 layer(BunFileSystem.layer)("request log", (it) => {
+  it.effect("logs why a request failed with a defect, not just its 500", () =>
+    Effect.flatMap(FileSystem.FileSystem, (fs) =>
+      withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            yield* fs.writeFileString(`${via.dir}/keys.json`, "not json");
+
+            const response = yield* via.get("/admin/keys", "admin-key-that-is-long-enough-000");
+            expect(response.status).toBe(500);
+
+            const line = yield* via.logged("failed unexpectedly");
+            expect(line.level).toBe("Error");
+            expect(line.message).toContain("keys.json");
+          }),
+        { adminKey: "admin-key-that-is-long-enough-000" },
+      ),
+    ),
+  );
+
   it.effect("logs a provider's streamed answer once it has been sent, with its timings", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
