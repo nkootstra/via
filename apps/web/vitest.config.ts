@@ -19,8 +19,9 @@ export default defineConfig({
     // A test's waits may each take up to the setup's asyncUtilTimeout, 5 s,
     // which vitest's default for the whole test, also 5 s, can't fit: a wait
     // that ran out would fail as the test timing out, not with Testing
-    // Library's account of the page. Twice that fits one full wait and the
-    // rest of the test.
-    testTimeout: 10_000,
+    // Library's account of the page. And `bun run test` runs every package at
+    // once, which slows a test that takes well under a second alone to 6–10 s
+    // or more. 30 s fits a full wait and that slowdown.
+    testTimeout: 30_000,
   },
 });
