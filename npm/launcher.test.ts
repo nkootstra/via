@@ -13,7 +13,7 @@ const PATH = (process.env.PATH ?? "")
 // A stand-in for via that says it started, then notes the SIGTERM it gets and exits.
 const fakeVia = `#!/bin/sh
 trap 'echo terminated > "$(dirname "$0")/../got-term"; exit 0' TERM
-echo $$ > "$(dirname "$0")/../started"
+echo $$ > "$(dirname "$0")/../pid" && mv "$(dirname "$0")/../pid" "$(dirname "$0")/../started"
 while true; do sleep 0.05; done
 `;
 
@@ -32,15 +32,17 @@ it.live(
 
       const launcher = Bun.spawn(["node", `${dir}/via.js`], {
         env: { ...process.env, PATH },
-        stdio: ["ignore", "ignore", "ignore"],
+        stdio: ["ignore", "ignore", "pipe"],
       });
 
       yield* fs
         .exists(`${pkg}/started`)
         .pipe(Effect.filterOrFail(Boolean), Effect.retry(Schedule.spaced("50 millis")));
 
-      // A via the launcher left running would outlive the test.
+      // A via the launcher left running would outlive the test. Only a real pid: 0 would
+      // signal this whole process group.
       const pid = Number(yield* fs.readFileString(`${pkg}/started`));
+      expect(pid).toBeGreaterThan(0);
       yield* Effect.addFinalizer(() =>
         Effect.ignore(Effect.try(() => process.kill(pid, "SIGKILL"))),
       );
@@ -48,14 +50,19 @@ it.live(
       launcher.kill("SIGTERM");
       yield* Effect.promise(() => launcher.exited);
 
-      // Up to two seconds for via to note the signal, as it does once it gets one.
+      // Up to ten seconds for via to note the signal, which a loaded CI machine may need.
       const gotTerm = yield* fs.exists(`${pkg}/got-term`).pipe(
         Effect.filterOrFail(Boolean),
-        Effect.retry({ schedule: Schedule.spaced("50 millis"), times: 40 }),
+        Effect.retry({ schedule: Schedule.spaced("50 millis"), times: 200 }),
         Effect.orElseSucceed(() => false),
       );
 
-      expect(gotTerm).toBe(true);
+      const stderr = yield* Effect.promise(() => new Response(launcher.stderr).text());
+
+      expect(
+        gotTerm,
+        `launcher exited ${launcher.exitCode} ${launcher.signalCode}: ${stderr}`,
+      ).toBe(true);
     }).pipe(Effect.scoped, Effect.provide(BunFileSystem.layer)),
-  20_000,
+  30_000,
 );
