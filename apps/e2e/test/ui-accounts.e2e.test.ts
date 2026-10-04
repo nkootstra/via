@@ -69,8 +69,8 @@ layer(BunFileSystem.layer)("managing accounts in the admin UI", (it) => {
         yield* Effect.promise(() =>
           page.getByRole("button", { name: /ChatGPT \(Codex\)/ }).click(),
         );
-        yield* visible(page, "Add a ChatGPT account");
-        // The fake issuer approves at once, so the code shows only until the next poll.
+        // The fake issuer approves at once, so the dialog with the code may be gone before a
+        // check for it runs: the toast and the new row say the login went through.
         yield* toast(page, "Account added");
 
         const accounts = page.getByRole("table", { name: "ChatGPT accounts" });
@@ -107,7 +107,7 @@ layer(BunFileSystem.layer)("managing accounts in the admin UI", (it) => {
         yield* signIn(page, via.url);
         const signInAgain = page.getByRole("button", { name: "Sign in again" });
         yield* Effect.promise(() => signInAgain.click());
-        yield* visible(page, "Add a ChatGPT account");
+        // As when adding one, the issuer approves at once: the toast says the login went through.
         yield* toast(page, "Signed in again");
         yield* Effect.promise(() => signInAgain.waitFor({ state: "detached", timeout: 10_000 }));
 
