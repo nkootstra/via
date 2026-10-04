@@ -21,6 +21,7 @@ import {
 import { Option, Schema } from "effect";
 import type {
   Account,
+  Fallback,
   Key,
   LoginStatus,
   HistoryBreakdown,
@@ -37,7 +38,7 @@ import type {
 } from "../api/types.ts";
 import { http, HttpResponse, type JsonBodyType, type PathParams } from "msw";
 
-const { accounts, opencodeGo, ollama, openrouter, keys, usage, pool, models, history } =
+const { accounts, opencodeGo, ollama, openrouter, keys, usage, pool, models, history, fallbacks } =
   AdminApi.groups;
 
 type Encodable = Schema.Top & { readonly EncodingServices: never };
@@ -109,6 +110,8 @@ export interface AdminState {
   openrouterKeys: ReadonlyArray<string>;
   /** Every model OpenRouter lists. */
   openrouterCatalog: ReadonlyArray<OpenrouterModel>;
+  /** The fallback rules, and how each stands. */
+  fallbacks: Array<Fallback>;
 }
 
 export const account = (fields: Partial<Account> & Pick<Account, "id" | "label">): Account => ({
@@ -151,6 +154,7 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     openrouter: null,
     openrouterKeys: [],
     openrouterCatalog: [],
+    fallbacks: [],
     ...seed,
   };
 }
@@ -560,6 +564,10 @@ export function adminHandlers(state: AdminState) {
     http.get(
       at("/models"),
       guarded(() => ok(models.endpoints.list, state.models)),
+    ),
+    http.get(
+      at("/fallbacks"),
+      guarded(() => ok(fallbacks.endpoints.list, state.fallbacks)),
     ),
 
     http.get(

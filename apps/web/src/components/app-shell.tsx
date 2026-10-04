@@ -31,6 +31,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { signOut } from "../api/admin.ts";
 import {
   AccountsIcon,
+  FallbacksIcon,
   KeyIcon,
   Mark,
   ModelsIcon,
@@ -40,7 +41,7 @@ import {
   SignOutIcon,
 } from "./icons.tsx";
 
-type Page = "/" | "/usage" | "/accounts" | "/keys" | "/models" | "/settings";
+type Page = "/" | "/usage" | "/accounts" | "/keys" | "/models" | "/fallbacks" | "/settings";
 
 const pages: ReadonlyArray<{
   readonly to: Page;
@@ -52,6 +53,7 @@ const pages: ReadonlyArray<{
   { to: "/accounts", label: "Accounts", icon: <AccountsIcon /> },
   { to: "/keys", label: "Keys", icon: <KeyIcon /> },
   { to: "/models", label: "Models", icon: <ModelsIcon /> },
+  { to: "/fallbacks", label: "Fallbacks", icon: <FallbacksIcon /> },
 ];
 
 /** The dashboard page at `path`, if it is one: a page in the navigation, or the settings. */

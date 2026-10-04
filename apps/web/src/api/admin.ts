@@ -95,6 +95,13 @@ export const modelsQuery = queryOptions({
   staleTime: 60_000,
 });
 
+/** The fallback rules, and how each stands: via pushes it as accounts cool down and recover. */
+export const fallbacksQuery = queryOptions({
+  queryKey: ["fallbacks"],
+  queryFn: () => run((admin) => admin.fallbacks.list()),
+  staleTime: SENT_FRESH_MS,
+});
+
 /** What the usage history is grouped by. */
 export type HistoryGroupBy = "model" | "account" | "key";
 
