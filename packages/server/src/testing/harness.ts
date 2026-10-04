@@ -92,6 +92,8 @@ export type Via = {
   readonly baseUrl: string;
   /** A valid API key. */
   readonly key: string;
+  /** The directory via keeps its files in, such as `keys.json`. */
+  readonly dir: string;
   /** Every request the fake Codex received so far. */
   readonly upstreamRequests: ReadonlyArray<CodexRequest>;
   /** Waits until the fake Codex has received at least `count` requests. */
@@ -443,6 +445,7 @@ export const withVia = <A, E>(
         delete: del,
         baseUrl: base,
         key,
+        dir,
         upstreamRequests: codex.requests,
         upstreamReceived: codex.received,
         upstreamHungUp: codex.hungUp,

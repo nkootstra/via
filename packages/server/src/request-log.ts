@@ -352,6 +352,12 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
 
     return yield* app.pipe(
       Effect.provideService(RequestLog, service),
+      // The server answers a defect with a bare 500 and, with its own logger off, says no more.
+      Effect.tapCause((cause) =>
+        Cause.hasDies(cause)
+          ? Effect.logError("Request failed unexpectedly", Cause.pretty(cause))
+          : Effect.void,
+      ),
       Effect.annotateLogs({ request_id: id }),
       Effect.ensuring(finish),
     );
