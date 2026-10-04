@@ -170,10 +170,12 @@ const inputItems = (message: typeof Message.Type): ReadonlyArray<Schema.JsonObje
   return [...text, ...calls];
 };
 
-// A chat tool that leaves out `strict` is not strict, where a Responses one would be.
+// A chat tool that leaves out `strict` is not strict, where a Responses one would be. One
+// that leaves out its parameters takes none; a Responses tool must say so.
 const tool = ({ function: fn }: typeof FunctionTool.Type) => ({
   type: "function",
   strict: false,
+  parameters: { type: "object", properties: {} },
   ...fn,
 });
 
