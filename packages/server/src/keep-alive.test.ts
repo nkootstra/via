@@ -63,6 +63,27 @@ describe("keepAlive", () => {
     }),
   );
 
+  it.effect("finds the end of an event framed with CRLF, or split across chunks", () =>
+    Effect.gen(function* () {
+      for (const chunks of [["data: 1\r\n\r\n"], ["data: 1\n", "\n"], ["data: 1\r\r"]]) {
+        const { sent, offer } = yield* relay;
+
+        for (const chunk of chunks) yield* offer(chunk);
+        yield* TestClock.adjust("5 seconds");
+        expect(sent.at(-1)).toBe(": keepalive\n\n");
+      }
+    }),
+  );
+
+  it.effect("never cuts in after a single CRLF, which ends a line, not an event", () =>
+    Effect.gen(function* () {
+      const { sent, offer } = yield* relay;
+      yield* offer("data: 1\r\n");
+      yield* TestClock.adjust("20 seconds");
+      expect(sent).toEqual(["data: 1\r\n"]);
+    }),
+  );
+
   it.effect("ends when the stream it relays ends", () =>
     Effect.gen(function* () {
       const { sent, offer, end, fiber } = yield* relay;
