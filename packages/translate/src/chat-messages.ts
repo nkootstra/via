@@ -44,13 +44,14 @@ const turnOf = (message: Message): Option.Option<Turn> => {
     case "user":
       return Option.some({
         role: "user",
-        content: Predicate.isString(message.content)
+        content: (Predicate.isString(message.content)
           ? [{ type: "text", text: message.content }]
           : message.content.map((part) =>
               part.type === "text"
                 ? { type: "text", text: part.text }
                 : imageBlock(part.image_url.url),
-            ),
+            )
+        ).filter((block) => block.text !== ""),
       });
     case "assistant":
       return Option.some({
@@ -131,7 +132,12 @@ export const toMessagesRequest = (chat: ChatRequest) => {
   return {
     model: chat.model,
     ...(system !== "" && { system }),
-    messages: alternating(chat.messages.flatMap((message) => Option.toArray(turnOf(message)))),
+    // Messages refuses a turn with nothing in it, as a chat history can hold.
+    messages: alternating(
+      chat.messages
+        .flatMap((message) => Option.toArray(turnOf(message)))
+        .filter((turn) => turn.content.length > 0),
+    ),
     max_tokens: maxTokens,
     ...(chat.temperature != null && { temperature: chat.temperature }),
     ...(chat.top_p != null && { top_p: chat.top_p }),
