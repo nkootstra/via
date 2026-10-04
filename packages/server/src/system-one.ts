@@ -5,6 +5,7 @@ import { authenticated } from "./authenticated.ts";
 import { modelOf } from "./dispatch.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
+import { responseOf } from "./outcome.ts";
 import { resolveSession } from "./session.ts";
 
 /**
@@ -33,6 +34,8 @@ export const systemOne = authenticated(
 
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
 
-    return yield* forward(route.value, "/systemone", body, resolveSession(headers, body), headers);
+    return responseOf(
+      yield* forward(route.value, "/systemone", body, resolveSession(headers, body), headers),
+    );
   }),
 );

@@ -13,6 +13,7 @@ import { chatFromMessages, chatFromResponses } from "./chat-answer.ts";
 import { ModelProtocols, type Protocol } from "./model-protocols.ts";
 import { noAccountLeft, streams } from "./dispatch.ts";
 import { openAiError } from "./openai-error.ts";
+import { answered, Outcome, unavailable } from "./outcome.ts";
 import { failedResponse, relayed } from "./relay.ts";
 import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
@@ -84,7 +85,51 @@ const relay = (path: ProviderPath) => (upstream: HttpClientResponse.HttpClientRe
   );
 
 const unreachable = (route: Route) =>
-  openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`);
+  unavailable(
+    "upstream_unavailable",
+    openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
+  );
+
+/** Whether a provider's error status says it can't serve now, rather than that it refused the request. */
+const isOutage = (status: number) => status === 429 || status >= 500;
+
+/**
+ * A provider's error answer, read whole and noted in the request's log line,
+ * as the client gets it: with its status, content type and `passedOn` headers.
+ */
+const readWhole = (upstream: HttpClientResponse.HttpClientResponse) =>
+  Effect.gen(function* () {
+    const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
+    const refusal = upstreamErrorOf(text);
+
+    yield* (yield* RequestLog).upstreamFailed(refusal);
+
+    return {
+      refusal,
+      response: HttpServerResponse.text(text, {
+        status: upstream.status,
+        contentType: upstream.headers["content-type"] ?? "application/json",
+        headers: passedOn(upstream),
+      }),
+    };
+  });
+
+/**
+ * The outcome of a provider's answer: an outage, read whole so it holds no
+ * stream, leaves the model unavailable; anything else is relayed as it comes.
+ */
+const outcomeOf = (
+  path: ProviderPath,
+  upstream: HttpClientResponse.HttpClientResponse,
+): Effect.Effect<Outcome, never, RequestLog> =>
+  isOutage(upstream.status)
+    ? Effect.map(readWhole(upstream), ({ refusal, response }): Outcome =>
+        Outcome.Unavailable({
+          response,
+          reason: Option.getOrElse(refusal.code, () => `http_${upstream.status}`),
+        }),
+      )
+    : answered(relay(path)(upstream));
 
 /** How a request goes out in one of OpenCode Go's protocols, and how its answer comes back. */
 interface Attempt {
@@ -210,24 +255,32 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
       if (upstream.status < 400) {
         if (index > 0) yield* protocols.set(route.model, attempt.protocol);
 
-        return yield* attempt.answer(upstream);
+        return yield* answered(attempt.answer(upstream));
       }
 
-      if (upstream.status !== 400) return yield* relay(attempt.path)(upstream);
+      if (upstream.status !== 400) return yield* outcomeOf(attempt.path, upstream);
 
       // A 400 is read whole: it may only mean the model speaks another protocol.
       const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
       const refusal = upstreamErrorOf(text);
+      const unsupported = Option.contains(refusal.code, PROTOCOL_UNSUPPORTED);
 
-      if (Option.contains(refusal.code, PROTOCOL_UNSUPPORTED) && index < tries.length - 1) continue;
+      if (unsupported && index < tries.length - 1) continue;
 
       yield* log.upstreamFailed(refusal);
 
-      return HttpServerResponse.text(text, {
+      const response = HttpServerResponse.text(text, {
         status: upstream.status,
         contentType: upstream.headers["content-type"] ?? "application/json",
         headers: passedOn(upstream),
       });
+
+      // Asked in every protocol it may speak, the model speaks none: it can't serve this.
+      const outcome: Outcome = unsupported
+        ? Outcome.Unavailable({ response, reason: PROTOCOL_UNSUPPORTED })
+        : Outcome.Answered({ response });
+
+      return outcome;
     }
   }
 });
@@ -236,6 +289,10 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
  * Sends a request for a provider's model to that provider, with those of the
  * client's `headers` it may need, and pipes its answer back as it comes,
  * errors included. OpenCode Go's go through its accounts.
+ *
+ * Its outcome is `Unavailable` when the model can't serve now: not enabled,
+ * no account left, out of reach, rate limited or down, or speaking none of the
+ * protocols via could ask it in.
  */
 export const forward = Effect.fn("forward")(function* (
   route: Route,
@@ -248,10 +305,13 @@ export const forward = Effect.fn("forward")(function* (
   yield* log.asked(`${route.provider}/${route.model}`, streams(body));
 
   if (route.disabled === true) {
-    return yield* openAiError(
-      404,
+    return yield* unavailable(
       "model_not_found",
-      `${route.provider}/${route.model} isn't enabled: enable it under OpenRouter on via's Accounts page`,
+      openAiError(
+        404,
+        "model_not_found",
+        `${route.provider}/${route.model} isn't enabled: enable it under OpenRouter on via's Accounts page`,
+      ),
     );
   }
 
@@ -259,7 +319,7 @@ export const forward = Effect.fn("forward")(function* (
   yield* log.served(route.provider);
 
   return yield* (yield* Providers).send(route, path, body, session, { headers }).pipe(
-    Effect.flatMap(relay(path)),
+    Effect.flatMap((upstream) => outcomeOf(path, upstream)),
     Effect.catchTag("HttpClientError", () => unreachable(route)),
   );
 });

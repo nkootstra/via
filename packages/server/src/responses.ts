@@ -6,6 +6,7 @@ import { authenticated } from "./authenticated.ts";
 import { dispatch, modelOf } from "./dispatch.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
+import { responseOf } from "./outcome.ts";
 import { collected, relayed } from "./relay.ts";
 import { resolveSession } from "./session.ts";
 
@@ -24,9 +25,9 @@ export const responses = authenticated(
     const route = Option.flatMap(modelOf(body), (yield* Providers).route);
 
     if (Option.isSome(route))
-      return yield* forward(route.value, "/responses", body, session, headers);
+      return responseOf(yield* forward(route.value, "/responses", body, session, headers));
 
-    return yield* dispatch(body, session, (upstream, failed) =>
+    const outcome = yield* dispatch(body, session, (upstream, failed) =>
       body.stream === true
         ? relayed(
             upstream,
@@ -37,5 +38,7 @@ export const responses = authenticated(
             Effect.succeed(HttpServerResponse.jsonUnsafe(response)),
           ),
     );
+
+    return responseOf(outcome);
   }),
 );

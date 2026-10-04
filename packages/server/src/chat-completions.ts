@@ -6,6 +6,7 @@ import { authenticated } from "./authenticated.ts";
 import { asOpenAiError, dispatch, modelOf } from "./dispatch.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
+import { responseOf } from "./outcome.ts";
 import { chatFromResponses } from "./chat-answer.ts";
 import { resolveSession } from "./session.ts";
 import { withSharedPrefix } from "./shared-prefix.ts";
@@ -38,7 +39,7 @@ export const chatCompletions = authenticated(
     const route = Option.flatMap(modelOf(body), (yield* Providers).route);
 
     if (Option.isSome(route))
-      return yield* forward(route.value, "/chat/completions", body, session, headers);
+      return responseOf(yield* forward(route.value, "/chat/completions", body, session, headers));
 
     const chat = yield* decodeChat(body).pipe(Effect.result);
 
@@ -48,12 +49,14 @@ export const chatCompletions = authenticated(
     // Codex sends reasoning summaries, the chat answer's reasoning content, only when asked.
     const reasoning = { ...responses.reasoning, summary: "auto" };
 
-    return yield* dispatch(
+    const outcome = yield* dispatch(
       { ...responses, reasoning },
       session,
       (upstream, failed) => chatFromResponses(upstream, chat.success, failed),
       // A chat client speaks OpenAI's API, not Codex's: it reads OpenAI's errors.
       asOpenAiError,
     );
+
+    return responseOf(outcome);
   }),
 );
