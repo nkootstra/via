@@ -697,8 +697,8 @@ changes only once it restarts.
   (`misalignment_policy_violation`) goes back to the client as-is.
 - A Codex backend via can't reach at all answers `502` without trying the next
   account. A token refresh that fails because the sign-in server can't be
-  reached, or because its file in `auth/` is locked by another via process,
-  corrupt or unreadable, rests that account for 1 minute, and via tries the
+  reached, or because its file in `auth/` stays locked by another via process
+  for 3 minutes, or is corrupt or unreadable, rests that account for 1 minute, and via tries the
   next one; an account removed meanwhile is skipped. Only a refused refresh
   locks an account out.
 - One via process refreshes an account at a time, so `via accounts status` next
