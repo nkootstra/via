@@ -27,7 +27,8 @@ const decodeErrorObject = Schema.decodeUnknownOption(Schema.fromJsonString(Error
 
 const decodeDetail = Schema.decodeUnknownOption(Schema.fromJsonString(Detail));
 
-const cut = (text: string) => text.trim().slice(0, MESSAGE_LIMIT);
+/** `text` as the usage history keeps a message: trimmed and cut to 500 characters. */
+export const cut = (text: string) => text.trim().slice(0, MESSAGE_LIMIT);
 
 const present = (text: string | null | undefined) =>
   Option.filter(Option.fromNullishOr(text), (found) => found.trim() !== "");
