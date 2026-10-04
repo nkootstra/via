@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Runs the prebuilt via binary from the platform package npm installed alongside.
-const { spawnSync } = require("node:child_process");
+const { spawn } = require("node:child_process");
 
 const platform = `@nkootstra/via-${process.platform}-${process.arch}`;
 
@@ -13,13 +13,25 @@ try {
   process.exit(1);
 }
 
-const result = spawnSync(binary, process.argv.slice(2), { stdio: "inherit" });
+const child = spawn(binary, process.argv.slice(2), { stdio: "inherit" });
 
-if (result.error) {
-  console.error(`via: ${result.error.message}`);
-  process.exit(1);
+// A service manager stops via by signalling this process, so via has to hear it too. Ctrl-C
+// already reaches via through the terminal; passing SIGINT on as well does no harm.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => child.kill(signal));
 }
 
-if (result.signal) process.kill(process.pid, result.signal);
+child.on("error", (error) => {
+  console.error(`via: ${error.message}`);
+  process.exit(1);
+});
 
-process.exit(result.status ?? 1);
+child.on("exit", (status, signal) => {
+  if (signal) {
+    // Ends this process the way via ended, now the handler above no longer stands in the way.
+    process.removeAllListeners(signal);
+    process.kill(process.pid, signal);
+  }
+
+  process.exit(status ?? 1);
+});
