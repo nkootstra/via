@@ -147,6 +147,22 @@ describe("the keys page", () => {
     ).toBe("key-1");
   });
 
+  it("stops a name at the 200 characters via takes, creating or renaming", async () => {
+    const { user } = renderApp("/keys", { keys: [laptop] });
+
+    await user.click(await screen.findByRole("button", { name: "Create key" }));
+    const form = await screen.findByRole("dialog", { name: "Create a key" });
+    expect(within(form).getByLabelText("Name").getAttribute("maxlength")).toBe("200");
+    await user.click(within(form).getByRole("button", { name: "Cancel" }));
+
+    await user.click(
+      within(await rowOf("laptop")).getByRole("button", { name: "Actions for laptop" }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Rename…" }));
+    const dialog = await screen.findByRole("dialog", { name: "Rename laptop" });
+    expect(within(dialog).getByLabelText("Name").getAttribute("maxlength")).toBe("200");
+  });
+
   it("renames a key from its menu", async () => {
     const { state, user } = renderApp("/keys", { keys: [laptop] });
 
