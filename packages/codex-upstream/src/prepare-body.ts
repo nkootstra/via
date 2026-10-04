@@ -1,5 +1,5 @@
 import { Schema } from "effect";
-import { resolveAlias } from "./models.ts";
+import { type CatalogModel, resolveAlias } from "./models.ts";
 
 /** A Responses API request body; only the fields via rewrites are known. */
 export type ResponsesBody = Schema.JsonObject;
@@ -24,10 +24,13 @@ const isModel = Schema.is(Schema.String);
 
 const isObject = Schema.is(Schema.JsonObject);
 
-/** Rewrites a client's Responses request into one the Codex backend accepts. */
-export const prepareBody = (body: ResponsesBody) => {
+/**
+ * Rewrites a client's Responses request into one the Codex backend accepts,
+ * resolving effort aliases against the models `catalog` lists.
+ */
+export const prepareBody = (body: ResponsesBody, catalog?: ReadonlyArray<CatalogModel>) => {
   const include = isList(body.include) ? body.include : [];
-  const alias = isModel(body.model) ? resolveAlias(body.model) : undefined;
+  const alias = isModel(body.model) ? resolveAlias(body.model, catalog) : undefined;
 
   return {
     ...Object.fromEntries(Object.entries(body).filter(([key]) => !UNSUPPORTED.includes(key))),

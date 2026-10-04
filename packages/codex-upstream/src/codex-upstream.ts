@@ -121,21 +121,26 @@ const make = ({ baseUrl = CODEX_BASE_URL, cloak, version }: CodexUpstreamOptions
 
     /**
      * Sends a Responses request as `account` in conversation `session`, which
-     * Codex caches prompts on. Any answer but 200 OK fails with what it means.
+     * Codex caches prompts on, naming a model as `catalog` lists it. Any answer
+     * but 200 OK fails with what it means.
      */
     const send = Effect.fn("CodexUpstream.send")(function* (
       account: UpstreamAccount,
       body: ResponsesBody,
       session: string,
+      catalog?: ReadonlyArray<CatalogModel>,
     ) {
       const request = HttpClientRequest.post(`${baseUrl}/codex/responses`).pipe(
         asAccount(account),
         HttpClientRequest.setHeaders({ session_id: session, accept: "text/event-stream" }),
         // A raw string goes to fetch as-is; bodyJsonUnsafe would copy it into bytes first.
         HttpClientRequest.setBody(
-          HttpBody.raw(JSON.stringify(prepareBody({ prompt_cache_key: session, ...body })), {
-            contentType: "application/json",
-          }),
+          HttpBody.raw(
+            JSON.stringify(prepareBody({ prompt_cache_key: session, ...body }, catalog)),
+            {
+              contentType: "application/json",
+            },
+          ),
         ),
       );
 

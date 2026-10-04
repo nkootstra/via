@@ -17,8 +17,13 @@ export const BUNDLED: ReadonlyArray<CatalogModel> = [
   { model: "gpt-6-luna", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
 ];
 
-/** Splits an effort suffix alias into its base model and reasoning effort. */
-export const resolveAlias = (model: string) => {
+/**
+ * Splits an effort suffix alias into its base model and reasoning effort. A
+ * model `catalog` lists by that name, such as `gpt-5.1-codex-max`, is no alias.
+ */
+export const resolveAlias = (model: string, catalog: ReadonlyArray<CatalogModel> = BUNDLED) => {
+  if (catalog.some((listed) => listed.model === model)) return { model };
+
   const effort = EFFORTS.find((suffix) => model.endsWith(`-${suffix}`));
 
   return effort === undefined ? { model } : { model: model.slice(0, -(effort.length + 1)), effort };

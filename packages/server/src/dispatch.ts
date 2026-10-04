@@ -112,9 +112,9 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
 
   if (Option.isSome(model)) yield* log.asked(model.value, streams(body));
 
-  const allowed = Option.isSome(model)
-    ? yield* (yield* ModelCatalog).mayServe(model.value)
-    : () => true;
+  const models = yield* ModelCatalog;
+  const allowed = Option.isSome(model) ? yield* models.mayServe(model.value) : () => true;
+  const catalog = yield* models.codex;
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();
@@ -143,7 +143,7 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
         return true;
       });
 
-    const sent = yield* codex.send(account, body, session).pipe(
+    const sent = yield* codex.send(account, body, session, catalog).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
       Effect.catchTag("HttpClientError", () => Effect.succeedNone),

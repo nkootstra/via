@@ -59,6 +59,24 @@ layer(BunFileSystem.layer)("Codex accounts by model", (it) => {
     }),
   );
 
+  it.effect("sends a model whose own name ends in an effort as it is named", () =>
+    Effect.gen(function* () {
+      const codex = yield* plans;
+      codex.models({ models: [{ slug: "gpt-7" }, { slug: "daybreak-max" }] }, "acc-b");
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            yield* via.post("/v1/responses", { model: "daybreak-max", input: "hi" });
+            expect(codex.requests.map(accountOf)).toEqual(["acc-b"]);
+            expect(codex.requests[0]?.body.model).toBe("daybreak-max");
+            expect(codex.requests[0]?.body).not.toHaveProperty("reasoning");
+          }),
+        { codexUrl: codex.url },
+      );
+    }),
+  );
+
   it.effect("fills first as usual with a model every plan offers", () =>
     Effect.gen(function* () {
       const codex = yield* plans;
