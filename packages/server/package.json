@@ -16,6 +16,7 @@
     "@via/codex-auth": "workspace:*",
     "@via/codex-upstream": "workspace:*",
     "@via/config": "workspace:*",
+    "@via/fallbacks": "workspace:*",
     "@via/keys": "workspace:*",
     "@via/pool": "workspace:*",
     "@via/providers": "workspace:*",
