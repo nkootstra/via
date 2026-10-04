@@ -97,6 +97,26 @@ describe("toMessagesRequest", () => {
     expect(request.tool_choice).toEqual({ type: "any" });
   });
 
+  it("asks for one tool call at a time when the client turns parallel calls off", () => {
+    const tools = [{ type: "function", function: { name: "ls" } }];
+
+    const forced = toMessagesRequest(
+      chat({ messages: [], tools, tool_choice: "required", parallel_tool_calls: false }),
+    );
+
+    expect(forced.tool_choice).toEqual({ type: "any", disable_parallel_tool_use: true });
+
+    const unforced = toMessagesRequest(chat({ messages: [], tools, parallel_tool_calls: false }));
+    expect(unforced.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+
+    const none = toMessagesRequest(
+      chat({ messages: [], tools, tool_choice: "none", parallel_tool_calls: false }),
+    );
+
+    expect(none.tool_choice).toEqual({ type: "none" });
+    expect(toMessagesRequest(chat({ messages: [], tools })).tool_choice).toBeUndefined();
+  });
+
   it("sends an image by URL, or by its data when the URL carries it", () => {
     const request = toMessagesRequest(
       chat({
