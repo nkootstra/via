@@ -1,5 +1,6 @@
 import * as stylex from "@stylexjs/stylex";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import { Badge, EmptyState, Skeleton, VisuallyHidden } from "@via/ui";
 import { colors, fontWeights, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
@@ -11,7 +12,7 @@ import { ArrowRightIcon, FallbacksIcon } from "../../components/icons.tsx";
 import { ModelName } from "../../components/model-name.tsx";
 import { Page, Panel } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
-import { type Standing, standingOf } from "../../lib/fallbacks.ts";
+import { announcement, sameStanding, type Standing, standingOf } from "../../lib/fallbacks.ts";
 import { poolReason } from "../../lib/pool-reason.ts";
 import { formatTime } from "../../lib/time.ts";
 import { useTimeFormat } from "../../lib/time-format.ts";
@@ -281,12 +282,45 @@ function Rule({ rule }: { readonly rule: Fallback }) {
   );
 }
 
+/**
+ * What changed in how the rules stand since they last did, in words: a rule
+ * that started or stopped falling back. A rule just added, or a countdown
+ * ticking, is no news.
+ */
+function useTransitions(rules: ReadonlyArray<Fallback>) {
+  const seen = useRef<ReadonlyMap<string, Standing> | null>(null);
+  const [news, setNews] = useState("");
+
+  useEffect(() => {
+    const before = seen.current;
+    const standings = new Map(rules.map((rule) => [rule.model, standingOf(rule)]));
+    seen.current = standings;
+
+    if (before === null) return;
+
+    const changed = [...standings].flatMap(([model, standing]) => {
+      const was = before.get(model);
+
+      return was === undefined || sameStanding(was, standing)
+        ? []
+        : [announcement(model, standing)];
+    });
+
+    if (changed.length > 0) setNews(changed.join(" "));
+  }, [rules]);
+
+  return news;
+}
+
 function Fallbacks() {
   // While via pushes the state, the rules and how they stand needn't be asked for.
   const fallbacks = useSuspenseQuery({ ...fallbacksQuery, ...useLiveOptions() });
+  const news = useTransitions(fallbacks.data);
 
   return (
     <Page title={title} description={description}>
+      {/* Rendered from the start, so a screen reader hears it as it changes. */}
+      <Status>{news}</Status>
       {fallbacks.data.length === 0 ? (
         <EmptyState
           headingLevel={2}

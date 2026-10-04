@@ -1,8 +1,9 @@
-import { act, screen, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { describe, expect, it, vi } from "vitest";
 import type { Fallback } from "../src/api/types.ts";
 import { embed, fakeClock, renderApp, skip } from "./app.tsx";
+import { openSource } from "./event-source.ts";
 
 const model = (id: string) => ({ id, object: "model", created: 0, owned_by: "via" });
 
@@ -197,6 +198,51 @@ describe("the fallbacks page", () => {
 
     expect(chainOf(await rowOf("gpt-5.6-sol"))).toEqual(["gpt-5.5"]);
     expect(state.requests).toEqual([]);
+  });
+
+  it("announces when a rule starts or stops falling back, and nothing else", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now });
+    embed(viaState([standingBy("gpt-5.6-sol", ["opencode-go/kimi-k3"])]));
+    renderApp("/fallbacks", { models });
+    await rowOf("gpt-5.6-sol");
+    const status = screen.getByRole("status");
+
+    expect(status.textContent).toBe("");
+
+    act(() =>
+      openSource().push(viaState([fallingBack("gpt-5.6-sol", ["opencode-go/kimi-k3"], 60_000)])),
+    );
+    await waitFor(() => expect(status.textContent).toBe("gpt-5.6-sol is falling back to kimi-k3."));
+
+    // The countdown ticks, which is no news.
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+    expect(status.textContent).toBe("gpt-5.6-sol is falling back to kimi-k3.");
+
+    act(() => openSource().push(viaState([standingBy("gpt-5.6-sol", ["opencode-go/kimi-k3"])])));
+    await waitFor(() => expect(status.textContent).toBe("gpt-5.6-sol is answering again."));
+  });
+
+  it("announces when no model in a rule's list can answer", async () => {
+    embed(viaState([standingBy("gpt-5.6-sol", ["gpt-5.5"])]));
+    renderApp("/fallbacks", { models });
+    await rowOf("gpt-5.6-sol");
+
+    act(() =>
+      openSource().push(
+        viaState([
+          {
+            ...standingBy("gpt-5.6-sol", ["gpt-5.5"]),
+            status: { source: cooling(60_000), fallbacks: [cooling(60_000)], serving: null },
+          },
+        ]),
+      ),
+    );
+
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe(
+        "gpt-5.6-sol has no fallback available, so its requests fail.",
+      ),
+    );
   });
 
   it("is in the navigation, after Models", async () => {
