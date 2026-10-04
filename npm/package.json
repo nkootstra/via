@@ -6,7 +6,7 @@
   "scripts": {
     "build": "bun build.ts",
     "smoke": "bun --bun vitest run smoke",
-    "test": "bun --bun vitest run set-version bun-version launcher",
+    "test": "bun --bun vitest run set-version bun-version launcher platforms",
     "typecheck": "tsc -p ."
   },
   "devDependencies": {

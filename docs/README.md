@@ -60,6 +60,8 @@ chmod +x via-darwin-arm64 && mv via-darwin-arm64 /usr/local/bin/via
 the release workflow built it.
 
 Prebuilt npm packages are coming: `npm i -g @nkootstra/via` will install them.
+The Linux ones need glibc, so on Alpine and other musl systems use the Docker
+image or build from source.
 Or build from source with [Bun](https://bun.sh) 1.4:
 
 ```sh
