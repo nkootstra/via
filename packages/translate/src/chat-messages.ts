@@ -339,6 +339,11 @@ const failure = (type: string, message: string): Out => ({
 
 const incomplete = failure(streamIncomplete.code, "The Messages stream broke off before it ended");
 
+// What a stream that ends without `message_stop` was still billed for, as far as it got:
+// nothing until `message_start` counted something.
+const spent = (state: State): Array<Out> =>
+  state.counts === noCounts ? [] : [{ usage: chatUsage(state.counts) }];
+
 /**
  * Rewrites a Messages SSE stream into a Chat Completions SSE stream, `created`
  * in seconds. Its usage goes to `onUsage` whether or not the client asked for
@@ -422,7 +427,10 @@ export const toChatStreamFromMessages = <E, R>(
     }
 
     if (isError(event)) {
-      return [{ ...state, ended: true }, [failure(event.error.type, event.error.message)]];
+      return [
+        { ...state, ended: true },
+        [...spent(state), failure(event.error.type, event.error.message)],
+      ];
     }
 
     if (event.type === "message_stop") {
@@ -456,7 +464,7 @@ export const toChatStreamFromMessages = <E, R>(
     // A read that fails ends the stream here, so `onHalt` reports it once.
     Stream.ignore,
     Stream.mapAccum(initial, step, {
-      onHalt: (state) => (state.ended ? [] : [incomplete]),
+      onHalt: (state) => (state.ended ? [] : [...spent(state), incomplete]),
     }),
     Stream.mapEffect((out) =>
       "usage" in out ? Effect.as(options.onUsage(out.usage), "") : Effect.succeed(out.text),

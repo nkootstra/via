@@ -320,6 +320,25 @@ describe("toChatStreamFromMessages", () => {
     }),
   );
 
+  it.effect("reports the usage counted so far when the stream fails or breaks off", () =>
+    Effect.gen(function* () {
+      for (const ending of [
+        [{ type: "error", error: { type: "overloaded_error", message: "Overloaded" } }],
+        [],
+      ]) {
+        const reported: Array<unknown> = [];
+
+        yield* toChatStreamFromMessages(events([...streamed.slice(0, 2), ...ending]), {
+          includeUsage: false,
+          created: 1,
+          onUsage: (usage) => Effect.sync(() => reported.push(usage)),
+        }).pipe(Stream.runDrain);
+
+        expect(reported).toEqual([expect.objectContaining({ prompt_tokens: 40 })]);
+      }
+    }),
+  );
+
   it.effect("ends a stream cut off before completing with an upstream_incomplete error", () =>
     Effect.gen(function* () {
       const text = yield* toChatStreamFromMessages(events(streamed.slice(0, 6)), {
