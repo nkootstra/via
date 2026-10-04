@@ -1,5 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
+import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
 import { Effect } from "effect";
 import { TestClock } from "effect/testing";
@@ -188,6 +189,32 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
           expect(breakdown).toMatchObject({ groups: [], totals: { requests: 0 } });
         }),
       { adminKey },
+    ),
+  );
+
+  it.effect("keeps only requests that fell back when asked, and counts them", () =>
+    withVia(
+      () => reply.error(429, "", { "retry-after": "120" }),
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(providerReply.json({ choices: [] }));
+          yield* via.post("/v1/responses", { model: "gpt-x", input: "hi" });
+          yield* via.logged("Sent HTTP response");
+          yield* TestClock.adjust("1 second");
+          yield* via.post("/v1/chat/completions", { model: "openrouter/m", messages: [] });
+          yield* via.logged("openrouter/m");
+
+          const all = yield* history(via, `breakdown?${range}&groupBy=model`);
+          const only = yield* history(via, `breakdown?${range}&groupBy=model&fellBack=true`);
+          const requests = yield* history(via, `requests?${range}&fellBack=true`);
+
+          expect(all).toMatchObject({ totals: { requests: 2, fellBack: 1 } });
+          expect(only).toMatchObject({ totals: { requests: 1, fellBack: 1 } });
+          expect(requests).toMatchObject({
+            requests: [{ model: "openrouter/y", requestedModel: "gpt-x" }],
+          });
+        }),
+      { adminKey, fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y"] }] },
     ),
   );
 

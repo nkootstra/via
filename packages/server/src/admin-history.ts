@@ -52,6 +52,7 @@ const sum = (groups: ReadonlyArray<GroupUsage>, field: keyof GroupUsage & keyof 
 const zero = {
   requests: 0,
   errors: 0,
+  fellBack: 0,
   measured: 0,
   unmeasured: 0,
   inputTokens: 0,
@@ -64,6 +65,7 @@ const zero = {
 const totals = (groups: ReadonlyArray<GroupUsage>, firstChunkMs: Percentiles, book: PriceBook) => ({
   requests: sum(groups, "requests"),
   errors: sum(groups, "errors"),
+  fellBack: sum(groups, "fellBack"),
   measured: sum(groups, "measured"),
   unmeasured: sum(groups, "unmeasured"),
   inputTokens: sum(groups, "inputTokens"),
@@ -77,6 +79,10 @@ const totals = (groups: ReadonlyArray<GroupUsage>, firstChunkMs: Percentiles, bo
   ),
 });
 
+/** A query's `fellBack`, as the history reads it. */
+const fellBackOf = (query: { readonly fellBack?: "true" | "false" }) =>
+  query.fellBack === undefined ? undefined : query.fellBack === "true";
+
 /**
  * The usage history, priced with config.yaml's `prices` over the prices via
  * ships with, and a local provider's models at nothing.
@@ -85,7 +91,9 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
   HttpApiBuilder.group(AdminApi, "history", (handlers) =>
     handlers
       .handle("series", ({ query }) =>
-        Effect.flatMap(UsageHistory, (usage) => usage.series(query)).pipe(
+        Effect.flatMap(UsageHistory, (usage) =>
+          usage.series({ ...query, fellBack: fellBackOf(query) }),
+        ).pipe(
           Effect.map((points) => ({ points })),
           readHistory,
         ),
@@ -95,7 +103,9 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
           const book = priceBook(prices, { local: yield* (yield* Providers).local });
 
           const { groups, firstChunkMs } = yield* readHistory(
-            Effect.flatMap(UsageHistory, (usage) => usage.breakdown(query)),
+            Effect.flatMap(UsageHistory, (usage) =>
+              usage.breakdown({ ...query, fellBack: fellBackOf(query) }),
+            ),
           );
 
           const names = yield* currentNames(query.groupBy);
@@ -130,6 +140,7 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
             accountId: query.accountId,
             keyId: query.keyId,
             outcome: query.outcome,
+            fellBack: fellBackOf(query),
           }),
         ).pipe(readHistory),
       ),
