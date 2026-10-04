@@ -12,7 +12,7 @@ describe("the model catalog", () => {
 
   it("offers only the efforts each model supports", () => {
     const ids = modelIds();
-    expect(ids).toContain("gpt-6-astra-ultra");
+    expect(ids).toContain("gpt-6-astra-max");
     expect(ids).toContain("gpt-6-sol-none");
     expect(ids).toContain("gpt-6-luna-max");
     expect(ids).not.toContain("gpt-6-astra-none");
@@ -22,9 +22,17 @@ describe("the model catalog", () => {
   it.each([
     ["gpt-6-sol-none", "gpt-6-sol", "none"],
     ["gpt-6-astra-max", "gpt-6-astra", "max"],
-    ["gpt-6-astra-ultra", "gpt-6-astra", "ultra"],
+    ["gpt-6-sol-ultra", "gpt-6-sol", "ultra"],
   ])("resolves %s to %s at %s effort", (alias, model, effort) => {
     expect(resolveAlias(alias)).toEqual({ model, effort });
+  });
+
+  it("never lists the ultra effort, which only the Codex app can run", () => {
+    expect(modelIds().filter((id) => id.endsWith("-ultra"))).toEqual([]);
+    expect(modelIds([{ model: "gpt-7", efforts: ["max", "ultra"] }])).toEqual([
+      "gpt-7",
+      "gpt-7-max",
+    ]);
   });
 
   it("leaves a model the catalog lists by its whole name alone, though it ends in an effort", () => {

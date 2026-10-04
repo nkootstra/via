@@ -8,12 +8,19 @@ const isEffort = (effort: string): effort is (typeof EFFORTS)[number] =>
   EFFORTS.some((known) => known === effort);
 
 /**
+ * Whether `effort` is one only the Codex app can run: Codex lists `ultra`, which
+ * is maximum reasoning with tasks delegated to agents the app runs, but its API
+ * refuses it.
+ */
+const isCodexAppOnly = (effort: string | undefined) => effort === "ultra";
+
+/**
  * The models the Codex backend serves to ChatGPT sign-in, with the efforts each
  * supports: what via lists when it cannot ask Codex itself.
  */
 export const BUNDLED: ReadonlyArray<CatalogModel> = [
-  { model: "gpt-6-astra", efforts: ["low", "medium", "high", "xhigh", "max", "ultra"] },
-  { model: "gpt-6-sol", efforts: ["none", "low", "medium", "high", "xhigh", "max", "ultra"] },
+  { model: "gpt-6-astra", efforts: ["low", "medium", "high", "xhigh", "max"] },
+  { model: "gpt-6-sol", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
   { model: "gpt-6-luna", efforts: ["none", "low", "medium", "high", "xhigh", "max"] },
 ];
 
@@ -31,11 +38,14 @@ export const resolveAlias = (model: string, catalog: ReadonlyArray<CatalogModel>
 
 /**
  * The ids `/v1/models` lists: every model in `catalog`, then each with every
- * effort suffix it supports that `resolveAlias` understands.
+ * effort suffix it supports that `resolveAlias` understands, but those only
+ * the Codex app can run.
  */
 export const modelIds = (catalog: ReadonlyArray<CatalogModel> = BUNDLED): ReadonlyArray<string> => [
   ...catalog.map(({ model }) => model),
   ...catalog.flatMap(({ model, efforts }) =>
-    efforts.filter(isEffort).map((effort) => `${model}-${effort}`),
+    efforts
+      .filter((effort) => isEffort(effort) && !isCodexAppOnly(effort))
+      .map((effort) => `${model}-${effort}`),
   ),
 ];
