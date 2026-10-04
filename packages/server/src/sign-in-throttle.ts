@@ -30,7 +30,8 @@ type Outcome = "ok" | "wrong" | "throttled";
 
 /**
  * The outcome of a sign-in, and the failures after it. A refused sign-in is not
- * counted, and a successful one clears its client's failures.
+ * counted. A successful one leaves its client's failures to run out: behind a proxy
+ * the admin shares an address with whoever guesses, whose count it must not reset.
  */
 export const attempt = (
   limits: Limits,
@@ -50,11 +51,7 @@ export const attempt = (
 
   if (own.length >= limits.perClient || total >= limits.total) return ["throttled", recent];
 
-  if (matches) {
-    recent.delete(client);
-
-    return ["ok", recent];
-  }
+  if (matches) return ["ok", recent];
 
   return ["wrong", recent.set(client, [...own, now])];
 };
