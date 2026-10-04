@@ -2,7 +2,7 @@ import { screen, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { describe, expect, it } from "vitest";
 import type { Fallback } from "../src/api/types.ts";
-import { fakeClock, renderApp, skip } from "./app.tsx";
+import { embed, fakeClock, renderApp, skip } from "./app.tsx";
 
 const model = (id: string) => ({ id, object: "model", created: 0, owned_by: "via" });
 
@@ -24,6 +24,22 @@ const standingBy = (source: string, fallbacks: ReadonlyArray<string>): Fallback 
   fallbacks,
   status: { source: available, fallbacks: fallbacks.map(() => available), serving: source },
 });
+
+/** The state via puts in a signed-in page's shell, and pushes as it changes, with `fallbacks`. */
+const viaState = (fallbacks: ReadonlyArray<Fallback>) =>
+  ({
+    session: true,
+    version: "0.0.0",
+    pool: { accounts: [], opencodeGo: [], providers: [] },
+    usage: { accounts: [], opencodeGo: [], openrouter: null, refreshing: false },
+    accounts: [],
+    opencodeGo: [],
+    keys: [],
+    models,
+    ollama: null,
+    openrouter: null,
+    fallbacks,
+  }) as const;
 
 /** The row of the rule for `source`. */
 const rowOf = (source: string) => screen.findByRole("article", { name: source });
@@ -84,6 +100,14 @@ describe("the fallbacks page", () => {
     await user.click(within(alert).getByRole("button", { name: "Try again" }));
 
     expect(await rowOf("gpt-5.6-sol")).toBeDefined();
+  });
+
+  it("renders the rules the shell carries, asking via for nothing", async () => {
+    embed(viaState([standingBy("gpt-5.6-sol", ["gpt-5.5"])]));
+    const { state } = renderApp("/fallbacks", { models });
+
+    expect(chainOf(await rowOf("gpt-5.6-sol"))).toEqual(["gpt-5.5"]);
+    expect(state.requests).toEqual([]);
   });
 
   it("is in the navigation, after Models", async () => {

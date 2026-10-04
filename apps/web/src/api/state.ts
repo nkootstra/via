@@ -13,6 +13,7 @@ import { AdminState } from "@via/server/admin-api";
 import { Option, Schema } from "effect";
 import {
   accountsQuery,
+  fallbacksQuery,
   keysQuery,
   modelsQuery,
   ollamaQuery,
@@ -44,6 +45,7 @@ export function applyState(queryClient: QueryClient, state: typeof AdminState.Ty
   queryClient.setQueryData(modelsQuery.queryKey, state.models, at);
   queryClient.setQueryData(ollamaQuery.queryKey, state.ollama, at);
   queryClient.setQueryData(openrouterQuery.queryKey, state.openrouter, at);
+  queryClient.setQueryData(fallbacksQuery.queryKey, state.fallbacks, at);
 }
 
 /**
