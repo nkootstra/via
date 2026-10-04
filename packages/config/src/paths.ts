@@ -20,7 +20,9 @@ export function resolvePaths(
   env: { readonly VIA_HOME?: string | undefined },
   userHome: string,
 ): Paths {
-  const home = env.VIA_HOME ?? join(userHome, ".config", "via");
+  // An empty VIA_HOME, as `VIA_HOME=` in a compose file sets it, would put via's files,
+  // tokens included, in whatever directory it started in.
+  const home = env.VIA_HOME || join(userHome, ".config", "via");
 
   return {
     home,

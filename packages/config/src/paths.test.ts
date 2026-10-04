@@ -19,4 +19,8 @@ describe("resolvePaths", () => {
   it("defaults to .config/via under the user's home directory", () => {
     expect(resolvePaths({}, "/home/me").home).toBe("/home/me/.config/via");
   });
+
+  it("treats an empty VIA_HOME as unset, not as the current directory", () => {
+    expect(resolvePaths({ VIA_HOME: "" }, "/home/me").home).toBe("/home/me/.config/via");
+  });
 });
