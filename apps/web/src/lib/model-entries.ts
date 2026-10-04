@@ -4,7 +4,7 @@ import type { Model } from "../api/types.ts";
  * The reasoning efforts a Codex model id can end in, as `@via/codex-upstream`
  * lists them. An effort missing here only shows as a model of its own.
  */
-const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max", "ultra"];
+const EFFORTS = ["none", "low", "medium", "high", "xhigh", "max"];
 
 /** A model as the page shows it: once, with the efforts its suffixed ids pick. */
 export interface ModelEntry {
