@@ -161,6 +161,20 @@
         "vitest": "catalog:",
       },
     },
+    "packages/fallbacks": {
+      "name": "@via/fallbacks",
+      "version": "0.0.0",
+      "dependencies": {
+        "@via/config": "workspace:*",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@effect/platform-bun": "catalog:",
+        "@effect/vitest": "catalog:",
+        "@via/tsconfig": "workspace:*",
+        "vitest": "catalog:",
+      },
+    },
     "packages/keys": {
       "name": "@via/keys",
       "version": "0.0.0",
@@ -794,6 +808,8 @@
     "@via/config": ["@via/config@workspace:packages/config"],
 
     "@via/e2e": ["@via/e2e@workspace:apps/e2e"],
+
+    "@via/fallbacks": ["@via/fallbacks@workspace:packages/fallbacks"],
 
     "@via/keys": ["@via/keys@workspace:packages/keys"],
 

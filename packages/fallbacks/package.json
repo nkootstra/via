@@ -1,0 +1,24 @@
+{
+  "name": "@via/fallbacks",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./rule": "./src/rule.ts"
+  },
+  "scripts": {
+    "test": "bun --bun vitest run",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@via/config": "workspace:*",
+    "effect": "catalog:"
+  },
+  "devDependencies": {
+    "@effect/platform-bun": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@via/tsconfig": "workspace:*",
+    "vitest": "catalog:"
+  }
+}
