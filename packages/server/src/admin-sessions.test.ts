@@ -106,21 +106,19 @@ describe("AdminSessions", () => {
     }).pipe(Effect.provide(sessions)),
   );
 
-  it.effect("clears only the signed-in client's failures", () =>
+  it.effect("keeps counting a client's failures when it signs in in between", () =>
     Effect.gen(function* () {
       const admin = yield* AdminSessions;
 
       for (let attempt = 0; attempt < 9; attempt++) {
         yield* signIn(wrongKey, "a");
-        yield* signIn(wrongKey, "b");
       }
 
+      // Behind a proxy, the admin signing in shares "a" with whoever guesses: it buys them nothing.
       yield* admin.signIn(adminKey, "a");
-      // "a" starts over; "b" has one failure left before it is refused.
       yield* signIn(wrongKey, "a");
-      yield* signIn(wrongKey, "b");
-      expect(Exit.isSuccess(yield* signIn(adminKey, "a"))).toBe(true);
-      expect(Exit.isFailure(yield* signIn(adminKey, "b"))).toBe(true);
+      const refused = yield* Effect.flip(yield* signIn(adminKey, "a"));
+      expect(Schema.is(TooManySignInsError)(refused)).toBe(true);
     }).pipe(Effect.provide(sessions)),
   );
 

@@ -445,8 +445,8 @@ cookie instead, so the key is never kept in the page:
   `Host` header through unchanged. Requests with the bearer key need neither.
 - A wrong key answers 401 after a one-second delay. After 10 wrong keys
   within a minute from one address, sign-ins from that address answer 429,
-  after the same delay, until the minute has passed; other addresses can still
-  sign in. After 1000 wrong keys within a minute from all addresses together,
+  after the same delay, until the minute has passed, even if the right key was
+  used in between; other addresses can still sign in. After 1000 wrong keys within a minute from all addresses together,
   every sign-in answers 429, which keeps many addresses guessing at once from
   getting far. The address is the connection's: via ignores `X-Forwarded-For`
   and similar headers, so behind a proxy every sign-in shares the proxy's
