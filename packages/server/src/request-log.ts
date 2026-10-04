@@ -15,7 +15,7 @@ import { UsageHistory } from "@via/usage";
 import { HttpEffect, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import type { UsageEntry } from "@via/usage";
 import type { TokenUsage } from "./token-usage.ts";
-import type { UpstreamError } from "./upstream-error.ts";
+import { cut, type UpstreamError } from "./upstream-error.ts";
 
 /**
  * Notes, for the one line via logs about each request, what the request is
@@ -140,9 +140,11 @@ const entryOf = (
     error: Option.orElse(line.error, () =>
       Option.flatMap(line.upstreamError, (upstream) => upstream.code),
     ),
+    // Cut here too: via passes some upstream messages on in its own errors, as it does Codex's
+    // reason for failing a response.
     errorMessage: Option.orElse(line.errorMessage, () =>
       Option.flatMap(line.upstreamError, (upstream) => upstream.message),
-    ),
+    ).pipe(Option.map(cut)),
     streamEnd: streamedAnswer(line) ? line.streamEnd : Option.none(),
     keyId: Option.map(line.key, (key) => key.id),
     keyName: Option.map(line.key, (key) => key.name),
