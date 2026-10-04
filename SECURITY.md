@@ -42,3 +42,5 @@ Out of scope:
 - Running `via serve` on a non-local interface without TLS. The README warns
   against it.
 - Other processes running as your own OS user reading your files.
+- Another service on via's host reading the admin session cookie, which
+  browsers send to every port on a host. The README says how to avoid it.
