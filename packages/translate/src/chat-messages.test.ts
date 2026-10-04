@@ -137,6 +137,28 @@ describe("toMessagesRequest", () => {
       { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
     ]);
   });
+
+  it("reads an image's data from a data URL that carries parameters too", () => {
+    const request = toMessagesRequest(
+      chat({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: "data:image/png;name=a.png;base64,iVBOR" },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(request.messages[0]?.content).toEqual([
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
+    ]);
+  });
 });
 
 const message = {
