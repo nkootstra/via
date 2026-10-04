@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { providerReply } from "@via/providers/testing";
-import { Clock, Effect } from "effect";
+import { Clock, Deferred, Effect } from "effect";
 import { TestClock } from "effect/testing";
 import { ok, type Via, withVia } from "./testing/harness.ts";
 
@@ -116,6 +116,38 @@ layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
           expect(yield* (yield* ask(via, "second")).json).toEqual({ id: "two" });
           yield* TestClock.adjust("1 hour");
           expect(yield* (yield* ask(via, "third")).json).toEqual({ id: "one" });
+        }),
+      keys,
+    ),
+  );
+
+  it.effect("counts Retry-After from the 429, however long its usage takes to come back", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          let limited = true;
+          const usageAnswered = yield* Deferred.make<void>();
+          via.provider.holdUsage(Deferred.await(usageAnswered));
+          via.provider.respond(
+            providerReply.byKey({
+              "sk-go-1": (request) =>
+                (limited ? providerReply.rateLimited({ "retry-after": "120" }) : served("one"))(
+                  request,
+                ),
+              "sk-go-2": served("two"),
+            }),
+          );
+
+          yield* ask(via, "first");
+          limited = false;
+          yield* TestClock.adjust("119 seconds");
+          // The usage asked after the 429 comes back only now, 119 seconds on.
+          yield* Deferred.succeed(usageAnswered, undefined);
+          yield* via.provider.usageReceived(1);
+          yield* TestClock.withLive(Effect.sleep("100 millis"));
+          yield* TestClock.adjust("1 second");
+          expect(yield* (yield* ask(via, "second")).json).toEqual({ id: "one" });
         }),
       keys,
     ),
