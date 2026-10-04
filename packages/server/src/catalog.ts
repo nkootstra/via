@@ -1,4 +1,10 @@
-import { type CatalogModel, CodexUpstream, modelIds, resolveAlias } from "@via/codex-upstream";
+import {
+  BUNDLED,
+  type CatalogModel,
+  CodexUpstream,
+  modelIds,
+  resolveAlias,
+} from "@via/codex-upstream";
 import { OpencodeGoAccounts, type ProviderModel, Providers } from "@via/providers";
 import { Array, Clock, Context, Duration, Effect, Layer, Option, Ref, Semaphore } from "effect";
 import { AccountPool } from "@via/account-pool";
@@ -154,7 +160,7 @@ interface Offered {
  * or whose catalog via does not know.
  */
 const mayServe = (offered: ReadonlyArray<Offered>, model: string) => {
-  const base = resolveAlias(model).model;
+  const base = resolveAlias(model, combine(offered.map(({ catalog }) => catalog))).model;
   const known = new Set(offered.map(({ accountId }) => accountId));
 
   const offering = new Set(
@@ -176,6 +182,8 @@ export class ModelCatalog extends Context.Service<
     readonly list: Effect.Effect<ReadonlyArray<ProviderModel>>;
     /** Which accounts may serve `model`, by account id. */
     readonly mayServe: (model: string) => Effect.Effect<(accountId: string) => boolean>;
+    /** The Codex models the accounts that serve offer, or the bundled ones when unknown. */
+    readonly codex: Effect.Effect<ReadonlyArray<CatalogModel>>;
   }
 >()("via/ModelCatalog") {
   /**
@@ -303,14 +311,17 @@ export class ModelCatalog extends Context.Service<
       // Fetched as via starts, so the first request need not wait.
       yield* Effect.forkScoped(catalog);
 
+      const offeredOrNone = offered.pipe(
+        Effect.map(Option.getOrElse((): ReadonlyArray<Offered> => [])),
+        Effect.orElseSucceed((): ReadonlyArray<Offered> => []),
+      );
+
       return {
         list: catalog,
-        mayServe: (model) =>
-          offered.pipe(
-            Effect.map(Option.getOrElse((): ReadonlyArray<Offered> => [])),
-            Effect.orElseSucceed((): ReadonlyArray<Offered> => []),
-            Effect.map((all) => mayServe(all, model)),
-          ),
+        mayServe: (model) => Effect.map(offeredOrNone, (all) => mayServe(all, model)),
+        codex: Effect.map(offeredOrNone, (all) =>
+          all.length === 0 ? BUNDLED : combine(all.map((one) => one.catalog)),
+        ),
       };
     }),
   );

@@ -27,6 +27,15 @@ describe("the model catalog", () => {
     expect(resolveAlias(alias)).toEqual({ model, effort });
   });
 
+  it("leaves a model the catalog lists by its whole name alone, though it ends in an effort", () => {
+    const catalog = [{ model: "gpt-7-codex-max", efforts: ["high"] }];
+    expect(resolveAlias("gpt-7-codex-max", catalog)).toEqual({ model: "gpt-7-codex-max" });
+    expect(resolveAlias("gpt-7-codex-max-high", catalog)).toEqual({
+      model: "gpt-7-codex-max",
+      effort: "high",
+    });
+  });
+
   it("lists a catalog Codex served, aliasing only the efforts via can resolve", () => {
     expect(
       modelIds([

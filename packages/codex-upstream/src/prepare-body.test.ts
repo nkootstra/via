@@ -69,6 +69,15 @@ describe("prepareBody", () => {
     });
   });
 
+  it("leaves a model the catalog lists by its whole name alone", () => {
+    const body = prepareBody({ ...request, model: "gpt-7-codex-max" }, [
+      { model: "gpt-7-codex-max", efforts: [] },
+    ]);
+
+    expect(body).toMatchObject({ model: "gpt-7-codex-max" });
+    expect(body).not.toHaveProperty("reasoning");
+  });
+
   it("leaves a model that is not a string for Codex to reject", () => {
     expect(prepareBody({ ...request, model: 42 })).toMatchObject({ model: 42 });
     expect(prepareBody({ ...request, model: 42 })).not.toHaveProperty("reasoning");
