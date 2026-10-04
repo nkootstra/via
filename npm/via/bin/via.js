@@ -13,13 +13,16 @@ try {
   process.exit(1);
 }
 
-const child = spawn(binary, process.argv.slice(2), { stdio: "inherit" });
-
 // A service manager stops via by signalling this process, so via has to hear it too. Ctrl-C
-// already reaches via through the terminal; passing SIGINT on as well does no harm.
+// already reaches via through the terminal; passing SIGINT on as well does no harm. Listened
+// for before via starts: a signal that came first would end this process and leave via running.
+let child;
+
 for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
   process.on(signal, () => child.kill(signal));
 }
+
+child = spawn(binary, process.argv.slice(2), { stdio: "inherit" });
 
 child.on("error", (error) => {
   console.error(`via: ${error.message}`);
