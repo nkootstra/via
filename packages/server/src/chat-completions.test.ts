@@ -10,6 +10,24 @@ const request = {
 };
 
 layer(BunFileSystem.layer)("POST /v1/chat/completions", (it) => {
+  it.effect("sends Codex none of the output cap or sampling options it refuses", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.post("/v1/chat/completions", {
+          ...request,
+          max_tokens: 100,
+          temperature: 0.2,
+          top_p: 0.9,
+        });
+
+        expect(response.status).toBe(200);
+        expect(via.upstreamRequests[0]?.body).not.toHaveProperty("max_output_tokens");
+        expect(via.upstreamRequests[0]?.body).not.toHaveProperty("temperature");
+        expect(via.upstreamRequests[0]?.body).not.toHaveProperty("top_p");
+      }),
+    ),
+  );
+
   it.effect("answers with a chat completion, asking Codex in Responses terms", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

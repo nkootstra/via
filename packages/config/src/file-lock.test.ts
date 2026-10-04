@@ -243,4 +243,33 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
       expect(error).toEqual(new FileLockTimeoutError({ path: file }));
     }),
   );
+
+  it.effect("waits as long as it is told for a holder that keeps the lock past ten seconds", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      yield* TestClock.setTime(START);
+      const file = yield* tempFile;
+      const lock = `${file}.lock`;
+      yield* fs.writeFileString(lock, "");
+
+      let held = 0;
+
+      // A live holder for a minute, as a slow token refresh is, that then lets go.
+      const hold = Effect.gen(function* () {
+        held += 1;
+
+        if (held > 60) return yield* fs.remove(lock, { force: true });
+        const now = new Date(yield* Effect.clockWith((clock) => clock.currentTimeMillis));
+        yield* fs.utimes(lock, now, now);
+      }).pipe(Effect.orDie);
+
+      yield* hold;
+
+      const waiting = yield* withFileLock(file, Effect.succeed("ran"), {
+        giveUpAfter: "3 minutes",
+      }).pipe(Effect.forkChild);
+
+      expect(yield* advanceUntilDone(waiting, { tick: hold, by: "1 second" })).toBe("ran");
+    }),
+  );
 });

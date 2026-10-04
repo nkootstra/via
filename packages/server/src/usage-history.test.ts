@@ -191,6 +191,26 @@ layer(BunFileSystem.layer)("usage history", (it) => {
     ),
   );
 
+  it.effect("cuts the message Codex failed a response with to 500 characters", () =>
+    withVia(
+      () =>
+        reply.sse(
+          `event: response.failed\ndata: ${JSON.stringify({
+            type: "response.failed",
+            response: { error: { code: "server_is_overloaded", message: "x".repeat(2_000) } },
+          })}\n\n`,
+        ),
+      (via) =>
+        Effect.gen(function* () {
+          yield* (yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" })).text;
+          const [request] = yield* recorded(via);
+
+          expect(request?.status).toBe(502);
+          expect(request?.errorMessage).toEqual(Option.some("x".repeat(500)));
+        }),
+    ),
+  );
+
   it.effect("keeps no request that asked for no model, such as a model list or a bad key", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

@@ -15,9 +15,12 @@ type Turn = { readonly role: "user" | "assistant"; readonly content: ReadonlyArr
 
 const decodeArguments = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.JsonObject));
 
-/** A data URL's media type and base64 data, if `url` is one. */
+/**
+ * A data URL's media type and base64 data, if `url` is one; parameters between the two,
+ * such as a file name, are skipped.
+ */
 const dataUrl = (url: string) => {
-  const match = /^data:([^;,]+);base64,(.*)$/s.exec(url);
+  const match = /^data:([^;,]+)(?:;[^;,]*)*;base64,(.*)$/s.exec(url);
 
   return match === null
     ? Option.none()
@@ -102,6 +105,20 @@ const toolChoice = (choice: NonNullable<ChatRequest["tool_choice"]>) => {
   return { type: "tool", name: choice.function.name };
 };
 
+/**
+ * The Messages tool choice for `chat`: Chat's `parallel_tool_calls: false` is Messages'
+ * `disable_parallel_tool_use`, which goes with any choice but none.
+ */
+const chosenTool = (chat: ChatRequest) => {
+  const choice = chat.tool_choice === undefined ? undefined : toolChoice(chat.tool_choice);
+
+  if (chat.parallel_tool_calls !== false || chat.tools === undefined || choice?.type === "none") {
+    return choice;
+  }
+
+  return { ...(choice ?? { type: "auto" }), disable_parallel_tool_use: true };
+};
+
 /** The Messages request equivalent to a Chat Completions one. */
 export const toMessagesRequest = (chat: ChatRequest) => {
   const system = chat.messages
@@ -111,6 +128,7 @@ export const toMessagesRequest = (chat: ChatRequest) => {
     .join("\n\n");
 
   const maxTokens = chat.max_completion_tokens ?? chat.max_tokens ?? DEFAULT_MAX_TOKENS;
+  const choice = chosenTool(chat);
   const stop = chat.stop ?? undefined;
 
   return {
@@ -128,7 +146,7 @@ export const toMessagesRequest = (chat: ChatRequest) => {
         input_schema: fn.parameters ?? { type: "object", properties: {} },
       })),
     }),
-    ...(chat.tool_choice && { tool_choice: toolChoice(chat.tool_choice) }),
+    ...(choice !== undefined && { tool_choice: choice }),
     ...(chat.stream !== undefined && { stream: chat.stream }),
   };
 };

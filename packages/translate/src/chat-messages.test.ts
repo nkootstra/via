@@ -97,6 +97,26 @@ describe("toMessagesRequest", () => {
     expect(request.tool_choice).toEqual({ type: "any" });
   });
 
+  it("asks for one tool call at a time when the client turns parallel calls off", () => {
+    const tools = [{ type: "function", function: { name: "ls" } }];
+
+    const forced = toMessagesRequest(
+      chat({ messages: [], tools, tool_choice: "required", parallel_tool_calls: false }),
+    );
+
+    expect(forced.tool_choice).toEqual({ type: "any", disable_parallel_tool_use: true });
+
+    const unforced = toMessagesRequest(chat({ messages: [], tools, parallel_tool_calls: false }));
+    expect(unforced.tool_choice).toEqual({ type: "auto", disable_parallel_tool_use: true });
+
+    const none = toMessagesRequest(
+      chat({ messages: [], tools, tool_choice: "none", parallel_tool_calls: false }),
+    );
+
+    expect(none.tool_choice).toEqual({ type: "none" });
+    expect(toMessagesRequest(chat({ messages: [], tools })).tool_choice).toBeUndefined();
+  });
+
   it("sends an image by URL, or by its data when the URL carries it", () => {
     const request = toMessagesRequest(
       chat({
@@ -114,6 +134,28 @@ describe("toMessagesRequest", () => {
 
     expect(request.messages[0]?.content).toEqual([
       { type: "image", source: { type: "url", url: "https://example.com/a.png" } },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
+    ]);
+  });
+
+  it("reads an image's data from a data URL that carries parameters too", () => {
+    const request = toMessagesRequest(
+      chat({
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "image_url",
+                image_url: { url: "data:image/png;name=a.png;base64,iVBOR" },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+
+    expect(request.messages[0]?.content).toEqual([
       { type: "image", source: { type: "base64", media_type: "image/png", data: "iVBOR" } },
     ]);
   });
