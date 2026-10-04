@@ -30,14 +30,41 @@ it.live(
       yield* fs.writeFileString(`${pkg}/bin/via`, fakeVia, { mode: 0o755 });
       yield* fs.copyFile(`${here}/via/bin/via.js`, `${dir}/via.js`);
 
+      // Which `node` runs the launcher, for a failure to name: the real Node, not Bun.
+      const runtime = Bun.spawnSync(
+        ["node", "-p", "process.versions.bun ? `bun ${process.versions.bun}` : process.version"],
+        { env: { ...process.env, PATH } },
+      )
+        .stdout.toString()
+        .trim();
+
       const launcher = Bun.spawn(["node", `${dir}/via.js`], {
         env: { ...process.env, PATH },
         stdio: ["ignore", "ignore", "pipe"],
       });
 
-      yield* fs
-        .exists(`${pkg}/started`)
-        .pipe(Effect.filterOrFail(Boolean), Effect.retry(Schedule.spaced("50 millis")));
+      yield* Effect.addFinalizer(() => Effect.sync(() => launcher.kill("SIGKILL")));
+
+      /** What went on, for a failed expectation to say. */
+      const story = (what: string) =>
+        Effect.map(
+          Effect.promise(() => new Response(launcher.stderr).text()),
+          (stderr) =>
+            `${what} (node: ${runtime}; launcher exit ${launcher.exitCode} ${launcher.signalCode}; stderr: ${stderr})`,
+        );
+
+      /** Whether `file` shows up within ten seconds, which a loaded CI machine may need. */
+      const appears = (file: string) =>
+        fs.exists(file).pipe(
+          Effect.filterOrFail(Boolean),
+          Effect.retry({ schedule: Schedule.spaced("50 millis"), times: 200 }),
+          Effect.orElseSucceed(() => false),
+        );
+
+      if (!(yield* appears(`${pkg}/started`))) {
+        launcher.kill("SIGKILL");
+        expect.fail(yield* story("via never started"));
+      }
 
       // A via the launcher left running would outlive the test. Only a real pid: 0 would
       // signal this whole process group.
@@ -48,21 +75,20 @@ it.live(
       );
 
       launcher.kill("SIGTERM");
-      yield* Effect.promise(() => launcher.exited);
 
-      // Up to ten seconds for via to note the signal, which a loaded CI machine may need.
-      const gotTerm = yield* fs.exists(`${pkg}/got-term`).pipe(
-        Effect.filterOrFail(Boolean),
-        Effect.retry({ schedule: Schedule.spaced("50 millis"), times: 200 }),
-        Effect.orElseSucceed(() => false),
+      const exited = yield* Effect.promise(() => launcher.exited).pipe(
+        Effect.as(true),
+        Effect.timeoutOrElse({ duration: "10 seconds", orElse: () => Effect.succeed(false) }),
       );
 
-      const stderr = yield* Effect.promise(() => new Response(launcher.stderr).text());
+      const gotTerm = yield* appears(`${pkg}/got-term`);
 
-      expect(
-        gotTerm,
-        `launcher exited ${launcher.exitCode} ${launcher.signalCode}: ${stderr}`,
-      ).toBe(true);
+      if (!exited || !gotTerm) {
+        launcher.kill("SIGKILL");
+        expect.fail(
+          yield* story(exited ? "via never heard the SIGTERM" : "the launcher didn't stop"),
+        );
+      }
     }).pipe(Effect.scoped, Effect.provide(BunFileSystem.layer)),
-  30_000,
+  40_000,
 );
