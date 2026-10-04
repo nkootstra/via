@@ -3,6 +3,7 @@
 // subpaths of via's other packages, so a browser can bundle it, as `@via/server/admin-api`,
 // for an API client.
 import { AccountNotFoundError, AuthRequestError } from "@via/codex-auth/errors";
+import { FallbackRuleInvalidError, FallbackRuleNotFoundError } from "@via/fallbacks/rule";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
 import {
   DuplicateOpencodeGoKeyError,
@@ -220,6 +221,36 @@ const OpenrouterCatalogModel = Schema.Struct({
 const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schema.JsonObject]);
 
 /**
+ * Whether a model could serve a request now: `cooling` until the first of its
+ * accounts' cooldowns ends, with why, and `unavailable` when it has no
+ * account that could (`no_accounts`) or is an OpenRouter model that isn't
+ * enabled (`not_enabled`). Outages aren't known until a request meets them.
+ */
+const FallbackAvailability = Schema.Union([
+  Schema.Struct({ status: Schema.Literal("available") }),
+  Schema.Struct({ status: Schema.Literal("cooling"), until: Schema.String, reason: Schema.String }),
+  Schema.Struct({
+    status: Schema.Literal("unavailable"),
+    reason: Schema.Literals(["no_accounts", "not_enabled"]),
+  }),
+]);
+
+/**
+ * A model's fallbacks, and how they stand: whether the model and each fallback
+ * could serve now, and `serving`, the one that would answer a request for the
+ * model now, the model itself first; null when none could.
+ */
+const AdminFallback = Schema.Struct({
+  model: Schema.String,
+  fallbacks: Schema.Array(Schema.String),
+  status: Schema.Struct({
+    source: FallbackAvailability,
+    fallbacks: Schema.Array(FallbackAvailability),
+    serving: Schema.NullOr(Schema.String),
+  }),
+});
+
+/**
  * Everything the admin UI's pages show that via knows without asking anyone: the
  * pool, the latest usage, the ChatGPT and OpenCode Go accounts (keys masked), the
  * API keys and the models. A signed-in page gets it in its shell, and `GET /admin/events`
@@ -240,6 +271,8 @@ export const AdminState = Schema.Struct({
   ollama: Schema.NullOr(AdminOllama),
   /** OpenRouter's key and the models it enables, if via has one. */
   openrouter: Schema.NullOr(AdminOpenrouter),
+  /** The fallback rules, and how each stands now. */
+  fallbacks: Schema.Array(AdminFallback),
 });
 
 /** The one event `GET /admin/events` sends: the whole admin state, as JSON. */
@@ -618,6 +651,29 @@ class KeysGroup extends HttpApiGroup.make("keys")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
+/**
+ * The models a model falls back to when it can't serve. A model is named in the
+ * body or the query, not the path: a provider's id holds slashes.
+ */
+class FallbacksGroup extends HttpApiGroup.make("fallbacks")
+  .add(HttpApiEndpoint.get("list", "/fallbacks", { success: Schema.Array(AdminFallback) }))
+  .add(
+    HttpApiEndpoint.put("set", "/fallbacks", {
+      // Checked by the handler, so a rule it refuses says why.
+      payload: Schema.Struct({ model: Schema.String, fallbacks: Schema.Array(Schema.String) }),
+      success: AdminFallback,
+      error: FallbackRuleInvalidError.pipe(HttpApiSchema.status(400)),
+    }),
+  )
+  .add(
+    HttpApiEndpoint.delete("remove", "/fallbacks", {
+      query: { model: Name },
+      error: FallbackRuleNotFoundError.pipe(HttpApiSchema.status(404)),
+    }),
+  )
+  .middleware(AdminAuthorization)
+  .prefix("/admin") {}
+
 class UsageGroup extends HttpApiGroup.make("usage")
   .add(HttpApiEndpoint.get("get", "/usage", { success: Usage }))
   .middleware(AdminAuthorization)
@@ -694,6 +750,7 @@ export class AdminApi extends HttpApi.make("via-admin")
   .add(KeysGroup)
   .add(UsageGroup)
   .add(UsageHistoryGroup)
+  .add(FallbacksGroup)
   .add(PoolGroup)
   .add(ModelsGroup)
   .add(EventsGroup)

@@ -539,6 +539,7 @@ const viaState = {
   models: [{ id: "gpt-5.5", object: "model", created: 0, owned_by: "openai" }],
   ollama: null,
   openrouter: null,
+  fallbacks: [],
 } as const;
 
 /** `viaState`, with "work" cooling down for a minute. */

@@ -15,6 +15,7 @@ import {
 import { Clock, Effect, Option, Redacted } from "effect";
 import type { AdminState } from "./admin-api.ts";
 import { ModelCatalog } from "./catalog.ts";
+import { fallbacksNow } from "./fallback-status.ts";
 
 export const withoutTokens = ({ id, label, email, plan, enabled, createdAt }: Account) => ({
   id,
@@ -192,5 +193,6 @@ export const adminState = ({ environment, version }: StateOptions) =>
       models: yield* (yield* ModelCatalog).list,
       ollama,
       openrouter,
+      fallbacks: yield* fallbacksNow,
     } satisfies typeof AdminState.Type;
   });

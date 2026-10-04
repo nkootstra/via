@@ -264,6 +264,32 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     ),
   );
 
+  it.effect("sends the state again when a model's fallbacks change, with how they stand", () =>
+    withAdmin(ok, (via) =>
+      Effect.gen(function* () {
+        const { states } = yield* listen(via);
+        expect((yield* settled(via, states)).fallbacks).toEqual([]);
+
+        yield* via.put("/admin/fallbacks", { model: "gpt-x", fallbacks: ["gpt-y"] }, adminKey);
+        const saved = yield* next(via, states, (state) => state.fallbacks.length > 0);
+        expect(saved.fallbacks).toEqual([
+          {
+            model: "gpt-x",
+            fallbacks: ["gpt-y"],
+            status: {
+              source: { status: "available" },
+              fallbacks: [{ status: "available" }],
+              serving: "gpt-x",
+            },
+          },
+        ]);
+
+        yield* via.delete("/admin/fallbacks?model=gpt-x", adminKey);
+        yield* next(via, states, (state) => state.fallbacks.length === 0);
+      }),
+    ),
+  );
+
   it.effect("sends the models again when accounts are disabled and enabled", () =>
     withAdmin(ok, (via) =>
       Effect.gen(function* () {

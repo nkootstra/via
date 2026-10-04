@@ -1,5 +1,6 @@
 import { UsageSnapshots } from "@via/account-pool";
 import { AccountStore } from "@via/codex-auth";
+import { FallbackRuleStore } from "@via/fallbacks";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
 import { OpencodeGoAccounts, Providers } from "@via/providers";
@@ -35,6 +36,7 @@ const signals = Effect.gen(function* () {
     (yield* KeyStore).changes,
     (yield* Providers).ollama.changes,
     (yield* Providers).openrouter.changes,
+    (yield* FallbackRuleStore).changes,
     Stream.tick(RESYNC),
   ];
 
