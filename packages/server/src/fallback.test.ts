@@ -78,16 +78,12 @@ describe("candidatesFor", () => {
 
   /** `rules` as the store keeps them: valid, at most one per model. */
   const valid = (rules: ReadonlyArray<typeof Rule.Type>) =>
-    rules
-      .map((rule) => ({
-        model: rule.model,
-        fallbacks: [...new Set(rule.fallbacks)].filter((id) => id !== rule.model),
-      }))
-      .filter(
-        (rule, index, all) =>
-          rule.fallbacks.length > 0 &&
-          all.findIndex((other) => other.model === rule.model) === index,
-      );
+    rules.flatMap((rule, index) => {
+      const fallbacks = [...new Set(rule.fallbacks)].filter((id) => id !== rule.model);
+      const first = rules.findIndex((other) => other.model === rule.model) === index;
+
+      return fallbacks.length > 0 && first ? [{ model: rule.model, fallbacks }] : [];
+    });
 
   it.prop(
     "never offers the model asked for or one model twice, nor more than a rule lists",
