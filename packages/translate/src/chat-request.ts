@@ -95,7 +95,8 @@ export const ChatRequest = Schema.Struct({
   parallel_tool_calls: Schema.optionalKey(Schema.Boolean),
   response_format: Schema.optionalKey(ResponseFormat),
   reasoning_effort: Schema.optionalKey(Schema.String),
-  // Only a Messages request uses these; Codex takes none of them.
+  // Codex takes none of these, and `prepareBody` drops what this passes on; a provider's
+  // /responses takes all but `stop`, which only a Messages request uses.
   max_tokens: Schema.optionalKey(Schema.NullOr(Schema.Int)),
   max_completion_tokens: Schema.optionalKey(Schema.NullOr(Schema.Int)),
   temperature: Schema.optionalKey(Schema.NullOr(Schema.Finite)),
@@ -187,6 +188,9 @@ const textFormat = (format: typeof ResponseFormat.Type) =>
     ? { type: "json_schema", ...format.json_schema }
     : { type: format.type };
 
+/** The client's output cap: `max_completion_tokens`, which replaced `max_tokens`, first. */
+const maxOutput = (chat: ChatRequest) => chat.max_completion_tokens ?? chat.max_tokens;
+
 /** The Responses API request equivalent to a Chat Completions request. */
 export const toResponsesRequest = (chat: ChatRequest) => ({
   model: chat.model,
@@ -200,5 +204,8 @@ export const toResponsesRequest = (chat: ChatRequest) => ({
   ...(chat.parallel_tool_calls !== undefined && { parallel_tool_calls: chat.parallel_tool_calls }),
   ...(chat.response_format && { text: { format: textFormat(chat.response_format) } }),
   ...(chat.reasoning_effort && { reasoning: { effort: chat.reasoning_effort } }),
+  ...(maxOutput(chat) != null && { max_output_tokens: maxOutput(chat) }),
+  ...(chat.temperature != null && { temperature: chat.temperature }),
+  ...(chat.top_p != null && { top_p: chat.top_p }),
   ...(chat.stream !== undefined && { stream: chat.stream }),
 });

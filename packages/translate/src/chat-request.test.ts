@@ -158,6 +158,27 @@ describe("toResponsesRequest", () => {
     });
   });
 
+  it("keeps the client's output cap and sampling, which a provider's /responses takes", () => {
+    const base = { model: "kimi-k3", messages: [{ role: "user", content: "hi" }] };
+
+    expect(
+      translate({
+        ...base,
+        max_tokens: 50,
+        max_completion_tokens: 100,
+        temperature: 0.2,
+        top_p: 0.9,
+      }),
+    ).toMatchObject({ max_output_tokens: 100, temperature: 0.2, top_p: 0.9 });
+
+    expect(translate({ ...base, max_tokens: 50 })).toMatchObject({ max_output_tokens: 50 });
+
+    const unset = translate({ ...base, max_tokens: null, temperature: null, top_p: null });
+    expect(unset).not.toHaveProperty("max_output_tokens");
+    expect(unset).not.toHaveProperty("temperature");
+    expect(unset).not.toHaveProperty("top_p");
+  });
+
   it("flattens function tools and a forced tool choice", () => {
     const parameters = { type: "object", properties: { city: { type: "string" } } };
     expect(
@@ -243,15 +264,12 @@ describe("toResponsesRequest", () => {
     ).toMatchObject({ reasoning: { effort: "high" }, stream: true });
   });
 
-  it("accepts the sampling and limit options Codex refuses, and leaves them out", () => {
+  it("accepts the options Responses has no place for, and leaves them out", () => {
     expect(
       translate({
         model: "gpt-6-astra",
         messages: [],
-        max_tokens: 100,
-        max_completion_tokens: 100,
-        temperature: 0.2,
-        top_p: 0.9,
+        stop: ["\n"],
         user: "u-1",
         metadata: { run: "1" },
       }),
