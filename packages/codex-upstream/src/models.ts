@@ -12,7 +12,7 @@ const isEffort = (effort: string): effort is (typeof EFFORTS)[number] =>
  * is maximum reasoning with tasks delegated to agents the app runs, but its API
  * refuses it.
  */
-const isCodexAppOnly = (effort: string | undefined) => effort === "ultra";
+export const isCodexAppOnly = (effort: string | undefined) => effort === "ultra";
 
 /**
  * The models the Codex backend serves to ChatGPT sign-in, with the efforts each

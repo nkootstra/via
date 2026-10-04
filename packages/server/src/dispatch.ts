@@ -1,4 +1,9 @@
-import { CodexUpstream, type UpstreamFailedError } from "@via/codex-upstream";
+import {
+  CodexUpstream,
+  isCodexAppOnly,
+  resolveAlias,
+  type UpstreamFailedError,
+} from "@via/codex-upstream";
 import { classify, Verdict } from "@via/pool";
 import { Clock, type Data, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
@@ -89,6 +94,7 @@ export const asOpenAiError = ({ status, contentType, body }: Refusal) => {
  * answered the session last while it can serve, else fill-first, trying
  * accounts in order, skipping those cooling down or locked out, until one answers.
  * Only accounts whose plan offers the model are tried, when via knows which do.
+ * An effort only the Codex app can run is refused before any account is tried.
  * A successful answer goes to `onSuccess`; a client error goes to `refused`,
  * which passes it on as it came unless told otherwise.
  * A response `onSuccess` finds Codex failed for a rate limit cools its account
@@ -115,6 +121,18 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
   const models = yield* ModelCatalog;
   const allowed = Option.isSome(model) ? yield* models.mayServe(model.value) : () => true;
   const catalog = yield* models.codex;
+
+  if (Option.isSome(model)) {
+    const alias = resolveAlias(model.value, catalog);
+
+    if (isCodexAppOnly(alias.effort)) {
+      return yield* openAiError(
+        400,
+        "unsupported_effort",
+        `The ${alias.effort} effort only works in the Codex app, which delegates tasks to agents it runs; use ${alias.model}-max for the most reasoning via can give`,
+      );
+    }
+  }
 
   // Accounts whose access token was already refreshed after a 401 in this request.
   const refreshed = new Set<string>();

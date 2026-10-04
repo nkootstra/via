@@ -124,4 +124,45 @@ layer(BunFileSystem.layer)("Codex accounts by model", (it) => {
       );
     }),
   );
+  it.effect(
+    "refuses the ultra effort, which only the Codex app can run, without asking Codex",
+    () =>
+      Effect.gen(function* () {
+        const codex = yield* startFakeCodex;
+        codex.respond(ok);
+        codex.models({
+          models: [{ slug: "gpt-7", supported_reasoning_levels: [{ effort: "ultra" }] }],
+        });
+        yield* withVia(
+          ok,
+          (via) =>
+            Effect.gen(function* () {
+              const responses = yield* via.post("/v1/responses", {
+                model: "gpt-7-ultra",
+                input: "hi",
+              });
+
+              const chat = yield* via.post("/v1/chat/completions", {
+                model: "gpt-7-ultra",
+                messages: [{ role: "user", content: "hi" }],
+              });
+
+              for (const response of [responses, chat]) {
+                expect(response.status).toBe(400);
+                expect(yield* response.json).toEqual({
+                  error: {
+                    message:
+                      "The ultra effort only works in the Codex app, which delegates tasks to agents it runs; use gpt-7-max for the most reasoning via can give",
+                    type: "invalid_request_error",
+                    code: "unsupported_effort",
+                  },
+                });
+              }
+
+              expect(codex.requests).toEqual([]);
+            }),
+          { codexUrl: codex.url },
+        );
+      }),
+  );
 });

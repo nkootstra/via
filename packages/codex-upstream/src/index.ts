@@ -11,7 +11,7 @@ export {
   UpstreamFailedError,
 } from "./collect-response.ts";
 
-export { BUNDLED, type CatalogModel, modelIds, resolveAlias } from "./models.ts";
+export { BUNDLED, type CatalogModel, isCodexAppOnly, modelIds, resolveAlias } from "./models.ts";
 
 export { relayStream } from "./relay-stream.ts";
 
