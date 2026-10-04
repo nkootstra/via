@@ -33,6 +33,20 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
+  it.effect("logs a request for no route as its 404, not as an error", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const response = yield* via.get("/nowhere");
+        expect(response.status).toBe(404);
+
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          "http.status": 404,
+        });
+        expect(via.logs.filter((line) => line.level === "Error")).toEqual([]);
+      }),
+    ),
+  );
+
   it.effect("logs a provider's streamed answer once it has been sent, with its timings", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
@@ -155,37 +169,41 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
-  it.effect("logs a request the client gave up on before via answered as 499", () => {
-    const asked = Deferred.makeUnsafe<void>();
-    // Never opened: Codex takes longer than the client is willing to wait.
-    const gate = Deferred.makeUnsafe<void>();
+  it.effect(
+    "logs a request the client gave up on before via answered as 499, not as an error",
+    () => {
+      const asked = Deferred.makeUnsafe<void>();
+      // Never opened: Codex takes longer than the client is willing to wait.
+      const gate = Deferred.makeUnsafe<void>();
 
-    return withVia(
-      () => (request) => {
-        Deferred.doneUnsafe(asked, Exit.void);
+      return withVia(
+        () => (request) => {
+          Deferred.doneUnsafe(asked, Exit.void);
 
-        return reply.held(gate, ok())(request);
-      },
-      (via) =>
-        Effect.gen(function* () {
-          const abort = new AbortController();
+          return reply.held(gate, ok())(request);
+        },
+        (via) =>
+          Effect.gen(function* () {
+            const abort = new AbortController();
 
-          const sent = fetch(`${via.baseUrl}/v1/responses`, {
-            method: "POST",
-            headers: { authorization: `Bearer ${via.key}`, "content-type": "application/json" },
-            body: JSON.stringify({ model: "gpt-6-astra", input: "hi" }),
-            signal: abort.signal,
-          }).catch(() => undefined);
+            const sent = fetch(`${via.baseUrl}/v1/responses`, {
+              method: "POST",
+              headers: { authorization: `Bearer ${via.key}`, "content-type": "application/json" },
+              body: JSON.stringify({ model: "gpt-6-astra", input: "hi" }),
+              signal: abort.signal,
+            }).catch(() => undefined);
 
-          yield* Deferred.await(asked);
-          abort.abort();
-          yield* Effect.promise(() => sent);
-          expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
-            "http.status": 499,
-          });
-        }),
-    );
-  });
+            yield* Deferred.await(asked);
+            abort.abort();
+            yield* Effect.promise(() => sent);
+            expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+              "http.status": 499,
+            });
+            expect(via.logs.filter((line) => line.level === "Error")).toEqual([]);
+          }),
+      );
+    },
+  );
 
   it.effect("logs a provider's answer whose body is never sent, such as a 204", () =>
     withVia(ok, (via) =>

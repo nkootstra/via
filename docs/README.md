@@ -972,7 +972,8 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   seconds until an account frees up. For an error the upstream answered,
   `upstream_error` is the code it gave, such as `ModelProtocolUnsupported`.
 - A request the client gave up on before via answered is logged with
-  `http.status=499`, as nginx does. The client never sees that status.
+  `http.status=499`, as nginx does. The client never sees that status. Like a
+  `404` for a path via doesn't serve, it is only that line, not an error.
 - A request that fails on a bug in via, or on a file via can't read or write,
   answers `500` and also logs an `ERROR` line, "Request failed unexpectedly",
   with the cause.
