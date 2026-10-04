@@ -22,7 +22,8 @@ describe("sign-in throttle", () => {
     expect(attempt(limits, failures, { client: "a", now: 100, matches: true })[0]).toBe("ok");
   });
 
-  it("clears only the signed-in client's failures", () => {
+  it("keeps a client's failures when it signs in, so a right key between guesses buys no more", () => {
+    // Behind a proxy, the admin and someone guessing share one address.
     const failures: Failures = new Map([
       ["a", [0, 1]],
       ["b", [0, 1]],
@@ -30,7 +31,15 @@ describe("sign-in throttle", () => {
 
     const [outcome, next] = attempt(limits, failures, { client: "a", now: 2, matches: true });
     expect(outcome).toBe("ok");
-    expect(next).toEqual(new Map([["b", [0, 1]]]));
+    expect(next).toEqual(failures);
+    expect(attempt(limits, next, { client: "a", now: 3, matches: false })[0]).toBe("wrong");
+    expect(
+      attempt(limits, attempt(limits, next, { client: "a", now: 3, matches: false })[1], {
+        client: "a",
+        now: 4,
+        matches: true,
+      })[0],
+    ).toBe("throttled");
   });
 
   it("throttles everyone once the failures of all clients reach the backstop", () => {
@@ -61,7 +70,7 @@ describe("sign-in throttle", () => {
     { attempts },
     ({ attempts: values }) => {
       let failures: Failures = new Map();
-      // Every failure still counted, as a log: a sign-in drops its client's.
+      // Every failure still counted, as a log, until it is a window old.
       let log: ReadonlyArray<{ readonly client: string; readonly at: number }> = [];
       let now = 0;
 
@@ -81,8 +90,6 @@ describe("sign-in throttle", () => {
         const [outcome, next] = attempt(limits, failures, { client, now, matches });
         expect(outcome).toBe(expected);
         failures = next;
-
-        if (outcome === "ok") log = log.filter((failure) => failure.client !== client);
 
         if (outcome === "wrong") log = [...log, { client, at: now }];
 

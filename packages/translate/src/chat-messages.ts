@@ -15,9 +15,12 @@ type Turn = { readonly role: "user" | "assistant"; readonly content: ReadonlyArr
 
 const decodeArguments = Schema.decodeUnknownOption(Schema.fromJsonString(Schema.JsonObject));
 
-/** A data URL's media type and base64 data, if `url` is one. */
+/**
+ * A data URL's media type and base64 data, if `url` is one; parameters between the two,
+ * such as a file name, are skipped.
+ */
 const dataUrl = (url: string) => {
-  const match = /^data:([^;,]+);base64,(.*)$/s.exec(url);
+  const match = /^data:([^;,]+)(?:;[^;,]*)*;base64,(.*)$/s.exec(url);
 
   return match === null
     ? Option.none()
