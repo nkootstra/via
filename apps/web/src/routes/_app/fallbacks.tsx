@@ -1,15 +1,20 @@
 import * as stylex from "@stylexjs/stylex";
 import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
-import { EmptyState, Skeleton, VisuallyHidden } from "@via/ui";
+import { Badge, EmptyState, Skeleton, VisuallyHidden } from "@via/ui";
 import { colors, fontWeights, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
 import { fallbacksQuery } from "../../api/admin.ts";
 import { useLiveOptions } from "../../api/live.ts";
-import type { Fallback } from "../../api/types.ts";
+import type { Availability, Fallback } from "../../api/types.ts";
+import { BackIn } from "../../components/back-in.tsx";
 import { ArrowRightIcon, FallbacksIcon } from "../../components/icons.tsx";
 import { ModelName } from "../../components/model-name.tsx";
 import { Page, Panel } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
+import { type Standing, standingOf } from "../../lib/fallbacks.ts";
+import { poolReason } from "../../lib/pool-reason.ts";
+import { formatTime } from "../../lib/time.ts";
+import { useTimeFormat } from "../../lib/time-format.ts";
 
 export const Route = createFileRoute("/_app/fallbacks")({
   head: () => ({ meta: [{ title: "Fallbacks · via" }] }),
@@ -34,6 +39,33 @@ const styles = stylex.create({
     borderTopStyle: "solid",
     borderTopColor: colors.border,
   },
+  // The chain leads; the badge and actions keep to the end, or wrap under it on a phone.
+  top: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    columnGap: space.s4,
+    rowGap: space.s2,
+  },
+  side: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.s2,
+    marginInlineStart: "auto",
+  },
+  details: {
+    display: "flex",
+    flexDirection: "column",
+    gap: space.s1,
+  },
+  detail: {
+    margin: 0,
+    fontSize: text.body,
+    lineHeight: 1.5,
+    color: colors.mutedForeground,
+  },
+  failing: { color: colors.foreground },
   chain: {
     display: "flex",
     flexWrap: "wrap",
@@ -85,6 +117,16 @@ const styles = stylex.create({
     fontFamily: fonts.mono,
     fontSize: text.caption,
     color: colors.foreground,
+  },
+  // The model answering in its place: ringed in the badge's amber, not by colour alone.
+  serving: {
+    borderColor: colors.warning,
+    boxShadow: `0 0 0 1px ${colors.warning}`,
+    backgroundColor: colors.warningSubtle,
+  },
+  now: {
+    fontSize: text.caption,
+    color: colors.mutedForeground,
   },
 });
 
@@ -142,27 +184,99 @@ function FallbacksError({ error, reset }: ErrorComponentProps) {
   );
 }
 
-/** A rule: its model, then the models it falls back to, in order. */
+/** How a rule stands, as a badge in the Overview's colours. */
+function StandingBadge({ standing }: { readonly standing: Standing }) {
+  switch (standing.state) {
+    case "standing-by":
+      return (
+        <Badge variant="dot" color="green">
+          Standing by
+        </Badge>
+      );
+    case "falling-back":
+      return (
+        <Badge variant="dot" color="amber">
+          Falling back
+        </Badge>
+      );
+    case "none":
+      return (
+        <Badge variant="dot" color="red">
+          No fallback available
+        </Badge>
+      );
+  }
+}
+
+/** Why a model can't answer now, and, while it cools down, until when. */
+function WhyNot({ availability }: { readonly availability: Availability }) {
+  const format = useTimeFormat();
+
+  switch (availability.status) {
+    case "available":
+      return null;
+    case "cooling":
+      return (
+        <p {...stylex.props(styles.detail)}>
+          {poolReason(availability.reason)} · <BackIn until={availability.until} /> · Ends{" "}
+          {formatTime(availability.until, format)}
+        </p>
+      );
+    case "unavailable":
+      return (
+        <p {...stylex.props(styles.detail)}>
+          {availability.reason === "no_accounts" ? "No account can serve it" : "Not enabled"}
+        </p>
+      );
+  }
+}
+
+/** A rule: its model, then the models it falls back to, in order, and how it stands. */
 function Rule({ rule }: { readonly rule: Fallback }) {
+  const standing = standingOf(rule);
+
   return (
     <article aria-label={rule.model} {...stylex.props(styles.row)}>
-      <div {...stylex.props(styles.chain)}>
-        <h2 {...stylex.props(styles.source)}>
-          <ModelName id={rule.model} />
-        </h2>
-        <ol aria-label="Falls back to" {...stylex.props(styles.targets)}>
-          {rule.fallbacks.map((target) => (
-            <li key={target} {...stylex.props(styles.target)}>
-              <span {...stylex.props(styles.arrow)}>
-                <ArrowRightIcon size={14} />
-              </span>
-              <span {...stylex.props(styles.chip)}>
-                <ModelName id={target} />
-              </span>
-            </li>
-          ))}
-        </ol>
+      <div {...stylex.props(styles.top)}>
+        <div {...stylex.props(styles.chain)}>
+          <h2 {...stylex.props(styles.source)}>
+            <ModelName id={rule.model} />
+          </h2>
+          <ol aria-label="Falls back to" {...stylex.props(styles.targets)}>
+            {rule.fallbacks.map((target) => {
+              const serving = standing.state === "falling-back" && standing.to === target;
+
+              return (
+                <li key={target} {...stylex.props(styles.target)}>
+                  <span {...stylex.props(styles.arrow)}>
+                    <ArrowRightIcon size={14} />
+                  </span>
+                  <span
+                    aria-current={serving ? "true" : undefined}
+                    {...stylex.props(styles.chip, serving && styles.serving)}
+                  >
+                    <ModelName id={target} />
+                  </span>
+                  {serving && <span {...stylex.props(styles.now)}>answering now</span>}
+                </li>
+              );
+            })}
+          </ol>
+        </div>
+        <div {...stylex.props(styles.side)}>
+          <StandingBadge standing={standing} />
+        </div>
       </div>
+      {standing.state !== "standing-by" && (
+        <div {...stylex.props(styles.details)}>
+          {standing.state === "none" && (
+            <p {...stylex.props(styles.detail, styles.failing)}>
+              Every model in the list is unavailable too, so requests fail.
+            </p>
+          )}
+          <WhyNot availability={rule.status.source} />
+        </div>
+      )}
     </article>
   );
 }

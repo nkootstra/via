@@ -1,6 +1,6 @@
-import { screen, within } from "@testing-library/react";
+import { act, screen, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Fallback } from "../src/api/types.ts";
 import { embed, fakeClock, renderApp, skip } from "./app.tsx";
 
@@ -23,6 +23,27 @@ const standingBy = (source: string, fallbacks: ReadonlyArray<string>): Fallback 
   model: source,
   fallbacks,
   status: { source: available, fallbacks: fallbacks.map(() => available), serving: source },
+});
+
+const now = Date.parse("2026-09-27T12:00:00.000Z");
+
+/** Cooling down for `ms` from `now`, rate limited. */
+const cooling = (ms: number) =>
+  ({
+    status: "cooling",
+    until: new Date(now + ms).toISOString(),
+    reason: "rate_limited",
+  }) as const;
+
+/** A rule whose model cools down for `ms`, so its first fallback answers. */
+const fallingBack = (source: string, fallbacks: ReadonlyArray<string>, ms: number): Fallback => ({
+  model: source,
+  fallbacks,
+  status: {
+    source: cooling(ms),
+    fallbacks: fallbacks.map(() => available),
+    serving: fallbacks[0] ?? null,
+  },
 });
 
 /** The state via puts in a signed-in page's shell, and pushes as it changes, with `fallbacks`. */
@@ -100,6 +121,74 @@ describe("the fallbacks page", () => {
     await user.click(within(alert).getByRole("button", { name: "Try again" }));
 
     expect(await rowOf("gpt-5.6-sol")).toBeDefined();
+  });
+
+  it("says a rule whose model answers is standing by", async () => {
+    renderApp("/fallbacks", { models, fallbacks: [standingBy("gpt-5.6-sol", ["gpt-5.5"])] });
+
+    expect(within(await rowOf("gpt-5.6-sol")).getByText("Standing by")).toBeDefined();
+  });
+
+  it("says a rule is falling back, to which model, why and until when, counting down", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now });
+    renderApp("/fallbacks", {
+      models,
+      fallbacks: [fallingBack("gpt-5.6-sol", ["opencode-go/kimi-k3", "gpt-5.5"], 247_000)],
+    });
+
+    const row = await rowOf("gpt-5.6-sol");
+
+    const [serving] = within(within(row).getByRole("list", { name: "Falls back to" })).getAllByRole(
+      "listitem",
+    );
+
+    expect(within(row).getByText("Falling back")).toBeDefined();
+    expect(serving?.querySelector("[aria-current='true']")?.textContent).toContain("kimi-k3");
+    expect(serving?.textContent).toContain("answering now");
+    expect(row.textContent).toContain("Rate limited");
+    expect(row.textContent).toContain("Back in 4:07");
+    expect(row.textContent).toMatch(/Ends \w+/);
+
+    await act(() => vi.advanceTimersByTimeAsync(3_000));
+
+    expect(row.textContent).toContain("Back in 4:04");
+  });
+
+  it("says a model with no account to serve it falls back for that", async () => {
+    renderApp("/fallbacks", {
+      models,
+      fallbacks: [
+        {
+          ...standingBy("gpt-5.6-sol", ["gpt-5.5"]),
+          status: {
+            source: { status: "unavailable", reason: "no_accounts" },
+            fallbacks: [available],
+            serving: "gpt-5.5",
+          },
+        },
+      ],
+    });
+
+    expect((await rowOf("gpt-5.6-sol")).textContent).toContain("No account can serve it");
+  });
+
+  it("says when no model in a rule's list can answer either", async () => {
+    renderApp("/fallbacks", {
+      models,
+      fallbacks: [
+        {
+          ...fallingBack("gpt-5.6-sol", ["gpt-5.5"], 60_000),
+          status: { source: cooling(60_000), fallbacks: [cooling(60_000)], serving: null },
+        },
+      ],
+    });
+
+    const row = await rowOf("gpt-5.6-sol");
+    expect(within(row).getByText("No fallback available")).toBeDefined();
+    expect(row.textContent).toContain(
+      "Every model in the list is unavailable too, so requests fail.",
+    );
+    expect(row.textContent).toContain("Rate limited");
   });
 
   it("renders the rules the shell carries, asking via for nothing", async () => {
