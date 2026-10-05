@@ -585,6 +585,40 @@ describe("editing a fallback", () => {
   });
 });
 
+describe("editing a fallback, again", () => {
+  it("starts from the saved list when opened again straight after a cancel", async () => {
+    const { user } = renderApp("/fallbacks", {
+      models,
+      fallbacks: [standingBy("gpt-5.6-sol", ["opencode-go/kimi-k3", "gpt-5.5"])],
+    });
+
+    await rowAction(user, "gpt-5.6-sol", "Edit…");
+
+    const first = await screen.findByRole("dialog", { name: "Edit the fallback for gpt-5.6-sol" });
+
+    await user.click(within(first).getByRole("button", { name: "Remove kimi-k3" }));
+
+    // The dialog animates out for as long as a browser's animation runs: here, until it is let go.
+    const animating = vi
+      .spyOn(Element.prototype, "getAnimations")
+      .mockImplementation(() => [
+        Object.assign(new Animation(), { finished: new Promise<Animation>(() => {}) }),
+      ]);
+
+    await user.click(within(first).getByRole("button", { name: "Cancel" }));
+    // While it is on its way out.
+    await rowAction(user, "gpt-5.6-sol", "Edit…");
+
+    animating.mockRestore();
+
+    await waitFor(() =>
+      expect(
+        editorChain(screen.getByRole("dialog", { name: "Edit the fallback for gpt-5.6-sol" })),
+      ).toEqual(["kimi-k3", "gpt-5.5"]),
+    );
+  });
+});
+
 describe("removing a fallback", () => {
   it("asks first, then removes the rule", async () => {
     const { state, user } = renderApp("/fallbacks", {

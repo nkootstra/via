@@ -400,9 +400,11 @@ function Fallbacks() {
   const opener = useRef<HTMLElement | null>(null);
 
   // The add or edit dialog, while it shows: kept as it animates out, then gone, so it starts afresh.
+  // Each opening counts, so one opened while the last is still on its way out starts afresh too.
   const [editing, setEditing] = useState<{
     readonly rule: Fallback | undefined;
     readonly open: boolean;
+    readonly opening: number;
   } | null>(null);
 
   const dialogs = useRowDialog<Fallback, "remove">();
@@ -410,7 +412,7 @@ function Fallbacks() {
 
   const edit = (rule: Fallback | undefined, from: HTMLElement | null) => {
     opener.current = from;
-    setEditing({ rule, open: true });
+    setEditing((current) => ({ rule, open: true, opening: (current?.opening ?? 0) + 1 }));
   };
 
   const addButton = (
@@ -453,7 +455,7 @@ function Fallbacks() {
       )}
       {editing !== null && (
         <FallbackDialog
-          key={editing.rule?.model ?? "new"}
+          key={editing.opening}
           open={editing.open}
           onClose={() => setEditing((current) => current && { ...current, open: false })}
           onClosed={() => setEditing(null)}
