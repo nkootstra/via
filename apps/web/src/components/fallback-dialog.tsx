@@ -206,7 +206,7 @@ export function FallbackDialog({
             </span>
             {editing ? (
               <span aria-labelledby={ids.source} {...stylex.props(styles.fixed)}>
-                <ModelName id={rule.model} />
+                <ModelName id={rule.model} wrap />
               </span>
             ) : (
               <SearchSelect

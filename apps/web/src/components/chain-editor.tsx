@@ -204,7 +204,7 @@ export function ChainEditor({
                 {index + 1}
               </span>
               <span {...stylex.props(styles.name)}>
-                <ModelName id={model} />
+                <ModelName id={model} wrap />
               </span>
               <span {...stylex.props(styles.actions)}>
                 <Button

@@ -22,13 +22,20 @@ const styles = stylex.create({
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
+  // Wrapped rather than cut short, where the name is the point and touch has no hover.
+  wrapped: {
+    overflow: "visible",
+    whiteSpace: "normal",
+    overflowWrap: "anywhere",
+  },
 });
 
 /**
  * A model as the pages name it: its provider's logo, which reads out as the
- * provider, then its id without the prefix; the full id on hover.
+ * provider, then its id without the prefix; the full id on hover. A long one
+ * ends in an ellipsis, or with `wrap`, takes another line.
  */
-export function ModelName({ id }: { readonly id: string }) {
+export function ModelName({ id, wrap = false }: { readonly id: string; readonly wrap?: boolean }) {
   const owner = ownerOf(id);
 
   return (
@@ -40,7 +47,7 @@ export function ModelName({ id }: { readonly id: string }) {
           <ProviderLogo name={owner} size={14} label={providerName(owner)} />
         )}
       </span>
-      <span {...stylex.props(styles.modelId)}>{withoutPrefix(id)}</span>
+      <span {...stylex.props(styles.modelId, wrap && styles.wrapped)}>{withoutPrefix(id)}</span>
     </span>
   );
 }

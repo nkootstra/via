@@ -299,7 +299,7 @@ function Rule({
       <div {...stylex.props(styles.top)}>
         <div {...stylex.props(styles.chain)}>
           <h2 {...stylex.props(styles.source)}>
-            <ModelName id={rule.model} />
+            <ModelName id={rule.model} wrap />
           </h2>
           <ol aria-label="Falls back to" {...stylex.props(styles.targets)}>
             {rule.fallbacks.map((target, index) => {
@@ -319,7 +319,7 @@ function Rule({
                       skip && styles.skipped,
                     )}
                   >
-                    <ModelName id={target} />
+                    <ModelName id={target} wrap />
                   </span>
                   {serving && <span {...stylex.props(styles.now)}>answering now</span>}
                 </li>
