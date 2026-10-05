@@ -307,7 +307,8 @@ A fallback rule names a model and up to three others for via to try, in
 order, when that model can't serve a request. The first one that answers
 does, and its answer carries `x-via-fallback: <asked> -> <answered>`, such as
 `x-via-fallback: gpt-5.6-sol -> opencode-go/kimi-k3`; its body names the model
-that answered. Set them with `via fallbacks set`; they are kept in `fallbacks.json` in via's
+that answered. Set them on the web UI's [Fallbacks page](#web-ui) or with
+`via fallbacks set`; they are kept in `fallbacks.json` in via's
 [home](#configuration):
 
 ```json
