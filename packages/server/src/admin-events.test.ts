@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, type Reply, reply } from "@via/codex-upstream/testing";
-import { Clock, Effect, Exit, Fiber, Option, Queue, Scope, Stream } from "effect";
+import { Clock, Effect, Exit, Fiber, FileSystem, Option, Queue, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { Sse } from "effect/unstable/encoding";
 import { type AdminState, AdminEvent } from "./admin-api.ts";
@@ -270,23 +270,42 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         const { states } = yield* listen(via);
         expect((yield* settled(via, states)).fallbacks).toEqual([]);
 
-        yield* via.put("/admin/fallbacks", { model: "gpt-x", fallbacks: ["gpt-y"] }, adminKey);
+        yield* via.put(
+          "/admin/fallbacks",
+          { model: "gpt-6-astra", fallbacks: ["gpt-6-sol"] },
+          adminKey,
+        );
         const saved = yield* next(via, states, (state) => state.fallbacks.length > 0);
         expect(saved.fallbacks).toEqual([
           {
-            model: "gpt-x",
-            fallbacks: ["gpt-y"],
+            model: "gpt-6-astra",
+            fallbacks: ["gpt-6-sol"],
             status: {
               source: { status: "available" },
               fallbacks: [{ status: "available" }],
-              serving: "gpt-x",
+              serving: "gpt-6-astra",
             },
           },
         ]);
 
-        yield* via.delete("/admin/fallbacks?model=gpt-x", adminKey);
+        yield* via.delete("/admin/fallbacks?model=gpt-6-astra", adminKey);
         yield* next(via, states, (state) => state.fallbacks.length === 0);
       }),
+    ),
+  );
+
+  it.effect("says when the fallback rules can't be read, rather than that there are none", () =>
+    Effect.flatMap(FileSystem.FileSystem, (fs) =>
+      withAdmin(ok, (via) =>
+        Effect.gen(function* () {
+          yield* fs.writeFileString(`${via.dir}/fallbacks.json`, "{");
+          const { states } = yield* listen(via);
+
+          const state = yield* next(via, states, (sent) => sent.fallbacksError !== null);
+          expect(state.fallbacks).toEqual([]);
+          expect(state.fallbacksError).toContain("fallbacks.json");
+        }),
+      ),
     ),
   );
 

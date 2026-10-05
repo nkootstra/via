@@ -540,6 +540,7 @@ const viaState = {
   ollama: null,
   openrouter: null,
   fallbacks: [],
+  fallbacksError: null,
 } as const;
 
 /** `viaState`, with "work" cooling down for a minute. */

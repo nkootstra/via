@@ -249,6 +249,7 @@ describe("the accounts page", () => {
         ollama: null,
         openrouter: null,
         fallbacks: [],
+        fallbacksError: null,
       }),
     );
 

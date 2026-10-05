@@ -193,6 +193,6 @@ export const adminState = ({ environment, version }: StateOptions) =>
       models: yield* (yield* ModelCatalog).list,
       ollama,
       openrouter,
-      fallbacks: yield* fallbacksNow,
+      ...(yield* fallbacksNow),
     } satisfies typeof AdminState.Type;
   });

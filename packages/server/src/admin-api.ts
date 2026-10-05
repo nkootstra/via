@@ -223,15 +223,16 @@ const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schem
 /**
  * Whether a model could serve a request now: `cooling` until the first of its
  * accounts' cooldowns ends, with why, and `unavailable` when it has no
- * account that could (`no_accounts`) or is an OpenRouter model that isn't
- * enabled (`not_enabled`). Outages aren't known until a request meets them.
+ * account that could (`no_accounts`), is an OpenRouter model that isn't
+ * enabled (`not_enabled`), or is a model via doesn't know (`not_listed`).
+ * Outages aren't known until a request meets them.
  */
 const FallbackAvailability = Schema.Union([
   Schema.Struct({ status: Schema.Literal("available") }),
   Schema.Struct({ status: Schema.Literal("cooling"), until: Schema.String, reason: Schema.String }),
   Schema.Struct({
     status: Schema.Literal("unavailable"),
-    reason: Schema.Literals(["no_accounts", "not_enabled"]),
+    reason: Schema.Literals(["no_accounts", "not_enabled", "not_listed"]),
   }),
 ]);
 
@@ -273,6 +274,8 @@ export const AdminState = Schema.Struct({
   openrouter: Schema.NullOr(AdminOpenrouter),
   /** The fallback rules, and how each stands now. */
   fallbacks: Schema.Array(AdminFallback),
+  /** Why the fallback rules can't be read, when they can't; requests don't fall back until then. */
+  fallbacksError: Schema.NullOr(Schema.String),
 });
 
 /** The one event `GET /admin/events` sends: the whole admin state, as JSON. */

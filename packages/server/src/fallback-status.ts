@@ -7,12 +7,16 @@ import { available, type PoolAccount, type PoolState, PoolStates } from "@via/po
 import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { Clock, Effect, Option } from "effect";
 import { ModelCatalog } from "./catalog.ts";
+import { isListed } from "./fallback.ts";
 
 /** Whether a model could serve a request now, and if not, why and until when. */
 type Availability =
   | { readonly status: "available" }
   | { readonly status: "cooling"; readonly until: string; readonly reason: string }
-  | { readonly status: "unavailable"; readonly reason: "no_accounts" | "not_enabled" };
+  | {
+      readonly status: "unavailable";
+      readonly reason: "no_accounts" | "not_enabled" | "not_listed";
+    };
 
 /**
  * How `accounts` stand together at `now`: available while one is, else cooling
@@ -48,8 +52,8 @@ const goAccounts = Effect.flatMap(OpencodeGoAccounts, (store) => store.list).pip
 
 /**
  * Whether `model` could serve a request now: a provider's that isn't enabled
- * can't; OpenCode Go's and Codex's can while one of the accounts that may
- * serve it can; any other provider's is taken to.
+ * can't, nor a model via doesn't know; OpenCode Go's and Codex's can while one
+ * of the accounts that may serve it can; any other provider's is taken to.
  */
 const availabilityOf = Effect.fn("availabilityOf")(function* (model: string) {
   const route = (yield* Providers).route(model);
@@ -64,6 +68,10 @@ const availabilityOf = Effect.fn("availabilityOf")(function* (model: string) {
     return route.value.pooled
       ? availabilityAmong(yield* goAccounts, state, now)
       : ({ status: "available" } satisfies Availability);
+  }
+
+  if (!(yield* isListed(model))) {
+    return { status: "unavailable", reason: "not_listed" } satisfies Availability;
   }
 
   const allowed = yield* (yield* ModelCatalog).mayServe(model);
@@ -92,10 +100,18 @@ export const withStatus = Effect.fn("withStatus")(function* (rule: FallbackRule)
   };
 });
 
-/** Every rule with its status, or none when the rules can't be read, which is only warned about. */
+/**
+ * Every rule with its status, and why the rules can't be read when they can't: then there
+ * are none, as for a request, which falls back to nothing until the file is fixed.
+ */
 export const fallbacksNow = Effect.flatMap(FallbackRuleStore, (store) => store.list).pipe(
-  Effect.catch((error) =>
-    Effect.as(Effect.logWarning("Could not read the fallback rules", error), []),
+  Effect.flatMap((rules) =>
+    Effect.map(Effect.forEach(rules, withStatus), (fallbacks) => ({
+      fallbacks,
+      fallbacksError: null,
+    })),
   ),
-  Effect.flatMap((rules) => Effect.forEach(rules, withStatus)),
+  Effect.catchTag(["CorruptFileError", "PlatformError"], (error) =>
+    Effect.succeed({ fallbacks: [], fallbacksError: error.message }),
+  ),
 );

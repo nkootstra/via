@@ -317,9 +317,11 @@ that answered. The rules are kept in `fallbacks.json` in via's
 A running `via serve` uses a changed file on its next request. The
 [admin API](#admin-api) sets and removes rules too, and shows how each stands:
 whether its model and each fallback could serve now (`available`, `cooling`
-until when and why, or `unavailable`: no account, or an OpenRouter model that
-isn't enabled) and `serving`, the model that would answer now, or `null`. It
-only knows of cooldowns and accounts: an outage shows once a request meets it.
+until when and why, or `unavailable`: no account, an OpenRouter model that
+isn't enabled, or a model via doesn't know) and `serving`, the model that would
+answer now, or `null`. It only knows of cooldowns and accounts: an outage shows
+once a request meets it. When `fallbacks.json` can't be read, the admin state's
+`fallbacksError` says why, and requests don't fall back until it's fixed.
 
 - **When:** only when the model can't serve before any of its answer reached
   the client. That is when every account that could serve it is cooling down

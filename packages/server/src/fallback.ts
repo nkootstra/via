@@ -72,7 +72,7 @@ const soonestRetry = (
  * Whether via knows `model`: a provider's model is, as its provider says whether it has it;
  * a Codex model is when Codex lists it, with or without an effort suffix.
  */
-const isListed = Effect.fn("isListed")(function* (model: string) {
+export const isListed = Effect.fn("isListed")(function* (model: string) {
   if (Option.isSome((yield* Providers).route(model))) return true;
 
   const catalog = yield* (yield* ModelCatalog).codex;

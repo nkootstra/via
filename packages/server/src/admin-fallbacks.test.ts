@@ -7,12 +7,12 @@ import { ok, withVia } from "./testing/harness.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";
 
-const sol = { model: "gpt-x", fallbacks: ["opencode-go/kimi-k3", "gpt-y"] };
+const sol = { model: "gpt-6-astra", fallbacks: ["opencode-go/kimi-k3", "gpt-6-sol"] };
 
 const standingBy = {
   source: { status: "available" },
   fallbacks: [{ status: "available" }, { status: "available" }],
-  serving: "gpt-x",
+  serving: "gpt-6-astra",
 };
 
 layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
@@ -27,13 +27,21 @@ layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
           expect(saved.status).toBe(200);
           expect(yield* saved.json).toEqual({ ...sol, status: standingBy });
 
-          yield* via.put("/admin/fallbacks", { model: "gpt-z", fallbacks: ["gpt-y"] }, adminKey);
-          yield* via.put("/admin/fallbacks", { model: "gpt-x", fallbacks: ["gpt-y"] }, adminKey);
+          yield* via.put(
+            "/admin/fallbacks",
+            { model: "gpt-6-luna", fallbacks: ["gpt-6-sol"] },
+            adminKey,
+          );
+          yield* via.put(
+            "/admin/fallbacks",
+            { model: "gpt-6-astra", fallbacks: ["gpt-6-sol"] },
+            adminKey,
+          );
 
           const listed = yield* (yield* via.get("/admin/fallbacks", adminKey)).json;
           expect(listed).toMatchObject([
-            { model: "gpt-x", fallbacks: ["gpt-y"] },
-            { model: "gpt-z", fallbacks: ["gpt-y"] },
+            { model: "gpt-6-astra", fallbacks: ["gpt-6-sol"] },
+            { model: "gpt-6-luna", fallbacks: ["gpt-6-sol"] },
           ]);
         }),
       { adminKey },
@@ -47,16 +55,18 @@ layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
         Effect.gen(function* () {
           const itself = yield* via.put(
             "/admin/fallbacks",
-            { model: "gpt-x", fallbacks: ["gpt-x"] },
+            { model: "gpt-6-astra", fallbacks: ["gpt-6-astra"] },
             adminKey,
           );
 
           expect(itself.status).toBe(400);
           expect(
             yield* Schema.decodeUnknownEffect(FallbackRuleInvalidError)(yield* itself.json),
-          ).toEqual(new FallbackRuleInvalidError({ problem: "gpt-x can't fall back to itself" }));
+          ).toEqual(
+            new FallbackRuleInvalidError({ problem: "gpt-6-astra can't fall back to itself" }),
+          );
           expect(
-            (yield* via.put("/admin/fallbacks", { model: "gpt-x", fallbacks: [] }, adminKey))
+            (yield* via.put("/admin/fallbacks", { model: "gpt-6-astra", fallbacks: [] }, adminKey))
               .status,
           ).toBe(400);
         }),
@@ -70,7 +80,7 @@ layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
       (via) =>
         Effect.gen(function* () {
           const model = "openrouter/openai/gpt-6";
-          yield* via.put("/admin/fallbacks", { model, fallbacks: ["gpt-x"] }, adminKey);
+          yield* via.put("/admin/fallbacks", { model, fallbacks: ["gpt-6-astra"] }, adminKey);
 
           const path = `/admin/fallbacks?model=${encodeURIComponent(model)}`;
           expect((yield* via.delete(path, adminKey)).status).toBe(204);
@@ -91,7 +101,7 @@ layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
       () => reply.error(429, "", { "retry-after": "120" }),
       (via) =>
         Effect.gen(function* () {
-          yield* via.post("/v1/responses", { model: "gpt-y", input: "hi" });
+          yield* via.post("/v1/responses", { model: "gpt-6-sol", input: "hi" });
           yield* via.put("/admin/fallbacks", sol, adminKey);
 
           const rules = yield* (yield* via.get("/admin/fallbacks", adminKey)).json;
@@ -114,10 +124,10 @@ layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
       () => reply.error(429, "", { "retry-after": "120" }),
       (via) =>
         Effect.gen(function* () {
-          yield* via.post("/v1/responses", { model: "gpt-y", input: "hi" });
+          yield* via.post("/v1/responses", { model: "gpt-6-sol", input: "hi" });
           yield* via.put(
             "/admin/fallbacks",
-            { model: "gpt-x", fallbacks: ["opencode-go/kimi-k3", "gpt-y"] },
+            { model: "gpt-6-astra", fallbacks: ["opencode-go/kimi-k3", "gpt-6-sol"] },
             adminKey,
           );
 
@@ -147,7 +157,7 @@ layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
           yield* via.put("/admin/openrouter/key", { apiKey: "sk-or-v1-abcd" }, adminKey);
           yield* via.put(
             "/admin/fallbacks",
-            { model: "gpt-x", fallbacks: ["openrouter/a/b"] },
+            { model: "gpt-6-astra", fallbacks: ["openrouter/a/b"] },
             adminKey,
           );
 
@@ -157,6 +167,35 @@ layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
           ]);
         }),
       { adminKey, openrouterFromUi: true },
+    ),
+  );
+
+  it.effect("says a model via doesn't know can't answer", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* via.put(
+            "/admin/fallbacks",
+            { model: "gpt-nope", fallbacks: ["gpt-also-nope", "gpt-6-sol"] },
+            adminKey,
+          );
+
+          const rules = yield* (yield* via.get("/admin/fallbacks", adminKey)).json;
+          expect(rules).toMatchObject([
+            {
+              status: {
+                source: { status: "unavailable", reason: "not_listed" },
+                fallbacks: [
+                  { status: "unavailable", reason: "not_listed" },
+                  { status: "available" },
+                ],
+                serving: "gpt-6-sol",
+              },
+            },
+          ]);
+        }),
+      { adminKey },
     ),
   );
 
