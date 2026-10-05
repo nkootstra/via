@@ -11,6 +11,7 @@ import { CliError, Command } from "effect/unstable/cli";
 import { FetchHttpClient } from "effect/unstable/http";
 import { homedir } from "node:os";
 import { accounts } from "./accounts.ts";
+import { fallbacks } from "./fallbacks.ts";
 import { keys } from "./keys.ts";
 import { providers } from "./providers.ts";
 import { serve } from "./serve.ts";
@@ -49,6 +50,7 @@ const main = Effect.gen(function* () {
       accounts(paths.config, codexBaseUrl),
       keys,
       providers(paths.config),
+      fallbacks,
       serve({
         configPath: paths.config,
         statePath: paths.state,

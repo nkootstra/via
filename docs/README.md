@@ -307,7 +307,8 @@ A fallback rule names a model and up to three others for via to try, in
 order, when that model can't serve a request. The first one that answers
 does, and its answer carries `x-via-fallback: <asked> -> <answered>`, such as
 `x-via-fallback: gpt-5.6-sol -> opencode-go/kimi-k3`; its body names the model
-that answered. The rules are kept in `fallbacks.json` in via's
+that answered. Set them on the web UI's [Fallbacks page](#web-ui) or with
+`via fallbacks set`; they are kept in `fallbacks.json` in via's
 [home](#configuration):
 
 ```json
@@ -724,13 +725,16 @@ The page is the admin key's reach in a browser, so give it the same care:
 | `via keys list`                                | List keys, when each was created and when it was last used.     |
 | `via keys rename <id-or-name> <new-name>`      | Rename a key; clients keep using it.                            |
 | `via keys revoke <id-or-name>`                 | Revoke a key.                                                   |
+| `via fallbacks set <model> <fallback>...`      | Set the models `<model>` falls back to, in order.               |
+| `via fallbacks list`                           | List each model's fallbacks.                                    |
+| `via fallbacks remove <model>`                 | Remove a model's fallbacks.                                     |
 | `via serve [--host <addr>] [--port <n>]`       | Serve the API in the foreground.                                |
 
 `<account>` matches an account's id, label or email.
 
 A running `via serve` sees what these commands change from its next request
-on: a revoked key is refused and a disabled account is skipped once the command
-has finished. It keeps the accounts and keys in memory and checks each request
+on: a revoked key is refused, a disabled account is skipped and a
+[fallback](#fallback-models) is used once the command has finished. It keeps the accounts and keys in memory and checks each request
 whether their files changed (`stat`, no read), reading them again only then.
 
 Adding a ChatGPT account that is already in the pool signs it in again: via
