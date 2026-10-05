@@ -315,7 +315,8 @@ that answered. The rules are kept in `fallbacks.json` in via's
 ```
 
 A running `via serve` uses a changed file on its next request. The
-[admin API](#admin-api) sets and removes rules too, and shows how each stands:
+[web UI](#web-ui)'s Fallbacks page and the [admin API](#admin-api) set and
+remove rules too, and show how each stands:
 whether its model and each fallback could serve now (`available`, `cooling`
 until when and why, or `unavailable`: no account, an OpenRouter model that
 isn't enabled, or a model via doesn't know) and `serving`, the model that would
@@ -580,6 +581,16 @@ each one's limits is used.
 </details>
 
 <details>
+<summary><b>Fallbacks</b>: the models each model falls back to, live: standing by, falling back and to which, or with none left; add, reorder, edit and remove them.</summary>
+
+Each rule reads as its chain, such as `gpt-5.6-sol → kimi-k3 → gpt-5.5`, with
+a badge for how it stands. While it falls back, the model answering in its
+place is ringed and marked "answering now", and the row says why its model
+can't, such as "Rate limited · Back in 4:07".
+
+</details>
+
+<details>
 <summary><b>Settings</b>: privacy mode, theme, motion, start page and time format, and deleting the usage history.</summary>
 
 ![Settings page](assets/screenshots/settings.png)
@@ -601,6 +612,19 @@ Its OpenRouter section takes your OpenRouter key and chooses which of its
 models via offers. The Models page shows each model once: a Codex model
 with the reasoning efforts its suffixed ids pick, and a provider's models under
 its heading without their `<provider>/` prefix. Search matches every id.
+
+The **Fallbacks** page lists the [fallback rules](#fallback-models) and how
+each stands right now: **Standing by** while its model answers, **Falling
+back** with the model answering in its place, why its own can't and when it
+is back, or **No fallback available** when every model in the list can't
+answer either, so requests fail. A fallback via skips, such as an OpenRouter
+model that isn't enabled, is drawn dashed, with why. A screen reader hears a
+rule start or stop falling back, not the countdown. **Add fallback** picks a
+model, from a list grouped like the Models page's that leaves out the models
+that have a rule, then up to three to fall back to, in order: move each up or
+down, or remove it, with the keyboard or the pointer. Under a model, the page
+says when it would take a request for an effort it lacks at its default.
+**Edit…** changes a rule's list, and **Remove…** removes it, after asking.
 
 **Settings**, in the menu under **Admin** at the foot of the sidebar, holds the
 page's preferences:
