@@ -59,10 +59,12 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
           const response = yield* via.post("/v1/chat/completions", chat("openrouter/y"));
 
           expect(response.status).toBe(200);
-          expect(response.headers["x-via-fallback"]).toBe("openrouter/y -> gpt-x");
-          expect(via.upstreamRequests.map((request) => request.body["model"])).toEqual(["gpt-x"]);
+          expect(response.headers["x-via-fallback"]).toBe("openrouter/y -> gpt-6-astra");
+          expect(via.upstreamRequests.map((request) => request.body["model"])).toEqual([
+            "gpt-6-astra",
+          ]);
         }),
-      { fallbacks: [{ model: "openrouter/y", fallbacks: ["gpt-x"] }] },
+      { fallbacks: [{ model: "openrouter/y", fallbacks: ["gpt-6-astra"] }] },
     ),
   );
 
@@ -81,6 +83,22 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
     ),
   );
 
+  it.effect("falls back when Codex fails a response it was collecting for being overloaded", () =>
+    withVia(
+      () => reply.failed("server_is_overloaded", "Codex is busy"),
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(providerReply.json(answer));
+
+          const response = yield* via.post("/v1/chat/completions", chat("gpt-x"));
+
+          expect(response.status).toBe(200);
+          expect(response.headers["x-via-fallback"]).toBe("gpt-x -> openrouter/y");
+        }),
+      { fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y"] }] },
+    ),
+  );
+
   it.effect("falls back when the provider can't be reached", () =>
     withVia(
       ok,
@@ -89,11 +107,11 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
           const response = yield* via.post("/v1/chat/completions", chat("openrouter/y"));
 
           expect(response.status).toBe(200);
-          expect(response.headers["x-via-fallback"]).toBe("openrouter/y -> gpt-x");
+          expect(response.headers["x-via-fallback"]).toBe("openrouter/y -> gpt-6-astra");
         }),
       {
         providerUrl: "http://127.0.0.1:1",
-        fallbacks: [{ model: "openrouter/y", fallbacks: ["gpt-x"] }],
+        fallbacks: [{ model: "openrouter/y", fallbacks: ["gpt-6-astra"] }],
       },
     ),
   );
@@ -107,9 +125,9 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
 
           const response = yield* via.post("/v1/chat/completions", chat("openrouter/y"));
 
-          expect(response.headers["x-via-fallback"]).toBe("openrouter/y -> gpt-x");
+          expect(response.headers["x-via-fallback"]).toBe("openrouter/y -> gpt-6-astra");
         }),
-      { fallbacks: [{ model: "openrouter/y", fallbacks: ["gpt-x"] }] },
+      { fallbacks: [{ model: "openrouter/y", fallbacks: ["gpt-6-astra"] }] },
     ),
   );
 
@@ -131,9 +149,9 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
           });
 
           expect(response.status).toBe(200);
-          expect(response.headers["x-via-fallback"]).toBe("opencode-go/m -> gpt-x");
+          expect(response.headers["x-via-fallback"]).toBe("opencode-go/m -> gpt-6-astra");
         }),
-      { fallbacks: [{ model: "opencode-go/m", fallbacks: ["gpt-x"] }] },
+      { fallbacks: [{ model: "opencode-go/m", fallbacks: ["gpt-6-astra"] }] },
     ),
   );
 
@@ -144,9 +162,9 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
         Effect.gen(function* () {
           const response = yield* via.post("/v1/chat/completions", chat("opencode-go/m"));
 
-          expect(response.headers["x-via-fallback"]).toBe("opencode-go/m -> gpt-x");
+          expect(response.headers["x-via-fallback"]).toBe("opencode-go/m -> gpt-6-astra");
         }),
-      { opencodeGoKeys: [], fallbacks: [{ model: "opencode-go/m", fallbacks: ["gpt-x"] }] },
+      { opencodeGoKeys: [], fallbacks: [{ model: "opencode-go/m", fallbacks: ["gpt-6-astra"] }] },
     ),
   );
 
@@ -181,6 +199,46 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
           expect(via.provider.requests).toEqual([]);
         }),
       { fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y"] }] },
+    ),
+  );
+
+  it.effect("moves past a fallback via doesn't know, without asking for it", () =>
+    withVia(
+      exhausted,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(providerReply.json(answer));
+
+          const response = yield* via.post("/v1/chat/completions", chat("gpt-x"));
+
+          expect(response.headers["x-via-fallback"]).toBe("gpt-x -> openrouter/y");
+          expect(via.upstreamRequests.map((request) => request.body["model"])).not.toContain(
+            "gpt-nope",
+          );
+          expect(yield* via.logged("gpt-nope can't serve (not_listed)")).toBeDefined();
+        }),
+      { fallbacks: [{ model: "gpt-x", fallbacks: ["gpt-nope", "openrouter/y"] }] },
+    ),
+  );
+
+  it.effect("moves past a fallback its provider doesn't have", () =>
+    withVia(
+      exhausted,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(
+            byModel({
+              missing: providerReply.json({ error: { code: "model_not_found" } }, 404),
+              z: providerReply.json(answer),
+            }),
+          );
+
+          const response = yield* via.post("/v1/chat/completions", chat("gpt-x"));
+
+          expect(response.headers["x-via-fallback"]).toBe("gpt-x -> opencode-go/z");
+          expect(modelsAsked(via)).toEqual(["missing", "z"]);
+        }),
+      { fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/missing", "opencode-go/z"] }] },
     ),
   );
 
@@ -349,7 +407,7 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
           expect(response.status).toBe(503);
           expect(via.upstreamRequests).toEqual([]);
         }),
-      { ollama: true, fallbacks: [{ model: "ollama/nimble", fallbacks: ["gpt-x"] }] },
+      { ollama: true, fallbacks: [{ model: "ollama/nimble", fallbacks: ["gpt-6-astra"] }] },
     ),
   );
 });

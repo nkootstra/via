@@ -269,6 +269,26 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
+  it.effect("cuts an outage's body that runs far longer than an error does", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(() => ({
+          status: 503,
+          contentType: "text/html",
+          body: "x".repeat(1024 * 1024),
+        }));
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "openrouter/qwen/qwen3",
+          messages: [],
+        });
+
+        expect(response.status).toBe(503);
+        expect((yield* response.text).length).toBe(64 * 1024);
+      }),
+    ),
+  );
+
   it.effect("passes on only the client's headers a provider needs", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {

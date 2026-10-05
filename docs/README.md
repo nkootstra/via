@@ -316,28 +316,31 @@ that answered. The rules are kept in `fallbacks.json` in via's
 
 A running `via serve` uses a changed file on its next request.
 
-- **When:** only when the model can't serve before any of its answer went out.
-  That is when every account that could serve it is cooling down (`429`) or
-  there is none (`503`), when Codex is down or overloaded, when its upstream
-  can't be reached (`502`) or a provider answers `429` or a `5xx`, when an
-  OpenCode Go model speaks none of the APIs via could ask it in, and when an
-  OpenRouter model isn't enabled.
+- **When:** only when the model can't serve before any of its answer reached
+  the client. That is when every account that could serve it is cooling down
+  (`429`) or there is none (`503`), when Codex is down or overloaded, even if
+  it says so only once it has started a response via collects for a client
+  that doesn't stream, when its upstream can't be reached (`502`) or a provider
+  answers `404`, `429` or a `5xx`, when an OpenCode Go model speaks none of the
+  APIs via could ask it in, and when an OpenRouter model isn't enabled.
 - **Never:** when the upstream refuses the request itself, such as a `400` for
-  a bad parameter, once an answer has started, even if it then fails, or for
-  [System One](#ollama-and-system-one), whose answers belong to its model.
+  a bad parameter, once a streamed answer has started, even if it then fails,
+  or for [System One](#ollama-and-system-one), whose answers belong to its
+  model.
 - **Efforts:** a rule for a Codex model covers it with any effort suffix too, so
   one for `gpt-5.6-sol` also takes `gpt-5.6-sol-high`. A Codex fallback that
   supports the effort gets it, as `gpt-5.5-high`; any other fallback is asked
   for as written. A rule for the exact id, such as `gpt-5.6-sol-high`, wins.
-- **One rule:** a fallback's own rule isn't followed, and a fallback that
-  refuses the request answers with that refusal.
+- **One rule:** a fallback's own rule isn't followed. A fallback via doesn't
+  know, such as a Codex model Codex doesn't list, is skipped without being
+  asked; one that refuses the request answers with that refusal.
 - **None can serve:** the client gets the answer of the model it asked for,
   whose `Retry-After` is the soonest any of the models asked for.
 
-Codex cooldowns are per account, not per model: when one Codex model can't
-serve because every account is cooling down, no other Codex model can either.
-A Codex model's fallback helps with a rate limit only when it is another
-provider's model.
+Codex cooldowns are per account, not per model: when every account that can
+serve a Codex model is cooling down, so are the other Codex models those
+accounts serve. A Codex fallback helps with a rate limit only when another
+plan's account offers it; another provider's model always can.
 
 ### Admin API
 

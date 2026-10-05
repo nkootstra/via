@@ -206,8 +206,13 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
 
       if (yield* coolDownFor(reply.failure)) continue;
 
-      // Codex started the response, so the model was there to serve it.
-      return yield* answered(failedResponse(reply.failure));
+      // `onSuccess` fails only while it collects a response, before any of it went out: Codex
+      // failing it for an outage, such as being overloaded, leaves the model unavailable.
+      const failed = classify(reply.failure.rejection, yield* Clock.currentTimeMillis);
+
+      return yield* Verdict.$is("Unavailable")(failed)
+        ? unavailable(failed.reason, failedResponse(reply.failure))
+        : answered(failedResponse(reply.failure));
     }
 
     const rejected = sent.failure;

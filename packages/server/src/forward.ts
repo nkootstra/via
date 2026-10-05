@@ -90,8 +90,28 @@ const unreachable = (route: Route) =>
     openAiError(502, "upstream_unavailable", `${route.provider} could not be reached`),
   );
 
-/** Whether a provider's error status says it can't serve now, rather than that it refused the request. */
-const isOutage = (status: number) => status === 429 || status >= 500;
+/**
+ * Whether a provider's error status says the model can't serve now, rather than that it
+ * refused the request: rate limited, down, or not a model it has (404).
+ */
+const isOutage = (status: number) => status === 404 || status === 429 || status >= 500;
+
+/** How much of a provider's error answer via reads: far more than an error says, far less than a page can. */
+const ERROR_LIMIT = 64 * 1024;
+
+/** `upstream`'s body as text, cut at {@link ERROR_LIMIT}; what broke off is what was read. */
+const upToLimit = (upstream: HttpClientResponse.HttpClientResponse) =>
+  upstream.stream.pipe(
+    Stream.decodeText(),
+    Stream.scan(
+      () => "",
+      (sofar: string, chunk: string) => sofar + chunk,
+    ),
+    Stream.takeUntil((sofar) => sofar.length >= ERROR_LIMIT),
+    Stream.runLast,
+    Effect.map((last) => Option.getOrElse(last, () => "").slice(0, ERROR_LIMIT)),
+    Effect.orElseSucceed(() => ""),
+  );
 
 /**
  * A provider's error answer, read whole and noted in the request's log line,
@@ -99,7 +119,7 @@ const isOutage = (status: number) => status === 429 || status >= 500;
  */
 const readWhole = (upstream: HttpClientResponse.HttpClientResponse) =>
   Effect.gen(function* () {
-    const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
+    const text = yield* upToLimit(upstream);
     const refusal = upstreamErrorOf(text);
 
     yield* (yield* RequestLog).upstreamFailed(refusal);

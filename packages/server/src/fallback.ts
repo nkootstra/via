@@ -4,6 +4,7 @@ import { Effect, Option, type Schema } from "effect";
 import { HttpServerResponse } from "effect/unstable/http";
 import { ModelCatalog } from "./catalog.ts";
 import { modelOf } from "./dispatch.ts";
+import { Providers } from "@via/providers";
 import { Outcome } from "./outcome.ts";
 import { RequestLog } from "./request-log.ts";
 
@@ -67,6 +68,19 @@ const soonestRetry = (
     : HttpServerResponse.setHeader(response, "retry-after", String(Math.min(...waits)));
 };
 
+/**
+ * Whether via knows `model`: a provider's model is, as its provider says whether it has it;
+ * a Codex model is when Codex lists it, with or without an effort suffix.
+ */
+const isListed = Effect.fn("isListed")(function* (model: string) {
+  if (Option.isSome((yield* Providers).route(model))) return true;
+
+  const catalog = yield* (yield* ModelCatalog).codex;
+  const base = resolveAlias(model, catalog).model;
+
+  return catalog.some((listed) => listed.model === base);
+});
+
 /** The rules, or none when their file can't be read: a fallback is never why a request fails. */
 const rulesNow = Effect.flatMap(FallbackRuleStore, (store) => store.list).pipe(
   Effect.catch((error) =>
@@ -108,6 +122,13 @@ export const withFallbacks = Effect.fn("withFallbacks")(function* <E, R>(
     yield* Effect.logInfo(
       `${previous.model} can't serve (${previous.reason}), so ${candidate} is asked instead`,
     );
+
+    // A model via doesn't know would only be refused: it can't serve, as one that is down can't.
+    if (!(yield* isListed(candidate))) {
+      previous = { model: candidate, reason: "not_listed" };
+      continue;
+    }
+
     yield* log.fellBack(requested.value, first.reason);
 
     const outcome = yield* attempt({ ...body, model: candidate });
