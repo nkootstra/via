@@ -314,7 +314,14 @@ that answered. The rules are kept in `fallbacks.json` in via's
 [{ "model": "gpt-5.6-sol", "fallbacks": ["opencode-go/kimi-k3", "gpt-5.5"] }]
 ```
 
-A running `via serve` uses a changed file on its next request.
+A running `via serve` uses a changed file on its next request. The
+[admin API](#admin-api) sets and removes rules too, and shows how each stands:
+whether its model and each fallback could serve now (`available`, `cooling`
+until when and why, or `unavailable`: no account, an OpenRouter model that
+isn't enabled, or a model via doesn't know) and `serving`, the model that would
+answer now, or `null`. It only knows of cooldowns and accounts: an outage shows
+once a request meets it. When `fallbacks.json` can't be read, the admin state's
+`fallbacksError` says why, and requests don't fall back until it's fixed.
 
 - **When:** only when the model can't serve before any of its answer reached
   the client. That is when every account that could serve it is cooling down
@@ -386,6 +393,9 @@ work on `/v1`.
 | `DELETE /admin/history`                   | Delete the whole usage history; answers `{"deleted": <count>}`.                                         |
 | `GET /admin/pool`                         | Each account's and provider's state (see below).                                                        |
 | `GET /admin/models`                       | The models `/v1/models` lists.                                                                          |
+| `GET /admin/fallbacks`                    | The [fallback rules](#fallback-models), each with how its model and fallbacks stand and which answers.  |
+| `PUT /admin/fallbacks`                    | Set `{"model": "...", "fallbacks": [...]}`, in place of the model's rule; `400` and why if it can't.    |
+| `DELETE /admin/fallbacks?model=<id>`      | Remove a model's fallbacks; `404` if it has none.                                                       |
 | `GET /admin/events`                       | The admin state as server-sent events, as it changes, and when the usage history changes.               |
 | `GET /admin/keys`                         | List API keys and when each was last used, not the keys.                                                |
 | `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.                                               |

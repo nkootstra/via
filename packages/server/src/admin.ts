@@ -1,5 +1,6 @@
 import { AccountNotFoundError, AccountStore } from "@via/codex-auth";
 import type { ModelPrice } from "@via/config";
+import { FallbackRuleStore, parseRule } from "@via/fallbacks";
 import { KeyStore } from "@via/keys";
 import {
   OpencodeGoAccountNotFoundError,
@@ -52,6 +53,7 @@ import {
 } from "./admin-state.ts";
 import { adminEvents } from "./admin-events.ts";
 import { ModelCatalog } from "./catalog.ts";
+import { withStatus } from "./fallback-status.ts";
 import { keepAlive } from "./keep-alive.ts";
 import { Logins } from "./logins.ts";
 import { RequestLog } from "./request-log.ts";
@@ -349,6 +351,31 @@ const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
     ),
 );
 
+// The rules file is via's own, but people may edit it: one it can't read or write fails the
+// request, and the error says which file.
+const fallbacks = HttpApiBuilder.group(AdminApi, "fallbacks", (handlers) =>
+  handlers
+    .handle("list", () =>
+      Effect.flatMap(FallbackRuleStore, (store) => store.list).pipe(
+        Effect.flatMap((rules) => Effect.forEach(rules, withStatus)),
+        Effect.orDie,
+      ),
+    )
+    .handle("set", ({ payload }) =>
+      Effect.flatMap(parseRule(payload), (rule) =>
+        Effect.flatMap(FallbackRuleStore, (store) => store.set(rule)),
+      ).pipe(
+        Effect.flatMap(withStatus),
+        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
+      ),
+    )
+    .handle("remove", ({ query }) =>
+      Effect.flatMap(FallbackRuleStore, (store) => store.remove(query.model)).pipe(
+        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
+      ),
+    ),
+);
+
 const usage = HttpApiBuilder.group(AdminApi, "usage", (handlers) =>
   handlers.handle("get", () => adminUsage),
 );
@@ -476,6 +503,7 @@ export const adminRoutes = ({
             openrouter,
             keys,
             usage,
+            fallbacks,
             history(prices),
             pool,
             models,

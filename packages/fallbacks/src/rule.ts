@@ -1,6 +1,6 @@
 // What a fallback rule is, for the store, the admin API's contract and the web UI alike.
 // It imports only `effect`, so the contract bundles for a browser without the store.
-import { Schema } from "effect";
+import { Effect, Schema } from "effect";
 
 /** How many models one model may fall back to: each can wait out a start timeout. */
 const MAX_FALLBACKS = 3;
@@ -61,3 +61,28 @@ export class FallbackRuleNotFoundError extends Schema.TaggedError<FallbackRuleNo
     return `No fallbacks are set for ${this.model}`;
   }
 }
+
+/** A rule via can't keep, with why, in words a person can act on. */
+export class FallbackRuleInvalidError extends Schema.TaggedError<FallbackRuleInvalidError>()(
+  "FallbackRuleInvalidError",
+  { problem: Schema.String },
+) {
+  override get message() {
+    return this.problem;
+  }
+}
+
+/**
+ * `input`, a rule as a person or client wrote it, as a rule via can keep, or
+ * the first thing wrong with it, without where in the rule it is.
+ */
+export const parseRule = (input: {
+  readonly model: string;
+  readonly fallbacks: ReadonlyArray<string>;
+}) =>
+  Schema.decodeUnknownEffect(FallbackRule)(input).pipe(
+    Effect.mapError(
+      (error) =>
+        new FallbackRuleInvalidError({ problem: error.message.split("\n")[0] ?? error.message }),
+    ),
+  );

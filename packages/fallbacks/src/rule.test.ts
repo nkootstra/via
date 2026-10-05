@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Schema } from "effect";
-import { FallbackRule, FallbackRules } from "./rule.ts";
+import { FallbackRule, FallbackRuleInvalidError, FallbackRules, parseRule } from "./rule.ts";
 
 const decode = Schema.decodeUnknownEffect(FallbackRule);
 
@@ -83,6 +83,16 @@ describe("FallbackRules", () => {
       const error = yield* Schema.decodeUnknownEffect(FallbackRules)(rules).pipe(Effect.flip);
 
       expect(error.message).toContain("a has two rules");
+    }),
+  );
+});
+
+describe("parseRule", () => {
+  it.effect("says what is wrong with a rule in one line a person can act on", () =>
+    Effect.gen(function* () {
+      expect(yield* Effect.flip(parseRule({ model: "a", fallbacks: [] }))).toEqual(
+        new FallbackRuleInvalidError({ problem: "Add at least one model to fall back to" }),
+      );
     }),
   );
 });

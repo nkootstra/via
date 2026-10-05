@@ -48,6 +48,7 @@ describe("admin API contract", () => {
       expect(builtins).toEqual([]);
       expect(viaFiles.toSorted()).toEqual([
         "codex-auth/src/errors.ts",
+        "fallbacks/src/rule.ts",
         "keys/src/errors.ts",
         "providers/src/errors.ts",
         "providers/src/schemas.ts",
