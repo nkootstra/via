@@ -10,6 +10,7 @@ import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/htt
 import { AccountPool } from "@via/account-pool";
 import { ModelCatalog } from "./catalog.ts";
 import { openAiError } from "./openai-error.ts";
+import { answered, Outcome, unavailable } from "./outcome.ts";
 import { failedResponse } from "./relay.ts";
 import { RequestLog } from "./request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
@@ -25,16 +26,23 @@ export const modelOf = (body: Schema.JsonObject) =>
 export const streams = Schema.is(Schema.Struct({ stream: Schema.Literal(true) }));
 
 /**
- * The answer once no `kind` of account can serve: 429 while some cool down,
- * else 503.
+ * The outcome once no `kind` of account can serve: unavailable, with 429 while
+ * some cool down, else 503.
  */
 export const noAccountLeft = (waitMs: Option.Option<number>, kind = "account") =>
   Option.match(waitMs, {
-    onNone: () => openAiError(503, "no_accounts", `No enabled ${kind} can serve requests`),
+    onNone: () =>
+      unavailable(
+        "no_accounts",
+        openAiError(503, "no_accounts", `No enabled ${kind} can serve requests`),
+      ),
     onSome: (ms) =>
-      openAiError(429, "rate_limit_exceeded", `Every ${kind} is cooling down`, {
-        "retry-after": String(Math.ceil(ms / 1000)),
-      }),
+      unavailable(
+        "rate_limit_exceeded",
+        openAiError(429, "rate_limit_exceeded", `Every ${kind} is cooling down`, {
+          "retry-after": String(Math.ceil(ms / 1000)),
+        }),
+      ),
   });
 
 /**
@@ -46,14 +54,17 @@ const outage = (
   body: string,
   { reason, retryAfterMs }: Data.TaggedEnum.Value<Verdict, "Unavailable">,
 ) =>
-  openAiError(
-    status === 503 || reason === "server_is_overloaded" ? 503 : 502,
+  unavailable(
     reason,
-    Option.getOrElse(
-      upstreamErrorOf(body).message,
-      () => `Codex failed the request (HTTP ${status})`,
+    openAiError(
+      status === 503 || reason === "server_is_overloaded" ? 503 : 502,
+      reason,
+      Option.getOrElse(
+        upstreamErrorOf(body).message,
+        () => `Codex failed the request (HTTP ${status})`,
+      ),
+      retryAfterMs === undefined ? {} : { "retry-after": String(Math.ceil(retryAfterMs / 1000)) },
     ),
-    retryAfterMs === undefined ? {} : { "retry-after": String(Math.ceil(retryAfterMs / 1000)) },
   );
 
 /** A request Codex refused, as it answered. */
@@ -99,6 +110,9 @@ export const asOpenAiError = ({ status, contentType, body }: Refusal) => {
  * which passes it on as it came unless told otherwise.
  * A response `onSuccess` finds Codex failed for a rate limit cools its account
  * down and goes to the next one, as a 429 would.
+ *
+ * Its outcome is `Unavailable` when no account is left, Codex is down or out
+ * of reach: the model can't serve now, and nothing of an answer went out.
  */
 export const dispatch = Effect.fn("dispatch")(function* <R>(
   body: Schema.JsonObject,
@@ -126,10 +140,12 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
     const alias = resolveAlias(model.value, catalog);
 
     if (isCodexAppOnly(alias.effort)) {
-      return yield* openAiError(
-        400,
-        "unsupported_effort",
-        `The ${alias.effort} effort only works in the Codex app, which delegates tasks to agents it runs; use ${alias.model}-max for the most reasoning via can give`,
+      return yield* answered(
+        openAiError(
+          400,
+          "unsupported_effort",
+          `The ${alias.effort} effort only works in the Codex app, which delegates tasks to agents it runs; use ${alias.model}-max for the most reasoning via can give`,
+        ),
       );
     }
   }
@@ -170,24 +186,28 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
 
     if (Result.isSuccess(sent)) {
       if (Option.isNone(sent.success)) {
-        return yield* openAiError(502, "upstream_unavailable", "Codex could not be reached");
+        return yield* unavailable(
+          "upstream_unavailable",
+          openAiError(502, "upstream_unavailable", "Codex could not be reached"),
+        );
       }
 
       yield* log.served(account.label, account.id);
 
-      const answered = yield* onSuccess(sent.success.value, (error) =>
+      const reply = yield* onSuccess(sent.success.value, (error) =>
         Effect.asVoid(coolDownFor(error)),
       ).pipe(Effect.result);
 
-      if (Result.isSuccess(answered)) {
+      if (Result.isSuccess(reply)) {
         yield* bindings.bind(session, account.id);
 
-        return answered.success;
+        return Outcome.Answered({ response: reply.success });
       }
 
-      if (yield* coolDownFor(answered.failure)) continue;
+      if (yield* coolDownFor(reply.failure)) continue;
 
-      return yield* failedResponse(answered.failure);
+      // Codex started the response, so the model was there to serve it.
+      return yield* answered(failedResponse(reply.failure));
     }
 
     const rejected = sent.failure;
@@ -219,6 +239,6 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
 
     yield* log.upstreamFailed(upstreamErrorOf(rejected.body));
 
-    return refused(rejected);
+    return Outcome.Answered({ response: refused(rejected) });
   }
 });

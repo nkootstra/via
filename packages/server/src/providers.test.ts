@@ -244,6 +244,31 @@ layer(BunFileSystem.layer)("OpenAI-compatible providers", (it) => {
     ),
   );
 
+  it.effect("passes a provider's outage through as it is, noting its error", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const error = { error: { message: "overloaded", code: "server_busy" } };
+        via.provider.respond(providerReply.json(error, 503, { "retry-after": "7" }));
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "openrouter/qwen/qwen3",
+          messages: [],
+        });
+
+        expect(response.status).toBe(503);
+        expect(response.headers).toMatchObject({
+          "content-type": expect.stringContaining("application/json"),
+          "retry-after": "7",
+        });
+        expect(yield* response.json).toEqual(error);
+        expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+          "http.status": 503,
+          upstream_error: "server_busy",
+        });
+      }),
+    ),
+  );
+
   it.effect("passes on only the client's headers a provider needs", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
