@@ -80,6 +80,8 @@ interface SearchSelectProps {
   readonly trigger: ReactNode;
   readonly placeholder?: string;
   readonly emptyText?: string;
+  /** The id of an error a form shows for this choice: the trigger is marked invalid, and described by it. */
+  readonly error?: string | undefined;
 }
 
 const matches = (option: SearchSelectOption, query: string) => {
@@ -98,6 +100,7 @@ export function SearchSelect({
   trigger,
   placeholder = "Search",
   emptyText = "No matches",
+  error,
 }: SearchSelectProps) {
   const items = groups.map((group) => ({ ...group, items: group.options }));
 
@@ -119,6 +122,8 @@ export function SearchSelect({
     >
       <BaseCombobox.Trigger
         aria-label={chosen === null ? label : `${label}: ${chosen.label}`}
+        aria-invalid={error === undefined ? undefined : true}
+        aria-describedby={error}
         render={<Button variant="secondary" size="compact" />}
       >
         <span {...stylex.props(styles.trigger)}>{trigger}</span>

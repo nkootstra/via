@@ -182,6 +182,27 @@ describe("SearchSelect", () => {
     );
   });
 
+  it("marks its trigger invalid and described by an error a form shows for it", () => {
+    render(
+      <>
+        <SearchSelect
+          label="Model"
+          groups={groups}
+          value={null}
+          onValueChange={() => {}}
+          trigger="Pick a model"
+          error="choose-error"
+        />
+        <p id="choose-error">Choose a model.</p>
+      </>,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "Model" });
+
+    expect(trigger.getAttribute("aria-invalid")).toBe("true");
+    expect(trigger.getAttribute("aria-describedby")).toBe("choose-error");
+  });
+
   it("works as an add picker: each pick calls back, and the trigger stays as given", async () => {
     const user = userEvent.setup();
     const onAdd = vi.fn();
