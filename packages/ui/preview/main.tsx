@@ -37,6 +37,7 @@ import {
   Switch,
   SegmentedControl,
   SegmentedItem,
+  SearchSelect,
   TabItem,
   TabPanel,
   Tabs,
@@ -52,7 +53,7 @@ import {
   useToast,
   type BadgeColor,
 } from "../src/index.ts";
-import { XIcon } from "../src/icons.tsx";
+import { MonitorIcon, SunIcon, XIcon } from "../src/icons.tsx";
 import { colors, fonts, space, text, weights } from "../src/tokens.stylex.ts";
 
 const styles = stylex.create({
@@ -144,6 +145,45 @@ function Section({ title, children }: { readonly title: string; readonly childre
       <h3 {...stylex.props(styles.sectionTitle)}>{title}</h3>
       {children}
     </section>
+  );
+}
+
+function SearchSelectDemo() {
+  const [model, setModel] = useState<string | null>("gpt-6-luna");
+
+  return (
+    <div {...stylex.props(styles.row)}>
+      <SearchSelect
+        label="Model"
+        value={model}
+        onValueChange={setModel}
+        trigger={model ?? "Choose a model"}
+        placeholder="Search models"
+        groups={[
+          {
+            label: "Codex",
+            icon: <MonitorIcon size={14} />,
+            options: [
+              { value: "gpt-6-luna", label: "gpt-6-luna", detail: "low · high" },
+              {
+                value: "gpt-6-luna-pro",
+                label: "gpt-6-luna-pro",
+                detail: "Needs a Pro plan",
+                disabled: true,
+              },
+            ],
+          },
+          {
+            label: "OpenRouter",
+            icon: <SunIcon size={14} />,
+            options: [
+              { value: "openrouter/kimi-k3", label: "kimi-k3", keywords: ["moonshot"] },
+              { value: "openrouter/minimax-m3", label: "minimax-m3" },
+            ],
+          },
+        ]}
+      />
+    </div>
   );
 }
 
@@ -407,6 +447,10 @@ function Gallery() {
             ))}
           </NavList>
         </div>
+      </Section>
+
+      <Section title="SearchSelect (type a keyword: moonshot)">
+        <SearchSelectDemo />
       </Section>
 
       <Section title="Switch and Meter">

@@ -107,3 +107,5 @@ export {
 } from "./sidebar.tsx";
 
 export { FilterSelect, type FilterOption, type FilterSelectProps } from "./filter-select.tsx";
+
+export { SearchSelect } from "./search-select.tsx";

@@ -9,17 +9,8 @@ import { Combobox as BaseCombobox } from "@base-ui/react/combobox";
 import * as stylex from "@stylexjs/stylex";
 import { Button } from "./button.tsx";
 import { CheckIcon, ChevronDownIcon, XIcon } from "./icons.tsx";
-import {
-  colors,
-  durations,
-  fonts,
-  radii,
-  shadows,
-  space,
-  text,
-  fontWeights,
-  weights,
-} from "./tokens.stylex.ts";
+import { comboboxStyles } from "./combobox-styles.ts";
+import { colors } from "./tokens.stylex.ts";
 
 const styles = stylex.create({
   facet: {
@@ -35,106 +26,6 @@ const styles = stylex.create({
     whiteSpace: "nowrap",
   },
   facetName: { color: colors.mutedForeground },
-  positioner: {
-    zIndex: 50,
-    outline: "none",
-  },
-  popup: {
-    boxSizing: "border-box",
-    display: "flex",
-    flexDirection: "column",
-    width: "min(20rem, var(--available-width))",
-    maxHeight: "min(360px, var(--available-height))",
-    borderWidth: 1,
-    borderStyle: "solid",
-    // Invisible, until forced colours draw it as the popup's edge.
-    borderColor: "transparent",
-    borderRadius: radii.container,
-    backgroundColor: colors.surface3,
-    boxShadow: shadows.surface3,
-    // Portalled to <body>, so it brings its own font.
-    fontFamily: fonts.sans,
-    outline: "none",
-  },
-  search: {
-    boxSizing: "border-box",
-    flexShrink: 0,
-    margin: space.s1,
-    paddingBlock: space.s2,
-    paddingInline: space.s2_5,
-    borderWidth: 0,
-    borderBottomWidth: 1,
-    borderBottomStyle: "solid",
-    borderBottomColor: colors.border,
-    borderRadius: 0,
-    backgroundColor: "transparent",
-    // At least 16px, or iOS zooms the page when it takes focus.
-    fontSize: "16px",
-    fontFamily: "inherit",
-    color: colors.foreground,
-    outline: "none",
-    "::placeholder": { color: colors.mutedForeground },
-  },
-  list: {
-    display: "flex",
-    flexDirection: "column",
-    overflowY: "auto",
-    padding: space.s1,
-    paddingTop: 0,
-    outline: "none",
-  },
-  item: {
-    display: "flex",
-    flexShrink: 0,
-    alignItems: "center",
-    gap: space.s2,
-    minHeight: space.control,
-    paddingBlock: space.s2,
-    paddingInline: space.s2,
-    boxSizing: "border-box",
-    borderRadius: radii.item,
-    fontSize: text.body,
-    color: colors.mutedForeground,
-    cursor: "pointer",
-    outline: "none",
-    transitionProperty: "background-color, color",
-    transitionDuration: durations.fast,
-  },
-  highlighted: {
-    color: colors.foreground,
-    backgroundColor: colors.hover,
-    // Forced colours drop the fill, so an outline follows the row.
-    outline: { default: "none", "@media (forced-colors: active)": "2px solid Highlight" },
-    outlineOffset: "-2px",
-  },
-  selected: {
-    color: colors.foreground,
-    fontVariationSettings: weights.medium,
-    fontWeight: fontWeights.medium,
-  },
-  itemLabel: {
-    flexGrow: 1,
-    minWidth: 0,
-    overflowWrap: "anywhere",
-  },
-  detail: {
-    flexShrink: 0,
-    fontVariantNumeric: "tabular-nums",
-    color: colors.mutedForeground,
-  },
-  check: {
-    display: "flex",
-    flexShrink: 0,
-    width: "14px",
-    color: colors.foreground,
-  },
-  empty: {
-    paddingBlock: space.s3,
-    paddingInline: space.s2,
-    fontSize: text.body,
-    color: colors.mutedForeground,
-    ":empty": { display: "none" },
-  },
 });
 
 /** One choice of a facet: what it filters on, how it reads, and a detail such as a count. */
@@ -201,36 +92,38 @@ export function FilterSelect({
           <BaseCombobox.Positioner
             sideOffset={6}
             align="start"
-            {...stylex.props(styles.positioner)}
+            {...stylex.props(comboboxStyles.positioner)}
           >
-            <BaseCombobox.Popup aria-label={label} {...stylex.props(styles.popup)}>
+            <BaseCombobox.Popup aria-label={label} {...stylex.props(comboboxStyles.popup)}>
               <BaseCombobox.Input
                 placeholder={`Search ${label.toLowerCase()}s`}
                 aria-label={`Search ${label.toLowerCase()}s`}
-                {...stylex.props(styles.search)}
+                {...stylex.props(comboboxStyles.search)}
               />
-              <BaseCombobox.Empty {...stylex.props(styles.empty)}>No matches</BaseCombobox.Empty>
-              <BaseCombobox.List {...stylex.props(styles.list)}>
+              <BaseCombobox.Empty {...stylex.props(comboboxStyles.empty)}>
+                No matches
+              </BaseCombobox.Empty>
+              <BaseCombobox.List {...stylex.props(comboboxStyles.list)}>
                 {(option: FilterOption) => (
                   <BaseCombobox.Item
                     key={option.value}
                     value={option}
                     className={(state) =>
                       stylex.props(
-                        styles.item,
-                        state.highlighted && styles.highlighted,
-                        state.selected && styles.selected,
+                        comboboxStyles.item,
+                        state.highlighted && comboboxStyles.highlighted,
+                        state.selected && comboboxStyles.selected,
                       ).className ?? ""
                     }
                   >
-                    <span {...stylex.props(styles.check)}>
+                    <span {...stylex.props(comboboxStyles.check)}>
                       <BaseCombobox.ItemIndicator>
                         <CheckIcon size={14} />
                       </BaseCombobox.ItemIndicator>
                     </span>
-                    <span {...stylex.props(styles.itemLabel)}>{option.label}</span>
+                    <span {...stylex.props(comboboxStyles.itemLabel)}>{option.label}</span>
                     {option.detail !== undefined && (
-                      <span {...stylex.props(styles.detail)}>{option.detail}</span>
+                      <span {...stylex.props(comboboxStyles.detail)}>{option.detail}</span>
                     )}
                   </BaseCombobox.Item>
                 )}
