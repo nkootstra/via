@@ -562,6 +562,63 @@ const coolingWork = {
   },
 } as const;
 
+/** What the callout the "See fallbacks" link sits in says. */
+const fallbacksCallout = (link: HTMLElement) => link.closest("[role='note']")?.textContent;
+
+describe("the overview's fallbacks", () => {
+  const available = { status: "available" } as const;
+
+  const cooling = {
+    status: "cooling",
+    until: new Date(now + 60_000).toISOString(),
+    reason: "rate_limited",
+  } as const;
+
+  const rule = (serving: string | null) => ({
+    model: "gpt-5.6-sol",
+    fallbacks: ["opencode-go/kimi-k3"],
+    status: {
+      source: cooling,
+      fallbacks: [serving === null ? cooling : available],
+      serving,
+    },
+  });
+
+  it("says which model is falling back to which, with the way to the fallbacks", async () => {
+    renderApp("/", { pool, usage, fallbacks: [rule("opencode-go/kimi-k3")] });
+
+    const link = await screen.findByRole("link", { name: "See fallbacks" });
+
+    expect(fallbacksCallout(link)).toContain("gpt-5.6-sol is falling back to kimi-k3.");
+    expect(link.getAttribute("href")).toBe("/ui/fallbacks");
+  });
+
+  it("says when a model has no fallback left, so its requests fail", async () => {
+    renderApp("/", { pool, usage, fallbacks: [rule(null)] });
+
+    expect(fallbacksCallout(await screen.findByRole("link", { name: "See fallbacks" }))).toContain(
+      "gpt-5.6-sol has no fallback available, so its requests fail.",
+    );
+  });
+
+  it("says nothing of fallbacks while each model answers its own requests", async () => {
+    renderApp("/", {
+      pool,
+      usage,
+      fallbacks: [
+        {
+          ...rule("gpt-5.6-sol"),
+          status: { source: available, fallbacks: [available], serving: "gpt-5.6-sol" },
+        },
+      ],
+    });
+
+    await card("work");
+
+    expect(screen.queryByRole("link", { name: "See fallbacks" })).toBeNull();
+  });
+});
+
 describe("the overview, live", () => {
   it("paints the state the shell carries at once, asking via for nothing", async () => {
     embed(viaState);

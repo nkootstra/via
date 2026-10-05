@@ -145,8 +145,9 @@ describe("accessibility", { timeout: 15_000 }, () => {
   });
 
   it("the overview", async () => {
-    renderApp("/", populated);
+    renderApp("/", { ...populated, fallbacks });
     await screen.findByRole("article", { name: "work" });
+    await screen.findByRole("link", { name: "See fallbacks" });
 
     expect(await violations()).toEqual([]);
   });

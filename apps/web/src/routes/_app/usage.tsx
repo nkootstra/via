@@ -75,6 +75,7 @@ const UsageSearch = Schema.Struct({
   account: Schema.optionalKey(SearchId),
   key: Schema.optionalKey(SearchId),
   failed: Schema.optionalKey(Schema.Boolean),
+  fellBack: Schema.optionalKey(Schema.Boolean),
 });
 
 type UsageSearch = typeof UsageSearch.Type;
@@ -99,6 +100,7 @@ const changed = (search: UsageSearch, change: SearchChange): UsageSearch => {
     ...(next.account !== undefined && { account: next.account }),
     ...(next.key !== undefined && { key: next.key }),
     ...(next.failed === true && { failed: true }),
+    ...(next.fellBack === true && { fellBack: true }),
   };
 };
 
@@ -111,6 +113,7 @@ const filtersOf = (search: UsageSearch): HistoryFilters => ({
   ...(search.account !== undefined && { accountId: String(search.account) }),
   ...(search.key !== undefined && { keyId: String(search.key) }),
   ...(search.failed === true && { outcome: "error" as const }),
+  ...(search.fellBack === true && { fellBack: "true" as const }),
 });
 
 /** `filters` without the one on `facet`: what that facet's own options are counted under. */
@@ -129,7 +132,8 @@ const hasFilters = (search: UsageSearch) =>
   search.model !== undefined ||
   search.account !== undefined ||
   search.key !== undefined ||
-  search.failed === true;
+  search.failed === true ||
+  search.fellBack === true;
 
 const HOUR = 3_600_000;
 
@@ -213,6 +217,8 @@ const styles = stylex.create({
     color: colors.mutedForeground,
     overflowWrap: "anywhere",
   },
+  // The model asked for, when another answered: it reads before the time, as part of the request.
+  fellBack: { color: colors.foreground },
   // Why a request failed, under its outcome: two lines at most, all of it on hover.
   cause: {
     display: "-webkit-box",
@@ -369,7 +375,13 @@ function Usage() {
     void navigate({ search: (current) => changed(current, next), replace: true });
 
   const clear = () =>
-    change({ model: undefined, account: undefined, key: undefined, failed: undefined });
+    change({
+      model: undefined,
+      account: undefined,
+      key: undefined,
+      failed: undefined,
+      fellBack: undefined,
+    });
 
   const live = useSignalledOptions();
 
@@ -539,6 +551,7 @@ function FilterBar({
 }) {
   const mask = useMask();
   const failed = useId();
+  const fellBack = useId();
 
   const live = useSignalledOptions();
 
@@ -585,6 +598,14 @@ function FilterBar({
           />
           Failed only
         </label>
+        <label htmlFor={fellBack} {...stylex.props(styles.toggle)}>
+          <Switch
+            id={fellBack}
+            checked={search.fellBack === true}
+            onCheckedChange={(checked) => change({ fellBack: checked || undefined })}
+          />
+          Fell back only
+        </label>
         {hasFilters(search) && (
           <Button variant="ghost" size="compact" onClick={clear}>
             Clear filters
@@ -602,6 +623,16 @@ function FilterBar({
     </>
   );
 }
+
+/** Under the request count: how many failed, and how many another model answered. */
+const requestsDetail = ({ errors, fellBack }: HistoryBreakdown["totals"]) => {
+  const parts = [
+    ...(errors > 0 ? [`${formatCount(errors)} failed`] : []),
+    ...(fellBack > 0 ? [`${formatCount(fellBack)} fell back`] : []),
+  ];
+
+  return parts.length > 0 ? parts.join(" · ") : undefined;
+};
 
 function Totals({ breakdown }: { readonly breakdown: HistoryBreakdown }) {
   const { totals } = breakdown;
@@ -622,7 +653,7 @@ function Totals({ breakdown }: { readonly breakdown: HistoryBreakdown }) {
         <Stat
           label="Requests"
           value={formatCount(totals.requests)}
-          detail={totals.errors > 0 ? `${formatCount(totals.errors)} failed` : undefined}
+          detail={requestsDetail(totals)}
         />
         <Stat
           label="Tokens"
@@ -857,6 +888,15 @@ function Requests({
                       <span {...stylex.props(styles.name, styles.mono)}>
                         <ModelName id={request.model} />
                       </span>
+                      {Option.isSome(request.requestedModel) && (
+                        <span
+                          title={request.requestedModel.value}
+                          {...stylex.props(styles.when, styles.fellBack)}
+                        >
+                          <span aria-hidden="true">↳ </span>
+                          Fell back from {withoutPrefix(request.requestedModel.value)}
+                        </span>
+                      )}
                       <span {...stylex.props(styles.when)}>{formatMoment(request.at, format)}</span>
                     </TableCell>
                     <TableCell secondary>
