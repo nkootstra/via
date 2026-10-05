@@ -144,6 +144,17 @@ describe("SearchSelect", () => {
     expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Model: kimi-k3" }));
   });
 
+  it("picks the first match when Enter is pressed after typing", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Controlled onChange={onChange} />);
+
+    await open(user);
+    await user.keyboard("kimi{Enter}");
+
+    expect(onChange).toHaveBeenCalledWith("openrouter/kimi-k3");
+  });
+
   it("closes on Escape and gives focus back to the trigger", async () => {
     const user = userEvent.setup();
     render(<Controlled />);

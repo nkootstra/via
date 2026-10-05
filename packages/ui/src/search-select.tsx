@@ -117,6 +117,8 @@ export function SearchSelect({
         if (next !== null) onValueChange(next.value);
       }}
       filter={matches}
+      // Typing then Enter picks the first match, as a search field leads people to expect.
+      autoHighlight
       itemToStringLabel={(option) => option.label}
       isItemEqualToValue={(option, other) => option.value === other.value}
     >
