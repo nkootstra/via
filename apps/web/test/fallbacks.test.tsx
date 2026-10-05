@@ -50,6 +50,16 @@ const fallingBack = (source: string, fallbacks: ReadonlyArray<string>, ms: numbe
   },
 });
 
+/** A rule whose model via says can't answer at all, for `reason`, so gpt-5.5 answers. */
+const unavailableTo = (source: string, reason: "not_enabled" | "not_listed"): Fallback => ({
+  ...standingBy(source, ["gpt-5.5"]),
+  status: {
+    source: { status: "unavailable", reason },
+    fallbacks: [available],
+    serving: "gpt-5.5",
+  },
+});
+
 /** The state via puts in a signed-in page's shell, and pushes as it changes, with `fallbacks`. */
 const viaState = (fallbacks: ReadonlyArray<Fallback>, fallbacksError: string | null = null) =>
   ({
@@ -175,6 +185,20 @@ describe("the fallbacks page", () => {
     });
 
     expect((await rowOf("gpt-5.6-sol")).textContent).toContain("No account can serve it");
+  });
+
+  it("says why its model can't answer in via's own terms, not enabled or not known", async () => {
+    renderApp("/fallbacks", {
+      models,
+      fallbacks: [
+        unavailableTo("openrouter/minimax-m3", "not_enabled"),
+        unavailableTo("gpt-4o", "not_listed"),
+      ],
+    });
+
+    expect((await rowOf("openrouter/minimax-m3")).textContent).toContain("Not enabled");
+    expect((await rowOf("gpt-4o")).textContent).toContain("Not a model via knows");
+    expect((await rowOf("gpt-4o")).textContent).not.toContain("Not enabled");
   });
 
   it("notes each fallback via can't use, and why", async () => {

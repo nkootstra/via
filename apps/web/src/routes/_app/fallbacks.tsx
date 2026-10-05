@@ -251,6 +251,13 @@ function StandingBadge({ standing }: { readonly standing: Standing }) {
   }
 }
 
+/** Why via says a model can't answer at all, in words. */
+const unavailableReasons = {
+  no_accounts: "No account can serve it",
+  not_enabled: "Not enabled",
+  not_listed: "Not a model via knows",
+} as const;
+
 /** Why a model can't answer now, and, while it cools down, until when. */
 function WhyNot({ availability }: { readonly availability: Availability }) {
   const format = useTimeFormat();
@@ -266,11 +273,7 @@ function WhyNot({ availability }: { readonly availability: Availability }) {
         </p>
       );
     case "unavailable":
-      return (
-        <p {...stylex.props(styles.detail)}>
-          {availability.reason === "no_accounts" ? "No account can serve it" : "Not enabled"}
-        </p>
-      );
+      return <p {...stylex.props(styles.detail)}>{unavailableReasons[availability.reason]}</p>;
   }
 }
 
