@@ -47,6 +47,16 @@ const styles = stylex.create({
     flexShrink: 0,
   },
   disabled: { cursor: "not-allowed" },
+  // A name keeps its width; a long detail, such as a list of efforts, wraps beside it instead.
+  label: {
+    flexShrink: 0,
+    maxWidth: "100%",
+  },
+  detail: {
+    flexShrink: 1,
+    minWidth: 0,
+    textAlign: "end",
+  },
   // The label fades; the detail beside it, which says why, stays readable.
   disabledLabel: { opacity: 0.6 },
 });
@@ -80,6 +90,8 @@ interface SearchSelectProps {
   readonly trigger: ReactNode;
   readonly placeholder?: string;
   readonly emptyText?: string;
+  /** The id of an error a form shows for this choice: the trigger is marked invalid, and described by it. */
+  readonly error?: string | undefined;
 }
 
 const matches = (option: SearchSelectOption, query: string) => {
@@ -98,6 +110,7 @@ export function SearchSelect({
   trigger,
   placeholder = "Search",
   emptyText = "No matches",
+  error,
 }: SearchSelectProps) {
   const items = groups.map((group) => ({ ...group, items: group.options }));
 
@@ -114,11 +127,15 @@ export function SearchSelect({
         if (next !== null) onValueChange(next.value);
       }}
       filter={matches}
+      // Typing then Enter picks the first match, as a search field leads people to expect.
+      autoHighlight
       itemToStringLabel={(option) => option.label}
       isItemEqualToValue={(option, other) => option.value === other.value}
     >
       <BaseCombobox.Trigger
         aria-label={chosen === null ? label : `${label}: ${chosen.label}`}
+        aria-invalid={error === undefined ? undefined : true}
+        aria-describedby={error}
         render={<Button variant="secondary" size="compact" />}
       >
         <span {...stylex.props(styles.trigger)}>{trigger}</span>
@@ -177,13 +194,16 @@ export function SearchSelect({
                         <span
                           {...stylex.props(
                             comboboxStyles.itemLabel,
+                            styles.label,
                             option.disabled === true && styles.disabledLabel,
                           )}
                         >
                           {option.label}
                         </span>
                         {option.detail !== undefined && (
-                          <span {...stylex.props(comboboxStyles.detail)}>{option.detail}</span>
+                          <span {...stylex.props(comboboxStyles.detail, styles.detail)}>
+                            {option.detail}
+                          </span>
                         )}
                       </BaseCombobox.Item>
                     )}

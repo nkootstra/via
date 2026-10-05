@@ -144,6 +144,17 @@ describe("SearchSelect", () => {
     expect(document.activeElement).toBe(screen.getByRole("combobox", { name: "Model: kimi-k3" }));
   });
 
+  it("picks the first match when Enter is pressed after typing", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Controlled onChange={onChange} />);
+
+    await open(user);
+    await user.keyboard("kimi{Enter}");
+
+    expect(onChange).toHaveBeenCalledWith("openrouter/kimi-k3");
+  });
+
   it("closes on Escape and gives focus back to the trigger", async () => {
     const user = userEvent.setup();
     render(<Controlled />);
@@ -180,6 +191,27 @@ describe("SearchSelect", () => {
     expect(screen.getByRole("option", { name: /gpt-6-luna/ }).textContent).toBe(
       "gpt-6-lunalow · high",
     );
+  });
+
+  it("marks its trigger invalid and described by an error a form shows for it", () => {
+    render(
+      <>
+        <SearchSelect
+          label="Model"
+          groups={groups}
+          value={null}
+          onValueChange={() => {}}
+          trigger="Pick a model"
+          error="choose-error"
+        />
+        <p id="choose-error">Choose a model.</p>
+      </>,
+    );
+
+    const trigger = screen.getByRole("combobox", { name: "Model" });
+
+    expect(trigger.getAttribute("aria-invalid")).toBe("true");
+    expect(trigger.getAttribute("aria-describedby")).toBe("choose-error");
   });
 
   it("works as an add picker: each pick calls back, and the trigger stays as given", async () => {

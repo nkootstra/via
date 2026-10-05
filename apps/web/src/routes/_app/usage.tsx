@@ -37,7 +37,8 @@ import type {
   HistorySeries,
   UsageRequest,
 } from "../../api/types.ts";
-import { CodexIcon, ProviderLogo, UsageIcon } from "../../components/icons.tsx";
+import { UsageIcon } from "../../components/icons.tsx";
+import { ModelName } from "../../components/model-name.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
 import { useSignalledOptions } from "../../api/live.ts";
@@ -205,23 +206,6 @@ const styles = stylex.create({
     fontSize: text.caption,
   },
   failed: { color: colors.destructive },
-  model: {
-    display: "flex",
-    alignItems: "center",
-    gap: space.s1_5,
-    minWidth: 0,
-  },
-  logo: {
-    display: "flex",
-    flexShrink: 0,
-    color: colors.mutedForeground,
-  },
-  modelId: {
-    minWidth: 0,
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  },
   when: {
     display: "block",
     marginTop: space.s0_5,
@@ -689,27 +673,6 @@ const breakdownColumns = [
   "22%",
   { width: "11%", secondary: true },
 ] as const;
-
-/**
- * A model as the page names it: its provider's logo, which reads out as the
- * provider, then its id without the prefix; the full id on hover.
- */
-function ModelName({ id }: { readonly id: string }) {
-  const owner = ownerOf(id);
-
-  return (
-    <span title={id} {...stylex.props(styles.model)}>
-      <span {...stylex.props(styles.logo)}>
-        {owner === "Codex" ? (
-          <CodexIcon size={14} label="Codex" />
-        ) : (
-          <ProviderLogo name={owner} size={14} label={providerName(owner)} />
-        )}
-      </span>
-      <span {...stylex.props(styles.modelId)}>{withoutPrefix(id)}</span>
-    </span>
-  );
-}
 
 function Breakdown({
   breakdown,

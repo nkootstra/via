@@ -95,6 +95,52 @@ export const modelsQuery = queryOptions({
   staleTime: 60_000,
 });
 
+/** The fallback rules, and how each stands: via pushes it as accounts cool down and recover. */
+export const fallbacksQuery = queryOptions({
+  queryKey: ["fallbacks"],
+  queryFn: () => run((admin) => admin.fallbacks.list()),
+  staleTime: SENT_FRESH_MS,
+});
+
+/**
+ * Why via can't read the fallback rules, when it can't. Only its pushed state
+ * says; no endpoint answers it, so until via sends a state it's taken as none.
+ */
+export const fallbacksErrorQuery = queryOptions({
+  queryKey: ["fallbacks-error"],
+  queryFn: () => Promise.resolve<string | null>(null),
+  staleTime: Infinity,
+});
+
+export type SaveFallbackOutcome =
+  | { readonly saved: true }
+  | { readonly saved: false; readonly problem: string };
+
+/**
+ * Sets the models `model` falls back to, in order, adding its rule or
+ * replacing it in place. A rule via refuses is an outcome the form shows, with why.
+ */
+export const saveFallback = (model: string, fallbacks: ReadonlyArray<string>) =>
+  run((admin) =>
+    admin.fallbacks.set({ payload: { model, fallbacks } }).pipe(
+      Effect.as<SaveFallbackOutcome>({ saved: true }),
+      Effect.catchTag("FallbackRuleInvalidError", (error) =>
+        Effect.succeed<SaveFallbackOutcome>({ saved: false, problem: error.problem }),
+      ),
+    ),
+  );
+
+export const removeFallback = (model: string) =>
+  run((admin) => admin.fallbacks.remove({ query: { model } }));
+
+/**
+ * Fetches the rules again, after one changed. While via pushes its state, the
+ * stream brings the change too; this covers it when not.
+ */
+export function refreshFallbacks(queryClient: QueryClient) {
+  void queryClient.invalidateQueries({ queryKey: fallbacksQuery.queryKey });
+}
+
 /** What the usage history is grouped by. */
 export type HistoryGroupBy = "model" | "account" | "key";
 

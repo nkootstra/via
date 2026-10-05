@@ -13,6 +13,7 @@ import { Route as AppRouteImport } from './routes/_app'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
+import { Route as AppFallbacksRouteImport } from './routes/_app/fallbacks'
 import { Route as AppKeysRouteImport } from './routes/_app/keys'
 import { Route as AppModelsRouteImport } from './routes/_app/models'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
@@ -35,6 +36,11 @@ const AppIndexRoute = AppIndexRouteImport.update({
 const AppAccountsRoute = AppAccountsRouteImport.update({
   id: '/accounts',
   path: '/accounts',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFallbacksRoute = AppFallbacksRouteImport.update({
+  id: '/fallbacks',
+  path: '/fallbacks',
   getParentRoute: () => AppRoute,
 } as any)
 const AppKeysRoute = AppKeysRouteImport.update({
@@ -62,6 +68,7 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/sign-in': typeof SignInRoute
   '/accounts': typeof AppAccountsRoute
+  '/fallbacks': typeof AppFallbacksRoute
   '/keys': typeof AppKeysRoute
   '/models': typeof AppModelsRoute
   '/settings': typeof AppSettingsRoute
@@ -70,6 +77,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/sign-in': typeof SignInRoute
   '/accounts': typeof AppAccountsRoute
+  '/fallbacks': typeof AppFallbacksRoute
   '/keys': typeof AppKeysRoute
   '/models': typeof AppModelsRoute
   '/settings': typeof AppSettingsRoute
@@ -81,6 +89,7 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/sign-in': typeof SignInRoute
   '/_app/accounts': typeof AppAccountsRoute
+  '/_app/fallbacks': typeof AppFallbacksRoute
   '/_app/keys': typeof AppKeysRoute
   '/_app/models': typeof AppModelsRoute
   '/_app/settings': typeof AppSettingsRoute
@@ -93,6 +102,7 @@ export interface FileRouteTypes {
     | '/'
     | '/sign-in'
     | '/accounts'
+    | '/fallbacks'
     | '/keys'
     | '/models'
     | '/settings'
@@ -101,6 +111,7 @@ export interface FileRouteTypes {
   to:
     | '/sign-in'
     | '/accounts'
+    | '/fallbacks'
     | '/keys'
     | '/models'
     | '/settings'
@@ -111,6 +122,7 @@ export interface FileRouteTypes {
     | '/_app'
     | '/sign-in'
     | '/_app/accounts'
+    | '/_app/fallbacks'
     | '/_app/keys'
     | '/_app/models'
     | '/_app/settings'
@@ -153,6 +165,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAccountsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/fallbacks': {
+      id: '/_app/fallbacks'
+      path: '/fallbacks'
+      fullPath: '/fallbacks'
+      preLoaderRoute: typeof AppFallbacksRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/keys': {
       id: '/_app/keys'
       path: '/keys'
@@ -186,6 +205,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppAccountsRoute: typeof AppAccountsRoute
+  AppFallbacksRoute: typeof AppFallbacksRoute
   AppKeysRoute: typeof AppKeysRoute
   AppModelsRoute: typeof AppModelsRoute
   AppSettingsRoute: typeof AppSettingsRoute
@@ -195,6 +215,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppAccountsRoute: AppAccountsRoute,
+  AppFallbacksRoute: AppFallbacksRoute,
   AppKeysRoute: AppKeysRoute,
   AppModelsRoute: AppModelsRoute,
   AppSettingsRoute: AppSettingsRoute,

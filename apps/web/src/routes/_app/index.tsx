@@ -7,17 +7,11 @@ import { useId, type ReactNode } from "react";
 import { accountsQuery, historyBreakdownQuery, poolQuery, usageQuery } from "../../api/admin.ts";
 import { useLiveOptions, useSignalledOptions } from "../../api/live.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
+import { BackIn } from "../../components/back-in.tsx";
 import { AccountsIcon, CodexIcon, PlusIcon, ProviderLogo } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
-import {
-  ago,
-  countdown,
-  formatTime,
-  providerWindowName,
-  useNow,
-  windowName,
-} from "../../lib/time.ts";
+import { ago, formatTime, providerWindowName, useNow, windowName } from "../../lib/time.ts";
 import { useTimeFormat } from "../../lib/time-format.ts";
 import { useMask } from "../../lib/privacy.ts";
 import { providerName } from "../../lib/provider-name.ts";
@@ -158,12 +152,6 @@ const styles = stylex.create({
     fontVariationSettings: weights.medium,
     fontWeight: fontWeights.medium,
   },
-  clock: {
-    fontSize: text.body,
-    fontVariantNumeric: "tabular-nums",
-    fontVariationSettings: weights.semibold,
-    fontWeight: fontWeights.semibold,
-  },
   reason: { color: colors.mutedForeground },
   fix: { marginTop: space.s1 },
   meters: {
@@ -290,19 +278,6 @@ const stateColors = stylex.create({
   red: { backgroundColor: colors.destructive },
   gray: { backgroundColor: colors.mutedForeground },
 });
-
-/** When a resting state ends: the time left until `until`, ticking every second. */
-function BackIn({ until }: { readonly until: string }) {
-  const left = Date.parse(until) - useNow();
-
-  return left > 0 ? (
-    <>
-      Back in <span {...stylex.props(styles.clock)}>{countdown(left)}</span>
-    </>
-  ) : (
-    "Back any moment"
-  );
-}
 
 /** A summary tile; its dot takes its state's colour only while something is in it. */
 function Stat({

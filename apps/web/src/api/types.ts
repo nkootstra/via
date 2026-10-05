@@ -47,3 +47,9 @@ export type HistoryGroup = HistoryBreakdown["groups"][number];
 export type RequestPage = SuccessOf<Groups["history"]["endpoints"]["requests"]>;
 
 export type UsageRequest = RequestPage["requests"][number];
+
+/** A model's fallback rule, and how it stands now. */
+export type Fallback = SuccessOf<Groups["fallbacks"]["endpoints"]["list"]>[number];
+
+/** Whether a model could serve a request now, as a fallback rule's status says. */
+export type Availability = Fallback["status"]["source"];
