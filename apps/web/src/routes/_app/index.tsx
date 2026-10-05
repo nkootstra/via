@@ -4,7 +4,14 @@ import { createFileRoute, type ErrorComponentProps, Link, useRouter } from "@tan
 import { Badge, Button, Callout, EmptyState, Meter, Skeleton, VisuallyHidden } from "@via/ui";
 import { colors, durations, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { useId, type ReactNode } from "react";
-import { accountsQuery, historyBreakdownQuery, poolQuery, usageQuery } from "../../api/admin.ts";
+import {
+  accountsQuery,
+  fallbacksQuery,
+  historyBreakdownQuery,
+  poolQuery,
+  usageQuery,
+} from "../../api/admin.ts";
+import { announcement, standingOf } from "../../lib/fallbacks.ts";
 import { useLiveOptions, useSignalledOptions } from "../../api/live.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
 import { BackIn } from "../../components/back-in.tsx";
@@ -215,6 +222,17 @@ const styles = stylex.create({
     backgroundColor: colors.mutedForeground,
   },
   // Keeps to the card's foot, as the last reset line does beside it.
+  // In a callout's text: underlined, so it reads as a link without its colour.
+  link: {
+    alignSelf: "flex-start",
+    color: colors.foreground,
+    fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
+    textDecorationLine: "underline",
+    textUnderlineOffset: "3px",
+    borderRadius: radii.item,
+    outlineOffset: "2px",
+  },
   requestsLink: {
     marginTop: "auto",
     alignSelf: "flex-start",
@@ -849,6 +867,36 @@ function OverviewError({ error, reset }: ErrorComponentProps) {
   );
 }
 
+/**
+ * The rules that aren't standing by, in a callout: amber while a model is
+ * falling back, red once one has no fallback left. Nothing while every model
+ * answers its own requests.
+ */
+function FallbacksCallout() {
+  const fallbacks = useQuery({ ...fallbacksQuery, ...useLiveOptions() });
+
+  const news = (fallbacks.data ?? []).flatMap((rule) => {
+    const standing = standingOf(rule);
+
+    return standing.state === "standing-by"
+      ? []
+      : [{ standing, said: announcement(rule.model, standing) }];
+  });
+
+  if (news.length === 0) return null;
+
+  return (
+    <Callout tone={news.some(({ standing }) => standing.state === "none") ? "danger" : "warning"}>
+      <div {...stylex.props(styles.state)}>
+        <span>{news.map(({ said }) => said).join(" ")}</span>
+        <Link to="/fallbacks" {...stylex.props(styles.link)}>
+          See fallbacks
+        </Link>
+      </div>
+    </Callout>
+  );
+}
+
 function Overview() {
   const add = useAddAccount();
   // While via pushes the state, nothing here polls.
@@ -884,6 +932,7 @@ function Overview() {
       actions={everyAccount.length > 0 ? addAccount : undefined}
     >
       <>
+        <FallbacksCallout />
         {everyAccount.length === 0 && (
           <EmptyState
             headingLevel={2}
