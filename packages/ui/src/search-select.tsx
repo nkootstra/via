@@ -47,6 +47,16 @@ const styles = stylex.create({
     flexShrink: 0,
   },
   disabled: { cursor: "not-allowed" },
+  // A name keeps its width; a long detail, such as a list of efforts, wraps beside it instead.
+  label: {
+    flexShrink: 0,
+    maxWidth: "100%",
+  },
+  detail: {
+    flexShrink: 1,
+    minWidth: 0,
+    textAlign: "end",
+  },
   // The label fades; the detail beside it, which says why, stays readable.
   disabledLabel: { opacity: 0.6 },
 });
@@ -184,13 +194,16 @@ export function SearchSelect({
                         <span
                           {...stylex.props(
                             comboboxStyles.itemLabel,
+                            styles.label,
                             option.disabled === true && styles.disabledLabel,
                           )}
                         >
                           {option.label}
                         </span>
                         {option.detail !== undefined && (
-                          <span {...stylex.props(comboboxStyles.detail)}>{option.detail}</span>
+                          <span {...stylex.props(comboboxStyles.detail, styles.detail)}>
+                            {option.detail}
+                          </span>
                         )}
                       </BaseCombobox.Item>
                     )}
