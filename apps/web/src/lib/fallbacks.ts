@@ -1,5 +1,5 @@
 import type { Availability, Fallback } from "../api/types.ts";
-import { withoutPrefix } from "./model-entries.ts";
+import { type ModelEntry, withoutPrefix } from "./model-entries.ts";
 
 /**
  * How a rule stands, from who would answer a request for its model now: the
@@ -36,6 +36,50 @@ export const skipped = (
   }
 
   return listed.has(target) ? undefined : `${name} isn't in the models list, so via skips it.`;
+};
+
+/** How many models one model may fall back to, as via allows. */
+export const MAX_FALLBACKS = 3;
+
+/**
+ * The first thing wrong with a rule, in via's own words, so the form says it
+ * before via has to; undefined when nothing is.
+ */
+export const problemOf = (model: string, fallbacks: ReadonlyArray<string>) => {
+  const twice = fallbacks.find((id, index) => fallbacks.indexOf(id) !== index);
+
+  if (fallbacks.length === 0) return "Add at least one model to fall back to";
+
+  if (fallbacks.length > MAX_FALLBACKS) {
+    return `A model can fall back to at most ${MAX_FALLBACKS} others`;
+  }
+
+  if (twice !== undefined) return `${twice} is in the list twice`;
+
+  return fallbacks.includes(model) ? `${model} can't fall back to itself` : undefined;
+};
+
+/**
+ * What a request for one of `source`'s efforts gets from `target`, when it
+ * can't keep the effort: via carries an effort only to a Codex model that
+ * lists it, and sends the model as written otherwise.
+ */
+export const effortHint = (source: string, target: string, entries: ReadonlyArray<ModelEntry>) => {
+  const efforts = entries.find((entry) => entry.model.id === source)?.efforts ?? [];
+  const has = entries.find((entry) => entry.model.id === target)?.efforts ?? [];
+  const name = withoutPrefix(target);
+
+  if (efforts.length === 0) return undefined;
+
+  if (has.length === 0) {
+    return `${name} has no reasoning efforts: a request for ${source}-${efforts.at(-1)} gets it at its default.`;
+  }
+
+  const missing = efforts.findLast((effort) => !has.includes(effort));
+
+  return missing === undefined
+    ? undefined
+    : `${name} has no ${missing} effort: a request for ${source}-${missing} gets it at its default.`;
 };
 
 /** Two standings alike: the same state, falling back to the same model. */
