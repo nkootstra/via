@@ -52,6 +52,16 @@ describe("FallbackRule", () => {
     }),
   );
 
+  it.effect("refuses a model id with spaces or control characters, which none has", () =>
+    Effect.gen(function* () {
+      for (const id of [" gpt-5", "gpt 5", "gpt-5\r\nx-evil: 1"]) {
+        expect(yield* problem({ model: "a", fallbacks: [id] })).toContain(
+          "A model id has no spaces or control characters",
+        );
+      }
+    }),
+  );
+
   it.effect("refuses an empty or overlong model id", () =>
     Effect.gen(function* () {
       expect(yield* problem({ model: "", fallbacks: ["kimi"] })).toContain("Name a model");

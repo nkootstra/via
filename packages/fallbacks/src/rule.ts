@@ -8,6 +8,10 @@ const MAX_FALLBACKS = 3;
 const ModelId = Schema.String.check(
   Schema.makeFilter((id) => id.length > 0 || "Name a model"),
   Schema.makeFilter((id) => id.length <= 200 || "A model id is at most 200 characters"),
+  // A model id goes back to the client in a header: none has a space or a control character.
+  Schema.makeFilter(
+    (id) => !/[\s\p{Cc}]/u.test(id) || "A model id has no spaces or control characters",
+  ),
 );
 
 /** The first id `ids` lists twice, if any. */
