@@ -541,7 +541,9 @@ nothing else to run or download, and it loads nothing from other sites.
 
 **Overview** shows how the pool stands right now: how many accounts and
 providers are available, cooling down, locked out or disabled, and how much of
-each one's limits is used.
+each one's limits is used. While a model is [falling back](#fallback-models),
+or has no fallback left, it says so at the top, with a link to the Fallbacks
+page.
 
 ![Overview page](assets/screenshots/overview.png)
 
@@ -656,11 +658,15 @@ tokens, cache hit rate, API-equivalent cost and time to first token (of
 streamed answers that didn't fail) over the
 last day, week, 30 or 90 days; tokens per hour or day, stacked by model,
 account or key; a table of each; and the requests themselves, newest first.
-Filter the whole page to one model, account or key, and to failed requests
-only: pick them from the filter bar, where each one's search lists what the
-other filters leave with its request count, or pick a row of the table. The
-range, grouping and filters are in the page's address, as in
-`/ui/usage?range=7d&model=opencode-go/kimi-k3&failed=true`, so a reload keeps
+A request that a [fallback](#fallback-models) answered shows the model that
+answered, with "Fell back from" and the model asked for under it, and the
+request count says how many fell back. Filter the whole page to one model,
+account or key, to failed requests only, and to requests that fell back only:
+pick them from the filter bar, where each one's search lists what the other
+filters leave with its request count, or pick a row of the table. The range,
+grouping and filters are in the page's address, as in
+`/ui/usage?range=7d&model=opencode-go/kimi-k3&failed=true` or
+`/ui/usage?fellBack=true`, so a reload keeps
 them and a link shares them. A request shows up within about a second: the
 page fetches its usage again when via says the history changed, and asks every
 15 seconds only while that stream is down.
