@@ -493,6 +493,12 @@ describe("adding a fallback", () => {
     expect(dialog.textContent).toContain(
       "That's the most: a model falls back to at most 3 others.",
     );
+    // Add model went with the third pick, so focus goes to the model it added.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        within(dialog).getByRole("button", { name: "Remove minimax-m3" }),
+      ),
+    );
   });
 
   it("hints what a request with an effort gets from a model without it", async () => {

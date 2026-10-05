@@ -77,7 +77,14 @@ const styles = stylex.create({
 type Move = "up" | "down" | "remove";
 
 /** Where focus goes once the list has changed: a model's button, or Add model. */
-type Focus = { readonly model: string; readonly action: Move } | { readonly model: null };
+type Focus =
+  | {
+      readonly model: string;
+      readonly action: Move;
+      /** Whether to wait out the dialog's own move, after the focused picker went. */
+      readonly settle?: boolean;
+    }
+  | { readonly model: null; readonly settle?: undefined };
 
 export function ChainEditor({
   source,
@@ -117,6 +124,12 @@ export function ChainEditor({
           );
 
     target?.focus();
+
+    if (!next.settle) return;
+
+    // The picker that had focus closed and went: once the dialog has looked for
+    // somewhere to put focus instead, it goes to the model just added.
+    requestAnimationFrame(() => target?.isConnected === true && target.focus());
   });
 
   const move = (index: number, by: -1 | 1) => {
@@ -152,6 +165,11 @@ export function ChainEditor({
   };
 
   const add = (model: string) => {
+    // The list is full now and Add model goes, so focus goes to the model just added.
+    if (chain.length + 1 >= MAX_FALLBACKS) {
+      focus.current = { model, action: "remove", settle: true };
+    }
+
     setSaid(`Added ${withoutPrefix(model)}, ${chain.length + 1} of ${chain.length + 1}.`);
     onChange([...chain, model]);
   };
