@@ -449,6 +449,63 @@ describe("the usage page", () => {
   });
 });
 
+describe("the usage page, with fallbacks", () => {
+  const fellBack = request({
+    requestId: "r3",
+    model: "opencode-go/kimi-k3",
+    provider: "opencode-go",
+    requestedModel: Option.some("gpt-5.6-sol-high"),
+    fallbackReason: Option.some("rate_limit_exceeded"),
+  });
+
+  it("says which model a request fell back from, under the one that answered", async () => {
+    renderApp("/usage", { ...seed, historyRequests: [fellBack, ...seed.historyRequests] });
+
+    const table = await screen.findByRole("table", { name: "Requests" });
+    const [row] = within(table).getAllByRole("row").slice(1);
+
+    expect(row?.textContent).toContain("kimi-k3");
+    expect(row?.textContent).toContain("Fell back from gpt-5.6-sol-high");
+    expect(row?.textContent).toContain("OK");
+  });
+
+  it("counts the requests that fell back with the requests", async () => {
+    renderApp("/usage", {
+      ...seed,
+      historyBreakdown: new Map([
+        [
+          "model",
+          breakdown([group({ group: "gpt-6-astra", requests: 40, errors: 3, fellBack: 5 })]),
+        ],
+      ]),
+    });
+
+    await screen.findByRole("figure", { name: "Tokens per hour" });
+
+    expect(stat("Requests")).toEqual({ value: "40", detail: "3 failed · 5 fell back" });
+  });
+
+  it("shows only the requests that fell back, kept in the URL", async () => {
+    const { router, state, user } = renderApp("/usage", seed);
+
+    await user.click(await screen.findByText("Fell back only"));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({ fellBack: true }));
+    await waitFor(() => expect(lastQuery(state, "groupBy")?.get("fellBack")).toBe("true"));
+    expect(
+      screen.getByRole("switch", { name: "Fell back only" }).getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  it("clears the fell-back filter with the rest", async () => {
+    const { router, user } = renderApp("/usage?fellBack=true", seed);
+
+    await user.click(await screen.findByRole("button", { name: "Clear filters" }));
+
+    await waitFor(() => expect(router.state.location.search).toEqual({}));
+  });
+});
+
 describe("the usage page, live", () => {
   it("fetches the usage again as soon as via says it changed", async () => {
     const { state } = renderApp("/usage", seed);

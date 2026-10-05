@@ -158,13 +158,15 @@ const HISTORY_REFRESH_MS = 15_000;
 
 /**
  * What narrows the usage page: one model, one account (or `provider:<name>`,
- * a provider's requests no account served), one key, and failed requests only.
+ * a provider's requests no account served), one key, failed requests only, and
+ * requests another model answered in place of the one asked for only.
  */
 export interface HistoryFilters {
   readonly model?: string;
   readonly accountId?: string;
   readonly keyId?: string;
   readonly outcome?: "error";
+  readonly fellBack?: "true";
 }
 
 /** Each group's tokens per hour or day, in the viewer's time zone. */

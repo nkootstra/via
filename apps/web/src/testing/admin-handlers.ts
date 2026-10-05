@@ -665,7 +665,14 @@ export function adminHandlers(state: AdminState) {
         const model = query.get("model");
         const limit = Number(query.get("limit") ?? "50");
         const after = query.get("afterId");
-        const matching = state.historyRequests.filter((r) => model === null || r.model === model);
+        const fellBack = query.get("fellBack");
+
+        const matching = state.historyRequests.filter(
+          (r) =>
+            (model === null || r.model === model) &&
+            (fellBack === null || Option.isSome(r.requestedModel) === (fellBack === "true")),
+        );
+
         const start = after === null ? 0 : matching.findIndex((r) => r.requestId === after) + 1;
         const page = matching.slice(start, start + limit);
         const last = page.at(-1);
