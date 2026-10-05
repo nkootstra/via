@@ -18,6 +18,7 @@ import {
   reply,
   startFakeCodex,
 } from "@via/codex-upstream/testing";
+import { type FallbackRule, FallbackRuleStore } from "@via/fallbacks";
 import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
 import {
@@ -254,7 +255,8 @@ const watchTimers = Effect.gen(function* () {
  * Requests are kept in an in-memory usage history, or in `history`'s, and
  * priced with `prices` over those via ships with. With `ollama`, the fake
  * provider also answers as `ollama`, a provider sent no key. With
- * `openrouterFromUi`, OpenRouter takes its key from the web UI.
+ * `openrouterFromUi`, OpenRouter takes its key from the web UI. `fallbacks` are
+ * the fallback rules set before via starts.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -282,6 +284,7 @@ export const withVia = <A, E>(
     prices,
     ollama = false,
     openrouterFromUi = false,
+    fallbacks = [],
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
     opencodeGoKeys?: ReadonlyArray<string>;
@@ -295,6 +298,7 @@ export const withVia = <A, E>(
     prices?: Readonly<Record<string, ModelPrice>>;
     ollama?: boolean;
     openrouterFromUi?: boolean;
+    fallbacks?: ReadonlyArray<FallbackRule>;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -308,6 +312,7 @@ export const withVia = <A, E>(
       OpencodeGoAccounts.layer(`${dir}/opencode-go.json`),
       OllamaAddress.layer(`${dir}/ollama.json`),
       OpenrouterSettings.layer(`${dir}/openrouter.json`),
+      FallbackRuleStore.layer(`${dir}/fallbacks.json`),
     ).pipe(Layer.provide(BunFileSystem.layer));
 
     const codex = yield* startFakeCodex;
@@ -356,6 +361,9 @@ export const withVia = <A, E>(
         yield* TestClock.adjust("1 second");
         yield* opencodeGo.add(Redacted.make(apiKey), `go-${index + 1}`);
       }
+
+      const rules = yield* FallbackRuleStore;
+      yield* Effect.forEach(fallbacks, rules.set, { discard: true });
     }).pipe(Effect.provide(built));
     const logs = collectLogs();
 

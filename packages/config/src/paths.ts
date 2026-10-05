@@ -9,6 +9,7 @@ type Paths = {
   opencodeGo: string;
   ollama: string;
   openrouter: string;
+  fallbacks: string;
   usageDb: string;
 };
 
@@ -33,6 +34,7 @@ export function resolvePaths(
     opencodeGo: join(home, "opencode-go.json"),
     ollama: join(home, "ollama.json"),
     openrouter: join(home, "openrouter.json"),
+    fallbacks: join(home, "fallbacks.json"),
     usageDb: join(home, "usage.db"),
   };
 }

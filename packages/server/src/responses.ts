@@ -4,9 +4,9 @@ import { Effect, Option, Schema } from "effect";
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { authenticated } from "./authenticated.ts";
 import { dispatch, modelOf } from "./dispatch.ts";
+import { withFallbacks } from "./fallback.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
-import { responseOf } from "./outcome.ts";
 import { collected, relayed } from "./relay.ts";
 import { resolveSession } from "./session.ts";
 
@@ -22,23 +22,30 @@ export const responses = authenticated(
     const body = decoded.value;
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const session = resolveSession(headers, body);
-    const route = Option.flatMap(modelOf(body), (yield* Providers).route);
+    const providers = yield* Providers;
 
-    if (Option.isSome(route))
-      return responseOf(yield* forward(route.value, "/responses", body, session, headers));
+    /** Asks for the model `request` names: its provider, or Codex. */
+    const attempt = (request: Schema.JsonObject) =>
+      Effect.gen(function* () {
+        const route = Option.flatMap(modelOf(request), providers.route);
 
-    const outcome = yield* dispatch(body, session, (upstream, failed) =>
-      body.stream === true
-        ? relayed(
-            upstream,
-            { contentType: "text/event-stream", sse: true, onFailed: failed },
-            relayStream,
-          )
-        : collected(upstream, (response) =>
-            Effect.succeed(HttpServerResponse.jsonUnsafe(response)),
-          ),
-    );
+        if (Option.isSome(route)) {
+          return yield* forward(route.value, "/responses", request, session, headers);
+        }
 
-    return responseOf(outcome);
+        return yield* dispatch(request, session, (upstream, failed) =>
+          request.stream === true
+            ? relayed(
+                upstream,
+                { contentType: "text/event-stream", sse: true, onFailed: failed },
+                relayStream,
+              )
+            : collected(upstream, (response) =>
+                Effect.succeed(HttpServerResponse.jsonUnsafe(response)),
+              ),
+        );
+      });
+
+    return yield* withFallbacks(body, attempt);
   }),
 );

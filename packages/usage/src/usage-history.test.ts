@@ -29,6 +29,8 @@ const entry = (overrides: Partial<UsageEntry> = {}): UsageEntry => ({
   costUsd: Option.none(),
   durationMs: 1_200,
   firstChunkMs: Option.none(),
+  requestedModel: Option.none(),
+  fallbackReason: Option.none(),
   ...overrides,
 });
 
@@ -52,6 +54,23 @@ describe("UsageHistory", () => {
         const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
         expect(page.requests).toEqual([entry()]);
         expect(page.next).toEqual(Option.none());
+      }),
+    ),
+  );
+
+  it.effect("gives back the model a request asked for when another served it, and why", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const fellBack = entry({
+          model: "opencode-go/kimi-k3",
+          provider: "opencode-go",
+          requestedModel: Option.some("gpt-5.6-sol-high"),
+          fallbackReason: Option.some("rate_limit_exceeded"),
+        });
+
+        yield* usage.record(fellBack);
+        const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
+        expect(page.requests).toEqual([fellBack]);
       }),
     ),
   );

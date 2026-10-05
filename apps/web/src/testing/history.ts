@@ -71,5 +71,7 @@ export const request = (
   costUsd: Option.none(),
   durationMs: 2_400,
   firstChunkMs: Option.some(600),
+  requestedModel: Option.none(),
+  fallbackReason: Option.none(),
   ...fields,
 });

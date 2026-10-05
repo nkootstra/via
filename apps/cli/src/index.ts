@@ -2,6 +2,7 @@
 import { BunRuntime, BunServices } from "@effect/platform-bun";
 import { AccountStore, CodexAuth } from "@via/codex-auth";
 import { resolvePaths } from "@via/config";
+import { FallbackRuleStore } from "@via/fallbacks";
 import { KeyStore } from "@via/keys";
 import { OllamaAddress, OpencodeGoAccounts, OpenrouterSettings } from "@via/providers";
 import { ui } from "@via/web/embedded";
@@ -69,6 +70,8 @@ const main = Effect.gen(function* () {
         OllamaAddress.layer(paths.ollama),
         // The OpenRouter key and models the web UI saved.
         OpenrouterSettings.layer(paths.openrouter),
+        // The models a request falls back to when its own can't serve.
+        FallbackRuleStore.layer(paths.fallbacks),
         CodexAuth.layer(Option.getOrUndefined(env.codexIssuer)),
       ).pipe(Layer.provideMerge(Layer.mergeAll(BunServices.layer, FetchHttpClient.layer))),
     ),

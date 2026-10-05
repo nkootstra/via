@@ -114,6 +114,8 @@ describe("deleting the usage history", () => {
     costUsd: Option.none(),
     durationMs: 1,
     firstChunkMs: Option.none(),
+    requestedModel: Option.none(),
+    fallbackReason: Option.none(),
   };
 
   it("asks first, then deletes every request via kept", async () => {

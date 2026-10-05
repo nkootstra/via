@@ -301,6 +301,47 @@ API refuses it, so via can't serve it. via doesn't list `-ultra` ids, and
 answers one with a 400 `unsupported_effort` error without asking Codex. Use
 `-max` for the most reasoning via can give.
 
+### Fallback models
+
+A fallback rule names a model and up to three others for via to try, in
+order, when that model can't serve a request. The first one that answers
+does, and its answer carries `x-via-fallback: <asked> -> <answered>`, such as
+`x-via-fallback: gpt-5.6-sol -> opencode-go/kimi-k3`; its body names the model
+that answered. The rules are kept in `fallbacks.json` in via's
+[home](#configuration):
+
+```json
+[{ "model": "gpt-5.6-sol", "fallbacks": ["opencode-go/kimi-k3", "gpt-5.5"] }]
+```
+
+A running `via serve` uses a changed file on its next request.
+
+- **When:** only when the model can't serve before any of its answer reached
+  the client. That is when every account that could serve it is cooling down
+  (`429`) or there is none (`503`), when Codex is down or overloaded, even if
+  it says so only once it has started a response via collects for a client
+  that doesn't stream, when its upstream can't be reached (`502`) or a provider
+  answers `404`, `429` or a `5xx`, when an OpenCode Go model speaks none of the
+  APIs via could ask it in, and when an OpenRouter model isn't enabled.
+- **Never:** when the upstream refuses the request itself, such as a `400` for
+  a bad parameter, once a streamed answer has started, even if it then fails,
+  or for [System One](#ollama-and-system-one), whose answers belong to its
+  model.
+- **Efforts:** a rule for a Codex model covers it with any effort suffix too, so
+  one for `gpt-5.6-sol` also takes `gpt-5.6-sol-high`. A Codex fallback that
+  supports the effort gets it, as `gpt-5.5-high`; any other fallback is asked
+  for as written. A rule for the exact id, such as `gpt-5.6-sol-high`, wins.
+- **One rule:** a fallback's own rule isn't followed. A fallback via doesn't
+  know, such as a Codex model Codex doesn't list, is skipped without being
+  asked; one that refuses the request answers with that refusal.
+- **None can serve:** the client gets the answer of the model it asked for,
+  whose `Retry-After` is the soonest any of the models asked for.
+
+Codex cooldowns are per account, not per model: when every account that can
+serve a Codex model is cooling down, so are the other Codex models those
+accounts serve. A Codex fallback helps with a rate limit only when another
+plan's account offers it; another provider's model always can.
+
 ### Admin API
 
 With `VIA_ADMIN_KEY` set, `via serve` also serves `/admin`, which does what the
@@ -747,6 +788,9 @@ background and then lengthens the cooldown to match. A key OpenCode Go refuses
 or forbids (401 or 403) is taken out of use until `via serve` restarts. via
 asks OpenCode Go for each key's usage every 15 minutes too.
 
+When no account can serve a request, a [fallback rule](#fallback-models) can
+send it to another model instead of answering `429` or `503`.
+
 ## Configuration
 
 via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set and not empty.
@@ -760,6 +804,7 @@ via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set and not e
 | `opencode-go.json` | Your OpenCode Go API keys, as accounts.             |
 | `ollama.json`      | The address of the Ollama added in the web UI.      |
 | `openrouter.json`  | Your OpenRouter API key and the models it enables.  |
+| `fallbacks.json`   | Your [fallback models](#fallback-models).           |
 | `usage.db`         | The [usage history](#usage-history), in SQLite.     |
 
 An `auth/<id>.json` via can't read is skipped with a warning naming it, so the
@@ -962,7 +1007,10 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
 - `http.span` is the whole time via took, a stream included.
 - `key` is the name of the API key the client used, `model` the model asked
   for, and `served_by` the provider, or the Codex or OpenCode Go account, that
-  answered.
+  answered. When a [fallback](#fallback-models) answered, `model` is the
+  fallback, `requested_model` the model asked for and `fallback_reason` why it
+  couldn't serve, such as `rate_limit_exceeded`; an `INFO` line before it says
+  which model was asked instead, and why.
 - `input_tokens` and `output_tokens` are the token counts the upstream
   reported for an answered request, and `cached_tokens` joins them when the
   upstream reports a cache hit, and `cache_write_tokens` when it reports
@@ -995,7 +1043,8 @@ new tokens can't be saved.
 
 `via serve` keeps every request that asks for a model in `usage.db`, a SQLite
 database: when it came in, the API key's id and name, the model, the provider
-and account that served it, its status, why it failed if it did (the error
+and account that served it, the model asked for and why it couldn't serve when
+a [fallback](#fallback-models) answered instead, its status, why it failed if it did (the error
 code and message, via's own or the upstream's, the message cut to 500
 characters), its input, cached, cache-write,
 output and reasoning tokens as the upstream reported them, any cost the
@@ -1089,7 +1138,7 @@ These files in via's [home](#configuration) are worth keeping:
 - `auth/`, `opencode-go.json` and `openrouter.json`: your accounts' tokens and
   keys. Without them you sign every account in again.
 - `keys.json`: your API keys. Without it every client needs a new key.
-- `config.yaml`, if you wrote one, and `ollama.json`.
+- `config.yaml`, if you wrote one, `ollama.json` and `fallbacks.json`.
 - `usage.db`: the usage history.
 
 `state.json` only holds running cooldowns, so it can go.
