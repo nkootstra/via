@@ -30,15 +30,17 @@ interface RequestCursor {
 type Outcome = "ok" | "error";
 
 /**
- * What narrows a query to some requests: a model, an account, a key and an
- * outcome. An account is named as the breakdown names it, so `provider:<name>`
- * is the requests of that provider no account served.
+ * What narrows a query to some requests: a model, an account, a key, an
+ * outcome, and whether another model answered for the one asked for. An
+ * account is named as the breakdown names it, so `provider:<name>` is the
+ * requests of that provider no account served.
  */
 interface Filters {
   readonly model?: string | undefined;
   readonly accountId?: string | undefined;
   readonly keyId?: string | undefined;
   readonly outcome?: Outcome | undefined;
+  readonly fellBack?: boolean | undefined;
 }
 
 export interface RequestQuery extends Filters {
@@ -126,6 +128,8 @@ export interface GroupUsage {
   readonly requests: number;
   /** Requests that failed, as `Outcome` defines it. */
   readonly errors: number;
+  /** Requests another model answered because the one asked for couldn't serve. */
+  readonly fellBack: number;
   readonly measured: number;
   /** Answered requests that reported no usage, which the token sums leave out; failed ones have none to report. */
   readonly unmeasured: number;
@@ -151,6 +155,7 @@ const ModelRow = Schema.Struct({
   lastAt: Schema.Finite,
   requests: Schema.Finite,
   errors: Schema.Finite,
+  fellBack: Schema.Finite,
   measured: Schema.Finite,
   unmeasured: Schema.Finite,
   ...TokenSums,
@@ -265,6 +270,9 @@ const make = Effect.gen(function* () {
       ...(query.outcome === undefined
         ? []
         : [query.outcome === "error" ? failed : sql`NOT ${failed}`]),
+      ...(query.fellBack === undefined
+        ? []
+        : [query.fellBack ? sql`requested_model IS NOT NULL` : sql`requested_model IS NULL`]),
     ]);
 
   const columns = sql`
@@ -423,6 +431,7 @@ const make = Effect.gen(function* () {
         MAX(at) AS "lastAt",
         COUNT(*) AS requests,
         COALESCE(SUM(${failed}), 0) AS errors,
+        COUNT(requested_model) AS "fellBack",
         COUNT(input_tokens) AS measured,
         COALESCE(SUM(CASE WHEN input_tokens IS NULL AND NOT ${failed} THEN 1 ELSE 0 END), 0)
           AS unmeasured,
@@ -456,7 +465,13 @@ const make = Effect.gen(function* () {
 
     const totalled = [...groups].map(([group, models]): GroupUsage => {
       const total = (
-        field: "requests" | "errors" | "measured" | "unmeasured" | keyof typeof TokenSums,
+        field:
+          | "requests"
+          | "errors"
+          | "fellBack"
+          | "measured"
+          | "unmeasured"
+          | keyof typeof TokenSums,
       ) => models.reduce((sum, row) => sum + row[field], 0);
 
       const latest = models.reduce((a, b) => (b.lastAt > a.lastAt ? b : a));
@@ -466,6 +481,7 @@ const make = Effect.gen(function* () {
         label: latest.label,
         requests: total("requests"),
         errors: total("errors"),
+        fellBack: total("fellBack"),
         measured: total("measured"),
         unmeasured: total("unmeasured"),
         inputTokens: total("inputTokens"),

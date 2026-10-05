@@ -335,13 +335,15 @@ const HistoryRange = { from: IntParam, to: IntParam };
 
 /**
  * What narrows a history query: a model, an account (or `provider:<name>`, a
- * provider's requests no account served), a key, and failed requests only.
+ * provider's requests no account served), a key, failed requests only, and
+ * requests another model answered for the one asked for, or none of those.
  */
 const HistoryFilters = {
   model: Schema.optionalKey(Name),
   accountId: Schema.optionalKey(Name),
   keyId: Schema.optionalKey(Name),
   outcome: Schema.optionalKey(Schema.Literals(["ok", "error"])),
+  fellBack: Schema.optionalKey(Schema.Literals(["true", "false"])),
 };
 
 /** Request and token counts; a sum is 0 where no request reported its usage. */
@@ -386,6 +388,8 @@ const HistoryTotals = Schema.Struct({
   /** Answered requests that reported no usage, which the token sums leave out. */
   unmeasured: Schema.Finite,
   errors: Schema.Finite,
+  /** Requests another model answered because the one asked for couldn't serve. */
+  fellBack: Schema.Finite,
   firstChunkMs: Percentiles,
   cost: Cost,
 });

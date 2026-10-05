@@ -1059,8 +1059,11 @@ milliseconds; `series` and `breakdown` also take `groupBy` (`model`,
 `day`) and `tzOffsetMinutes`, so days start at your midnight. A request no
 account served, such as one to a plain provider, counts under
 `provider:<name>` when grouped by account. All three also take filters:
-`model`, `accountId` (an account's id, or `provider:<name>`), `keyId`, and
-`outcome` (`error` for failed requests only, `ok` for the rest).
+`model` (the model that answered), `accountId` (an account's id, or
+`provider:<name>`), `keyId`, `outcome` (`error` for failed requests only, `ok`
+for the rest), and `fellBack` (`true` for requests a
+[fallback](#fallback-models) answered, `false` for the rest). The breakdown's
+groups and totals count those in `fellBack`, beside `errors`.
 
 `requests` answers `{"requests": [...], "next": ...}`, 50 requests a page, or
 `limit` of them (1 to 500). `next` is `null` on the last page; otherwise pass

@@ -332,6 +332,41 @@ describe("UsageHistory filters", () => {
     ),
   );
 
+  it.effect("keep only requests that fell back when asked, and count them", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const fellBack = {
+          requestedModel: Option.some("gpt-x"),
+          fallbackReason: Option.some("rate_limit_exceeded"),
+        };
+
+        yield* Effect.forEach(
+          [
+            entry({ requestId: "a", model: "m1", ...fellBack }),
+            entry({ requestId: "b", model: "m1" }),
+            entry({ requestId: "c", model: "m2", ...fellBack }),
+          ],
+          usage.record,
+          { discard: true },
+        );
+
+        const page = yield* usage.requests({ ...range, fellBack: true, limit: 10 });
+        const all = yield* usage.breakdown({ ...range, groupBy: "model" });
+        const only = yield* usage.breakdown({ ...range, fellBack: true, groupBy: "model" });
+
+        expect(page.requests.map((r) => r.requestId).toSorted()).toEqual(["a", "c"]);
+        expect(all.groups.map((g) => [g.group, g.requests, g.fellBack])).toEqual([
+          ["m1", 2, 1],
+          ["m2", 1, 1],
+        ]);
+        expect(only.groups.map((g) => [g.group, g.requests])).toEqual([
+          ["m1", 1],
+          ["m2", 1],
+        ]);
+      }),
+    ),
+  );
+
   it.effect("take a provider's group as an account, as the breakdown names it", () =>
     history((usage) =>
       Effect.gen(function* () {
@@ -368,6 +403,7 @@ describe("UsageHistory.breakdown", () => {
             label: "laptop",
             requests: 5,
             errors: 2,
+            fellBack: 0,
             measured: 5,
             unmeasured: 0,
             inputTokens: 500,

@@ -18,6 +18,7 @@ export const group = (
   label: fields.group,
   requests: 10,
   errors: 0,
+  fellBack: 0,
   measured: 10,
   unmeasured: 0,
   inputTokens: 1_000,
@@ -34,6 +35,7 @@ export const breakdown = (groups: ReadonlyArray<HistoryGroup>): HistoryBreakdown
   totals: {
     requests: groups.reduce((sum, g) => sum + g.requests, 0),
     errors: groups.reduce((sum, g) => sum + g.errors, 0),
+    fellBack: groups.reduce((sum, g) => sum + g.fellBack, 0),
     measured: groups.reduce((sum, g) => sum + g.measured, 0),
     unmeasured: groups.reduce((sum, g) => sum + g.unmeasured, 0),
     inputTokens: groups.reduce((sum, g) => sum + g.inputTokens, 0),

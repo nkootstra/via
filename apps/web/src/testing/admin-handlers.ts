@@ -621,6 +621,7 @@ export function adminHandlers(state: AdminState) {
 const emptyTotals = {
   requests: 0,
   errors: 0,
+  fellBack: 0,
   measured: 0,
   unmeasured: 0,
   inputTokens: 0,
