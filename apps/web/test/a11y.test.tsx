@@ -109,6 +109,26 @@ const populated = {
   ],
 };
 
+/** A rule falling back, one model it can't use, as the Fallbacks page shows them. */
+const fallbacks = [
+  {
+    model: "gpt-5.5",
+    fallbacks: ["opencode-go/kimi-k2", "openrouter/minimax-m3"],
+    status: {
+      source: {
+        status: "cooling" as const,
+        until: "2026-09-27T12:30:00.000Z",
+        reason: "usage_limit_reached",
+      },
+      fallbacks: [
+        { status: "available" as const },
+        { status: "unavailable" as const, reason: "not_enabled" as const },
+      ],
+      serving: "opencode-go/kimi-k2",
+    },
+  },
+];
+
 const heading = (name: string) => screen.findByRole("heading", { level: 1, name });
 
 // An open popup is checked on its own: behind it, the page is hidden from
@@ -171,6 +191,68 @@ describe("accessibility", { timeout: 15_000 }, () => {
     await screen.findByRole("region", { name: "Codex" });
 
     expect(await violations()).toEqual([]);
+  });
+
+  it("the fallbacks page", async () => {
+    renderApp("/fallbacks", { ...populated, fallbacks });
+    await screen.findByRole("article", { name: "gpt-5.5" });
+
+    expect(await violations()).toEqual([]);
+  });
+
+  it("the empty fallbacks page", async () => {
+    renderApp("/fallbacks", populated);
+    await screen.findByRole("region", { name: "No fallbacks yet" });
+
+    expect(await violations()).toEqual([]);
+  });
+
+  it("the add-fallback dialog, with a list and an error", async () => {
+    const { user } = renderApp("/fallbacks", populated);
+
+    await user.click(await screen.findByRole("button", { name: "Add fallback" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a fallback" });
+    await user.click(within(dialog).getByRole("combobox", { name: "Fall back from" }));
+    await user.click(await screen.findByRole("option", { name: /^gpt-5\.5/ }));
+    await user.click(within(dialog).getByRole("combobox", { name: "Add model" }));
+    await user.click(await screen.findByRole("option", { name: /^kimi-k2/ }));
+    await user.click(within(dialog).getByRole("button", { name: "Remove kimi-k2" }));
+    await user.click(within(dialog).getByRole("button", { name: "Add fallback" }));
+    await within(dialog).findByText("Add at least one model to fall back to.");
+    await user.click(within(dialog).getByRole("combobox", { name: "Add model" }));
+    await user.click(await screen.findByRole("option", { name: /^kimi-k2/ }));
+
+    expect(await violations(dialog)).toEqual([]);
+  });
+
+  it("the add-fallback dialog's open model picker", async () => {
+    const { user } = renderApp("/fallbacks", populated);
+
+    await user.click(await screen.findByRole("button", { name: "Add fallback" }));
+    const dialog = await screen.findByRole("dialog", { name: "Add a fallback" });
+    await user.click(within(dialog).getByRole("combobox", { name: "Fall back from" }));
+    const options = await screen.findByRole("listbox");
+    // The popup: the search field and the grouped options under it.
+    const popup = options.parentElement ?? options;
+
+    expect(await violations(popup)).toEqual([]);
+  });
+
+  it("the remove-fallback confirmation", async () => {
+    const { user } = renderApp("/fallbacks", { ...populated, fallbacks });
+
+    await user.click(
+      within(await screen.findByRole("article", { name: "gpt-5.5" })).getByRole("button", {
+        name: "Actions for gpt-5.5",
+      }),
+    );
+    await user.click(await screen.findByRole("menuitem", { name: "Remove…" }));
+
+    const confirm = await screen.findByRole("alertdialog", {
+      name: "Remove the fallback for gpt-5.5?",
+    });
+
+    expect(await violations(confirm)).toEqual([]);
   });
 
   it("the add-account dialog", async () => {
