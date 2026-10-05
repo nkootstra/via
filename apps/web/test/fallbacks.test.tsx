@@ -51,8 +51,9 @@ const fallingBack = (source: string, fallbacks: ReadonlyArray<string>, ms: numbe
 });
 
 /** The state via puts in a signed-in page's shell, and pushes as it changes, with `fallbacks`. */
-const viaState = (fallbacks: ReadonlyArray<Fallback>) =>
+const viaState = (fallbacks: ReadonlyArray<Fallback>, fallbacksError: string | null = null) =>
   ({
+    fallbacksError,
     session: true,
     version: "0.0.0",
     pool: { accounts: [], opencodeGo: [], providers: [] },
@@ -187,7 +188,7 @@ describe("the fallbacks page", () => {
             fallbacks: [
               { status: "unavailable", reason: "not_enabled" },
               { status: "unavailable", reason: "no_accounts" },
-              available,
+              { status: "unavailable", reason: "not_listed" },
             ],
             serving: "gpt-5.6-sol",
           },
@@ -199,7 +200,26 @@ describe("the fallbacks page", () => {
 
     expect(row.textContent).toContain("minimax-m3 isn't enabled, so via skips it.");
     expect(row.textContent).toContain("kimi-k3 has no account to serve it, so via skips it.");
-    expect(row.textContent).toContain("gpt-4o isn't in the models list, so via skips it.");
+    expect(row.textContent).toContain("gpt-4o isn't a model via knows, so via skips it.");
+  });
+
+  it("takes via's word for which fallbacks it can use, not the models list's", async () => {
+    // Not listed now, but via says it could serve it: an OpenRouter model, say, enabled since.
+    renderApp("/fallbacks", { models, fallbacks: [standingBy("gpt-5.6-sol", ["acme/new-one"])] });
+
+    expect((await rowOf("gpt-5.6-sol")).textContent).not.toContain("skips it");
+  });
+
+  it("says when via can't read the rules, rather than that there are none", async () => {
+    embed(viaState([], "fallbacks.json isn't valid JSON."));
+    renderApp("/fallbacks", { models });
+
+    const alert = await screen.findByRole("alert");
+
+    expect(alert.textContent).toBe(
+      "Couldn't read fallbacks.json: fallbacks.json isn't valid JSON. Requests don't fall back until it's fixed.",
+    );
+    expect(screen.queryByRole("region", { name: "No fallbacks yet" })).toBeNull();
   });
 
   it("says when no model in a rule's list can answer either", async () => {

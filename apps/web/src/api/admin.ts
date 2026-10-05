@@ -102,6 +102,16 @@ export const fallbacksQuery = queryOptions({
   staleTime: SENT_FRESH_MS,
 });
 
+/**
+ * Why via can't read the fallback rules, when it can't. Only its pushed state
+ * says; no endpoint answers it, so until via sends a state it's taken as none.
+ */
+export const fallbacksErrorQuery = queryOptions({
+  queryKey: ["fallbacks-error"],
+  queryFn: () => Promise.resolve<string | null>(null),
+  staleTime: Infinity,
+});
+
 export type SaveFallbackOutcome =
   | { readonly saved: true }
   | { readonly saved: false; readonly problem: string };

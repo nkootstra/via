@@ -18,24 +18,23 @@ export const standingOf = ({ model, status }: Fallback): Standing =>
       : { state: "falling-back", to: status.serving };
 
 /**
- * Why via skips `target` when it falls back, if it does: a model it has no
- * account for, one not enabled, or one it doesn't list at all. A model cooling
- * down is only resting, so that's no reason.
+ * Why via skips `target` when it falls back, as via says: a model it has no
+ * account for, one not enabled, or one it doesn't know. A model cooling down
+ * is only resting, so that's no reason.
  */
-export const skipped = (
-  target: string,
-  availability: Availability | undefined,
-  listed: ReadonlySet<string>,
-) => {
+export const skipped = (target: string, availability: Availability | undefined) => {
+  if (availability?.status !== "unavailable") return undefined;
+
   const name = withoutPrefix(target);
 
-  if (availability?.status === "unavailable") {
-    return availability.reason === "not_enabled"
-      ? `${name} isn't enabled, so via skips it.`
-      : `${name} has no account to serve it, so via skips it.`;
+  switch (availability.reason) {
+    case "not_enabled":
+      return `${name} isn't enabled, so via skips it.`;
+    case "no_accounts":
+      return `${name} has no account to serve it, so via skips it.`;
+    case "not_listed":
+      return `${name} isn't a model via knows, so via skips it.`;
   }
-
-  return listed.has(target) ? undefined : `${name} isn't in the models list, so via skips it.`;
 };
 
 /** How many models one model may fall back to, as via allows. */

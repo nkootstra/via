@@ -1,10 +1,11 @@
 import * as stylex from "@stylexjs/stylex";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import {
   Badge,
   Button,
+  Callout,
   EmptyState,
   MenuItem,
   MenuSeparator,
@@ -13,7 +14,13 @@ import {
   VisuallyHidden,
 } from "@via/ui";
 import { colors, fontWeights, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
-import { fallbacksQuery, modelsQuery, refreshFallbacks, removeFallback } from "../../api/admin.ts";
+import {
+  fallbacksErrorQuery,
+  fallbacksQuery,
+  modelsQuery,
+  refreshFallbacks,
+  removeFallback,
+} from "../../api/admin.ts";
 import { useLiveOptions } from "../../api/live.ts";
 import type { Availability, Fallback } from "../../api/types.ts";
 import { BackIn } from "../../components/back-in.tsx";
@@ -270,13 +277,10 @@ function WhyNot({ availability }: { readonly availability: Availability }) {
 /** A rule: its model, then the models it falls back to, in order, and how it stands. */
 function Rule({
   rule,
-  listed,
   onEdit,
   onRemove,
 }: {
   readonly rule: Fallback;
-  /** Every model id via lists now. */
-  readonly listed: ReadonlySet<string>;
   readonly onEdit: (opener: HTMLElement | null) => void;
   readonly onRemove: () => void;
 }) {
@@ -284,7 +288,7 @@ function Rule({
   const standing = standingOf(rule);
 
   const notes = rule.fallbacks.flatMap(
-    (target, index) => skipped(target, rule.status.fallbacks[index], listed) ?? [],
+    (target, index) => skipped(target, rule.status.fallbacks[index]) ?? [],
   );
 
   return (
@@ -297,7 +301,7 @@ function Rule({
           <ol aria-label="Falls back to" {...stylex.props(styles.targets)}>
             {rule.fallbacks.map((target, index) => {
               const serving = standing.state === "falling-back" && standing.to === target;
-              const skip = skipped(target, rule.status.fallbacks[index], listed) !== undefined;
+              const skip = skipped(target, rule.status.fallbacks[index]) !== undefined;
 
               return (
                 <li key={target} {...stylex.props(styles.target)}>
@@ -393,7 +397,8 @@ function Fallbacks() {
   const live = useLiveOptions();
   const fallbacks = useSuspenseQuery({ ...fallbacksQuery, ...live });
   const models = useSuspenseQuery({ ...modelsQuery, ...live });
-  const listed = new Set(models.data.map((model) => model.id));
+  // Only via's pushed state says; a page without it takes the rules as read.
+  const unreadable = useQuery(fallbacksErrorQuery).data ?? null;
   const entries = modelEntries(models.data);
   const news = useTransitions(fallbacks.data);
   const queryClient = useQueryClient();
@@ -430,7 +435,12 @@ function Fallbacks() {
     >
       {/* Rendered from the start, so a screen reader hears it as it changes. */}
       <Status>{news}</Status>
-      {fallbacks.data.length === 0 ? (
+      {unreadable !== null ? (
+        <Callout tone="danger" role="alert">
+          Couldn't read fallbacks.json: {unreadable.replace(/\.$/, "")}. Requests don't fall back
+          until it's fixed.
+        </Callout>
+      ) : fallbacks.data.length === 0 ? (
         <EmptyState
           headingLevel={2}
           icon={<FallbacksIcon size={18} />}
@@ -445,7 +455,6 @@ function Fallbacks() {
               <Rule
                 key={rule.model}
                 rule={rule}
-                listed={listed}
                 onEdit={(from) => edit(rule, from)}
                 onRemove={() => dialogs.show("remove", rule)}
               />

@@ -618,7 +618,9 @@ each stands right now: **Standing by** while its model answers, **Falling
 back** with the model answering in its place, why its own can't and when it
 is back, or **No fallback available** when every model in the list can't
 answer either, so requests fail. A fallback via skips, such as an OpenRouter
-model that isn't enabled, is drawn dashed, with why. A screen reader hears a
+model that isn't enabled or a model via doesn't know, is drawn dashed, with
+why. When via can't read `fallbacks.json`, the page says so in place of the
+rules: requests don't fall back until the file is fixed. A screen reader hears a
 rule start or stop falling back, not the countdown. **Add fallback** picks a
 model, from a list grouped like the Models page's that leaves out the models
 that have a rule, then up to three to fall back to, in order: move each up or
