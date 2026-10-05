@@ -1,14 +1,33 @@
 import * as stylex from "@stylexjs/stylex";
-import { useSuspenseQuery } from "@tanstack/react-query";
+import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
-import { Badge, EmptyState, Skeleton, VisuallyHidden } from "@via/ui";
+import {
+  Badge,
+  Button,
+  EmptyState,
+  MenuItem,
+  MenuSeparator,
+  RowActions,
+  Skeleton,
+  VisuallyHidden,
+} from "@via/ui";
 import { colors, fontWeights, fonts, radii, space, text, weights } from "@via/ui/tokens.stylex";
-import { fallbacksQuery, modelsQuery } from "../../api/admin.ts";
+import { fallbacksQuery, modelsQuery, refreshFallbacks, removeFallback } from "../../api/admin.ts";
 import { useLiveOptions } from "../../api/live.ts";
 import type { Availability, Fallback } from "../../api/types.ts";
 import { BackIn } from "../../components/back-in.tsx";
-import { ArrowRightIcon, FallbacksIcon } from "../../components/icons.tsx";
+import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
+import { FallbackDialog } from "../../components/fallback-dialog.tsx";
+import {
+  ArrowRightIcon,
+  EditIcon,
+  FallbacksIcon,
+  PlusIcon,
+  TrashIcon,
+} from "../../components/icons.tsx";
+import { useRowDialog } from "../../components/row-dialog.ts";
+import { modelEntries, withoutPrefix } from "../../lib/model-entries.ts";
 import { ModelName } from "../../components/model-name.tsx";
 import { Page, Panel } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
@@ -252,11 +271,16 @@ function WhyNot({ availability }: { readonly availability: Availability }) {
 function Rule({
   rule,
   listed,
+  onEdit,
+  onRemove,
 }: {
   readonly rule: Fallback;
   /** Every model id via lists now. */
   readonly listed: ReadonlySet<string>;
+  readonly onEdit: (opener: HTMLElement | null) => void;
+  readonly onRemove: () => void;
 }) {
+  const actions = useRef<HTMLDivElement>(null);
   const standing = standingOf(rule);
 
   const notes = rule.fallbacks.flatMap(
@@ -296,8 +320,23 @@ function Rule({
             })}
           </ol>
         </div>
-        <div {...stylex.props(styles.side)}>
+        <div ref={actions} {...stylex.props(styles.side)}>
           <StandingBadge standing={standing} />
+          <RowActions label={`Actions for ${rule.model}`}>
+            <MenuItem
+              label="Edit…"
+              icon={<EditIcon size={15} />}
+              // Focus goes back to the row's menu button once the dialog closes.
+              onClick={() => onEdit(actions.current?.querySelector("button") ?? null)}
+            />
+            <MenuSeparator />
+            <MenuItem
+              label="Remove…"
+              icon={<TrashIcon size={15} />}
+              destructive
+              onClick={onRemove}
+            />
+          </RowActions>
         </div>
       </div>
       {(standing.state !== "standing-by" || notes.length > 0) && (
@@ -355,10 +394,38 @@ function Fallbacks() {
   const fallbacks = useSuspenseQuery({ ...fallbacksQuery, ...live });
   const models = useSuspenseQuery({ ...modelsQuery, ...live });
   const listed = new Set(models.data.map((model) => model.id));
+  const entries = modelEntries(models.data);
   const news = useTransitions(fallbacks.data);
+  const queryClient = useQueryClient();
+  const opener = useRef<HTMLElement | null>(null);
+
+  // The add or edit dialog, while it shows: kept as it animates out, then gone, so it starts afresh.
+  const [editing, setEditing] = useState<{
+    readonly rule: Fallback | undefined;
+    readonly open: boolean;
+  } | null>(null);
+
+  const dialogs = useRowDialog<Fallback, "remove">();
+  const remove = dialogs.propsFor("remove");
+
+  const edit = (rule: Fallback | undefined, from: HTMLElement | null) => {
+    opener.current = from;
+    setEditing({ rule, open: true });
+  };
+
+  const addButton = (
+    <Button onClick={(event) => edit(undefined, event.currentTarget)}>
+      <PlusIcon size={15} />
+      Add fallback
+    </Button>
+  );
 
   return (
-    <Page title={title} description={description}>
+    <Page
+      title={title}
+      description={description}
+      actions={fallbacks.data.length > 0 ? addButton : undefined}
+    >
       {/* Rendered from the start, so a screen reader hears it as it changes. */}
       <Status>{news}</Status>
       {fallbacks.data.length === 0 ? (
@@ -367,15 +434,50 @@ function Fallbacks() {
           icon={<FallbacksIcon size={18} />}
           title="No fallbacks yet"
           description="Add one, and when a model is cooling down or out of reach, via answers with another you choose instead of an error."
+          action={addButton}
         />
       ) : (
         <Panel>
           <div {...stylex.props(styles.rows)}>
             {fallbacks.data.map((rule) => (
-              <Rule key={rule.model} rule={rule} listed={listed} />
+              <Rule
+                key={rule.model}
+                rule={rule}
+                listed={listed}
+                onEdit={(from) => edit(rule, from)}
+                onRemove={() => dialogs.show("remove", rule)}
+              />
             ))}
           </div>
         </Panel>
+      )}
+      {editing !== null && (
+        <FallbackDialog
+          key={editing.rule?.model ?? "new"}
+          open={editing.open}
+          onClose={() => setEditing((current) => current && { ...current, open: false })}
+          onClosed={() => setEditing(null)}
+          rule={editing.rule}
+          rules={fallbacks.data}
+          entries={entries}
+          opener={opener}
+        />
+      )}
+      {remove !== undefined && (
+        <ConfirmDialog
+          key={remove.row.model}
+          {...remove}
+          title={`Remove the fallback for ${withoutPrefix(remove.row.model)}?`}
+          description={`When ${withoutPrefix(remove.row.model)} can't answer, its requests fail again instead of going to ${withoutPrefix(remove.row.fallbacks[0] ?? "")}.`}
+          confirmLabel="Remove fallback"
+          confirm={() => removeFallback(remove.row.model)}
+          onConfirmed={() => refreshFallbacks(queryClient)}
+          done={{
+            title: "Fallback removed",
+            description: `Requests for ${withoutPrefix(remove.row.model)} no longer fall back.`,
+          }}
+          failed="Couldn't remove fallback"
+        />
       )}
     </Page>
   );

@@ -18,7 +18,12 @@ import {
   OpenrouterKeyRejectedError,
   OpenrouterNotSetUpError,
 } from "@via/providers/errors";
-import { Option, Schema } from "effect";
+import {
+  FallbackRuleInvalidError,
+  FallbackRuleNotFoundError,
+  parseRule,
+} from "@via/fallbacks/rule";
+import { Effect, Option, Schema } from "effect";
 import type {
   Account,
   Fallback,
@@ -568,6 +573,57 @@ export function adminHandlers(state: AdminState) {
     http.get(
       at("/fallbacks"),
       guarded(() => ok(fallbacks.endpoints.list, state.fallbacks)),
+    ),
+    http.put(
+      at("/fallbacks"),
+      guarded(async ({ request }) => {
+        const input = Schema.decodeUnknownSync(
+          Schema.Struct({ model: Schema.String, fallbacks: Schema.Array(Schema.String) }),
+        )(await request.json());
+
+        // Checked as via checks it, so the fake refuses a rule in via's own words.
+        const problem = Effect.runSync(
+          parseRule(input).pipe(
+            Effect.match({ onFailure: (error) => error.problem, onSuccess: () => undefined }),
+          ),
+        );
+
+        if (problem !== undefined) {
+          return failure(FallbackRuleInvalidError, new FallbackRuleInvalidError({ problem }), 400);
+        }
+
+        // Saved standing by: the fake has no pool to say otherwise.
+        const saved: Fallback = {
+          ...input,
+          status: {
+            source: { status: "available" },
+            fallbacks: input.fallbacks.map(() => ({ status: "available" })),
+            serving: input.model,
+          },
+        };
+
+        const kept = state.fallbacks.some((rule) => rule.model === input.model);
+
+        state.fallbacks = kept
+          ? state.fallbacks.map((rule) => (rule.model === input.model ? saved : rule))
+          : [...state.fallbacks, saved];
+
+        return ok(fallbacks.endpoints.set, saved);
+      }),
+    ),
+    http.delete(
+      at("/fallbacks"),
+      guarded(({ request }) => {
+        const model = new URL(request.url).searchParams.get("model") ?? "";
+
+        if (!state.fallbacks.some((rule) => rule.model === model)) {
+          return failure(FallbackRuleNotFoundError, new FallbackRuleNotFoundError({ model }), 404);
+        }
+
+        state.fallbacks = state.fallbacks.filter((rule) => rule.model !== model);
+
+        return noContent();
+      }),
     ),
 
     http.get(
