@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "test": "bun --bun vitest run --test-timeout=60000",
+    "test": "bun --bun vitest run",
     "typecheck": "tsc -p ."
   },
   "devDependencies": {

@@ -100,9 +100,7 @@ layer(BunFileSystem.layer)("providers in the admin UI", (it) => {
 
         // A key OpenRouter refuses is never kept.
         yield* saveDialog(page, "API key", "sk-or-wrong");
-        yield* Effect.promise(() =>
-          page.getByRole("dialog").getByText(/401/).first().waitFor({ timeout: 10_000 }),
-        );
+        yield* Effect.promise(() => page.getByRole("dialog").getByText(/401/).first().waitFor());
 
         yield* saveDialog(page, "API key", "sk-or-first");
         yield* toast(page, "OpenRouter key added");
@@ -196,7 +194,7 @@ layer(BunFileSystem.layer)("providers in the admin UI", (it) => {
           table
             .getByText(/0\.35\.0/)
             .first()
-            .waitFor({ timeout: 10_000 }),
+            .waitFor(),
         );
 
         expect(yield* systemOne("ollama/nimble")).toEqual({

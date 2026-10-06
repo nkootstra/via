@@ -171,9 +171,7 @@ export const withBinary = process.env["VIA_E2E_BIN"] !== undefined;
  * must not find the overview's "Accounts and providers" before it has gone.
  */
 export const visible = (page: Page, name: string) =>
-  Effect.promise(() =>
-    page.getByRole("heading", { name, exact: true }).waitFor({ timeout: 10_000 }),
-  );
+  Effect.promise(() => page.getByRole("heading", { name, exact: true }).waitFor());
 
 /** Signs in to the UI at `url` with the admin key, landing on the overview. */
 export const signIn = (page: Page, url: string) =>
@@ -187,11 +185,17 @@ export const signIn = (page: Page, url: string) =>
 
 /** Waits for a toast titled `title`. */
 export const toast = (page: Page, title: string) =>
-  Effect.promise(() => page.getByText(title, { exact: true }).waitFor({ timeout: 10_000 }));
+  Effect.promise(() => page.getByText(title, { exact: true }).waitFor());
 
 /** Chooses `item` in the actions menu of the table row named `row`. */
 export const rowAction = (page: Page, row: string, item: string) =>
   Effect.gen(function* () {
+    // Only once a dialog that was just saved has gone: while it closes, its backdrop and the
+    // focus it hands back can close the menu as it opens. Toasts, which are dialogs too but
+    // not modal, may stay.
+    yield* Effect.promise(() =>
+      page.locator('[role="dialog"]:not([aria-modal="false"])').waitFor({ state: "hidden" }),
+    );
     yield* Effect.promise(() => page.getByRole("button", { name: `Actions for ${row}` }).click());
     yield* Effect.promise(() => page.getByRole("menuitem", { name: item }).click());
   });

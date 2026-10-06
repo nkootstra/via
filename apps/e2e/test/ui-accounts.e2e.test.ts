@@ -63,6 +63,9 @@ layer(BunFileSystem.layer)("managing accounts in the admin UI", (it) => {
         const { page, problems } = yield* openPage("add-account");
         yield* signIn(page, via.url);
         yield* Effect.promise(() => page.getByRole("link", { name: "Accounts" }).click());
+        // The page's own heading first: the overview, which is going, says "No accounts yet"
+        // and has an Add account button too.
+        yield* visible(page, "Accounts");
         yield* visible(page, "No accounts yet");
 
         yield* Effect.promise(() => page.getByRole("button", { name: "Add account" }).click());
@@ -109,7 +112,7 @@ layer(BunFileSystem.layer)("managing accounts in the admin UI", (it) => {
         yield* Effect.promise(() => signInAgain.click());
         // As when adding one, the issuer approves at once: the toast says the login went through.
         yield* toast(page, "Signed in again");
-        yield* Effect.promise(() => signInAgain.waitFor({ state: "detached", timeout: 10_000 }));
+        yield* Effect.promise(() => signInAgain.waitFor({ state: "detached" }));
 
         codex.respond(() => reply.text("hi"));
         expect(yield* servedBy(via, codex, "after")).toBe("acc-123");
