@@ -195,6 +195,10 @@ layer(BunFileSystem.layer)("the admin UI in a browser", (it) => {
       yield* visible(page, "Usage");
 
       yield* Effect.promise(() => page.getByRole("combobox", { name: "Model" }).click());
+      // Typed only once the search has focus: until then, the keys go to the trigger and are lost.
+      yield* Effect.promise(() =>
+        page.getByRole("combobox", { name: "Model" }).and(page.locator("input:focus")).waitFor(),
+      );
       yield* Effect.promise(() => page.keyboard.type("codex"));
       yield* Effect.promise(() => page.getByRole("option", { name: /gpt-5\.1-codex/ }).click());
       yield* Effect.promise(() => page.waitForURL(/model=gpt-5\.1-codex/));
