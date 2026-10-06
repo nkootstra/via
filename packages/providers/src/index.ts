@@ -8,6 +8,8 @@ export { OpenrouterSettings } from "./openrouter-settings.ts";
 
 export { OpencodeGoPool } from "./opencode-go-pool.ts";
 
-export { type ProviderModel, type ProviderPath, Providers, type Route } from "./providers.ts";
+export { type ProviderModel, type ProviderPath, type Route } from "./provider.ts";
+
+export { Providers } from "./providers.ts";
 
 export { providerState } from "./state.ts";
