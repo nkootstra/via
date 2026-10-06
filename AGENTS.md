@@ -56,6 +56,10 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   plus a `Layer` (`Foo.layer`), with the operations typed inline or as
   `Effect.Success<typeof make>`. Name the type `Foo["Service"]`, never with a
   separate `FooShape`. Depend on services, not modules with side effects.
+- A service file holds one service: a named `make` that yields what it
+  depends on, and the class whose `static layer` builds from it. Methods
+  need nothing more (`R = never`): a store takes its files with
+  `ownedFiles` from `@via/config`, never by re-providing `FileSystem`.
 - Errors: `Schema.TaggedError` (serializable) or `Data.TaggedError`.
   Fail with `yield* new FooError({...})`. Handle with `Effect.catchTag`/`catchTags`.
   Never inspect `_tag` or use `instanceof` by hand.
@@ -69,9 +73,16 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   `HttpClient` / `HttpRouter` from `effect/unstable/http`. Time goes through
   `Clock` (tests use `TestClock`).
 - `Effect.die` / `orDie` only at true boundaries, with a comment explaining why.
+  The same goes for anything that turns a typed error into a default
+  (`orElseSucceed`, `catch`, `ignore`).
 - Import from package public exports only. Never use relative imports across packages.
 
 ## Layout
+
+Name files and folders by domain (`proxy/forward.ts`, `openrouter.ts`), not
+by mechanism (`utils/`, `handlers/`, `types.ts`). `errors.ts` and
+`schemas.ts` exist only as browser-safe entry points for the admin API
+contract.
 
 - `apps/cli`: the `via` binary (`effect/unstable/cli`); the composition root.
 - `apps/web`: the admin web UI, a static React SPA (TanStack Start in SPA
