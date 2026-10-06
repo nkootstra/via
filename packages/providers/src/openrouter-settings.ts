@@ -9,14 +9,15 @@ const Stored = Schema.Struct({
 
 export type OpenrouterSaved = typeof Stored.Type;
 
+const make = (path: string) => settingsFile(path, Stored);
+
 /**
  * The OpenRouter key added in the web UI, rather than in config.yaml, and the
  * models it enables, in one owner-only JSON file at `path`.
  */
 export class OpenrouterSettings extends Context.Service<
   OpenrouterSettings,
-  Effect.Success<ReturnType<typeof settingsFile<typeof Stored>>>
+  Effect.Success<ReturnType<typeof make>>
 >()("via/OpenrouterSettings") {
-  static readonly layer = (path: string) =>
-    Layer.effect(OpenrouterSettings, settingsFile(path, Stored));
+  static readonly layer = (path: string) => Layer.effect(OpenrouterSettings, make(path));
 }
