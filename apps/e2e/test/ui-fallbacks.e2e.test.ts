@@ -65,9 +65,9 @@ const expectInOrder = (items: Locator, expected: ReadonlyArray<string>) =>
           items
             .nth(index)
             .filter({ hasText: new RegExp(`^${escaped(text)}$`) })
-            .waitFor({ timeout: 10_000 }),
+            .waitFor(),
         ),
-        items.nth(expected.length).waitFor({ state: "detached", timeout: 10_000 }),
+        items.nth(expected.length).waitFor({ state: "detached" }),
       ]),
     );
     expect(yield* Effect.promise(() => items.allTextContents())).toEqual(expected);
@@ -119,6 +119,7 @@ layer(BunFileSystem.layer)("managing fallbacks in the admin UI", (it) => {
 
       yield* signIn(page, via.url);
       yield* Effect.promise(() => page.getByRole("link", { name: "Fallbacks" }).click());
+      yield* visible(page, "Fallbacks");
       yield* visible(page, "No fallbacks yet");
 
       yield* Effect.promise(() => page.getByRole("button", { name: "Add fallback" }).click());
