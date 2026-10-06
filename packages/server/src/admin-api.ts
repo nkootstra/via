@@ -337,6 +337,13 @@ export class Forbidden extends Schema.TaggedError<Forbidden>()(
   { httpApiStatus: 403 },
 ) {}
 
+/** The fallback rules file can't be read or written; `message` says which file and why. */
+export class FallbackRulesFileError extends Schema.TaggedError<FallbackRulesFileError>()(
+  "FallbackRulesFileError",
+  { message: Schema.String },
+  { httpApiStatus: 500 },
+) {}
+
 /**
  * Bearer auth, spelled `bearer` in the spec: `HttpApiSecurity.bearer` says `Bearer`,
  * which Scalar's API client mistakes for Basic auth. Headers match either way.
@@ -659,19 +666,24 @@ class KeysGroup extends HttpApiGroup.make("keys")
  * body or the query, not the path: a provider's id holds slashes.
  */
 class FallbacksGroup extends HttpApiGroup.make("fallbacks")
-  .add(HttpApiEndpoint.get("list", "/fallbacks", { success: Schema.Array(AdminFallback) }))
+  .add(
+    HttpApiEndpoint.get("list", "/fallbacks", {
+      success: Schema.Array(AdminFallback),
+      error: FallbackRulesFileError,
+    }),
+  )
   .add(
     HttpApiEndpoint.put("set", "/fallbacks", {
       // Checked by the handler, so a rule it refuses says why.
       payload: Schema.Struct({ model: Schema.String, fallbacks: Schema.Array(Schema.String) }),
       success: AdminFallback,
-      error: FallbackRuleInvalidError.pipe(HttpApiSchema.status(400)),
+      error: [FallbackRuleInvalidError.pipe(HttpApiSchema.status(400)), FallbackRulesFileError],
     }),
   )
   .add(
     HttpApiEndpoint.delete("remove", "/fallbacks", {
       query: { model: Name },
-      error: FallbackRuleNotFoundError.pipe(HttpApiSchema.status(404)),
+      error: [FallbackRuleNotFoundError.pipe(HttpApiSchema.status(404)), FallbackRulesFileError],
     }),
   )
   .middleware(AdminAuthorization)
