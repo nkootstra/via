@@ -1,9 +1,8 @@
-import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
+import { ownedFiles } from "@via/config";
 import {
   Context,
   DateTime,
   Effect,
-  FileSystem,
   Layer,
   Redacted,
   Schema,
@@ -49,7 +48,7 @@ const respelled = (account: OpencodeGoAccount): OpencodeGoAccount =>
 
 const make = (path: string) =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
+    const files = yield* ownedFiles;
     // Changes read the file, then write it whole: run them one at a time, or concurrent
     // changes overwrite each other. The semaphore orders this process's changes; the file
     // lock orders them against another process's (`via accounts` next to `via serve`).
@@ -58,21 +57,20 @@ const make = (path: string) =>
     const revision = yield* SubscriptionRef.make(0);
 
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      permit(
-        withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
-      ).pipe(Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)));
+      permit(files.locked(path, effect)).pipe(
+        Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)),
+      );
 
     // Old labels are respelled as they are read, so the next change writes them back.
-    const list = readJsonFile(path, StoredAccounts, () => []).pipe(
-      Effect.map((accounts) => accounts.map(respelled)),
-      Effect.provideService(FileSystem.FileSystem, fs),
-      Effect.withSpan("OpencodeGoAccounts.list"),
-    );
+    const list = files
+      .read(path, StoredAccounts, () => [])
+      .pipe(
+        Effect.map((accounts) => accounts.map(respelled)),
+        Effect.withSpan("OpencodeGoAccounts.list"),
+      );
 
     const write = (accounts: ReadonlyArray<OpencodeGoAccount>) =>
-      writeJsonFile(path, StoredAccounts, accounts).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-      );
+      files.write(path, StoredAccounts, accounts);
 
     const find = Effect.fn("OpencodeGoAccounts.find")(function* (query: string) {
       const all = yield* list;

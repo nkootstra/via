@@ -1,16 +1,9 @@
-import {
-  cachedUntilChanged,
-  fileStamp,
-  readJsonFile,
-  withFileLock,
-  writeJsonFile,
-} from "@via/config";
+import { cachedUntilChanged, ownedFiles } from "@via/config";
 import {
   Context,
   DateTime,
   Duration,
   Effect,
-  FileSystem,
   Layer,
   Option,
   Schema,
@@ -65,7 +58,7 @@ const latest = (a: DateTime.Utc | undefined, b: DateTime.Utc | undefined) =>
 
 const make = (path: string) =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
+    const files = yield* ownedFiles;
     // create, rename and revoke read the file, then write it whole: run them one at a time, or
     // concurrent changes overwrite each other. The semaphore orders this process's changes;
     // the file lock orders them against another process's (`via keys` next to `via serve`).
@@ -77,25 +70,22 @@ const make = (path: string) =>
     const background = yield* Effect.scope;
 
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      permit(
-        withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
-      ).pipe(Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)));
+      permit(files.locked(path, effect)).pipe(
+        Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)),
+      );
 
-    const read = readJsonFile(path, StoredKeys, () => []).pipe(
-      Effect.provideService(FileSystem.FileSystem, fs),
-    );
+    const read = files.read(path, StoredKeys, () => []);
 
     // What `list` and `verify`, which every request runs, read: the file as last read until it
     // changes, by this process or another (`via keys revoke`, so the next request sees it).
     // Changes read the file itself, under the lock.
     const current = yield* cachedUntilChanged({
-      stamp: fileStamp(path).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
+      stamp: files.stamp(path),
       revision: SubscriptionRef.get(revision),
       read,
     });
 
-    const write = (keys: typeof StoredKeys.Type) =>
-      writeJsonFile(path, StoredKeys, keys).pipe(Effect.provideService(FileSystem.FileSystem, fs));
+    const write = (keys: typeof StoredKeys.Type) => files.write(path, StoredKeys, keys);
 
     const create = Effect.fn("KeyStore.create")(function* (name: string) {
       const keys = yield* read;
