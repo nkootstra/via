@@ -10,6 +10,20 @@ const IDLE_TTL = "1 hour";
 // sessions bound at once.
 const CAPACITY = 10_000;
 
+const make = Effect.gen(function* () {
+  const cache = yield* Cache.make<string, string>({
+    capacity: CAPACITY,
+    // Never invoked: a binding only ever comes from `bind`, so a miss has nothing to look up.
+    lookup: () => Effect.die(new Error("SessionBindings: no binding to look up for a miss")),
+    timeToLive: IDLE_TTL,
+  });
+
+  return SessionBindings.of({
+    get: (session) => Cache.getSuccess(cache, session),
+    bind: (session, accountId) => Cache.set(cache, session, accountId),
+  });
+});
+
 /** Which account last served each session, so its Codex requests stay on a warm cache. */
 export class SessionBindings extends Context.Service<
   SessionBindings,
@@ -21,20 +35,5 @@ export class SessionBindings extends Context.Service<
   }
 >()("via/SessionBindings") {
   /** Kept in memory only: a restart loses nothing a warm prompt cache needed anyway. */
-  static readonly layer = Layer.effect(
-    SessionBindings,
-    Effect.gen(function* () {
-      const cache = yield* Cache.make<string, string>({
-        capacity: CAPACITY,
-        // Never invoked: a binding only ever comes from `bind`, so a miss has nothing to look up.
-        lookup: () => Effect.die(new Error("SessionBindings: no binding to look up for a miss")),
-        timeToLive: IDLE_TTL,
-      });
-
-      return SessionBindings.of({
-        get: (session) => Cache.getSuccess(cache, session),
-        bind: (session, accountId) => Cache.set(cache, session, accountId),
-      });
-    }),
-  );
+  static readonly layer = Layer.effect(SessionBindings, make);
 }

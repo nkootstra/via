@@ -174,6 +174,127 @@ const mayServe = (offered: ReadonlyArray<Offered>, model: string) => {
     offering.size === 0 || offering.has(accountId) || !known.has(accountId);
 };
 
+const make = Effect.gen(function* () {
+  const codex = yield* CodexUpstream;
+  const pool = yield* AccountPool;
+  const providers = yield* Providers;
+  const opencodeGo = yield* OpencodeGoAccounts;
+
+  const providerModels = yield* stale(
+    "the providers' models",
+    () => providers.models,
+    keyOf,
+    "5 minutes",
+  );
+
+  /** The enabled OpenCode Go accounts, by id: the keys its models can be asked with. */
+  const enabledOpencodeGo = opencodeGo.list.pipe(
+    Effect.map((all) => all.filter(({ enabled }) => enabled).map(({ id }) => id)),
+    // A store via can't read has no key to lend, as Providers finds too.
+    Effect.orElseSucceed((): ReadonlyArray<string> => []),
+  );
+
+  /** The OpenRouter models the web UI enabled; none when config.yaml sets it up. */
+  const enabledOpenrouter = Effect.map(providers.openrouter.get, (saved) =>
+    Option.match(saved, {
+      onNone: (): ReadonlyArray<string> => [],
+      onSome: ({ models }) => models,
+    }),
+  );
+
+  /**
+   * What the providers' models depend on: the OpenCode Go accounts that can ask,
+   * the providers, as an Ollama may be added or removed while via runs, and the
+   * OpenRouter models enabled, which change there too.
+   */
+  const providersToAsk = Effect.all([enabledOpencodeGo, providers.names, enabledOpenrouter]).pipe(
+    Effect.flatMap(([ids, names, openrouter]) =>
+      providerModels([
+        ...ids,
+        ...names.map((name) => `provider:${name}`),
+        ...openrouter.map((model) => `openrouter:${model}`),
+      ]),
+    ),
+  );
+
+  const ask = (accounts: ReadonlyArray<Account>) =>
+    Effect.forEach(
+      accounts,
+      (account) =>
+        pool.withFreshToken(account).pipe(
+          Effect.flatMap(Effect.fromOption),
+          Effect.flatMap((fresh) => codex.models(fresh)),
+          Effect.map((catalog) => ({ accountId: account.id, catalog })),
+          Effect.option,
+        ),
+      { concurrency: "unbounded" },
+    ).pipe(
+      Effect.map(Array.getSomes),
+      // Failing when no account answered keeps the bundled list from being kept.
+      Effect.filterOrFail(Array.isReadonlyArrayNonEmpty),
+    );
+
+  const offeredTo = yield* stale(
+    "the models Codex offers",
+    ask,
+    (accounts) => keyOf(accounts.map(({ id }) => id)),
+    "5 minutes",
+  );
+
+  /** What Codex offers each account that serves; none when no account serves. */
+  const offered = pool.serving.pipe(
+    Effect.flatMap((accounts) =>
+      Array.isReadonlyArrayNonEmpty(accounts)
+        ? Effect.asSome(offeredTo(accounts))
+        : Effect.succeedNone,
+    ),
+  );
+
+  const codexModels = offered.pipe(
+    Effect.map(
+      Option.match({
+        // Nothing serves Codex, so nothing of Codex's is listed.
+        onNone: () => [],
+        onSome: (all) => modelIds(combine(all.map(({ catalog }) => catalog))),
+      }),
+    ),
+    // Any failure to ask Codex leaves the bundled list, which is still a useful answer.
+    Effect.orElseSucceed(() => modelIds()),
+    Effect.map((ids) => ids.map((id) => entry(id, "openai"))),
+  );
+
+  const catalog = Effect.all([codexModels, providersToAsk], {
+    concurrency: "unbounded",
+  }).pipe(
+    Effect.map(([fromCodex, fromProviders]) => [
+      ...fromCodex,
+      // The provider's own fields, such as context_length or pricing, win.
+      ...fromProviders.map(({ provider, model }) => ({
+        ...entry(model.id, provider),
+        ...model,
+      })),
+    ]),
+  );
+
+  // Fetched as via starts, so the first request need not wait.
+  yield* Effect.forkScoped(catalog);
+
+  const offeredOrNone = offered.pipe(
+    Effect.map(Option.getOrElse((): ReadonlyArray<Offered> => [])),
+    // Not knowing what Codex offers lets every account serve every model, and the
+    // bundled list stand: as when no account serves.
+    Effect.orElseSucceed((): ReadonlyArray<Offered> => []),
+  );
+
+  return ModelCatalog.of({
+    list: catalog,
+    mayServe: (model) => Effect.map(offeredOrNone, (all) => mayServe(all, model)),
+    codex: Effect.map(offeredOrNone, (all) =>
+      all.length === 0 ? BUNDLED : combine(all.map((one) => one.catalog)),
+    ),
+  });
+});
+
 /** The models via serves: what `/v1/models` lists, and which accounts offer a model. */
 export class ModelCatalog extends Context.Service<
   ModelCatalog,
@@ -200,131 +321,5 @@ export class ModelCatalog extends Context.Service<
    * serving, no Codex models are listed; when accounts serve but none can ask
    * Codex, it lists the models via bundles.
    */
-  static readonly layer = Layer.effect(
-    ModelCatalog,
-    Effect.gen(function* () {
-      const codex = yield* CodexUpstream;
-      const pool = yield* AccountPool;
-      const providers = yield* Providers;
-      const opencodeGo = yield* OpencodeGoAccounts;
-
-      const providerModels = yield* stale(
-        "the providers' models",
-        () => providers.models,
-        keyOf,
-        "5 minutes",
-      );
-
-      /** The enabled OpenCode Go accounts, by id: the keys its models can be asked with. */
-      const enabledOpencodeGo = opencodeGo.list.pipe(
-        Effect.map((all) => all.filter(({ enabled }) => enabled).map(({ id }) => id)),
-        // A store via can't read has no key to lend, as Providers finds too.
-        Effect.orElseSucceed((): ReadonlyArray<string> => []),
-      );
-
-      /** The OpenRouter models the web UI enabled; none when config.yaml sets it up. */
-      const enabledOpenrouter = Effect.map(providers.openrouter.get, (saved) =>
-        Option.match(saved, {
-          onNone: (): ReadonlyArray<string> => [],
-          onSome: ({ models }) => models,
-        }),
-      );
-
-      /**
-       * What the providers' models depend on: the OpenCode Go accounts that can ask,
-       * the providers, as an Ollama may be added or removed while via runs, and the
-       * OpenRouter models enabled, which change there too.
-       */
-      const providersToAsk = Effect.all([
-        enabledOpencodeGo,
-        providers.names,
-        enabledOpenrouter,
-      ]).pipe(
-        Effect.flatMap(([ids, names, openrouter]) =>
-          providerModels([
-            ...ids,
-            ...names.map((name) => `provider:${name}`),
-            ...openrouter.map((model) => `openrouter:${model}`),
-          ]),
-        ),
-      );
-
-      const ask = (accounts: ReadonlyArray<Account>) =>
-        Effect.forEach(
-          accounts,
-          (account) =>
-            pool.withFreshToken(account).pipe(
-              Effect.flatMap(Effect.fromOption),
-              Effect.flatMap((fresh) => codex.models(fresh)),
-              Effect.map((catalog) => ({ accountId: account.id, catalog })),
-              Effect.option,
-            ),
-          { concurrency: "unbounded" },
-        ).pipe(
-          Effect.map(Array.getSomes),
-          // Failing when no account answered keeps the bundled list from being kept.
-          Effect.filterOrFail(Array.isReadonlyArrayNonEmpty),
-        );
-
-      const offeredTo = yield* stale(
-        "the models Codex offers",
-        ask,
-        (accounts) => keyOf(accounts.map(({ id }) => id)),
-        "5 minutes",
-      );
-
-      /** What Codex offers each account that serves; none when no account serves. */
-      const offered = pool.serving.pipe(
-        Effect.flatMap((accounts) =>
-          Array.isReadonlyArrayNonEmpty(accounts)
-            ? Effect.asSome(offeredTo(accounts))
-            : Effect.succeedNone,
-        ),
-      );
-
-      const codexModels = offered.pipe(
-        Effect.map(
-          Option.match({
-            // Nothing serves Codex, so nothing of Codex's is listed.
-            onNone: () => [],
-            onSome: (all) => modelIds(combine(all.map(({ catalog }) => catalog))),
-          }),
-        ),
-        // Any failure to ask Codex leaves the bundled list, which is still a useful answer.
-        Effect.orElseSucceed(() => modelIds()),
-        Effect.map((ids) => ids.map((id) => entry(id, "openai"))),
-      );
-
-      const catalog = Effect.all([codexModels, providersToAsk], {
-        concurrency: "unbounded",
-      }).pipe(
-        Effect.map(([fromCodex, fromProviders]) => [
-          ...fromCodex,
-          // The provider's own fields, such as context_length or pricing, win.
-          ...fromProviders.map(({ provider, model }) => ({
-            ...entry(model.id, provider),
-            ...model,
-          })),
-        ]),
-      );
-
-      // Fetched as via starts, so the first request need not wait.
-      yield* Effect.forkScoped(catalog);
-
-      const offeredOrNone = offered.pipe(
-        Effect.map(Option.getOrElse((): ReadonlyArray<Offered> => [])),
-        // Not knowing what Codex offers lets every account serve every model, and the
-        // bundled list stand: as when no account serves.
-        Effect.orElseSucceed((): ReadonlyArray<Offered> => []),
-      );
-
-      return {
-        list: catalog,
-        mayServe: (model) => Effect.map(offeredOrNone, (all) => mayServe(all, model)),
-        codex: Effect.map(offeredOrNone, (all) =>
-          all.length === 0 ? BUNDLED : combine(all.map((one) => one.catalog)),
-        ),
-      };
-    }),
-  );
+  static readonly layer = Layer.effect(ModelCatalog, make);
 }
