@@ -130,9 +130,10 @@ const styles = stylex.create({
   },
 });
 
+/** The logo, which goes home: the start page the viewer chose. */
 function Brand({ xstyle }: { readonly xstyle?: stylex.StyleXStyles }) {
   return (
-    <Link to="/overview" aria-label="via" {...stylex.props(styles.brand, xstyle)}>
+    <Link to="/" aria-label="via" {...stylex.props(styles.brand, xstyle)}>
       <Mark size={24} />
     </Link>
   );

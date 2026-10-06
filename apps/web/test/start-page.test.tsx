@@ -40,4 +40,15 @@ describe("the start page", () => {
       "/ui/overview",
     );
   });
+
+  it("takes the via logo to the start page", async () => {
+    localStorage.setItem("via.start-page", "usage");
+    const { user, router } = renderApp("/overview");
+
+    await screen.findByRole("heading", { name: "Overview", level: 1 });
+    await user.click(screen.getAllByRole("link", { name: "via" })[0]!);
+
+    expect(await screen.findByRole("heading", { name: "Usage", level: 1 })).toBeDefined();
+    expect(router.history.location.pathname).toBe("/ui/usage");
+  });
 });
