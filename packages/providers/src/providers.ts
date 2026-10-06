@@ -559,7 +559,8 @@ const make = (
         enabledOpenrouter = new Set(saved.models);
       });
 
-    // The settings file is via's own; failing to use it is a defect, as with its other files.
+    // The settings file is via's own; failing to read it here, or to write it in `openrouter`
+    // below, is a defect, as with its other files.
     const savedOpenrouter = Option.match(openrouterStore, {
       onNone: () => Effect.succeedNone,
       onSome: (settings) => Effect.orDie(settings.get),
@@ -595,7 +596,8 @@ const make = (
         Effect.map((provider) => void providers.set(OLLAMA, provider)),
       );
 
-    // The address file is via's own; failing to use it is a defect, as with its other files.
+    // The address file is via's own; failing to read it here, or to write it in `ollama`
+    // below, is a defect, as with its other files.
     const saved = Option.match(store, {
       onNone: () => Effect.succeedNone,
       onSome: (address) => Effect.orDie(address.get),
