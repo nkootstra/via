@@ -58,7 +58,7 @@ describe("signing in", () => {
 
       await signIn(user, state.adminKey);
 
-      await waitFor(() => expect(router.state.location.pathname).toBe("/"));
+      await waitFor(() => expect(router.state.location.pathname).toBe("/overview"));
       expect(await screen.findByRole("heading", { level: 1, name: "Overview" })).toBeDefined();
     },
   );
@@ -205,7 +205,7 @@ describe("signing in", () => {
   it("goes straight to the dashboard with a session", async () => {
     const { router } = renderApp("/sign-in");
 
-    await waitFor(() => expect(router.history.location.pathname).toBe("/ui/"));
+    await waitFor(() => expect(router.history.location.pathname).toBe("/ui/overview"));
   });
 });
 
@@ -260,7 +260,7 @@ describe("the session", () => {
     await waitFor(() => expect(document.activeElement).toBe(userMenu()));
     expect(state.signedIn).toBe(true);
     expect(state.requests).not.toContain("DELETE /admin/session");
-    expect(router.history.location.pathname).toBe("/ui/");
+    expect(router.history.location.pathname).toBe("/ui/overview");
   });
 
   it("stays signed in when the viewer presses Escape", async () => {
@@ -296,7 +296,7 @@ describe("the session", () => {
     );
     // Open still, to try again or cancel.
     expect(screen.getByRole("alertdialog", { name: "Sign out of via?" })).toBeDefined();
-    expect(router.history.location.pathname).toBe("/ui/");
+    expect(router.history.location.pathname).toBe("/ui/overview");
   });
 
   it("signs out once confirmed, and forgets the session", async () => {

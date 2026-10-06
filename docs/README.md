@@ -644,8 +644,9 @@ page's preferences:
   device's reduced motion setting, Reduced holds animations still whatever it
   says.
 - The time format (Automatic, 12-hour or 24-hour).
-- The **Start page**: Overview or Usage, which the page opens on when you
-  visit it or sign in.
+- The **Start page**: Overview or Usage, which `/ui/` and the via logo open
+  on, as does signing in. Every page keeps an address of its own, the Overview's
+  being `/ui/overview`, so a reload stays on the page you're on.
 
 It also deletes the whole
 [usage history](#usage-history), after asking; that one isn't a preference of

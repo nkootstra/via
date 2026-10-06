@@ -19,4 +19,4 @@ export const setStartPage = startPage.set;
 export const useStartPage = startPage.use;
 
 /** Where the chosen start page is, as a path under the app. */
-export const startPath = () => (startPage.get() === "usage" ? "/usage" : "/");
+export const startPath = () => (startPage.get() === "usage" ? "/usage" : "/overview");

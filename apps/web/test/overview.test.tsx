@@ -103,7 +103,7 @@ const tile = async (label: string) =>
 
 describe("the overview", () => {
   it("shows each account's state and usage windows", async () => {
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     const work = await card("work");
     expect(within(work).getByText("Available")).toBeDefined();
@@ -120,7 +120,7 @@ describe("the overview", () => {
   });
 
   it("says what to do about an account whose usage couldn't be read", async () => {
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     const home = await card("home");
     expect(await within(home).findByText(/ChatGPT didn't answer/)).toBeDefined();
@@ -135,7 +135,7 @@ describe("the overview", () => {
   });
 
   it("says how to sign a locked-out account in again", async () => {
-    renderApp("/", { pool, usage, accounts: [account({ id: "acc-3", label: "spare" })] });
+    renderApp("/overview", { pool, usage, accounts: [account({ id: "acc-3", label: "spare" })] });
 
     expect(
       await within(await card("spare")).findByText(
@@ -145,7 +145,7 @@ describe("the overview", () => {
   });
 
   it("names each card with a heading, and keeps a cut-short name whole on hover", async () => {
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     const heading = await screen.findByRole("heading", { level: 3, name: "work" });
     expect(heading.getAttribute("title")).toBe("work");
@@ -154,13 +154,13 @@ describe("the overview", () => {
 
   it("says when a cooldown is about to end, rather than counting down past it", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now: now + 10 * 60_000 });
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     expect(within(await card("home")).getByText("Back any moment")).toBeDefined();
   });
 
   it("says the overview couldn't be loaded, rather than that there are no accounts", async () => {
-    const { user } = renderApp("/", { pool, usage }, [
+    const { user } = renderApp("/overview", { pool, usage }, [
       http.get("*/admin/pool", () => new HttpResponse(null, { status: 500 }), { once: true }),
     ]);
 
@@ -175,14 +175,14 @@ describe("the overview", () => {
   });
 
   it("titles the empty pool as a section of the page", async () => {
-    renderApp("/");
+    renderApp("/overview");
 
     expect(await screen.findByRole("heading", { level: 2, name: "No accounts yet" })).toBeDefined();
   });
 
   it("announces that the pool is loading, on a page without the shell's state", async () => {
     fakeClock();
-    renderApp("/", {}, [http.get("*/admin/pool", () => delay("infinite"))]);
+    renderApp("/overview", {}, [http.get("*/admin/pool", () => delay("infinite"))]);
 
     // The router shows it once loading takes a moment, 1 s.
     await skip(1_000);
@@ -190,7 +190,7 @@ describe("the overview", () => {
   });
 
   it("shows only the weekly window of a plan without a 5-hour one", async () => {
-    renderApp("/", {
+    renderApp("/overview", {
       pool: { accounts: [accounts[0]], opencodeGo: [], providers: [] },
       usage: {
         accounts: [
@@ -216,7 +216,7 @@ describe("the overview", () => {
 
   it("counts a cooldown down every second", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     const home = await card("home");
     expect(within(home).getByText("Cooling down")).toBeDefined();
@@ -231,7 +231,7 @@ describe("the overview", () => {
   });
 
   it("shows each OpenCode Go account as a card of its own, with its budget windows", async () => {
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     const go = await card("go main");
     expect(within(go).getByText("OpenCode Go")).toBeDefined();
@@ -251,7 +251,7 @@ describe("the overview", () => {
 
   it("counts a used-up OpenCode Go account down to its window's reset", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     const go = await card("go main");
     expect(within(go).getByText("Cooling down")).toBeDefined();
@@ -264,7 +264,7 @@ describe("the overview", () => {
   });
 
   it("says when OpenCode Go refused an account's key", async () => {
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     const spare = await card("go spare");
     expect(within(spare).getByText("Locked out")).toBeDefined();
@@ -274,7 +274,7 @@ describe("the overview", () => {
   });
 
   it("counts OpenCode Go accounts and providers with the accounts in the summary", async () => {
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     expect(await tile("Available")).toBe("2 of 6");
     expect(await tile("Cooling down or exhausted")).toBe("2");
@@ -283,14 +283,17 @@ describe("the overview", () => {
   });
 
   it("shows the providers even before any account is added", async () => {
-    renderApp("/", { pool: { accounts: [], opencodeGo: [], providers: [...providers] }, usage });
+    renderApp("/overview", {
+      pool: { accounts: [], opencodeGo: [], providers: [...providers] },
+      usage,
+    });
 
     expect(await screen.findByRole("region", { name: "No accounts yet" })).toBeDefined();
     expect(await card("OpenRouter")).toBeDefined();
   });
 
   it("shows what via counted for each provider over the last day, as they report no usage", async () => {
-    const { state } = renderApp("/", {
+    const { state } = renderApp("/overview", {
       pool: {
         ...pool,
         providers: [...providers, { name: "ollama", state: { status: "available" } }],
@@ -348,7 +351,7 @@ describe("the overview", () => {
   });
 
   it("shows an OpenRouter key's budget as a meter, as the accounts' limits are", async () => {
-    renderApp("/", {
+    renderApp("/overview", {
       pool,
       usage: {
         ...usage,
@@ -371,7 +374,7 @@ describe("the overview", () => {
   });
 
   it("says a budget that never resets doesn't, and shows none for a key without one", async () => {
-    renderApp("/", {
+    renderApp("/overview", {
       pool,
       usage: {
         ...usage,
@@ -389,13 +392,13 @@ describe("the overview", () => {
     expect(openrouter.getByText("$5.00 of $5.00, never resets")).toBeDefined();
 
     cleanup();
-    renderApp("/", { pool, usage: { ...usage, openrouter: { fetchedAt, budget: null } } });
+    renderApp("/overview", { pool, usage: { ...usage, openrouter: { fetchedAt, budget: null } } });
     const unlimited = within(await screen.findByRole("article", { name: "OpenRouter" }));
     expect(unlimited.queryByRole("meter")).toBeNull();
   });
 
   it("says why OpenRouter's budget couldn't be read", async () => {
-    renderApp("/", {
+    renderApp("/overview", {
       pool,
       usage: { ...usage, openrouter: { fetchedAt, error: "OpenRouter didn't answer" } },
     });
@@ -405,7 +408,7 @@ describe("the overview", () => {
   });
 
   it("says when a provider served nothing over the last day", async () => {
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     expect(
       await within(await card("OpenRouter")).findByText("No requests in the last 24 hours."),
@@ -413,7 +416,7 @@ describe("the overview", () => {
   });
 
   it("invites the viewer to add an account when the pool is empty, right there", async () => {
-    const { user, router } = renderApp("/");
+    const { user, router } = renderApp("/overview");
 
     const empty = await screen.findByRole("region", { name: "No accounts yet" });
     await user.click(within(empty).getByRole("button", { name: "Add account" }));
@@ -421,11 +424,11 @@ describe("the overview", () => {
     await user.click(within(choose).getByRole("button", { name: /ChatGPT \(Codex\)/ }));
 
     expect(await screen.findByRole("dialog", { name: "Add a ChatGPT account" })).toBeDefined();
-    expect(router.history.location.pathname).toBe("/ui/");
+    expect(router.history.location.pathname).toBe("/ui/overview");
   });
 
   it("adds an OpenCode Go key from the overview, and shows it there", async () => {
-    const { state, user } = renderApp("/", { pool, usage });
+    const { state, user } = renderApp("/overview", { pool, usage });
 
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
@@ -442,7 +445,7 @@ describe("the overview", () => {
   });
 
   it("says so when OpenCode Go refuses a pasted key, and keeps the dialog open", async () => {
-    const { state, user } = renderApp("/", { pool, usage, refusedKeys: ["sk-wrong"] });
+    const { state, user } = renderApp("/overview", { pool, usage, refusedKeys: ["sk-wrong"] });
 
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
@@ -457,7 +460,7 @@ describe("the overview", () => {
 
   it("says so when a pasted OpenCode Go key is already in the pool", async () => {
     const stored = opencodeGoAccount({ id: "go-1", label: "go main", key: "…1234" });
-    const { state, user } = renderApp("/", { pool, usage, opencodeGo: [stored] });
+    const { state, user } = renderApp("/overview", { pool, usage, opencodeGo: [stored] });
 
     await card("work");
     await user.click(screen.getByRole("button", { name: "Add account" }));
@@ -473,7 +476,7 @@ describe("the overview", () => {
   });
 
   it("signs a locked-out ChatGPT account in again from its card", async () => {
-    const { user } = renderApp("/", { pool, usage });
+    const { user } = renderApp("/overview", { pool, usage });
 
     await user.click(within(await card("spare")).getByRole("button", { name: "Sign in again" }));
 
@@ -482,7 +485,7 @@ describe("the overview", () => {
   });
 
   it("offers no sign-in to an OpenCode Go account, which needs a new key", async () => {
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     expect(
       within(await card("go spare")).queryByRole("button", { name: "Sign in again" }),
@@ -490,7 +493,7 @@ describe("the overview", () => {
   });
 
   it("puts a locked-out account back in rotation once it signs in again", async () => {
-    const { user } = renderApp("/", {
+    const { user } = renderApp("/overview", {
       pool,
       usage,
       nextLogin: [{ status: "updated", account: account({ id: "acc-3", label: "spare" }) }],
@@ -509,7 +512,7 @@ describe("the overview", () => {
   });
 
   it("shows an account added from the overview there, once its login is approved", async () => {
-    const { user, router } = renderApp("/", {
+    const { user, router } = renderApp("/overview", {
       pool,
       usage,
       nextLogin: [{ status: "added", account: account({ id: "acc-9", label: "new" }) }],
@@ -523,7 +526,7 @@ describe("the overview", () => {
     await waitFor(() =>
       expect(screen.queryByRole("dialog", { name: "Add a ChatGPT account" })).toBeNull(),
     );
-    expect(router.history.location.pathname).toBe("/ui/");
+    expect(router.history.location.pathname).toBe("/ui/overview");
   });
 });
 
@@ -585,7 +588,7 @@ describe("the overview's fallbacks", () => {
   });
 
   it("says which model is falling back to which, with the way to the fallbacks", async () => {
-    renderApp("/", { pool, usage, fallbacks: [rule("opencode-go/kimi-k3")] });
+    renderApp("/overview", { pool, usage, fallbacks: [rule("opencode-go/kimi-k3")] });
 
     const link = await screen.findByRole("link", { name: "See fallbacks" });
 
@@ -594,7 +597,7 @@ describe("the overview's fallbacks", () => {
   });
 
   it("says when a model has no fallback left, so its requests fail", async () => {
-    renderApp("/", { pool, usage, fallbacks: [rule(null)] });
+    renderApp("/overview", { pool, usage, fallbacks: [rule(null)] });
 
     expect(fallbacksCallout(await screen.findByRole("link", { name: "See fallbacks" }))).toContain(
       "gpt-5.6-sol has no fallback available, so its requests fail.",
@@ -602,7 +605,7 @@ describe("the overview's fallbacks", () => {
   });
 
   it("says nothing of fallbacks while each model answers its own requests", async () => {
-    renderApp("/", {
+    renderApp("/overview", {
       pool,
       usage,
       fallbacks: [
@@ -622,7 +625,7 @@ describe("the overview's fallbacks", () => {
 describe("the overview, live", () => {
   it("paints the state the shell carries at once, asking via for nothing", async () => {
     embed(viaState);
-    const { state } = renderApp("/", { pool, usage });
+    const { state } = renderApp("/overview", { pool, usage });
 
     const work = await card("work");
     expect(within(work).getByRole("meter", { name: "5 hours" }).getAttribute("aria-valuenow")).toBe(
@@ -653,7 +656,7 @@ describe("the overview, live", () => {
   it("shows what via pushes as it happens, without asking", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
     embed(viaState);
-    const { state } = renderApp("/", { pool, usage });
+    const { state } = renderApp("/overview", { pool, usage });
     const work = await card("work");
 
     act(() => openSource().push(coolingWork));
@@ -667,7 +670,7 @@ describe("the overview, live", () => {
   it("asks via every few seconds while the stream is down, and stops once it is back", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
     embed(viaState);
-    const { state } = renderApp("/", { pool, usage });
+    const { state } = renderApp("/overview", { pool, usage });
     const work = await card("work");
     act(() => openSource().push(viaState));
 
@@ -686,7 +689,7 @@ describe("the overview, live", () => {
 
   it("closes the stream when the viewer signs out", async () => {
     embed(viaState);
-    const { user } = renderApp("/", { pool, usage });
+    const { user } = renderApp("/overview", { pool, usage });
     await card("work");
     const source = openSource();
 
@@ -702,7 +705,7 @@ describe("the overview, live", () => {
 describe("the overview's usage", () => {
   it("says how long ago the usage was fetched, ticking", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
-    renderApp("/", { pool, usage });
+    renderApp("/overview", { pool, usage });
 
     const section = await screen.findByRole("region", { name: "Accounts and providers" });
     expect(await within(section).findByText("Updated 30 s ago")).toBeDefined();
@@ -714,7 +717,7 @@ describe("the overview's usage", () => {
 
   it("keeps the usage on screen, without skeletons, while it is fetched again", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
-    const { state } = renderApp("/", { pool, usage });
+    const { state } = renderApp("/overview", { pool, usage });
 
     const work = await card("work");
     await within(work).findByRole("meter", { name: "5 hours" });
@@ -734,7 +737,7 @@ describe("the overview's usage", () => {
   it("shows bars loading only where via has no usage yet, asking every second until it has", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true, now });
 
-    const { state } = renderApp("/", {
+    const { state } = renderApp("/overview", {
       pool,
       usage: {
         accounts: usage.accounts.slice(0, 1),
@@ -765,7 +768,7 @@ describe("the overview's usage", () => {
 
 describe("the navigation", () => {
   it("fetches a page's data as soon as the viewer points at its link", async () => {
-    const { state, user } = renderApp("/", { pool, usage });
+    const { state, user } = renderApp("/overview", { pool, usage });
     await card("work");
     expect(state.requests).not.toContain("GET /admin/keys");
 
