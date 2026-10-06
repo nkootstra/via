@@ -313,6 +313,8 @@ export class ModelCatalog extends Context.Service<
 
       const offeredOrNone = offered.pipe(
         Effect.map(Option.getOrElse((): ReadonlyArray<Offered> => [])),
+        // Not knowing what Codex offers lets every account serve every model, and the
+        // bundled list stand: as when no account serves.
         Effect.orElseSucceed((): ReadonlyArray<Offered> => []),
       );
 

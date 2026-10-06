@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { FallbackRuleInvalidError, FallbackRuleNotFoundError } from "@via/fallbacks";
-import { Effect, Schema } from "effect";
+import { Effect, FileSystem, Schema } from "effect";
 import { ok, withVia } from "./testing/harness.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";
@@ -197,6 +197,31 @@ layer(BunFileSystem.layer)("admin API, fallbacks", (it) => {
         }),
       { adminKey },
     ),
+  );
+
+  it.effect("fails a request on a rules file it can't read, saying which file", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            const path = `${via.dir}/fallbacks.json`;
+            yield* fs.writeFileString(path, "{ not json");
+
+            for (const response of [
+              yield* via.get("/admin/fallbacks", adminKey),
+              yield* via.put("/admin/fallbacks", sol, adminKey),
+              yield* via.delete("/admin/fallbacks?model=gpt-6-astra", adminKey),
+            ]) {
+              expect(response.status).toBe(500);
+              expect(JSON.stringify(yield* response.json)).toContain(path);
+            }
+          }),
+        { adminKey },
+      );
+    }),
   );
 
   it.effect("needs the admin key", () =>

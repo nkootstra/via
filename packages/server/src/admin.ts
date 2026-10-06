@@ -1,5 +1,5 @@
 import { AccountNotFoundError, AccountStore } from "@via/codex-auth";
-import type { ModelPrice } from "@via/config";
+import type { CorruptFileError, FileLockTimeoutError, ModelPrice } from "@via/config";
 import { FallbackRuleStore, parseRule } from "@via/fallbacks";
 import { KeyStore } from "@via/keys";
 import {
@@ -16,6 +16,7 @@ import {
   Function,
   Layer,
   Option,
+  type PlatformError,
   Predicate,
   Redacted,
   Schema,
@@ -27,6 +28,7 @@ import {
   AdminApi,
   AdminAuthorization,
   bearer,
+  FallbackRulesFileError,
   Forbidden,
   session,
   Unauthorized,
@@ -283,6 +285,8 @@ const openrouter = HttpApiBuilder.group(AdminApi, "openrouter", (handlers) =>
     ),
 );
 
+// The OpenCode Go accounts file is via's own; one it can't read or write is a bug, not a
+// request error.
 const opencodeGo = (environment: OpencodeGoEnvironment | undefined) =>
   HttpApiBuilder.group(AdminApi, "opencodeGo", (handlers) =>
     handlers
@@ -353,12 +357,16 @@ const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
 
 // The rules file is via's own, but people may edit it: one it can't read or write fails the
 // request, and the error says which file.
+const rulesFileError = (
+  error: CorruptFileError | FileLockTimeoutError | PlatformError.PlatformError,
+) => Effect.fail(new FallbackRulesFileError({ message: error.message }));
+
 const fallbacks = HttpApiBuilder.group(AdminApi, "fallbacks", (handlers) =>
   handlers
     .handle("list", () =>
       Effect.flatMap(FallbackRuleStore, (store) => store.list).pipe(
         Effect.flatMap((rules) => Effect.forEach(rules, withStatus)),
-        Effect.orDie,
+        Effect.catchTag(["CorruptFileError", "PlatformError"], rulesFileError),
       ),
     )
     .handle("set", ({ payload }) =>
@@ -366,12 +374,18 @@ const fallbacks = HttpApiBuilder.group(AdminApi, "fallbacks", (handlers) =>
         Effect.flatMap(FallbackRuleStore, (store) => store.set(rule)),
       ).pipe(
         Effect.flatMap(withStatus),
-        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
+        Effect.catchTag(
+          ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
+          rulesFileError,
+        ),
       ),
     )
     .handle("remove", ({ query }) =>
       Effect.flatMap(FallbackRuleStore, (store) => store.remove(query.model)).pipe(
-        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
+        Effect.catchTag(
+          ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
+          rulesFileError,
+        ),
       ),
     ),
 );

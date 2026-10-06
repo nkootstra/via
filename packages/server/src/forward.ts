@@ -110,6 +110,7 @@ const upToLimit = (upstream: HttpClientResponse.HttpClientResponse) =>
     Stream.takeUntil((sofar) => sofar.length >= ERROR_LIMIT),
     Stream.runLast,
     Effect.map((last) => Option.getOrElse(last, () => "").slice(0, ERROR_LIMIT)),
+    // The status already says it failed; a body that breaks off only loses the detail.
     Effect.orElseSucceed(() => ""),
   );
 
@@ -280,7 +281,8 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
 
       if (upstream.status !== 400) return yield* outcomeOf(attempt.path, upstream);
 
-      // A 400 is read whole: it may only mean the model speaks another protocol.
+      // A 400 is read whole: it may only mean the model speaks another protocol. One whose
+      // body breaks off reads as empty, so it is passed on as the plain 400 it is.
       const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
       const refusal = upstreamErrorOf(text);
       const unsupported = Option.contains(refusal.code, PROTOCOL_UNSUPPORTED);
