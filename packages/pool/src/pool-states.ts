@@ -68,6 +68,38 @@ const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void
     });
   });
 
+/** PoolStates whose running cooldowns are kept in `path`, starting from those it holds. */
+const makeFile = (path: string) =>
+  Effect.gen(function* () {
+    const files = yield* ownedFiles;
+
+    const stored = yield* files
+      .read(path, Cooldowns, () => ({}))
+      .pipe(
+        Effect.catch((error) =>
+          Effect.logWarning(`Ignoring saved cooldowns: ${error.message}`).pipe(Effect.as({})),
+        ),
+      );
+
+    const now = yield* Clock.currentTimeMillis;
+
+    const initial: PoolState = Object.fromEntries(
+      Object.entries(stored)
+        .filter(([, cooldown]) => cooldown.until > now)
+        .map(([id, cooldown]) => [id, { status: "cooling", ...cooldown }]),
+    );
+
+    const save = (state: PoolState) =>
+      Clock.currentTimeMillis.pipe(
+        Effect.flatMap((at) => files.write(path, Cooldowns, running(state, at))),
+        Effect.catchTag("PlatformError", (error) =>
+          Effect.logWarning(`Could not save cooldowns: ${error.message}`),
+        ),
+      );
+
+    return yield* make(initial, save);
+  });
+
 /** Cooldowns and lockouts of the accounts, as learned from upstream answers. */
 export class PoolStates extends Context.Service<
   PoolStates,
@@ -102,37 +134,5 @@ export class PoolStates extends Context.Service<
    * gives a locked-out account one more try, and a new login fixes it anyway.
    * The file is a cache, so a corrupt or unwritable one is only logged.
    */
-  static readonly layerFile = (path: string) =>
-    Layer.effect(
-      PoolStates,
-      Effect.gen(function* () {
-        const files = yield* ownedFiles;
-
-        const stored = yield* files
-          .read(path, Cooldowns, () => ({}))
-          .pipe(
-            Effect.catch((error) =>
-              Effect.logWarning(`Ignoring saved cooldowns: ${error.message}`).pipe(Effect.as({})),
-            ),
-          );
-
-        const now = yield* Clock.currentTimeMillis;
-
-        const initial: PoolState = Object.fromEntries(
-          Object.entries(stored)
-            .filter(([, cooldown]) => cooldown.until > now)
-            .map(([id, cooldown]) => [id, { status: "cooling", ...cooldown }]),
-        );
-
-        const save = (state: PoolState) =>
-          Clock.currentTimeMillis.pipe(
-            Effect.flatMap((at) => files.write(path, Cooldowns, running(state, at))),
-            Effect.catchTag("PlatformError", (error) =>
-              Effect.logWarning(`Could not save cooldowns: ${error.message}`),
-            ),
-          );
-
-        return yield* make(initial, save);
-      }),
-    );
+  static readonly layerFile = (path: string) => Layer.effect(PoolStates, makeFile(path));
 }
