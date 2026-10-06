@@ -1,9 +1,8 @@
-import { readJsonFile, writeJsonFile } from "@via/config";
+import { ownedFiles } from "@via/config";
 import {
   Clock,
   Context,
   Effect,
-  FileSystem,
   Layer,
   Option,
   Schema,
@@ -107,13 +106,15 @@ export class PoolStates extends Context.Service<
     Layer.effect(
       PoolStates,
       Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
+        const files = yield* ownedFiles;
 
-        const stored = yield* readJsonFile(path, Cooldowns, () => ({})).pipe(
-          Effect.catch((error) =>
-            Effect.logWarning(`Ignoring saved cooldowns: ${error.message}`).pipe(Effect.as({})),
-          ),
-        );
+        const stored = yield* files
+          .read(path, Cooldowns, () => ({}))
+          .pipe(
+            Effect.catch((error) =>
+              Effect.logWarning(`Ignoring saved cooldowns: ${error.message}`).pipe(Effect.as({})),
+            ),
+          );
 
         const now = yield* Clock.currentTimeMillis;
 
@@ -125,8 +126,7 @@ export class PoolStates extends Context.Service<
 
         const save = (state: PoolState) =>
           Clock.currentTimeMillis.pipe(
-            Effect.flatMap((at) => writeJsonFile(path, Cooldowns, running(state, at))),
-            Effect.provideService(FileSystem.FileSystem, fs),
+            Effect.flatMap((at) => files.write(path, Cooldowns, running(state, at))),
             Effect.catchTag("PlatformError", (error) =>
               Effect.logWarning(`Could not save cooldowns: ${error.message}`),
             ),

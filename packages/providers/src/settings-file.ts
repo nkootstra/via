@@ -1,4 +1,4 @@
-import { readJsonFile, withFileLock, writeJsonFile } from "@via/config";
+import { ownedFiles } from "@via/config";
 import { Effect, FileSystem, Option, Schema, Semaphore, Stream, SubscriptionRef } from "effect";
 
 /**
@@ -8,6 +8,7 @@ import { Effect, FileSystem, Option, Schema, Semaphore, Stream, SubscriptionRef 
 export const settingsFile = <S extends Schema.Codec<unknown, unknown>>(path: string, schema: S) =>
   Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const files = yield* ownedFiles;
     // As the other stores do: this process's changes one at a time, and the file lock
     // against another process's.
     const permit = Semaphore.withPermit(yield* Semaphore.make(1));
@@ -15,21 +16,19 @@ export const settingsFile = <S extends Schema.Codec<unknown, unknown>>(path: str
     const revision = yield* SubscriptionRef.make(0);
 
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      permit(
-        withFileLock(path, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
-      ).pipe(Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)));
-
-    const get = readJsonFile(path, Schema.NullOr(schema), () => null).pipe(
-      Effect.map((stored): Option.Option<S["Type"]> =>
-        stored === null ? Option.none() : Option.some(stored),
-      ),
-      Effect.provideService(FileSystem.FileSystem, fs),
-    );
-
-    const set = (value: S["Type"]) =>
-      serialized(
-        writeJsonFile(path, schema, value).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
+      permit(files.locked(path, effect)).pipe(
+        Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)),
       );
+
+    const get = files
+      .read(path, Schema.NullOr(schema), () => null)
+      .pipe(
+        Effect.map((stored): Option.Option<S["Type"]> =>
+          stored === null ? Option.none() : Option.some(stored),
+        ),
+      );
+
+    const set = (value: S["Type"]) => serialized(files.write(path, schema, value));
 
     const remove = serialized(
       fs.remove(path).pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.void)),

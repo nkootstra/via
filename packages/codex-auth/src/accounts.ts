@@ -1,10 +1,4 @@
-import {
-  cachedUntilChanged,
-  CorruptFileError,
-  fileStamp,
-  withFileLock,
-  writeJsonFile,
-} from "@via/config";
+import { cachedUntilChanged, CorruptFileError, ownedFiles } from "@via/config";
 import {
   Array as Arr,
   Context,
@@ -45,6 +39,7 @@ const make = (authDir: string) => {
 
   return Effect.gen(function* () {
     const fs = yield* FileSystem.FileSystem;
+    const files = yield* ownedFiles;
     // Changes read an account, then write it whole, one at a time: otherwise a label
     // change during a token refresh could write back the old, already-rotated tokens.
     // The semaphore orders this process's changes; the lock on the whole directory (a login
@@ -55,9 +50,9 @@ const make = (authDir: string) => {
     const revision = yield* SubscriptionRef.make(0);
 
     const serialized = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      permit(
-        withFileLock(authDir, effect).pipe(Effect.provideService(FileSystem.FileSystem, fs)),
-      ).pipe(Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)));
+      permit(files.locked(authDir, effect)).pipe(
+        Effect.tap(() => SubscriptionRef.update(revision, (n) => n + 1)),
+      );
 
     const readAccount = (path: string) =>
       fs.readFileString(path).pipe(
@@ -76,7 +71,7 @@ const make = (authDir: string) => {
       );
 
     const accountFiles = fs.readDirectory(authDir).pipe(
-      Effect.map((files) => files.filter((name) => name.endsWith(".json")).toSorted()),
+      Effect.map((names) => names.filter((name) => name.endsWith(".json")).toSorted()),
       Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])),
     );
 
@@ -104,13 +99,13 @@ const make = (authDir: string) => {
     const stamp = Effect.gen(function* () {
       const stamps = yield* Effect.forEach(yield* accountFiles, (name) =>
         Effect.map(
-          fileStamp(`${authDir}/${name}`),
+          files.stamp(`${authDir}/${name}`),
           Option.map((at) => `${name}=${at}`),
         ),
       );
 
       return Option.map(Option.all(stamps), (all) => all.join("\n"));
-    }).pipe(Effect.provideService(FileSystem.FileSystem, fs));
+    });
 
     // What `list`, which every request runs, reads: the accounts as last read until a file
     // changes, by this process or another (`via accounts disable`, so the next request sees it).
@@ -123,10 +118,7 @@ const make = (authDir: string) => {
 
     const list = cached.pipe(Effect.withSpan("AccountStore.list"));
 
-    const write = (account: Account) =>
-      writeJsonFile(fileOf(account.id), Account, account).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-      );
+    const write = (account: Account) => files.write(fileOf(account.id), Account, account);
 
     const find = Effect.fn("AccountStore.find")(function* (query: string) {
       const all = yield* readAll;
@@ -208,9 +200,7 @@ const make = (authDir: string) => {
     const lockedForRefresh = <A, E, R>(id: string, effect: Effect.Effect<A, E, R>) =>
       // A refresh can hold the lock for as long as the issuer takes to answer; a waiter that gave
       // up sooner would set a healthy account aside.
-      withFileLock(fileOf(id), effect, { giveUpAfter: "3 minutes" }).pipe(
-        Effect.provideService(FileSystem.FileSystem, fs),
-      );
+      files.locked(fileOf(id), effect, { giveUpAfter: "3 minutes" });
 
     /** Signals now, then after every change this process makes to the accounts. */
     const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
