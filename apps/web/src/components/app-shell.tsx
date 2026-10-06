@@ -41,14 +41,14 @@ import {
   SignOutIcon,
 } from "./icons.tsx";
 
-type Page = "/" | "/usage" | "/accounts" | "/keys" | "/models" | "/fallbacks" | "/settings";
+type Page = "/overview" | "/usage" | "/accounts" | "/keys" | "/models" | "/fallbacks" | "/settings";
 
 const pages: ReadonlyArray<{
   readonly to: Page;
   readonly label: string;
   readonly icon: ReactNode;
 }> = [
-  { to: "/", label: "Overview", icon: <OverviewIcon /> },
+  { to: "/overview", label: "Overview", icon: <OverviewIcon /> },
   { to: "/usage", label: "Usage", icon: <UsageIcon /> },
   { to: "/accounts", label: "Accounts", icon: <AccountsIcon /> },
   { to: "/keys", label: "Keys", icon: <KeyIcon /> },
@@ -132,7 +132,7 @@ const styles = stylex.create({
 
 function Brand({ xstyle }: { readonly xstyle?: stylex.StyleXStyles }) {
   return (
-    <Link to="/" aria-label="via" {...stylex.props(styles.brand, xstyle)}>
+    <Link to="/overview" aria-label="via" {...stylex.props(styles.brand, xstyle)}>
       <Mark size={24} />
     </Link>
   );

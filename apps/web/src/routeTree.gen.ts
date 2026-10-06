@@ -16,6 +16,7 @@ import { Route as AppAccountsRouteImport } from './routes/_app/accounts'
 import { Route as AppFallbacksRouteImport } from './routes/_app/fallbacks'
 import { Route as AppKeysRouteImport } from './routes/_app/keys'
 import { Route as AppModelsRouteImport } from './routes/_app/models'
+import { Route as AppOverviewRouteImport } from './routes/_app/overview'
 import { Route as AppSettingsRouteImport } from './routes/_app/settings'
 import { Route as AppUsageRouteImport } from './routes/_app/usage'
 
@@ -53,6 +54,11 @@ const AppModelsRoute = AppModelsRouteImport.update({
   path: '/models',
   getParentRoute: () => AppRoute,
 } as any)
+const AppOverviewRoute = AppOverviewRouteImport.update({
+  id: '/overview',
+  path: '/overview',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -71,6 +77,7 @@ export interface FileRoutesByFullPath {
   '/fallbacks': typeof AppFallbacksRoute
   '/keys': typeof AppKeysRoute
   '/models': typeof AppModelsRoute
+  '/overview': typeof AppOverviewRoute
   '/settings': typeof AppSettingsRoute
   '/usage': typeof AppUsageRoute
 }
@@ -80,6 +87,7 @@ export interface FileRoutesByTo {
   '/fallbacks': typeof AppFallbacksRoute
   '/keys': typeof AppKeysRoute
   '/models': typeof AppModelsRoute
+  '/overview': typeof AppOverviewRoute
   '/settings': typeof AppSettingsRoute
   '/usage': typeof AppUsageRoute
   '/': typeof AppIndexRoute
@@ -92,6 +100,7 @@ export interface FileRoutesById {
   '/_app/fallbacks': typeof AppFallbacksRoute
   '/_app/keys': typeof AppKeysRoute
   '/_app/models': typeof AppModelsRoute
+  '/_app/overview': typeof AppOverviewRoute
   '/_app/settings': typeof AppSettingsRoute
   '/_app/usage': typeof AppUsageRoute
   '/_app/': typeof AppIndexRoute
@@ -105,6 +114,7 @@ export interface FileRouteTypes {
     | '/fallbacks'
     | '/keys'
     | '/models'
+    | '/overview'
     | '/settings'
     | '/usage'
   fileRoutesByTo: FileRoutesByTo
@@ -114,6 +124,7 @@ export interface FileRouteTypes {
     | '/fallbacks'
     | '/keys'
     | '/models'
+    | '/overview'
     | '/settings'
     | '/usage'
     | '/'
@@ -125,6 +136,7 @@ export interface FileRouteTypes {
     | '/_app/fallbacks'
     | '/_app/keys'
     | '/_app/models'
+    | '/_app/overview'
     | '/_app/settings'
     | '/_app/usage'
     | '/_app/'
@@ -186,6 +198,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppModelsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/overview': {
+      id: '/_app/overview'
+      path: '/overview'
+      fullPath: '/overview'
+      preLoaderRoute: typeof AppOverviewRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -208,6 +227,7 @@ interface AppRouteChildren {
   AppFallbacksRoute: typeof AppFallbacksRoute
   AppKeysRoute: typeof AppKeysRoute
   AppModelsRoute: typeof AppModelsRoute
+  AppOverviewRoute: typeof AppOverviewRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppUsageRoute: typeof AppUsageRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -218,6 +238,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFallbacksRoute: AppFallbacksRoute,
   AppKeysRoute: AppKeysRoute,
   AppModelsRoute: AppModelsRoute,
+  AppOverviewRoute: AppOverviewRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppUsageRoute: AppUsageRoute,
   AppIndexRoute: AppIndexRoute,
