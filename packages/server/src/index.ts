@@ -1,20 +1,20 @@
 import type { ModelPrice } from "@via/config";
 import { Effect, Layer, type Redacted } from "effect";
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
-import { adminRoutes, type OpencodeGoEnvironment } from "./admin.ts";
-import { chatCompletions } from "./chat-completions.ts";
-import { ModelCatalog } from "./catalog.ts";
-import { ModelProtocols } from "./model-protocols.ts";
-import { models } from "./models.ts";
-import { logRequest } from "./request-log.ts";
-import { responses } from "./responses.ts";
-import { SessionBindings } from "./session-bindings.ts";
-import { systemOne } from "./system-one.ts";
-import type { EmbeddedUi } from "./ui.ts";
+import { adminRoutes, type OpencodeGoEnvironment } from "./admin/routes.ts";
+import { chatCompletions } from "./proxy/chat-completions.ts";
+import { ModelCatalog } from "./models/catalog.ts";
+import { ModelProtocols } from "./proxy/model-protocols.ts";
+import { models } from "./models/models.ts";
+import { logRequest } from "./usage/request-log.ts";
+import { responses } from "./proxy/responses.ts";
+import { SessionBindings } from "./proxy/session-bindings.ts";
+import { systemOne } from "./proxy/system-one.ts";
+import type { EmbeddedUi } from "./admin/ui.ts";
 
-export type { OpencodeGoEnvironment } from "./admin.ts";
+export type { OpencodeGoEnvironment } from "./admin/routes.ts";
 
-export type { EmbeddedUi } from "./ui.ts";
+export type { EmbeddedUi } from "./admin/ui.ts";
 
 /**
  * The OpenAI-compatible HTTP API of `via serve`, serving Codex requests from

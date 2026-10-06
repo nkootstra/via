@@ -50,7 +50,7 @@ import {
   HttpServer,
 } from "effect/unstable/http";
 import { ViaServer } from "../index.ts";
-import type { EmbeddedUi } from "../ui.ts";
+import type { EmbeddedUi } from "../admin/ui.ts";
 
 /** Codex's answer to a request that goes well: "hello", as a completed stream. */
 export const ok = () => reply.sse(completedStream("hello"));
