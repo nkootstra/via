@@ -2,6 +2,7 @@ import {
   CodexUpstream,
   isCodexAppOnly,
   resolveAlias,
+  streamIncomplete,
   type UpstreamFailedError,
 } from "@via/codex-upstream";
 import { classify, Verdict } from "@via/pool";
@@ -11,7 +12,7 @@ import { AccountPool } from "@via/account-pool";
 import { ModelCatalog } from "../models/catalog.ts";
 import { openAiError } from "./openai-error.ts";
 import { answered, Outcome, unavailable } from "./outcome.ts";
-import { failedResponse } from "./relay.ts";
+import { type BrokenStreamError, brokenResponse, failedResponse } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
@@ -110,6 +111,7 @@ export const asOpenAiError = ({ status, contentType, body }: Refusal) => {
  * which passes it on as it came unless told otherwise.
  * A response `onSuccess` finds Codex failed for a rate limit cools its account
  * down and goes to the next one, as a 429 would.
+ * A response whose stream broke off while `onSuccess` collected it leaves the model unavailable.
  *
  * Its outcome is `Unavailable` when no account is left, Codex is down or out
  * of reach: the model can't serve now, and nothing of an answer went out.
@@ -120,7 +122,11 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
   onSuccess: (
     upstream: HttpClientResponse.HttpClientResponse,
     failed: (error: UpstreamFailedError) => Effect.Effect<void>,
-  ) => Effect.Effect<HttpServerResponse.HttpServerResponse, UpstreamFailedError, R>,
+  ) => Effect.Effect<
+    HttpServerResponse.HttpServerResponse,
+    UpstreamFailedError | BrokenStreamError,
+    R
+  >,
   refused: (refusal: Refusal) => HttpServerResponse.HttpServerResponse = asSent,
 ) {
   const pool = yield* AccountPool;
@@ -196,13 +202,17 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
 
       const reply = yield* onSuccess(sent.success.value, (error) =>
         Effect.asVoid(coolDownFor(error)),
-      ).pipe(Effect.result);
+      ).pipe(
+        Effect.tap(() => bindings.bind(session, account.id)),
+        Effect.map((response) => Outcome.Answered({ response })),
+        // A stream that broke off before any of it went out, as an outage does.
+        Effect.catchTag("BrokenStreamError", (broken) =>
+          unavailable(streamIncomplete.code, brokenResponse(broken)),
+        ),
+        Effect.result,
+      );
 
-      if (Result.isSuccess(reply)) {
-        yield* bindings.bind(session, account.id);
-
-        return Outcome.Answered({ response: reply.success });
-      }
+      if (Result.isSuccess(reply)) return reply.success;
 
       if (yield* coolDownFor(reply.failure)) continue;
 
