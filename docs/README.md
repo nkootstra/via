@@ -275,7 +275,8 @@ via bounds what one request can take:
   ended early, the connection broke off, Codex asked to be retried, or it sent
   an event or a final response via can't read. A warning with the request's
   `request_id` says why, such as
-  `The socket connection was closed unexpectedly`.
+  `The socket connection was closed unexpectedly`. Each but the last
+  [falls back](#fallback-models) when the model has a fallback.
 - Usage, model lists, key checks and sign-in requests to OpenAI give up after
   30 seconds. A token refresh gives up when OpenAI hasn't started answering
   within 30 seconds; once it has, the answer gets 2 minutes to arrive, as it
@@ -335,7 +336,8 @@ once a request meets it. When `fallbacks.json` can't be read, the admin state's
   the client. That is when every account that could serve it is cooling down
   (`429`) or there is none (`503`), when Codex is down or overloaded, even if
   it says so only once it has started a response via collects for a client
-  that doesn't stream, when its upstream can't be reached (`502`) or a provider
+  that doesn't stream, when the stream of such a response breaks off
+  (`upstream_incomplete`), when its upstream can't be reached (`502`) or a provider
   answers `404`, `429` or a `5xx`, when an OpenCode Go model speaks none of the
   APIs via could ask it in, and when an OpenRouter model isn't enabled.
 - **Never:** when the upstream refuses the request itself, such as a `400` for

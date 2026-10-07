@@ -40,20 +40,33 @@ const untilQuiet = <E>(body: Stream.Stream<Uint8Array, E>) =>
   });
 
 /**
- * A 502 telling the client why via couldn't read Codex's answer, with the
- * `cause` logged as a warning: the client needs only what happened, the log why.
+ * A Codex stream that broke off before via could collect its answer, saying
+ * what happened. Nothing has reached the client yet, so another model may serve.
  */
-const unreadable = (message: string, cause: string) =>
+export class BrokenStreamError extends Data.TaggedError("BrokenStreamError")<{
+  readonly message: string;
+}> {}
+
+/** The answer to a stream that broke off: a 502 saying what happened. */
+export const brokenResponse = (error: BrokenStreamError) =>
+  openAiError(502, streamIncomplete.code, error.message);
+
+/**
+ * Fails with what happened to Codex's answer, with the `cause` logged as a
+ * warning: the client needs only what happened, the log why.
+ */
+const broken = (message: string, cause: string) =>
   Effect.andThen(
     Effect.logWarning(`${message}: ${cause}`),
-    openAiError(502, streamIncomplete.code, message),
+    Effect.fail(new BrokenStreamError({ message })),
   );
 
 /**
  * Reads a Codex stream to its final response for a non-streaming client, and
- * answers a response that broke off or grew too large with a 502, and one that
- * took too long or went quiet too long with a 504. A response Codex failed is left to the caller,
- * since nothing has reached the client yet: another account may serve it.
+ * answers a response that grew too large or whose final response via can't
+ * read with a 502, and one that took too long or went quiet too long with a 504.
+ * A response Codex failed, or whose stream broke off, is left to the caller,
+ * since nothing has reached the client yet: another account or model may serve it.
  */
 export const collected = (
   upstream: HttpClientResponse.HttpClientResponse,
@@ -73,27 +86,31 @@ export const collected = (
     Effect.flatMap((response) =>
       onResponse(response).pipe(
         Effect.catchTag("SchemaError", (error) =>
-          unreadable("Codex's final response couldn't be read", error.message),
+          Effect.andThen(
+            Effect.logWarning(`Codex's final response couldn't be read: ${error.message}`),
+            openAiError(502, streamIncomplete.code, "Codex's final response couldn't be read"),
+          ),
         ),
       ),
     ),
     Effect.catchTags({
-      IncompleteStreamError: (error) => openAiError(502, streamIncomplete.code, error.message),
+      IncompleteStreamError: (error) =>
+        Effect.fail(new BrokenStreamError({ message: error.message })),
       ResponseTooLargeError: (error) => openAiError(502, "upstream_too_large", error.message),
       ResponseTimeoutError: (error) => openAiError(504, "upstream_timeout", error.message),
       UpstreamStalledError: (error) => openAiError(504, "upstream_timeout", error.message),
       HttpClientError: (error) =>
-        unreadable(
+        broken(
           "The connection to Codex broke off in the middle of its answer",
           // Its own message names only the request; what broke is in its cause.
           Predicate.isError(error.cause)
             ? `${error.message}: ${error.cause.message}`
             : error.message,
         ),
-      SseError: (error) => unreadable("Codex sent an event via can't read", error.message),
-      SchemaError: (error) => unreadable("Codex sent an event via can't read", error.message),
+      SseError: (error) => broken("Codex sent an event via can't read", error.message),
+      SchemaError: (error) => broken("Codex sent an event via can't read", error.message),
       Retry: (retry) =>
-        unreadable(
+        broken(
           "Codex asked to be retried in the middle of its answer",
           `in ${Duration.format(retry.duration)}`,
         ),

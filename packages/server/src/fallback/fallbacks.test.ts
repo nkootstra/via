@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { reply } from "@via/codex-upstream/testing";
+import { reply, sse } from "@via/codex-upstream/testing";
 import { type ProviderReply, providerReply } from "@via/providers/testing";
 import { Effect, FileSystem, Option, Predicate } from "effect";
 import { ok, type Via, withVia } from "../testing/harness.ts";
@@ -25,6 +25,12 @@ const byModel =
 
     return (scripted ?? down())(request);
   };
+
+/** The event Codex starts a response with. */
+const created = {
+  type: "response.created",
+  response: { id: "resp_1", created_at: 1_700_000_000, model: "gpt-x", status: "in_progress" },
+};
 
 const chat = (model: string) => ({ model, messages: [{ role: "user", content: "hi" }] });
 
@@ -94,6 +100,76 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
 
           expect(response.status).toBe(200);
           expect(response.headers["x-via-fallback"]).toBe("gpt-x -> openrouter/y");
+        }),
+      { fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y"] }] },
+    ),
+  );
+
+  // Nothing has gone out to a client that doesn't stream while via collects Codex's answer.
+  for (const [broke, broken] of [
+    ["the connection breaks off", () => reply.hangUp(reply.text("hello"), 2)],
+    ["the stream ends early", () => reply.sse(sse([created]))],
+    [
+      "the stream holds an event via can't read",
+      () => reply.sse(`${sse([created])}data: {not json\n\n`),
+    ],
+    ["Codex asks to be retried", () => reply.sse(`${sse([created])}retry: 1000\n\n`)],
+  ] as const) {
+    for (const [path, body] of [
+      ["/v1/chat/completions", chat("gpt-x")],
+      ["/v1/responses", { model: "gpt-x", input: "hi" }],
+    ] as const) {
+      it.effect(`falls back on ${path} when ${broke} before the answer went out`, () =>
+        withVia(
+          broken,
+          (via) =>
+            Effect.gen(function* () {
+              via.provider.respond(providerReply.json(answer));
+
+              const response = yield* via.post(path, body);
+
+              expect(response.status).toBe(200);
+              expect(response.headers["x-via-fallback"]).toBe("gpt-x -> openrouter/y");
+              expect(modelsAsked(via)).toEqual(["y"]);
+
+              const { annotations } = yield* via.logged("Sent HTTP response");
+              expect(annotations).toMatchObject({ fallback_reason: "upstream_incomplete" });
+            }),
+          { fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y"] }] },
+        ),
+      );
+    }
+  }
+
+  it.effect("doesn't fall back when Codex's final response can't be read", () =>
+    withVia(
+      () => reply.sse(sse([created, { type: "response.completed", response: {} }])),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/chat/completions", chat("gpt-x"));
+
+          expect(response.status).toBe(502);
+          expect(response.headers).not.toHaveProperty("x-via-fallback");
+          expect(via.provider.requests).toEqual([]);
+        }),
+      { fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y"] }] },
+    ),
+  );
+
+  it.effect("doesn't fall back once a streamed answer has started and its connection breaks", () =>
+    withVia(
+      () => reply.hangUp(reply.sse(sse([created])), 2),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", {
+            model: "gpt-x",
+            input: "hi",
+            stream: true,
+          });
+
+          yield* response.text.pipe(Effect.ignore);
+          expect(response.headers).not.toHaveProperty("x-via-fallback");
+          expect(via.provider.requests).toEqual([]);
         }),
       { fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y"] }] },
     ),

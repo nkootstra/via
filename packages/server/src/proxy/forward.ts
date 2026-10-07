@@ -14,7 +14,7 @@ import { ModelProtocols, type Protocol } from "./model-protocols.ts";
 import { noAccountLeft, streams } from "./dispatch.ts";
 import { openAiError } from "./openai-error.ts";
 import { answered, Outcome, unavailable } from "./outcome.ts";
-import { failedResponse, relayed } from "./relay.ts";
+import { brokenResponse, failedResponse, relayed } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
@@ -188,7 +188,10 @@ const attempts = (
     body: { ...toResponsesRequest(chat.value), stream: true },
     answer: (upstream) =>
       chatFromResponses(upstream, chat.value).pipe(
-        Effect.catchTag("UpstreamFailedError", failedResponse),
+        Effect.catchTags({
+          UpstreamFailedError: failedResponse,
+          BrokenStreamError: brokenResponse,
+        }),
       ),
   };
 
