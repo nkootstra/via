@@ -270,6 +270,12 @@ via bounds what one request can take:
 - A non-streaming Codex response that hasn't completed after 30 minutes
   answers `504 upstream_timeout`, and one whose stream runs past 128 MiB
   answers `502 upstream_too_large`.
+- A non-streaming Codex response via can't read whole answers
+  `502 upstream_incomplete`, with a message saying what happened: the stream
+  ended early, the connection broke off, Codex asked to be retried, or it sent
+  an event or a final response via can't read. A warning with the request's
+  `request_id` says why, such as
+  `The socket connection was closed unexpectedly`.
 - Usage, model lists, key checks and sign-in requests to OpenAI give up after
   30 seconds. A token refresh gives up when OpenAI hasn't started answering
   within 30 seconds; once it has, the answer gets 2 minutes to arrive, as it

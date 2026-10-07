@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { reply, sse, sseFrames } from "@via/codex-upstream/testing";
 import { Clock, Deferred, Effect, Fiber, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { outwait, withVia } from "./testing/harness.ts";
+import { outwait, type Via, withVia } from "./testing/harness.ts";
 
 // What a client sees when Codex breaks: an OpenAI-shaped server error.
 const response = {
@@ -46,7 +46,37 @@ const bodies = {
   [RESPONSES]: { model: "gpt-6-astra", input: "hi" },
 };
 
+/**
+ * Asks via on `path` for an answer Codex can't give whole, and checks the
+ * client is told `message` while the log warns with it and `cause`, tied to the request.
+ */
+const unreadable = (
+  via: Via,
+  path: typeof CHAT | typeof RESPONSES,
+  message: string,
+  cause: string,
+) =>
+  Effect.gen(function* () {
+    const answer = yield* via.post(path, bodies[path]);
+    expect(answer.status).toBe(502);
+    expect(yield* answer.json).toMatchObject({
+      error: { type: "server_error", code: "upstream_incomplete", message },
+    });
+
+    const warning = yield* via.logged(`${message}: `);
+    expect(warning.level).toBe("Warn");
+    expect(warning.message).toContain(cause);
+    expect(warning.annotations).toHaveProperty("request_id");
+  });
+
 layer(BunFileSystem.layer)("upstream faults", (it) => {
+  it.effect(`${CHAT} says Codex's final response couldn't be read, and why`, () =>
+    withVia(
+      () => reply.sse(sse([created, { type: "response.completed", response: {} }])),
+      (via) => unreadable(via, CHAT, "Codex's final response couldn't be read", "Missing key"),
+    ),
+  );
+
   for (const path of [CHAT, RESPONSES] as const) {
     it.effect(`${path} answers a cut-off Codex stream with 502 upstream_incomplete`, () =>
       withVia(cutOff, (via) =>
@@ -76,50 +106,38 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
       ),
     );
 
-    it.effect(`${path} answers a garbled Codex stream with 502 upstream_incomplete`, () =>
+    it.effect(`${path} says a garbled Codex stream held an event via can't read, and why`, () =>
       withVia(
         () => reply.sse(`${sse([created])}event: response.completed\ndata: {not json\n\n`),
         (via) =>
-          Effect.gen(function* () {
-            const answer = yield* via.post(path, bodies[path]);
-            expect(answer.status).toBe(502);
-            expect(yield* answer.json).toMatchObject({
-              error: { type: "server_error", code: "upstream_incomplete" },
-            });
-          }),
+          unreadable(
+            via,
+            path,
+            "Codex sent an event via can't read",
+            "Expected a valid JSON string",
+          ),
       ),
     );
 
-    it.effect(
-      `${path} answers a Codex stream asking to be retried with 502 upstream_incomplete`,
-      () =>
-        withVia(
-          () => reply.sse(`${sse([created])}retry: 1000\n\n`),
-          (via) =>
-            Effect.gen(function* () {
-              const answer = yield* via.post(path, bodies[path]);
-              expect(answer.status).toBe(502);
-              expect(yield* answer.json).toMatchObject({
-                error: { type: "server_error", code: "upstream_incomplete" },
-              });
-            }),
-        ),
+    it.effect(`${path} says a Codex stream asked to be retried mid-answer, and how soon`, () =>
+      withVia(
+        () => reply.sse(`${sse([created])}retry: 1000\n\n`),
+        (via) =>
+          unreadable(via, path, "Codex asked to be retried in the middle of its answer", "in 1s"),
+      ),
     );
 
-    it.effect(
-      `${path} answers a Codex connection broken mid-stream with 502 upstream_incomplete`,
-      () =>
-        withVia(
-          () => reply.hangUp(reply.text("hello"), 2),
-          (via) =>
-            Effect.gen(function* () {
-              const answer = yield* via.post(path, bodies[path]);
-              expect(answer.status).toBe(502);
-              expect(yield* answer.json).toMatchObject({
-                error: { type: "server_error", code: "upstream_incomplete" },
-              });
-            }),
-        ),
+    it.effect(`${path} says a Codex connection broke off mid-answer, and why`, () =>
+      withVia(
+        () => reply.hangUp(reply.text("hello"), 2),
+        (via) =>
+          unreadable(
+            via,
+            path,
+            "The connection to Codex broke off in the middle of its answer",
+            "The socket connection was closed unexpectedly",
+          ),
+      ),
     );
 
     it.effect(`${path} answers a Codex response that never completes with 504 in 30 minutes`, () =>
