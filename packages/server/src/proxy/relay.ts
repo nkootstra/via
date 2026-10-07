@@ -4,7 +4,7 @@ import {
   streamIncomplete,
   UpstreamFailedError,
 } from "@via/codex-upstream";
-import { Data, Duration, Effect, Option, Schema, Stream } from "effect";
+import { Data, Duration, Effect, Option, Predicate, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import {
   Headers,
@@ -39,11 +39,15 @@ const untilQuiet = <E>(body: Stream.Stream<Uint8Array, E>) =>
     orElse: () => Stream.fail(new UpstreamStalledError()),
   });
 
-const unreadable = openAiError(
-  502,
-  streamIncomplete.code,
-  "The Codex stream broke off or could not be read",
-);
+/**
+ * A 502 telling the client why via couldn't read Codex's answer, with the
+ * `cause` logged as a warning: the client needs only what happened, the log why.
+ */
+const unreadable = (message: string, cause: string) =>
+  Effect.andThen(
+    Effect.logWarning(`${message}: ${cause}`),
+    openAiError(502, streamIncomplete.code, message),
+  );
 
 /**
  * Reads a Codex stream to its final response for a non-streaming client, and
@@ -66,17 +70,33 @@ export const collected = (
         }),
       ),
     ),
-    Effect.flatMap(onResponse),
+    Effect.flatMap((response) =>
+      onResponse(response).pipe(
+        Effect.catchTag("SchemaError", (error) =>
+          unreadable("Codex's final response couldn't be read", error.message),
+        ),
+      ),
+    ),
     Effect.catchTags({
       IncompleteStreamError: (error) => openAiError(502, streamIncomplete.code, error.message),
       ResponseTooLargeError: (error) => openAiError(502, "upstream_too_large", error.message),
       ResponseTimeoutError: (error) => openAiError(504, "upstream_timeout", error.message),
       UpstreamStalledError: (error) => openAiError(504, "upstream_timeout", error.message),
-      // The body broke off, was not SSE, or held an event that is not a Responses one.
-      HttpClientError: () => unreadable,
-      SseError: () => unreadable,
-      Retry: () => unreadable,
-      SchemaError: () => unreadable,
+      HttpClientError: (error) =>
+        unreadable(
+          "The connection to Codex broke off in the middle of its answer",
+          // Its own message names only the request; what broke is in its cause.
+          Predicate.isError(error.cause)
+            ? `${error.message}: ${error.cause.message}`
+            : error.message,
+        ),
+      SseError: (error) => unreadable("Codex sent an event via can't read", error.message),
+      SchemaError: (error) => unreadable("Codex sent an event via can't read", error.message),
+      Retry: (retry) =>
+        unreadable(
+          "Codex asked to be retried in the middle of its answer",
+          `in ${Duration.format(retry.duration)}`,
+        ),
     }),
   );
 
