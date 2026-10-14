@@ -28,7 +28,7 @@
     "@effect/platform-bun": "catalog:",
     "@effect/vitest": "catalog:",
     "@via/tsconfig": "workspace:*",
-    "openai": "^7.23.0",
+    "openai": "^7.28.0",
     "vitest": "catalog:"
   }
 }

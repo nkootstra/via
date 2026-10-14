@@ -44,13 +44,13 @@
     "check": "oxlint --deny-warnings && oxfmt --check && knip && VITEST_MAX_WORKERS=2 turbo run typecheck test"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.45.0",
-    "@oxlint/plugins": "1.85.0",
+    "@effect/tsgo": "0.48.1",
+    "@oxlint/plugins": "1.87.0",
     "@types/bun": "^1.4.2",
-    "knip": "6.38.0",
-    "oxfmt": "^0.70.0",
-    "oxlint": "1.85.0",
-    "turbo": "^2.11.3",
+    "knip": "6.39.0",
+    "oxfmt": "^0.72.0",
+    "oxlint": "1.87.0",
+    "turbo": "^2.11.7",
     "typescript": "7.0.2"
   },
   "packageManager": "bun@1.4.2"
