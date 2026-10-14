@@ -25,9 +25,8 @@ fixtures.
   (commit `8f73cdee456b6c46b791780d40cadf9d556d22a4`)
   `status: 400` is **INFERRED**: `request_chatgpt_token_refresh` in
   `codex-rs/login/src/auth/manager.rs` line 1658 computes
-  `is_invalid_grant_bad_request = status == StatusCode::BAD_REQUEST && code
-== "invalid_grant"`, the one concrete status the source logic keys on for
-  this code.
+  `is_invalid_grant_bad_request = status == StatusCode::BAD_REQUEST && code == "invalid_grant"`,
+  the one concrete status the source logic keys on for this code.
 - `refresh_token_expired` / `refresh_token_reused` /
   `refresh_token_invalidated`: the `code` strings and their meaning are
   **VERBATIM** match-arm literals from
