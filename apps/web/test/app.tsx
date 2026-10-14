@@ -3,20 +3,28 @@ import { act, render, screen } from "@testing-library/react";
 import { AdminState as ViaState } from "@via/server/admin-api";
 import { Schema } from "effect";
 import userEvent, { type UserEvent } from "@testing-library/user-event";
+import { FetchInterceptor } from "@mswjs/interceptors/fetch/web";
 import type { RequestHandler } from "msw";
-import { setupServer } from "msw/node";
+import { defineNetwork, InterceptorSource } from "msw/experimental";
 import { afterAll, afterEach, beforeAll, vi } from "vitest";
 import { createAppRouter } from "../src/router.tsx";
 import { adminHandlers, createAdminState, type AdminState } from "../src/testing/admin-handlers.ts";
 
-/** Stands in for via's /admin; a request no handler expects fails the test. */
-export const server = setupServer();
+/**
+ * Stands in for via's /admin; a request no handler expects fails the test.
+ * Not `setupServer` from msw/node: msw 3 intercepts there below Node's own
+ * fetch, which Bun's isn't, so it patches the global `fetch` instead.
+ */
+export const server = defineNetwork({
+  sources: [new InterceptorSource({ interceptors: [new FetchInterceptor()] })],
+  onUnhandledFrame: "error",
+});
 
-beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+beforeAll(() => server.enable());
 
 afterEach(() => server.resetHandlers());
 
-afterAll(() => server.close());
+afterAll(() => server.disable());
 
 /**
  * Renders the app at `path` (under /ui) against a fake via holding `state`;
