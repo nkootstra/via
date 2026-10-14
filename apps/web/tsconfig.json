@@ -3,7 +3,9 @@
   "compilerOptions": {
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "types": ["bun", "vite/client"],
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    // Resolve packages as the browser does, as Vite builds this app for one.
+    "customConditions": ["browser"]
   },
   "include": [
     "src",
