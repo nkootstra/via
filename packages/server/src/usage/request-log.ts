@@ -347,7 +347,8 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         note({ servedBy: Option.some(by), accountId: Option.fromUndefinedOr(accountId) }),
       refused: (code, message) =>
         note({ error: Option.some(code), errorMessage: Option.some(message) }),
-      upstreamFailed: (error) => note({ upstreamError: Option.some(error) }),
+      upstreamFailed: (error) =>
+        note({ upstreamError: Option.some(error), streamEnd: Option.some("failed") }),
       fellBack: (requested, reason) =>
         note({ requestedModel: Option.some(requested), fallbackReason: Option.some(reason) }),
       setAside: Ref.modify(noting, (sofar): [Effect.Effect<void>, Noted] => {
@@ -392,7 +393,15 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
                 pending: sofar.pending + 1,
               })),
               (_, exit) =>
-                Effect.andThen(note({ streamEnd: Option.some(streamEnd(exit)) }), finish),
+                Effect.andThen(
+                  Ref.update(noting, (line) => ({
+                    ...line,
+                    streamEnd: Option.some(
+                      Option.contains(line.streamEnd, "failed") ? "failed" : streamEnd(exit),
+                    ),
+                  })),
+                  finish,
+                ),
             ),
             // Only the first chunk is timed; `tap` would run an effect for every chunk.
             Stream.onFirst(stream, () =>

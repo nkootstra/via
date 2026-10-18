@@ -327,4 +327,89 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
         }),
     ),
   );
+  it.effect("ends an outage error body that never finishes", () =>
+    withVia(
+      () => reply.sse(""),
+      (via) =>
+        Effect.gen(function* () {
+          const started = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+
+          via.provider.respond(() => ({
+            status: 503,
+            contentType: "application/json",
+            body: "{}",
+            held: Effect.andThen(Deferred.succeed(started, undefined), Deferred.await(release)),
+          }));
+
+          const pending = yield* via
+            .post("/v1/responses", {
+              model: "openrouter/test",
+              input: "hi",
+            })
+            .pipe(Effect.forkChild);
+
+          yield* Deferred.await(started);
+          yield* via.noTimer("10 minutes");
+          yield* TestClock.adjust("5 minutes");
+          yield* via.get("/healthz");
+          const outcome = pending.pollUnsafe();
+
+          yield* Deferred.succeed(release, undefined);
+          const answer = yield* Fiber.join(pending);
+          expect(answer.status).toBe(503);
+          expect(outcome).toBeDefined();
+        }),
+    ),
+  );
+  it.effect("ends a non-streaming Messages body that never finishes", () =>
+    withVia(
+      () => reply.sse(""),
+      (via) =>
+        Effect.gen(function* () {
+          const started = yield* Deferred.make<void>();
+          const release = yield* Deferred.make<void>();
+          via.provider.respond((request) =>
+            request.path === "/messages"
+              ? {
+                  status: 200,
+                  contentType: "application/json",
+                  body: JSON.stringify({ id: "msg_1", model: "test", content: [], usage: {} }),
+                  held: Effect.andThen(
+                    Deferred.succeed(started, undefined),
+                    Deferred.await(release),
+                  ),
+                }
+              : {
+                  status: 400,
+                  contentType: "application/json",
+                  body: JSON.stringify({ error: { code: "ModelProtocolUnsupported" } }),
+                },
+          );
+
+          const pending = yield* via
+            .post("/v1/chat/completions", {
+              model: "opencode-go/test",
+              messages: [],
+              stream: false,
+            })
+            .pipe(Effect.forkChild);
+
+          yield* Deferred.await(started);
+          yield* via.noTimer("10 minutes");
+          yield* TestClock.adjust("5 minutes");
+          yield* via.get("/healthz");
+          const outcome = pending.pollUnsafe();
+          yield* Deferred.succeed(release, undefined);
+          const answer = yield* Fiber.join(pending);
+          expect(answer.status).toBe(504);
+          expect(via.provider.requests.map(({ path }) => path)).toEqual([
+            "/chat/completions",
+            "/responses",
+            "/messages",
+          ]);
+          expect(outcome).toBeDefined();
+        }),
+    ),
+  );
 });

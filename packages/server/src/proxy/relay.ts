@@ -16,7 +16,7 @@ import { keepAlive } from "./keep-alive.ts";
 import { openAiError } from "./openai-error.ts";
 import { RequestLog } from "../usage/request-log.ts";
 import { spotUsage, usageOf } from "../usage/token-usage.ts";
-import { spotUpstreamError } from "./upstream-error.ts";
+import { spotStreamError, spotUpstreamError } from "./upstream-error.ts";
 
 /**
  * How long an upstream may go quiet in the middle of an answer before via
@@ -31,6 +31,22 @@ export class UpstreamStalledError extends Data.TaggedError("UpstreamStalledError
     return `The upstream sent nothing for ${Duration.format(QUIET_LIMIT)}`;
   }
 }
+
+/** An upstream did not finish a body that via reads before replying. */
+class UpstreamBodyTimeoutError extends Data.TaggedError("UpstreamBodyTimeoutError") {
+  override get message() {
+    return "The upstream body did not complete within 5 minutes";
+  }
+}
+
+/** Bounds bodies read before via can answer or try a fallback. */
+export const readBody = <A, E, R>(body: Effect.Effect<A, E, R>) =>
+  body.pipe(
+    Effect.timeoutOrElse({
+      duration: Duration.minutes(5),
+      orElse: () => Effect.fail(new UpstreamBodyTimeoutError()),
+    }),
+  );
 
 /** `body`, failing once it has gone `QUIET_LIMIT` without a chunk, which ends the upstream request. */
 const untilQuiet = <E>(body: Stream.Stream<Uint8Array, E>) =>
@@ -217,7 +233,11 @@ export const relayed = <E>(
 
     // Timed outermost: the request log counts the stream from when the server starts it.
     const passed = options.headers ?? Headers.empty;
-    const timed = log.timed(sse ? keepAlive(relaying) : relaying);
+
+    const timed = log.timed(
+      sse ? keepAlive(spotStreamError(relaying, log.upstreamFailed)) : relaying,
+    );
+
     const { incomplete } = options;
 
     // Ended after the log has seen the stream fail, so its line still says it did. The blank

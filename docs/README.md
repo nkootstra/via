@@ -267,6 +267,9 @@ via bounds what one request can take:
   the upstream broke off does, and one via collects for a client that doesn't
   stream answers `504 upstream_timeout`. A provider's answer that isn't
   streamed but passed through as it comes breaks off.
+- A provider error body or a translated non-streaming Messages body must finish
+  within 5 minutes. An error body that stalls keeps its HTTP status and lets
+  fallback proceed. A Messages body that stalls answers `504 upstream_timeout`.
 - A non-streaming Codex response that hasn't completed after 30 minutes
   answers `504 upstream_timeout`, and one whose stream runs past 128 MiB
   answers `502 upstream_too_large`.
@@ -1109,7 +1112,9 @@ output and reasoning tokens as the upstream reported them, any cost the
 upstream billed (OpenRouter reports one), and how long it took to answer and,
 for a streamed answer, to send its first chunk. It never keeps a prompt or an answer. Requests older
 than 90 days are deleted at startup and once a day after that. Starting two via
-processes together does not overwrite an existing usage database.
+processes together does not overwrite an existing usage database. A streamed answer
+that ends with an SSE error is recorded as failed, including an answer that via
+marks incomplete after the upstream cuts it off.
 
 The [web UI](#web-ui)'s Usage page and the `/admin/history` routes of the
 [admin API](#admin-api) read it. Each takes a range, `from` and `to` in epoch

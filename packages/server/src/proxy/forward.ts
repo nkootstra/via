@@ -14,7 +14,7 @@ import { ModelProtocols, type Protocol } from "./model-protocols.ts";
 import { noAccountLeft, streams } from "./dispatch.ts";
 import { openAiError } from "./openai-error.ts";
 import { answered, Outcome, unavailable } from "./outcome.ts";
-import { brokenResponse, failedResponse, relayed } from "./relay.ts";
+import { brokenResponse, failedResponse, readBody, relayed } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
@@ -109,6 +109,7 @@ const upToLimit = (upstream: HttpClientResponse.HttpClientResponse) =>
     ),
     Stream.takeUntil((sofar) => sofar.length >= ERROR_LIMIT),
     Stream.runLast,
+    readBody,
     Effect.map((last) => Option.getOrElse(last, () => "").slice(0, ERROR_LIMIT)),
     // The status already says it failed; a body that breaks off only loses the detail.
     Effect.orElseSucceed(() => ""),
@@ -286,7 +287,11 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
 
       // A 400 is read whole: it may only mean the model speaks another protocol. One whose
       // body breaks off reads as empty, so it is passed on as the plain 400 it is.
-      const text = yield* upstream.text.pipe(Effect.orElseSucceed(() => ""));
+      const text = yield* upstream.text.pipe(
+        readBody,
+        Effect.orElseSucceed(() => ""),
+      );
+
       const refusal = upstreamErrorOf(text);
       const unsupported = Option.contains(refusal.code, PROTOCOL_UNSUPPORTED);
 
