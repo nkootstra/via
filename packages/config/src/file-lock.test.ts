@@ -1,6 +1,8 @@
-import { BunFileSystem } from "@effect/platform-bun";
+import { BunChildProcessSpawner, BunFileSystem, BunPath } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Deferred, Duration, Effect, Fiber, FileSystem, Option } from "effect";
+import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Stream, Exit } from "effect";
+import { ChildProcess } from "effect/unstable/process";
+import { dirname } from "node:path";
 import { TestClock } from "effect/testing";
 import { FileLockTimeoutError, withFileLock } from "./index.ts";
 
@@ -37,26 +39,23 @@ const advanceUntilDone = <A, E>(
   });
 
 layer(BunFileSystem.layer)("withFileLock", (it) => {
-  it.effect("runs the effect, then removes the lock file", () =>
+  it.effect("creates an owner-only lock database and releases the lock", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       const file = yield* tempFile;
-
-      const seen = yield* withFileLock(file, fs.exists(`${file}.lock`));
-
-      expect(seen).toBe(true);
-      expect(yield* fs.exists(`${file}.lock`)).toBe(false);
+      expect(yield* withFileLock(file, Effect.succeed("ran"))).toBe("ran");
+      expect((yield* fs.stat(`${file}.lock.db`)).mode & 0o777).toBe(0o600);
+      expect(yield* withFileLock(file, Effect.succeed("again"))).toBe("again");
     }),
   );
 
-  it.effect("removes the lock file when the effect fails", () =>
+  it.effect("releases the lock when the effect fails", () =>
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
       const file = yield* tempFile;
-
-      yield* Effect.flip(withFileLock(file, Effect.fail("boom")));
-
-      expect(yield* fs.exists(`${file}.lock`)).toBe(false);
+      expect(yield* Effect.exit(withFileLock(file, Effect.fail("boom")))).toEqual(
+        Exit.fail("boom"),
+      );
+      expect(yield* withFileLock(file, Effect.succeed("again"))).toBe("again");
     }),
   );
 
@@ -94,7 +93,7 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
     }),
   );
 
-  it.effect("keeps its lock from going stale for as long as the effect runs", () =>
+  it.effect("keeps a live holder exclusive after its lock timestamp changes", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
       yield* TestClock.setTime(START);
@@ -115,7 +114,7 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
       yield* Deferred.await(held);
       // Taken at the test clock's start rather than in real time, which is far ahead of it.
       const takenAt = new Date(START);
-      yield* fs.utimes(`${file}.lock`, takenAt, takenAt);
+      yield* fs.utimes(`${file}.lock.db`, takenAt, takenAt);
 
       const second = yield* withFileLock(
         file,
@@ -136,140 +135,156 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
     }),
   );
 
-  it.effect("takes over a stale lock left behind by a crashed process", () =>
+  it.effect("releases the lock when its holder is interrupted", () =>
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      yield* TestClock.setTime(START);
       const file = yield* tempFile;
-      yield* fs.writeFileString(`${file}.lock`, "");
-      const crashedAt = new Date(START - 60_000);
-      yield* fs.utimes(`${file}.lock`, crashedAt, crashedAt);
-
-      expect(yield* withFileLock(file, Effect.succeed("ran"))).toBe("ran");
-    }),
-  );
-
-  it.effect("leaves the lock alone once another holder has taken it over as stale", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      yield* TestClock.setTime(START);
-      const file = yield* tempFile;
-      const lock = `${file}.lock`;
-      const releaseFirst = yield* Deferred.make<void>();
-      const releaseSecond = yield* Deferred.make<void>();
-      const firstHeld = yield* Deferred.make<void>();
-      const secondHeld = yield* Deferred.make<void>();
-
-      const first = yield* withFileLock(
-        file,
-        Deferred.succeed(firstHeld, undefined).pipe(Effect.andThen(Deferred.await(releaseFirst))),
-      ).pipe(Effect.forkChild);
-
-      yield* Deferred.await(firstHeld);
-      // The first holder stalled long enough for its lock to look abandoned.
-      const stalledAt = new Date(START - 60_000);
-      yield* fs.utimes(lock, stalledAt, stalledAt);
-
-      const second = yield* withFileLock(
-        file,
-        Deferred.succeed(secondHeld, undefined).pipe(Effect.andThen(Deferred.await(releaseSecond))),
-      ).pipe(Effect.forkChild);
-
-      yield* Deferred.await(secondHeld);
-      yield* Deferred.succeed(releaseFirst, undefined);
-      yield* Fiber.join(first);
-
-      expect(yield* fs.exists(lock)).toBe(true);
-      yield* Deferred.succeed(releaseSecond, undefined);
-      yield* Fiber.join(second);
-      expect(yield* fs.exists(lock)).toBe(false);
-    }),
-  );
-
-  it.effect("stops renewing a lock another holder has taken over", () =>
-    Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      yield* TestClock.setTime(START);
-      const file = yield* tempFile;
-      const lock = `${file}.lock`;
-      const release = yield* Deferred.make<void>();
       const held = yield* Deferred.make<void>();
 
       const holder = yield* withFileLock(
         file,
-        Deferred.succeed(held, undefined).pipe(Effect.andThen(Deferred.await(release))),
+        Effect.andThen(Deferred.succeed(held, undefined), Effect.never),
       ).pipe(Effect.forkChild);
 
       yield* Deferred.await(held);
-      // Stands in for another process that judged the lock stale and took it over.
-      yield* fs.writeFileString(lock, "someone-else");
-      const takenAt = new Date(START - 60_000);
-      yield* fs.utimes(lock, takenAt, takenAt);
+      yield* Fiber.interrupt(holder);
+      expect(yield* withFileLock(file, Effect.succeed("again"))).toBe("again");
+    }),
+  );
 
-      yield* Effect.replicateEffect(step("1 second"), 3, { discard: true });
-      yield* TestClock.withLive(Effect.sleep("50 millis"));
+  it.effect("does not run a waiter interrupted before its holder releases", () =>
+    Effect.gen(function* () {
+      const file = yield* tempFile;
+      const held = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
 
-      const info = yield* fs.stat(lock);
-      expect(info.mtime.pipe(Option.map((mtime) => mtime.getTime()))).toEqual(
-        Option.some(takenAt.getTime()),
-      );
+      const holder = yield* withFileLock(
+        file,
+        Effect.andThen(Deferred.succeed(held, undefined), Deferred.await(release)),
+      ).pipe(Effect.forkChild);
+
+      yield* Deferred.await(held);
+      let ran = false;
+
+      const waiting = yield* withFileLock(
+        file,
+        Effect.sync(() => {
+          ran = true;
+        }),
+      ).pipe(Effect.forkChild);
+
+      yield* Effect.replicateEffect(step(), 2, { discard: true });
+      yield* Fiber.interrupt(waiting);
       yield* Deferred.succeed(release, undefined);
       yield* Fiber.join(holder);
-      expect(yield* fs.readFileString(lock)).toBe("someone-else");
+      expect(ran).toBe(false);
     }),
   );
 
-  it.effect("gives up with FileLockTimeoutError while another holder keeps the lock fresh", () =>
+  it.effect("gives up with FileLockTimeoutError while another holder is alive", () =>
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      yield* TestClock.setTime(START);
       const file = yield* tempFile;
-      const lock = `${file}.lock`;
-      yield* fs.writeFileString(lock, "");
+      const held = yield* Deferred.make<void>();
 
-      // Stands in for a live holder that keeps the lock's mtime current.
-      const touch = Effect.gen(function* () {
-        const now = new Date(yield* Effect.clockWith((clock) => clock.currentTimeMillis));
-        yield* fs.utimes(lock, now, now);
-      }).pipe(Effect.orDie);
+      const holder = yield* withFileLock(
+        file,
+        Effect.andThen(Deferred.succeed(held, undefined), Effect.never),
+      ).pipe(Effect.forkChild);
 
-      yield* touch;
+      yield* Deferred.await(held);
       const waiting = yield* withFileLock(file, Effect.void).pipe(Effect.flip, Effect.forkChild);
-      // A second at a time, well inside the 5 s after which a lock counts as stale: the waiter
-      // gives up after ten or so tries, not the two hundred that 50 ms steps take, each of them
-      // file-system calls that a loaded machine slows down.
-      const error = yield* advanceUntilDone(waiting, { tick: touch, by: "1 second" });
-
-      expect(error).toEqual(new FileLockTimeoutError({ path: file }));
+      expect(yield* advanceUntilDone(waiting, { by: "1 second" })).toEqual(
+        new FileLockTimeoutError({ path: file }),
+      );
+      yield* Fiber.interrupt(holder);
     }),
   );
 
-  it.effect("waits as long as it is told for a holder that keeps the lock past ten seconds", () =>
+  it.effect("waits for a holder past ten seconds when given a longer deadline", () =>
     Effect.gen(function* () {
-      const fs = yield* FileSystem.FileSystem;
-      yield* TestClock.setTime(START);
       const file = yield* tempFile;
-      const lock = `${file}.lock`;
-      yield* fs.writeFileString(lock, "");
+      const held = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
 
-      let held = 0;
+      const holder = yield* withFileLock(
+        file,
+        Effect.andThen(Deferred.succeed(held, undefined), Deferred.await(release)),
+      ).pipe(Effect.forkChild);
 
-      // A live holder for a minute, as a slow token refresh is, that then lets go.
-      const hold = Effect.gen(function* () {
-        held += 1;
-
-        if (held > 60) return yield* fs.remove(lock, { force: true });
-        const now = new Date(yield* Effect.clockWith((clock) => clock.currentTimeMillis));
-        yield* fs.utimes(lock, now, now);
-      }).pipe(Effect.orDie);
-
-      yield* hold;
+      yield* Deferred.await(held);
 
       const waiting = yield* withFileLock(file, Effect.succeed("ran"), {
         giveUpAfter: "3 minutes",
       }).pipe(Effect.forkChild);
 
-      expect(yield* advanceUntilDone(waiting, { tick: hold, by: "1 second" })).toBe("ran");
+      yield* Effect.replicateEffect(step("1 second"), 15, { discard: true });
+      expect(waiting.pollUnsafe()).toBeUndefined();
+      yield* Deferred.succeed(release, undefined);
+      yield* Fiber.join(holder);
+      expect(yield* advanceUntilDone(waiting)).toBe("ran");
     }),
+  );
+});
+
+layer(
+  Layer.mergeAll(
+    BunFileSystem.layer,
+    BunChildProcessSpawner.layer.pipe(Layer.provide([BunFileSystem.layer, BunPath.layer])),
+  ),
+)("process locks", (it) => {
+  it.effect("keeps a paused holder exclusive even when its lock timestamp is old", () =>
+    TestClock.withLive(
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const file = yield* tempFile;
+
+        const child = yield* ChildProcess.make(
+          process.execPath,
+          [
+            "-e",
+            `
+        import { Effect, Console } from "effect";
+        import { BunFileSystem } from "@effect/platform-bun";
+        import { withFileLock } from "./src/index.ts";
+        await Effect.runPromise(withFileLock(process.argv[1],
+          Effect.andThen(Console.log("held"), Effect.sleep("1 day"))
+        ).pipe(Effect.provide(BunFileSystem.layer)));
+      `,
+            file,
+          ],
+          { cwd: new URL("..", import.meta.url).pathname },
+        );
+
+        // SIGSTOP prevents graceful exit; the finalizer must also work if an assertion fails.
+        yield* Effect.addFinalizer(() =>
+          Effect.gen(function* () {
+            if (yield* child.isRunning) yield* child.kill({ killSignal: "SIGKILL" });
+          }).pipe(Effect.orDie),
+        );
+        expect(
+          yield* child.stdout.pipe(
+            Stream.decodeText,
+            Stream.splitLines,
+            Stream.take(1),
+            Stream.runCollect,
+          ),
+        ).toEqual(["held"]);
+        yield* Effect.sync(() => process.kill(child.pid, "SIGSTOP"));
+        const old = new Date(0);
+
+        for (const name of yield* fs.readDirectory(dirname(file))) {
+          if (name.startsWith("data.json.lock"))
+            yield* fs.utimes(`${dirname(file)}/${name}`, old, old);
+        }
+
+        const outcome = yield* Effect.exit(
+          withFileLock(file, Effect.succeed("entered"), { giveUpAfter: "100 millis" }),
+        );
+
+        expect(outcome).toEqual(Exit.fail(new FileLockTimeoutError({ path: file })));
+        yield* child.kill({ killSignal: "SIGKILL" });
+        yield* Effect.exit(child.exitCode);
+        expect(yield* withFileLock(file, Effect.succeed("recovered"))).toBe("recovered");
+      }),
+    ),
   );
 });
