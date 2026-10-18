@@ -8,9 +8,13 @@ const MAX_FALLBACKS = 3;
 const ModelId = Schema.String.check(
   Schema.makeFilter((id) => id.length > 0 || "Name a model"),
   Schema.makeFilter((id) => id.length <= 200 || "A model id is at most 200 characters"),
-  // A model id goes back to the client in a header: none has a space or a control character.
+  // A model id goes back to the client in the `x-via-fallback` header, which takes
+  // nothing beyond ASCII; no provider's id has a space or anything beyond it. The
+  // id is quoted as JSON, so a control character in it shows as an escape.
   Schema.makeFilter(
-    (id) => !/[\s\p{Cc}]/u.test(id) || "A model id has no spaces or control characters",
+    (id) =>
+      /^[\x21-\x7e]*$/.test(id) ||
+      `${JSON.stringify(id)} is not a model id, which is printable ASCII without spaces`,
   ),
 );
 

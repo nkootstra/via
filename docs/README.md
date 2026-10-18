@@ -317,9 +317,12 @@ A fallback rule names a model and up to three others for via to try, in
 order, when that model can't serve a request. The first one that answers
 does, and its answer carries `x-via-fallback: <asked> -> <answered>`, such as
 `x-via-fallback: gpt-5.6-sol -> opencode-go/kimi-k3`; its body names the model
-that answered. Set them on the web UI's [Fallbacks page](#web-ui) or with
-`via fallbacks set`; they are kept in `fallbacks.json` in via's
-[home](#configuration):
+that answered. As the header carries them, a rule's model ids are printable
+ASCII without spaces, as every provider's are. Set them on the web UI's
+[Fallbacks page](#web-ui) or with `via fallbacks set`; they are kept in
+`fallbacks.json` in via's [home](#configuration). One id beyond that, such as
+`ollama/模型`, makes via report the whole file as invalid, naming the id, and
+no rule in it applies until it's fixed:
 
 ```json
 [{ "model": "gpt-5.6-sol", "fallbacks": ["opencode-go/kimi-k3", "gpt-5.5"] }]
