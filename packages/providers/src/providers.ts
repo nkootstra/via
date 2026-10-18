@@ -8,6 +8,7 @@ import {
   Predicate,
   Redacted,
   Schema,
+  Semaphore,
   Stream,
 } from "effect";
 import {
@@ -117,6 +118,8 @@ const make = (
         Option.match({ onNone: () => Effect.void, onSome: connectOpenrouter }),
       );
     }
+
+    const editOpenrouter = Semaphore.withPermit(yield* Semaphore.make(1));
 
     const editableOpenrouter: Effect.Effect<
       OpenrouterSettings["Service"],
@@ -332,33 +335,46 @@ const make = (
             const settings = yield* editableOpenrouter;
             yield* verifyOpenrouter(yield* openrouterWith(apiKey));
 
-            // A new key keeps the models the old one enabled.
-            const models = Option.match(yield* savedOpenrouter, {
-              onNone: (): ReadonlyArray<string> => [],
-              onSome: (before) => before.models,
-            });
+            const next = yield* settings
+              .update((current) =>
+                Effect.succeed({
+                  apiKey,
+                  models: Option.match(current, {
+                    onNone: (): ReadonlyArray<string> => [],
+                    onSome: (before) => before.models,
+                  }),
+                }),
+              )
+              .pipe(Effect.orDie);
 
-            const next = { apiKey, models };
-            // The routes change before the file, whose change signals the admin state.
             yield* connectOpenrouter(next);
-            yield* Effect.orDie(settings.set(next));
-          }),
+          }).pipe(editOpenrouter),
         setModels: (models) =>
           Effect.gen(function* () {
             const settings = yield* editableOpenrouter;
-            const current = yield* savedOpenrouter;
 
-            if (Option.isNone(current)) return yield* new OpenrouterNotSetUpError();
-            const next = { apiKey: current.value.apiKey, models };
+            const next = yield* settings
+              .update((current) =>
+                Option.match(current, {
+                  onNone: () => Effect.fail(new OpenrouterNotSetUpError()),
+                  onSome: (currentKey) => Effect.succeed({ apiKey: currentKey.apiKey, models }),
+                }),
+              )
+              .pipe(
+                Effect.catchTag(
+                  ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
+                  Effect.die,
+                ),
+              );
+
             yield* connectOpenrouter(next);
-            yield* Effect.orDie(settings.set(next));
-          }),
+          }).pipe(editOpenrouter),
         remove: Effect.gen(function* () {
           const settings = yield* editableOpenrouter;
+          yield* Effect.orDie(settings.remove);
           providers.delete(OPENROUTER);
           enabledOpenrouter = undefined;
-          yield* Effect.orDie(settings.remove);
-        }),
+        }).pipe(editOpenrouter),
         catalog: Effect.gen(function* () {
           const provider = providers.get(OPENROUTER);
 

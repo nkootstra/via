@@ -959,6 +959,9 @@ An `openrouter` entry in config.yaml with `apiKeyEnv` wins: the web UI shows
 its key, and via offers every model OpenRouter lists. One without `apiKeyEnv`
 only moves where the web UI's key is sent, with `baseUrl` or `sessionHeader`.
 
+OpenRouter key replacements keep concurrent changes to the enabled models. Routes
+change only after the settings file is saved.
+
 #### Ollama and System One
 
 Add Ollama on the Accounts page of the [web UI](#web-ui): give its address,

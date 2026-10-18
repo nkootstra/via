@@ -30,6 +30,18 @@ export const settingsFile = <S extends Schema.Codec<unknown, unknown>>(path: str
 
     const set = (value: S["Type"]) => serialized(files.write(path, schema, value));
 
+    const update = <E>(
+      change: (current: Option.Option<S["Type"]>) => Effect.Effect<S["Type"], E>,
+    ) =>
+      serialized(
+        Effect.gen(function* () {
+          const value = yield* change(yield* get);
+          yield* files.write(path, schema, value);
+
+          return value;
+        }),
+      );
+
     const remove = serialized(
       fs.remove(path).pipe(Effect.catchReason("PlatformError", "NotFound", () => Effect.void)),
     );
@@ -37,5 +49,5 @@ export const settingsFile = <S extends Schema.Codec<unknown, unknown>>(path: str
     /** Signals now, then after every change this process makes to the file. */
     const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
 
-    return { get, set, remove, changes };
+    return { get, set, update, remove, changes };
   });

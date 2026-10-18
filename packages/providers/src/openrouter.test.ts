@@ -1,7 +1,18 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import type { ProviderConfig } from "@via/config";
-import { Effect, Exit, FileSystem, Layer, Option, Redacted, type Scope } from "effect";
+import {
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Layer,
+  Option,
+  Redacted,
+  type Scope,
+} from "effect";
+import { TestClock } from "effect/testing";
 import { FetchHttpClient } from "effect/unstable/http";
 import {
   OpenrouterKeyRejectedError,
@@ -221,6 +232,86 @@ layer(BunFileSystem.layer)("Providers' OpenRouter", (it) => {
           }),
         { openrouter: key },
       );
+    }),
+  );
+  it.effect("keeps a model change while another call replaces the key", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const writing = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+      const contended = yield* Deferred.make<void>();
+      let armed = false;
+      let blocked = false;
+
+      const gated = FileSystem.FileSystem.of({
+        ...fs,
+        open: (path, options) =>
+          Effect.gen(function* () {
+            if (armed && !blocked && path.includes("openrouter.json.") && path.endsWith(".tmp")) {
+              blocked = true;
+              yield* Deferred.succeed(writing, undefined);
+              yield* Deferred.await(release);
+            }
+
+            return yield* fs.open(path, options);
+          }),
+        writeFileString: (path, content, options) =>
+          fs
+            .writeFileString(path, content, options)
+            .pipe(
+              Effect.onError(() =>
+                blocked && path.endsWith("/openrouter.json.lock")
+                  ? Deferred.succeed(contended, undefined)
+                  : Effect.void,
+              ),
+            ),
+      });
+
+      const fake = yield* startFakeProvider;
+      const replacement = Redacted.make("sk-or-v1-replacement");
+      const config = openrouter(fake);
+      fake.openrouterKey(Redacted.value(replacement), {
+        label: "replacement",
+        usage: 0,
+        limit: null,
+      });
+      const dir = yield* fs.makeTempDirectoryScoped();
+
+      const service = Providers.layer({ providers: config, apiKeys: {}, version: "1.2.3" }).pipe(
+        Layer.provide([
+          FetchHttpClient.layer,
+          OpencodeGoAccounts.layer(`${dir}/go.json`),
+          OpenrouterSettings.layer(`${dir}/openrouter.json`),
+        ]),
+      );
+
+      yield* Effect.gen(function* () {
+        const first = yield* Layer.build(service);
+        const second = yield* Layer.build(service);
+        const providers = yield* Providers.pipe(Effect.provide(first));
+        const other = yield* Providers.pipe(Effect.provide(second));
+        yield* providers.openrouter.setKey(key);
+        armed = true;
+
+        const models = yield* providers.openrouter
+          .setModels(["openai/gpt-6"])
+          .pipe(Effect.forkChild);
+
+        yield* Deferred.await(writing);
+        const replacing = yield* other.openrouter.setKey(replacement).pipe(Effect.forkChild);
+        yield* Deferred.await(contended);
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(models);
+        yield* TestClock.adjust("50 millis");
+        yield* Fiber.join(replacing);
+        expect(yield* other.openrouter.get).toEqual(
+          Option.some({
+            key: "…ment",
+            models: ["openai/gpt-6"],
+            fromConfig: false,
+          }),
+        );
+      }).pipe(Effect.provideService(FileSystem.FileSystem, gated));
     }),
   );
 });
