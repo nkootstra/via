@@ -26,6 +26,7 @@ import {
   openrouterQuery,
   refreshPool,
   removeAccount,
+  renameAccount,
   updateAccount,
 } from "../../api/admin.ts";
 import { useLiveOptions } from "../../api/live.ts";
@@ -230,9 +231,7 @@ function Accounts() {
           hide={mask.key}
           field="Label"
           description="The label shows in usage, in the pool and in logs."
-          rename={async (label) => {
-            await updateAccount(rename.row.id, { label });
-          }}
+          rename={(label) => renameAccount(rename.row.id, label)}
           onRenamed={() => refreshPool(queryClient)}
         />
       )}

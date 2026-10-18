@@ -15,7 +15,13 @@ import {
   TableRow,
 } from "@via/ui";
 import { colors, fonts, text, fontWeights, weights } from "@via/ui/tokens.stylex";
-import { opencodeGoQuery, refreshPool, removeOpencodeGo, updateOpencodeGo } from "../api/admin.ts";
+import {
+  opencodeGoQuery,
+  refreshPool,
+  removeOpencodeGo,
+  renameOpencodeGo,
+  updateOpencodeGo,
+} from "../api/admin.ts";
 import { useLiveOptions } from "../api/live.ts";
 import type { OpencodeGoAccount } from "../api/types.ts";
 import { ConfirmDialog } from "./confirm-dialog.tsx";
@@ -161,9 +167,7 @@ export function OpencodeGoAccounts() {
           hide={mask.key}
           field="Label"
           description="The label shows in usage, in the pool and in logs."
-          rename={async (label) => {
-            await updateOpencodeGo(rename.row.id, { label });
-          }}
+          rename={(label) => renameOpencodeGo(rename.row.id, label)}
           onRenamed={() => refreshPool(queryClient)}
         />
       )}

@@ -276,6 +276,12 @@ export const updateAccount = (
   payload: { readonly label?: string; readonly enabled?: boolean },
 ) => run((admin) => admin.accounts.update({ params: { id }, payload }));
 
+/** Relabels a ChatGPT account; via refuses no label, so it resolves to no reason. */
+export const renameAccount = (id: string, label: string) =>
+  run((admin) =>
+    admin.accounts.update({ params: { id }, payload: { label } }).pipe(Effect.as(undefined)),
+  );
+
 export const removeAccount = (id: string) =>
   run((admin) => admin.accounts.remove({ params: { id } }));
 
@@ -479,6 +485,12 @@ export const updateOpencodeGo = (
   id: string,
   payload: { readonly label?: string; readonly enabled?: boolean },
 ) => run((admin) => admin.opencodeGo.update({ params: { id }, payload }));
+
+/** Relabels an OpenCode Go key; via refuses no label, so it resolves to no reason. */
+export const renameOpencodeGo = (id: string, label: string) =>
+  run((admin) =>
+    admin.opencodeGo.update({ params: { id }, payload: { label } }).pipe(Effect.as(undefined)),
+  );
 
 export const removeOpencodeGo = (id: string) =>
   run((admin) => admin.opencodeGo.remove({ params: { id } }));
