@@ -350,15 +350,11 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
             .pipe(Effect.forkChild);
 
           yield* Deferred.await(started);
-          yield* via.noTimer("10 minutes");
+          yield* via.timer("5 minutes");
           yield* TestClock.adjust("5 minutes");
-          yield* via.get("/healthz");
-          const outcome = pending.pollUnsafe();
-
-          yield* Deferred.succeed(release, undefined);
           const answer = yield* Fiber.join(pending);
+          yield* Deferred.succeed(release, undefined);
           expect(answer.status).toBe(503);
-          expect(outcome).toBeDefined();
         }),
     ),
   );
@@ -396,19 +392,16 @@ layer(BunFileSystem.layer)("upstream faults", (it) => {
             .pipe(Effect.forkChild);
 
           yield* Deferred.await(started);
-          yield* via.noTimer("10 minutes");
+          yield* via.timer("5 minutes");
           yield* TestClock.adjust("5 minutes");
-          yield* via.get("/healthz");
-          const outcome = pending.pollUnsafe();
-          yield* Deferred.succeed(release, undefined);
           const answer = yield* Fiber.join(pending);
+          yield* Deferred.succeed(release, undefined);
           expect(answer.status).toBe(504);
           expect(via.provider.requests.map(({ path }) => path)).toEqual([
             "/chat/completions",
             "/responses",
             "/messages",
           ]);
-          expect(outcome).toBeDefined();
         }),
     ),
   );
