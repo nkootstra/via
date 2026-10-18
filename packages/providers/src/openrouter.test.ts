@@ -245,11 +245,16 @@ layer(BunFileSystem.layer)("Providers' OpenRouter", (it) => {
 
       const gated = FileSystem.FileSystem.of({
         ...fs,
+        // The other call has reached the lock once it sets its lock file's mode.
+        chmod: (path, mode) =>
+          Effect.andThen(
+            blocked && path.endsWith("/openrouter.json.lock.db")
+              ? Deferred.succeed(contended, undefined)
+              : Effect.void,
+            fs.chmod(path, mode),
+          ),
         open: (path, options) =>
           Effect.gen(function* () {
-            if (blocked && path.endsWith("/openrouter.json.lock.db"))
-              yield* Deferred.succeed(contended, undefined);
-
             if (armed && !blocked && path.includes("openrouter.json.") && path.endsWith(".tmp")) {
               blocked = true;
               yield* Deferred.succeed(writing, undefined);

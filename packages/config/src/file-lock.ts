@@ -1,5 +1,14 @@
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { Data, type Duration, Effect, FileSystem, Predicate, Schedule, Schema } from "effect";
+import {
+  Data,
+  type Duration,
+  Effect,
+  FileSystem,
+  Predicate,
+  Random,
+  Schedule,
+  Schema,
+} from "effect";
 import { Reactivity } from "effect/unstable/reactivity";
 import { dirname } from "node:path";
 import { CorruptFileError } from "./json-file.ts";
@@ -19,6 +28,33 @@ export class FileLockTimeoutError extends Schema.TaggedError<FileLockTimeoutErro
 }
 
 /**
+ * Creates `filename` owner-only unless it exists, never opening it. On POSIX, closing any
+ * descriptor of a file drops every lock the process holds on it, a lock another fiber may be
+ * holding; so the file is made under another name and linked into place, which fails when
+ * another fiber or process got there first. Left to SQLite, it would be readable by others
+ * until the chmod after, long enough for another user to open it and hold a lock forever.
+ */
+const createOwnerOnly = (fs: FileSystem.FileSystem, filename: string) =>
+  Effect.gen(function* () {
+    if (yield* fs.exists(filename)) return;
+    const fresh = `${filename}.${yield* Random.nextInt}.tmp`;
+
+    yield* Effect.gen(function* () {
+      yield* Effect.scoped(fs.open(fresh, { flag: "wx", mode: 0o600 }));
+      // The mode given to open is narrowed by the umask, never widened; this is for a umask
+      // that clears the owner's bits.
+      yield* fs.chmod(fresh, 0o600);
+      yield* fs
+        .link(fresh, filename)
+        .pipe(Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.void));
+    }).pipe(
+      // The temporary name holds nothing; a leftover would only clutter the directory, so a
+      // failure to remove it is no reason to fail the lock.
+      Effect.ensuring(fs.remove(fresh, { force: true }).pipe(Effect.ignore)),
+    );
+  });
+
+/**
  * Runs `effect` while holding SQLite's process lock on `<path>.lock.db`.
  * The OS keeps a paused process exclusive and releases its lock when it exits.
  * The file stays: removing it would let another process lock a different inode.
@@ -33,14 +69,16 @@ export const withFileLock = <A, E, R>(
       const fs = yield* FileSystem.FileSystem;
       const filename = `${path}.lock.db`;
       yield* fs.makeDirectory(dirname(path), { recursive: true, mode: 0o700 });
-      yield* Effect.scoped(fs.open(filename, { flag: "a+", mode: 0o600 }));
-      yield* fs.chmod(filename, 0o600);
+      yield* createOwnerOnly(fs, filename);
 
       const database = yield* SqliteClient.make({
         filename,
         disableWAL: true,
         busyTimeout: 0,
       }).pipe(Effect.provide(Reactivity.layer));
+
+      // Changes the mode by name, opening no descriptor. The file holds no data, only the lock.
+      yield* fs.chmod(filename, 0o600);
 
       const failed = (error: { readonly message: string }) =>
         new CorruptFileError({ path: filename, reason: error.message });
