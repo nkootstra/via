@@ -347,8 +347,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         note({ servedBy: Option.some(by), accountId: Option.fromUndefinedOr(accountId) }),
       refused: (code, message) =>
         note({ error: Option.some(code), errorMessage: Option.some(message) }),
-      upstreamFailed: (error) =>
-        note({ upstreamError: Option.some(error), streamEnd: Option.some("failed") }),
+      upstreamFailed: (error) => note({ upstreamError: Option.some(error) }),
       fellBack: (requested, reason) =>
         note({ requestedModel: Option.some(requested), fallbackReason: Option.some(reason) }),
       setAside: Ref.modify(noting, (sofar): [Effect.Effect<void>, Noted] => {
@@ -397,7 +396,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
                   Ref.update(noting, (line) => ({
                     ...line,
                     streamEnd: Option.some(
-                      Option.contains(line.streamEnd, "failed") ? "failed" : streamEnd(exit),
+                      Option.isSome(line.upstreamError) ? "failed" : streamEnd(exit),
                     ),
                   })),
                   finish,
