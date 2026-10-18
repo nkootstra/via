@@ -302,6 +302,26 @@ layer(BunFileSystem.layer)("OpenCode Go accounts", (it) => {
     ),
   );
 
+  it.effect("cuts a 400's body that runs far longer than an error does", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(() => ({
+            status: 400,
+            contentType: "text/html",
+            body: "x".repeat(1024 * 1024),
+          }));
+
+          const response = yield* ask(via);
+
+          expect(response.status).toBe(400);
+          expect((yield* response.text).length).toBe(64 * 1024);
+        }),
+      keys,
+    ),
+  );
+
   it.effect("passes an outage through as it is, without failing over", () =>
     withVia(
       ok,
