@@ -1,10 +1,10 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Clock, Effect, Fiber, FileSystem, Schema, Stream } from "effect";
+import { Clock, Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
 import { PoolStates } from "./pool-states.ts";
-import type { PoolState } from "./select.ts";
+import { type PoolState, select } from "./select.ts";
 
 /** Runs `body` against the states kept in `path`, as one `via serve` process would. */
 const run = <A, E>(path: string, body: (states: PoolStates["Service"]) => Effect.Effect<A, E>) =>
@@ -62,6 +62,26 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
     }).pipe(Effect.provide(PoolStates.layer)),
   );
 
+  it.effect("a login after a lockout leaves the cooldown it interrupted running", () =>
+    Effect.gen(function* () {
+      const states = yield* PoolStates;
+      const now = yield* Clock.currentTimeMillis;
+      const until = now + 5 * 60 * 60 * 1000;
+      yield* states.coolDown("acc-a", until, "usage_limit_reached");
+      yield* states.lockOut("acc-a", "invalid_grant");
+      yield* states.liftLockOut("acc-a");
+
+      expect(select([{ id: "acc-a", enabled: true }], yield* states.get, now)).toEqual(
+        Option.none(),
+      );
+      expect((yield* states.get)["acc-a"]).toEqual({
+        status: "cooling",
+        until,
+        reason: "usage_limit_reached",
+      });
+    }).pipe(Effect.provide(PoolStates.layer)),
+  );
+
   it.effect("streams its state, then every change to it, and nothing for a no-op", () =>
     Effect.gen(function* () {
       const states = yield* PoolStates;
@@ -113,16 +133,22 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
     }),
   );
 
-  it.effect("drops a persisted cooldown once the account is locked out", () =>
+  it.effect("keeps the cooldown a lockout interrupted across a restart and a login", () =>
     Effect.gen(function* () {
       const path = `${yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()}/state.json`;
+      const cooling = { status: "cooling", until: 60_000, reason: "usage_limit_reached" } as const;
       yield* run(path, (states) =>
         Effect.gen(function* () {
-          yield* states.coolDown("acc-a", 60_000, "server_error");
+          yield* states.coolDown("acc-a", cooling.until, cooling.reason);
           yield* states.lockOut("acc-a", "account_deactivated");
         }),
       );
-      expect(yield* run(path, (states) => states.get)).toEqual({});
+
+      const restarted = yield* run(path, (states) =>
+        Effect.andThen(states.liftLockOut("acc-a"), states.get),
+      );
+
+      expect(restarted).toEqual({ "acc-a": cooling });
     }),
   );
 
@@ -303,25 +329,33 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
   );
 
   it.effect.prop(
-    "lifting a lockout clears only that, whatever the account's state",
+    "lifting a lockout clears only that, leaving the cooldown it interrupted",
     { marks },
     ({ marks: values }) =>
       Effect.gen(function* () {
         const states = yield* PoolStates;
+        // The cooldown a lockout can't erase: the longest one set before the first lockout,
+        // since a locked-out account takes no new cooldown.
+        let cooldown: PoolState[string] | undefined;
+        let locked = false;
 
         for (const mark of values) {
-          yield* mark.kind === "auth_error"
-            ? states.lockOut("acc-a", "invalid_grant")
-            : states.coolDown("acc-a", mark.until, mark.reason);
+          if (mark.kind === "auth_error") {
+            locked = true;
+            yield* states.lockOut("acc-a", "invalid_grant");
+            continue;
+          }
+
+          if (!locked && (cooldown?.status !== "cooling" || cooldown.until < mark.until)) {
+            cooldown = { status: "cooling", until: mark.until, reason: mark.reason };
+          }
+
+          yield* states.coolDown("acc-a", mark.until, mark.reason);
         }
 
-        const before = yield* states.get;
         yield* states.liftLockOut("acc-a");
-        const { "acc-a": _, ...others } = before;
 
-        expect(yield* states.get).toEqual(
-          before["acc-a"]?.status === "auth_error" ? others : before,
-        );
+        expect(yield* states.get).toEqual(cooldown === undefined ? {} : { "acc-a": cooldown });
       }).pipe(Effect.provide(PoolStates.layer)),
   );
 });

@@ -835,7 +835,8 @@ changes only once it restarts.
   (or `503` if waiting won't help). For a model only some accounts offer, only
   those accounts count.
 - Running cooldowns are saved in `state.json`, so a restarted `via serve` keeps
-  them. Lockouts aren't saved: a restart gives a locked-out account one more try.
+  them. Lockouts aren't saved: a restart gives a locked-out account one more try,
+  once a cooldown it was locked out in has run out.
 - In the background, via also asks ChatGPT for each account's usage when it
   starts and every 15 minutes after that, a few accounts at a time, so an
   already-exhausted account cools down before its next request would hit a 429. The web UI shows the same usage. This never ends a cooldown early, only starts one or

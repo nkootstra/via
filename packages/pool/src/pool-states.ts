@@ -11,7 +11,10 @@ import {
 } from "effect";
 import type { AccountState, PoolState } from "./select.ts";
 
-/** The cooldowns still running, by account id: what outlives a restart. */
+/**
+ * The cooldowns still running, by account id, those lockouts interrupted included: what
+ * outlives a restart.
+ */
 const Cooldowns = Schema.Record(
   Schema.String,
   Schema.Struct({ until: Schema.Finite, reason: Schema.String }),
@@ -19,11 +22,13 @@ const Cooldowns = Schema.Record(
 
 const running = (state: PoolState, now: number): typeof Cooldowns.Type =>
   Object.fromEntries(
-    Object.entries(state).flatMap(([id, current]) =>
-      current.status === "cooling" && current.until > now
-        ? [[id, { until: current.until, reason: current.reason }]]
-        : [],
-    ),
+    Object.entries(state).flatMap(([id, current]) => {
+      const cooldown = current.status === "cooling" ? current : current.resumes;
+
+      return cooldown !== undefined && cooldown.until > now
+        ? [[id, { until: cooldown.until, reason: cooldown.reason }]]
+        : [];
+    }),
   );
 
 const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void>) =>
@@ -56,14 +61,35 @@ const make = (initial: PoolState, save: (state: PoolState) => Effect.Effect<void
             ? undefined
             : { status: "cooling", until, reason },
         ),
-      lockOut: (id, reason) => Effect.asVoid(update(id, () => ({ status: "auth_error", reason }))),
-      // Nothing to save: the file keeps only cooldowns, and this leaves them as they are.
+      lockOut: (id, reason) =>
+        Effect.asVoid(
+          update(id, (current): AccountState => {
+            const resumes =
+              current?.status === "cooling"
+                ? { until: current.until, reason: current.reason }
+                : current?.resumes;
+
+            return resumes === undefined
+              ? { status: "auth_error", reason }
+              : { status: "auth_error", reason, resumes };
+          }),
+        ),
       liftLockOut: (id) =>
-        SubscriptionRef.modifySome(states, (current) => {
-          if (current[id]?.status !== "auth_error") return [undefined, Option.none()] as const;
+        SubscriptionRef.modifySomeEffect(states, (current) => {
+          const locked = current[id];
+
+          if (locked?.status !== "auth_error") {
+            return Effect.succeed([undefined, Option.none()] as const);
+          }
+
           const { [id]: _lifted, ...others } = current;
 
-          return [undefined, Option.some(others)] as const;
+          const lifted =
+            locked.resumes === undefined
+              ? others
+              : { ...others, [id]: { status: "cooling" as const, ...locked.resumes } };
+
+          return Effect.as(save(lifted), [undefined, Option.some(lifted)] as const);
         }),
     });
   });

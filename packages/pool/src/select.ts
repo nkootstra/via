@@ -7,7 +7,12 @@ export type AccountState =
       readonly until: number;
       readonly reason: string;
     }
-  | { readonly status: "auth_error"; readonly reason: string };
+  | {
+      readonly status: "auth_error";
+      readonly reason: string;
+      /** The cooldown the lockout interrupted: a login lifts the lockout, not this. */
+      readonly resumes?: { readonly until: number; readonly reason: string };
+    };
 
 export type PoolState = Readonly<Record<string, AccountState>>;
 
