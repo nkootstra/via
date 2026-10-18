@@ -392,7 +392,15 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
                 pending: sofar.pending + 1,
               })),
               (_, exit) =>
-                Effect.andThen(note({ streamEnd: Option.some(streamEnd(exit)) }), finish),
+                Effect.andThen(
+                  Ref.update(noting, (line) => ({
+                    ...line,
+                    streamEnd: Option.some(
+                      Option.isSome(line.upstreamError) ? "failed" : streamEnd(exit),
+                    ),
+                  })),
+                  finish,
+                ),
             ),
             // Only the first chunk is timed; `tap` would run an effect for every chunk.
             Stream.onFirst(stream, () =>

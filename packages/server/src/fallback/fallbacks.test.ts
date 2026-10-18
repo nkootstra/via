@@ -399,6 +399,27 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
     ),
   );
 
+  it.effect("records a completed fallback after the first provider failed", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(down());
+
+          const response = yield* via.post("/v1/chat/completions", {
+            ...chat("openrouter/y"),
+            stream: true,
+          });
+
+          yield* response.text;
+          yield* via.logged("Sent HTTP response");
+          const { requests } = yield* via.usage.requests({ from: 0, to: Date.now() * 2, limit: 5 });
+          expect(requests.map((entry) => entry.streamEnd)).toEqual([Option.some("completed")]);
+        }),
+      { fallbacks: [{ model: "openrouter/y", fallbacks: ["gpt-6-astra"] }] },
+    ),
+  );
+
   it.effect("covers a model asked for with an effort", () =>
     withVia(
       exhausted,

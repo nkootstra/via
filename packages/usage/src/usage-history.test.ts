@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { describe, expect, it, layer } from "@effect/vitest";
-import { Duration, Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
+import { Deferred, Duration, Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
 import type { UsageEntry } from "./entry.ts";
@@ -749,6 +749,50 @@ layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
         usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 }),
       ).pipe(Effect.provide(open));
 
+      expect(page.requests).toEqual([entry()]);
+    }),
+  );
+  withFs.effect("preserves a database created after an existence check", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/usage.db`;
+      const checked = yield* Deferred.make<void>();
+      const release = yield* Deferred.make<void>();
+
+      const delayed = FileSystem.FileSystem.of({
+        ...fs,
+        exists: (filename) =>
+          fs
+            .exists(filename)
+            .pipe(
+              Effect.tap((exists) =>
+                filename === path && !exists
+                  ? Effect.andThen(Deferred.succeed(checked, undefined), Deferred.await(release))
+                  : Effect.void,
+              ),
+            ),
+      });
+
+      const opening = yield* Effect.flatMap(UsageHistory, (usage) =>
+        usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 }),
+      ).pipe(
+        Effect.provide(UsageHistory.layer(path)),
+        Effect.provideService(FileSystem.FileSystem, delayed),
+        Effect.forkChild,
+      );
+
+      yield* Deferred.await(checked);
+
+      const saved = yield* Effect.flatMap(UsageHistory, (usage) =>
+        Effect.andThen(
+          usage.record(entry()),
+          usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 }),
+        ),
+      ).pipe(Effect.provide(UsageHistory.layer(path)));
+
+      expect(saved.requests).toEqual([entry()]);
+      yield* Deferred.succeed(release, undefined);
+      const page = yield* Fiber.join(opening);
       expect(page.requests).toEqual([entry()]);
     }),
   );

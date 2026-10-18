@@ -551,7 +551,10 @@ const createOwnerOnly = Effect.fn("UsageHistory.createOwnerOnly")(function* (fil
   yield* fs.makeDirectory(dirname(filename), { recursive: true, mode: 0o700 });
 
   if (!(yield* fs.exists(filename))) {
-    yield* fs.writeFile(filename, new Uint8Array(), { mode: 0o600 });
+    yield* fs.writeFile(filename, new Uint8Array(), { flag: "wx", mode: 0o600 }).pipe(
+      // Another process may have created the database since the existence check.
+      Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.void),
+    );
   }
 
   yield* fs.chmod(filename, 0o600);

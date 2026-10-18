@@ -248,4 +248,83 @@ layer(BunFileSystem.layer)("usage history", (it) => {
       },
     ),
   );
+  it.effect("upstream error text can retain prompt text", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const prompt = "REVIEW_PRIVATE_PROMPT_7a19";
+        via.provider.respond((request) => ({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: { code: "invalid_input", message: request.body.input } }),
+        }));
+
+        const response = yield* via.post("/v1/responses", {
+          model: "openrouter/test",
+          input: prompt,
+        });
+
+        yield* response.text;
+        const requests = yield* recorded(via);
+        expect(requests).toHaveLength(1);
+        expect(requests[0]?.errorMessage).toEqual(Option.some(prompt));
+      }),
+    ),
+  );
+
+  it.effect("records a cut-off Responses stream as failed", () =>
+    withVia(
+      () =>
+        reply.sse('event: response.created\ndata: {"type":"response.created","response":{}}\n\n'),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", {
+            model: "gpt-6-astra",
+            input: "hi",
+            stream: true,
+          });
+
+          expect(response.status).toBe(200);
+          expect(yield* response.text).toContain("upstream_incomplete");
+          const [request] = yield* recorded(via);
+          expect(request?.streamEnd).toEqual(Option.some("failed"));
+        }),
+    ),
+  );
+  it.effect("records a cut-off Messages stream as failed", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond((request) =>
+          request.path === "/messages"
+            ? {
+                status: 200,
+                contentType: "text/event-stream",
+                body: `event: message_start\ndata: ${JSON.stringify({
+                  type: "message_start",
+                  message: { id: "msg_1", model: "test", usage: { input_tokens: 1 } },
+                })}\n\n`,
+              }
+            : {
+                status: 400,
+                contentType: "application/json",
+                body: JSON.stringify({ error: { code: "ModelProtocolUnsupported" } }),
+              },
+        );
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/test",
+          messages: [],
+          stream: true,
+        });
+
+        expect(yield* response.text).toContain("upstream_incomplete");
+        expect(via.provider.requests.map(({ path }) => path)).toEqual([
+          "/chat/completions",
+          "/responses",
+          "/messages",
+        ]);
+        const [request] = yield* recorded(via);
+        expect(request?.streamEnd).toEqual(Option.some("failed"));
+      }),
+    ),
+  );
 });

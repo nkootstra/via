@@ -1,4 +1,5 @@
 import { Effect, Option, Schema, Stream } from "effect";
+import { Sse } from "effect/unstable/encoding";
 
 /** Why an upstream refused a request, as far as its answer says: a code and a message. */
 export interface UpstreamError {
@@ -85,6 +86,50 @@ export const spotUpstreamError = <E>(
           return chunks;
         }),
         Stream.onEnd(Effect.suspend(() => report(upstreamErrorOf(text.slice(0, BODY_LIMIT))))),
+      );
+    }),
+  );
+
+const StreamFailure = Schema.Union([
+  ErrorObject,
+  Schema.Struct({ type: Schema.Literal("error"), code: Schema.String, message: Schema.String }),
+  Schema.Struct({
+    type: Schema.Literal("response.failed"),
+    response: ErrorObject,
+  }),
+]);
+
+const decodeStreamFailure = Schema.decodeUnknownOption(Schema.fromJsonString(StreamFailure));
+
+/** Records SSE failures after translation, including an error emitted for a cut-off stream. */
+export const spotStreamError = <E>(
+  body: Stream.Stream<Uint8Array, E>,
+  report: (error: UpstreamError) => Effect.Effect<void>,
+): Stream.Stream<Uint8Array, E> =>
+  Stream.unwrap(
+    Effect.sync(() => {
+      const decoder = new TextDecoder();
+      let found: Array<UpstreamError> = [];
+
+      const parser = Sse.makeParser((event) => {
+        if (Sse.Retry.is(event)) return;
+
+        for (const error of Option.toArray(decodeStreamFailure(event.data))) {
+          const payload =
+            "response" in error ? error.response : "error" in error ? error : { error };
+
+          found.push(upstreamErrorOf(JSON.stringify(payload)));
+        }
+      });
+
+      return body.pipe(
+        Stream.mapArrayEffect((chunks) => {
+          for (const chunk of chunks) parser.feed(decoder.decode(chunk, { stream: true }));
+          const failures = found;
+          found = [];
+
+          return Effect.as(Effect.forEach(failures, report, { discard: true }), chunks);
+        }),
       );
     }),
   );

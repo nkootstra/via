@@ -11,7 +11,7 @@ import {
 import { Clock, Effect, Option, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
 import { openAiError } from "./openai-error.ts";
-import { collected, relayed } from "./relay.ts";
+import { collected, readBody, relayed } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
 import { usageOf } from "../usage/token-usage.ts";
 
@@ -80,10 +80,14 @@ export const chatFromMessages = (
     }
 
     return yield* upstream.json.pipe(
+      readBody,
       Effect.flatMap(decodeMessage),
       Effect.map((message) => toChatCompletionFromMessage(message, created)),
       Effect.tap((completion) => noteUsage(completion.usage)),
       Effect.map((completion) => HttpServerResponse.jsonUnsafe(completion)),
+      Effect.catchTag("UpstreamBodyTimeoutError", (error) =>
+        openAiError(504, "upstream_timeout", error.message),
+      ),
       // The body broke off, or wasn't a Messages message.
       Effect.catch(() =>
         openAiError(502, "upstream_unreadable", "The Messages answer could not be read"),
