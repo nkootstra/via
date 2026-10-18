@@ -825,6 +825,12 @@ changes only once it restarts.
   to a running `via serve` never spends a refresh token twice. If the new
   tokens can't be saved (a full disk, say), via keeps them in memory and saves
   them the next time it uses the account; they are lost if via stops first.
+- File locks use persistent, owner-only `<path>.lock.db` files. The operating
+  system keeps a live process exclusive, even when it is paused, and releases
+  its lock when the process exits. Do not delete these files while via is
+  running. Stop all via server and CLI processes before upgrading to this
+  lock format: older processes use a different lock and cannot coordinate
+  with it. The lock databases contain no account tokens or API keys.
 - When no account is left, the client gets `429` with a `Retry-After` header
   (or `503` if waiting won't help). For a model only some accounts offer, only
   those accounts count.

@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { CorruptFileError } from "@via/config";
+import { CorruptFileError, withFileLock } from "@via/config";
 import {
   Clock,
   Context,
@@ -43,7 +43,7 @@ const fail = (reason: "AlreadyExists" | "NotFound", method: string, path: string
   );
 
 /** A file system in memory, with just the calls a store makes on its key file and lock. */
-const memoryFileSystem = () => {
+const memoryFileSystem = (disk: FileSystem.FileSystem) => {
   const files = new Map<string, string>();
 
   return FileSystem.makeNoop({
@@ -61,26 +61,28 @@ const memoryFileSystem = () => {
             files.set(path, text);
           }),
     // Opened only to write a new file and flush it, as `writeJsonFile` does with its temp file.
-    open: (path) =>
-      Effect.sync((): FileSystem.File => {
-        files.set(path, "");
-        const unused = Effect.die(`the store only writes and flushes ${path}`);
+    open: (path, options) =>
+      path.endsWith(".lock.db")
+        ? disk.open(path, options)
+        : Effect.sync((): FileSystem.File => {
+            files.set(path, "");
+            const unused = Effect.die(`the store only writes and flushes ${path}`);
 
-        return {
-          [FileSystem.FileTypeId]: FileSystem.FileTypeId,
-          stat: unused,
-          seek: () => unused,
-          read: () => unused,
-          readAlloc: () => unused,
-          truncate: () => unused,
-          write: () => unused,
-          writeAll: (bytes) =>
-            Effect.sync(() => {
-              files.set(path, `${files.get(path) ?? ""}${new TextDecoder().decode(bytes)}`);
-            }),
-          sync: Effect.void,
-        };
-      }),
+            return {
+              [FileSystem.FileTypeId]: FileSystem.FileTypeId,
+              stat: unused,
+              seek: () => unused,
+              read: () => unused,
+              readAlloc: () => unused,
+              truncate: () => unused,
+              write: () => unused,
+              writeAll: (bytes) =>
+                Effect.sync(() => {
+                  files.set(path, `${files.get(path) ?? ""}${new TextDecoder().decode(bytes)}`);
+                }),
+              sync: Effect.void,
+            };
+          }),
     rename: (from, to) => {
       const text = files.get(from);
 
@@ -106,69 +108,27 @@ const memoryFileSystem = () => {
 const withKeyStoreInMemory = <A, E>(
   body: (file: string) => Effect.Effect<A, E, KeyStore | FileSystem.FileSystem>,
 ) => {
-  const file = "/via/keys.json";
+  return Effect.gen(function* () {
+    const disk = yield* FileSystem.FileSystem;
+    const file = `${yield* disk.makeTempDirectoryScoped()}/keys.json`;
 
-  return body(file).pipe(
-    Effect.provide(KeyStore.layer(file)),
-    Effect.provideService(FileSystem.FileSystem, memoryFileSystem()),
-  );
+    return yield* body(file).pipe(
+      Effect.provide(KeyStore.layer(file)),
+      Effect.provideService(FileSystem.FileSystem, memoryFileSystem(disk)),
+    );
+  });
 };
 
 /** A store on `file` of its own, as another process (`via keys`, a restarted `via serve`) has. */
 const storeAt = (file: string) =>
   Layer.build(KeyStore.layer(file)).pipe(Effect.map(Context.get(KeyStore)));
 
-/**
- * Two stores on `file`, as `via keys create` and a running `via serve` are:
- * each with its own in-process lock, and both taking the file's real lock
- * file. `contend` runs `effect` with a clock for them to wait on each other
- * with: a store that finds the lock file taken waits until the other removes
- * it, where it would poll for it on the real clock.
- */
+/** Two independent stores on one file, waiting on real OS lock release. */
 const contendingStoresAt = (file: string) =>
   Effect.gen(function* () {
-    const fs = yield* FileSystem.FileSystem;
-    const clock = yield* Clock.clockWith(Effect.succeed);
-    const lock = `${file}.lock`;
-    let released = Deferred.makeUnsafe<void>();
+    const [cli, serve] = yield* Effect.all([storeAt(file), storeAt(file)]);
 
-    const watched = FileSystem.FileSystem.of({
-      ...fs,
-      remove: (path, options) =>
-        fs.remove(path, options).pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              if (path !== lock) return;
-              Deferred.doneUnsafe(released, Effect.void);
-              released = Deferred.makeUnsafe();
-            }),
-          ),
-        ),
-    });
-
-    // Taken before the lock file is looked at, so a release in between isn't missed. A lock
-    // file that can't be looked at is tried for again at once.
-    const untilReleased = Effect.suspend(() => {
-      const next = released;
-
-      return fs.exists(lock).pipe(
-        Effect.orElseSucceed(() => false),
-        Effect.flatMap((held) => (held ? Deferred.await(next) : Effect.void)),
-      );
-    });
-
-    const waitingOnTheLock: Clock.Clock = { ...clock, sleep: () => untilReleased };
-
-    const [cli, serve] = yield* Effect.all([storeAt(file), storeAt(file)]).pipe(
-      Effect.provideService(FileSystem.FileSystem, watched),
-    );
-
-    return {
-      cli,
-      serve,
-      contend: <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-        Effect.provideService(effect, Clock.Clock, waitingOnTheLock),
-    };
+    return { cli, serve, contend: TestClock.withLive };
   });
 
 const StoredLastUse = Schema.fromJsonString(
@@ -580,14 +540,20 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
   it.effect("verifies a key at once while another process holds the key file's lock", () =>
     withKeyStore((file) =>
       Effect.gen(function* () {
-        const fs = yield* FileSystem.FileSystem;
         const store = yield* KeyStore;
         const written = yield* writesOf(store);
         const { id, key } = yield* store.create("laptop");
         yield* written.next;
         const start = yield* Clock.currentTimeMillis;
-        // Another process's lock, fresh by the test clock, which is far behind real time.
-        yield* fs.writeFileString(`${file}.lock`, "another-process");
+        const held = yield* Deferred.make<void>();
+        const release = yield* Deferred.make<void>();
+
+        const holder = yield* withFileLock(
+          file,
+          Effect.andThen(Deferred.succeed(held, undefined), Deferred.await(release)),
+        ).pipe(Effect.forkChild);
+
+        yield* Deferred.await(held);
 
         // A key's first use is always due to be written.
         const verifying = yield* store.verify(key).pipe(Effect.forkChild);
@@ -599,7 +565,8 @@ layer(BunFileSystem.layer)("KeyStore", (it) => {
         );
 
         expect(verified).toEqual(Option.some({ id, name: "laptop" }));
-        yield* fs.remove(`${file}.lock`);
+        yield* Deferred.succeed(release, undefined);
+        yield* Fiber.join(holder);
         yield* untilDone(written.next);
         expect(yield* storedLastUse(file)).toEqual({ laptop: iso(start, 0) });
       }),
