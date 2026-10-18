@@ -4,12 +4,17 @@ import { Schema } from "effect";
 export const ResponsesUsage = Schema.Struct({
   input_tokens: Schema.Finite,
   output_tokens: Schema.Finite,
-  // Codex leaves the details out, or sends `null`, when it has none to report.
+  // An upstream leaves the details, or a count in them, out or `null` when it
+  // has none to report.
   input_tokens_details: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.Finite) })),
+    Schema.NullOr(
+      Schema.Struct({ cached_tokens: Schema.optionalKey(Schema.NullOr(Schema.Finite)) }),
+    ),
   ),
   output_tokens_details: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({ reasoning_tokens: Schema.optionalKey(Schema.Finite) })),
+    Schema.NullOr(
+      Schema.Struct({ reasoning_tokens: Schema.optionalKey(Schema.NullOr(Schema.Finite)) }),
+    ),
   ),
 });
 

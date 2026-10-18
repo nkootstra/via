@@ -34,6 +34,26 @@ describe("usageOf", () => {
     ).toEqual(Option.some({ inputTokens: 10, outputTokens: 2 }));
   });
 
+  it("reads a usage object whose detail counts are null", () => {
+    expect(
+      usageOf({
+        input_tokens: 10,
+        input_tokens_details: { cached_tokens: null },
+        output_tokens: 2,
+        output_tokens_details: { reasoning_tokens: null },
+      }),
+    ).toEqual(Option.some({ inputTokens: 10, outputTokens: 2 }));
+
+    expect(
+      usageOf({
+        prompt_tokens: 10,
+        prompt_tokens_details: { cached_tokens: null, cache_write_tokens: null },
+        completion_tokens: 2,
+        completion_tokens_details: { reasoning_tokens: null },
+      }),
+    ).toEqual(Option.some({ inputTokens: 10, outputTokens: 2 }));
+  });
+
   it("reads a Chat Completions usage object", () => {
     expect(usageOf({ prompt_tokens: 10, completion_tokens: 2, total_tokens: 12 })).toEqual(
       Option.some({ inputTokens: 10, outputTokens: 2 }),

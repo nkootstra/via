@@ -21,13 +21,15 @@ const ChatUsage = Schema.Struct({
   prompt_tokens_details: Schema.optionalKey(
     Schema.NullOr(
       Schema.Struct({
-        cached_tokens: Schema.optionalKey(Schema.Finite),
-        cache_write_tokens: Schema.optionalKey(Schema.Finite),
+        cached_tokens: Schema.optionalKey(Schema.NullOr(Schema.Finite)),
+        cache_write_tokens: Schema.optionalKey(Schema.NullOr(Schema.Finite)),
       }),
     ),
   ),
   completion_tokens_details: Schema.optionalKey(
-    Schema.NullOr(Schema.Struct({ reasoning_tokens: Schema.optionalKey(Schema.Finite) })),
+    Schema.NullOr(
+      Schema.Struct({ reasoning_tokens: Schema.optionalKey(Schema.NullOr(Schema.Finite)) }),
+    ),
   ),
 });
 
@@ -73,8 +75,8 @@ export const usageOf = (usage: Schema.Json | undefined): Option.Option<TokenUsag
   if (isResponsesUsage(usage)) {
     return Option.some(
       tokenUsage(usage.input_tokens, usage.output_tokens, {
-        cachedTokens: usage.input_tokens_details?.cached_tokens,
-        reasoningTokens: usage.output_tokens_details?.reasoning_tokens,
+        cachedTokens: usage.input_tokens_details?.cached_tokens ?? undefined,
+        reasoningTokens: usage.output_tokens_details?.reasoning_tokens ?? undefined,
         costUsd,
       }),
     );
@@ -83,9 +85,9 @@ export const usageOf = (usage: Schema.Json | undefined): Option.Option<TokenUsag
   if (isChatUsage(usage)) {
     return Option.some(
       tokenUsage(usage.prompt_tokens, usage.completion_tokens, {
-        cachedTokens: usage.prompt_tokens_details?.cached_tokens,
-        cacheWriteTokens: usage.prompt_tokens_details?.cache_write_tokens,
-        reasoningTokens: usage.completion_tokens_details?.reasoning_tokens,
+        cachedTokens: usage.prompt_tokens_details?.cached_tokens ?? undefined,
+        cacheWriteTokens: usage.prompt_tokens_details?.cache_write_tokens ?? undefined,
+        reasoningTokens: usage.completion_tokens_details?.reasoning_tokens ?? undefined,
         costUsd,
       }),
     );
