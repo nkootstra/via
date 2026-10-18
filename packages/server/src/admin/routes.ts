@@ -357,7 +357,7 @@ const events = (options: StateOptions) =>
             ? Effect.never
             : sessionsEnded(admin, request);
 
-          const body = (yield* RequestLog).timed(keepAlive(Stream.interruptWhen(stream, ended)));
+          const body = (yield* RequestLog).timed(Stream.interruptWhen(stream, ended), keepAlive);
 
           return HttpServerResponse.stream(Stream.provideContext(body, context), {
             contentType: "text/event-stream",

@@ -1094,7 +1094,8 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   when it reports either (OpenRouter reports its cost). Absent usage stays
   absent, never a zero.
 - For an answer the client asked to stream, `headers_ms` and `first_chunk_ms`
-  say when its headers and first chunk went out, and `stream_end` how it ended: `completed`, `client_aborted`
+  say when its headers and the first chunk of its answer went out (a `: keepalive`
+  comment doesn't count), and `stream_end` how it ended: `completed`, `client_aborted`
   (the client went away first) or `failed` (it broke off, such as when the
   upstream dropped the connection).
 - For an error via answers itself, `error` is its code and `retry_after` the
