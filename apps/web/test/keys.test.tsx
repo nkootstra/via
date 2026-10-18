@@ -1,7 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fakeClock, renderApp, skip } from "./app.tsx";
+import { fakeClock, mutationsHold, renderApp, skip } from "./app.tsx";
 
 const laptop = {
   id: "key-1",
@@ -50,6 +50,21 @@ describe("the keys page", () => {
     const table = screen.getByRole("table", { name: "Keys" });
     expect(await within(table).findByText("ci")).toBeDefined();
     expect(screen.queryByText("via-sk-key-2-0123456789abcdef")).toBeNull();
+  });
+
+  it("keeps no copy of the new key once its dialog closes", async () => {
+    const { user, router } = renderApp("/keys", { keys: [laptop] });
+
+    await user.click(await screen.findByRole("button", { name: "Create key" }));
+    const form = await screen.findByRole("dialog", { name: "Create a key" });
+    await user.type(within(form).getByLabelText("Name"), "ci");
+    await user.click(within(form).getByRole("button", { name: "Create key" }));
+
+    const reveal = await screen.findByRole("dialog", { name: "Your new key: ci" });
+    await user.click(within(reveal).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await waitFor(() => expect(mutationsHold(router, "via-sk-key-2-0123456789abcdef")).toBe(false));
   });
 
   it("keeps the new key up until Done, so a stray Escape doesn't lose it", async () => {

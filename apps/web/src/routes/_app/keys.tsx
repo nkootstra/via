@@ -129,6 +129,8 @@ function CreateKeyDialog({
 
   const mutation = useMutation({
     mutationFn: () => createKey(name.trim()),
+    // The new key it got back: dropped from the cache as soon as the dialog resets.
+    gcTime: 0,
     onSuccess: (outcome) => {
       if (outcome.created) void queryClient.invalidateQueries({ queryKey: keysQuery.queryKey });
     },

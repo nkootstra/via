@@ -46,6 +46,15 @@ export function renderApp(
   return { state, router, user };
 }
 
+/** Whether a mutation the app made still holds `secret`, in what it sent or what it got back. */
+export const mutationsHold = (router: ReturnType<typeof renderApp>["router"], secret: string) =>
+  router.options.context.queryClient
+    .getMutationCache()
+    .getAll()
+    .some((mutation) =>
+      JSON.stringify([mutation.state.variables, mutation.state.data]).includes(secret),
+    );
+
 /**
  * Fakes the clock the router's and Query's waits run on (`setTimeout`,
  * `setInterval` and `Date`), so that a test can `skip` a wait rather than sit

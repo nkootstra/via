@@ -3,7 +3,7 @@ import { act, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { failure } from "../src/testing/admin-handlers.ts";
-import { openSignOut, renderApp, server, userMenu } from "./app.tsx";
+import { mutationsHold, openSignOut, renderApp, server, userMenu } from "./app.tsx";
 
 const signIn = async (user: ReturnType<typeof renderApp>["user"], key: string) => {
   await user.type(await screen.findByLabelText("Admin key"), key);
@@ -36,6 +36,15 @@ describe("signing in", () => {
     expect(await screen.findByRole("heading", { name: "Keys" })).toBeDefined();
     expect(state.signedIn).toBe(true);
     expect(router.history.location.pathname).toBe("/ui/keys");
+  });
+
+  it("keeps no copy of the admin key once signed in", async () => {
+    const { state, user, router } = renderApp("/keys", { signedIn: false });
+
+    await signIn(user, state.adminKey);
+    await screen.findByRole("heading", { name: "Keys" });
+
+    await waitFor(() => expect(mutationsHold(router, state.adminKey)).toBe(false));
   });
 
   it("lands on the page the visitor was going to, its search and all", async () => {

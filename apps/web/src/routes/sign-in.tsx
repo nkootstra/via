@@ -171,6 +171,8 @@ function SignIn() {
 
   const mutation = useMutation({
     mutationFn: signIn,
+    // The key it was sent with: dropped from the cache as soon as the page lets go of it.
+    gcTime: 0,
     onSuccess: (outcome) => {
       if (outcome === "wrong-key") {
         if (problem?.kind !== "wrong-key") return setProblem({ kind: "wrong-key", attempt: 1 });
