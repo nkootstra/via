@@ -54,7 +54,7 @@ describe("collectResponse", () => {
       const error = yield* Effect.flip(collectResponse(bytes(cut)));
       expect(error).toBeInstanceOf(IncompleteStreamError);
       expect(error).toMatchObject({
-        message: "The Codex stream ended before the response completed",
+        message: "The upstream stream ended before the response completed",
       });
     }),
   );

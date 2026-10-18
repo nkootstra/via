@@ -50,8 +50,8 @@ const TERMINAL_EVENTS: ReadonlySet<string> = new Set([
 /** Whether an event of this type ends a Responses stream; nothing meaningful follows one. */
 export const isTerminalEvent = (type: string) => TERMINAL_EVENTS.has(type);
 
-/** What a client is told when a Codex stream breaks off before its terminal event. */
+/** What a client is told when a Responses stream breaks off before its terminal event. */
 export const streamIncomplete = {
   code: "upstream_incomplete",
-  message: "The Codex stream ended before the response completed",
+  message: "The upstream stream ended before the response completed",
 } as const;
