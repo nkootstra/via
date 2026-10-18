@@ -33,7 +33,7 @@ const make = Effect.gen(function* () {
 
   /**
    * Saves the rotated `tokens` of `stored`, the account as its file has it, or keeps them in
-   * memory when it can't.
+   * memory when it can't. Gives the account to use and the account as its file now has it.
    */
   const saveRotation = (stored: Account, tokens: Tokens) =>
     store.saveRefreshed(stored.id, tokens).pipe(
@@ -42,6 +42,7 @@ const make = Effect.gen(function* () {
         times: 3,
         while: Predicate.not(Predicate.isTagged("AccountNotFoundError")),
       }),
+      Effect.map((saved) => ({ account: saved, stored: saved })),
       Effect.tap(() => Effect.sync(() => unsaved.delete(stored.id))),
       Effect.catchTag(["FileLockTimeoutError", "PlatformError"], (error) =>
         Effect.gen(function* () {
@@ -50,7 +51,7 @@ const make = Effect.gen(function* () {
             `Could not save the new tokens of ${stored.label}, so they are kept in memory until they can be (${error.message})`,
           );
 
-          return { ...stored, ...tokens };
+          return { account: { ...stored, ...tokens }, stored };
         }),
       ),
     );
@@ -58,6 +59,7 @@ const make = Effect.gen(function* () {
   /**
    * `stored` with the rotated tokens this process couldn't save yet, saving them now if it
    * can; just `stored` when there are none, or they were rotated from tokens since replaced.
+   * Gives the account as its file has it afterwards too, which a save just changed.
    */
   const current = Effect.fnUntraced(function* (stored: Account) {
     const pending = unsaved.get(stored.id);
@@ -65,7 +67,7 @@ const make = Effect.gen(function* () {
     if (pending?.stored !== stored.refreshToken) {
       unsaved.delete(stored.id);
 
-      return stored;
+      return { account: stored, stored };
     }
 
     return yield* saveRotation(stored, pending.tokens);
@@ -84,7 +86,7 @@ const make = Effect.gen(function* () {
 
     if (latest.refreshToken === stored.refreshToken) return yield* rejected;
 
-    return yield* current(latest);
+    return (yield* current(latest)).account;
   });
 
   /**
@@ -100,8 +102,7 @@ const make = Effect.gen(function* () {
     return yield* Effect.gen(function* () {
       // Read under the locks, so a caller that waited sees the refresh it waited for,
       // whichever process made it.
-      const stored = yield* store.read(id);
-      const account = yield* current(stored);
+      const { account, stored } = yield* current(yield* store.read(id));
 
       if (!needed(account, yield* Clock.currentTimeMillis)) return account;
 
@@ -109,7 +110,10 @@ const make = Effect.gen(function* () {
       // mustn't stop the new one from being saved.
       return yield* Effect.uninterruptible(
         Effect.flatMap(auth.refresh(account), (tokens) => saveRotation(stored, tokens)),
-      ).pipe(Effect.catchTag("RefreshRejectedError", (error) => refreshedElsewhere(stored, error)));
+      ).pipe(
+        Effect.map((saved) => saved.account),
+        Effect.catchTag("RefreshRejectedError", (error) => refreshedElsewhere(stored, error)),
+      );
     }).pipe((refresh) => store.lockedForRefresh(id, refresh), Semaphore.withPermit(lock));
   });
 
