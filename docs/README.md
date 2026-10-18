@@ -1105,7 +1105,8 @@ characters), its input, cached, cache-write,
 output and reasoning tokens as the upstream reported them, any cost the
 upstream billed (OpenRouter reports one), and how long it took to answer and,
 for a streamed answer, to send its first chunk. It never keeps a prompt or an answer. Requests older
-than 90 days are deleted at startup and once a day after that.
+than 90 days are deleted at startup and once a day after that. Starting two via
+processes together does not overwrite an existing usage database.
 
 The [web UI](#web-ui)'s Usage page and the `/admin/history` routes of the
 [admin API](#admin-api) read it. Each takes a range, `from` and `to` in epoch
