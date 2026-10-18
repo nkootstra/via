@@ -142,7 +142,8 @@ export const toMessagesRequest = (chat: ChatRequest) => {
         .filter((turn) => turn.content.length > 0),
     ),
     max_tokens: maxTokens,
-    ...(chat.temperature != null && { temperature: chat.temperature }),
+    // Chat takes a temperature up to 2; Messages refuses one above 1.
+    ...(chat.temperature != null && { temperature: Math.min(chat.temperature, 1) }),
     ...(chat.top_p != null && { top_p: chat.top_p }),
     ...(stop !== undefined && { stop_sequences: Predicate.isString(stop) ? [stop] : stop }),
     ...(chat.tools && {

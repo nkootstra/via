@@ -36,6 +36,12 @@ describe("toMessagesRequest", () => {
     });
   });
 
+  it("asks for at most Messages' highest temperature, 1, where Chat allows up to 2", () => {
+    expect(
+      toMessagesRequest(chat({ temperature: 1.6, messages: [{ role: "user", content: "hi" }] })),
+    ).toMatchObject({ temperature: 1 });
+  });
+
   it("asks for a default number of tokens when the client names none", () => {
     expect(toMessagesRequest(chat({ messages: [{ role: "user", content: "hi" }] }))).toMatchObject({
       max_tokens: DEFAULT_MAX_TOKENS,

@@ -1033,7 +1033,9 @@ request in another with `ModelProtocolUnsupported`. For a
 translating the request and the answer, streamed or not, tool calls and
 usage included, and remembers which one the model answered in, so later
 requests go straight there. A restart forgets, at the cost of one refused
-request per model. A `/v1/responses` request still goes only as it came, so
+request per model. A request translated to Messages asks for a `temperature`
+of at most 1, the highest Messages takes, and goes without its
+`response_format`, which Messages has no field for. A `/v1/responses` request still goes only as it came, so
 a model OpenCode Go serves only in Chat Completions or Messages refuses it.
 
 `/v1/models` lists every provider's
