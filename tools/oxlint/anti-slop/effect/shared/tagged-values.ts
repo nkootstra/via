@@ -8,23 +8,51 @@ export const isStringLiteral = (
 ): node is ESTree.StringLiteral =>
 	node?.type === "Literal" && typeof node.value === "string";
 
-export const isTagMember = (
+/**
+ * Unwrap syntax-only wrappers around a `_tag` read, so `e?._tag`, `e._tag!`, `(e._tag as string)`
+ * and `(e._tag satisfies string)` all read as `e._tag`.
+ */
+const unwrapExpression = (
 	node: ESTree.Node | null | undefined,
-): node is ESTree.MemberExpression =>
-	node?.type === "MemberExpression" &&
-	((!node.computed &&
-		node.property.type === "Identifier" &&
-		node.property.name === "_tag") ||
-		(node.computed &&
-			isStringLiteral(node.property) &&
-			node.property.value === "_tag"));
+): ESTree.Node | null | undefined => {
+	while (
+		node?.type === "ParenthesizedExpression" ||
+		node?.type === "ChainExpression" ||
+		node?.type === "TSNonNullExpression" ||
+		node?.type === "TSAsExpression" ||
+		node?.type === "TSSatisfiesExpression" ||
+		node?.type === "TSTypeAssertion"
+	) {
+		node = node.expression;
+	}
+	return node;
+};
+
+/** The `_tag` member an expression reads, looking through optional chains. */
+export const tagMember = (
+	node: ESTree.Node | null | undefined,
+): ESTree.MemberExpression | undefined => {
+	const member = unwrapExpression(node);
+	if (member?.type !== "MemberExpression") return undefined;
+	const isTag =
+		(!member.computed &&
+			member.property.type === "Identifier" &&
+			member.property.name === "_tag") ||
+		(member.computed &&
+			isStringLiteral(member.property) &&
+			member.property.value === "_tag");
+	return isTag ? member : undefined;
+};
 
 export const tagMemberFromComparison = (
 	node: ESTree.BinaryExpression,
 ): ESTree.MemberExpression | undefined => {
 	if (!equalityOperators.has(node.operator)) return undefined;
-	if (isTagMember(node.left) && isStringLiteral(node.right)) return node.left;
-	if (isTagMember(node.right) && isStringLiteral(node.left)) return node.right;
+	if (isStringLiteral(node.right)) {
+		const member = tagMember(node.left);
+		if (member !== undefined) return member;
+	}
+	if (isStringLiteral(node.left)) return tagMember(node.right);
 	return undefined;
 };
 

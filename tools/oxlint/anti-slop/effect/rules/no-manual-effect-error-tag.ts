@@ -3,7 +3,7 @@ import { defineRule } from "@oxlint/plugins";
 import {
 	isInsideBroadEffectHandler,
 	isReasonTagMember,
-	isTagMember,
+	tagMember,
 	tagMemberFromComparison,
 } from "../shared/tagged-values.ts";
 
@@ -23,28 +23,29 @@ export const noManualEffectErrorTagRule = defineRule({
 	createOnce(context) {
 		return {
 			BinaryExpression(node) {
-				const tagMember = tagMemberFromComparison(node);
+				const member = tagMemberFromComparison(node);
 				if (
-					tagMember === undefined ||
+					member === undefined ||
 					!isInsideBroadEffectHandler(node)
 				) {
 					return;
 				}
 				context.report({
 					node,
-					messageId: isReasonTagMember(tagMember) ? "reason" : "tag",
+					messageId: isReasonTagMember(member) ? "reason" : "tag",
 				});
 			},
 			SwitchStatement(node) {
+				const member = tagMember(node.discriminant);
 				if (
-					!isTagMember(node.discriminant) ||
+					member === undefined ||
 					!isInsideBroadEffectHandler(node)
 				) {
 					return;
 				}
 				context.report({
 					node,
-					messageId: isReasonTagMember(node.discriminant) ? "reason" : "tag",
+					messageId: isReasonTagMember(member) ? "reason" : "tag",
 				});
 			},
 		};
