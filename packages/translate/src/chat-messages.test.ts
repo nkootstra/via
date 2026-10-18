@@ -314,6 +314,40 @@ const chunks = (text: string) =>
     .filter((line) => line.startsWith("data: ") && line !== "data: [DONE]")
     .map((line) => JSON.parse(line.slice(6)));
 
+const toolStream = (input: Schema.Json, deltas: ReadonlyArray<string>) => [
+  ...streamed.slice(0, 1),
+  {
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "tool_use", id: "toolu_1", name: "ls", input },
+  },
+  ...deltas.map((partial_json) => ({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "input_json_delta", partial_json },
+  })),
+  { type: "content_block_stop", index: 0 },
+  { type: "message_delta", delta: { stop_reason: "tool_use" } },
+  { type: "message_stop" },
+];
+
+/** The arguments a client puts together from the tool call deltas. */
+const streamedArguments = (list: ReadonlyArray<object>) =>
+  toChatStreamFromMessages(events(list), {
+    includeUsage: false,
+    created: 1,
+    onUsage: () => Effect.void,
+  }).pipe(
+    Stream.decodeText,
+    Stream.mkString,
+    Effect.map((text) =>
+      chunks(text)
+        .flatMap((chunk) => chunk.choices[0]?.delta?.tool_calls ?? [])
+        .map((call) => call.function.arguments)
+        .join(""),
+    ),
+  );
+
 describe("toChatStreamFromMessages", () => {
   it.effect("streams text, reasoning and tool calls as Chat chunks, then usage and [DONE]", () =>
     Effect.gen(function* () {
@@ -429,6 +463,19 @@ describe("toChatStreamFromMessages", () => {
       expect(chunks(text).at(-1)).toMatchObject({
         error: { type: "server_error", code: "upstream_incomplete" },
       });
+    }),
+  );
+
+  it.effect("streams a call without arguments as `{}`, as the whole answer reads", () =>
+    Effect.gen(function* () {
+      expect(yield* streamedArguments(toolStream({}, [""]))).toBe("{}");
+      expect(yield* streamedArguments(toolStream({}, []))).toBe("{}");
+    }),
+  );
+
+  it.effect("streams the arguments a tool_use block starts with when no deltas follow", () =>
+    Effect.gen(function* () {
+      expect(yield* streamedArguments(toolStream({ path: "." }, []))).toBe('{"path":"."}');
     }),
   );
 });
