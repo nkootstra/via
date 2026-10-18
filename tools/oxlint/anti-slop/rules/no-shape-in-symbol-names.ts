@@ -14,6 +14,20 @@ function isBorrowedMemberName(node: ESTree.Node): boolean {
   return parent.property === node && parent.computed === false;
 }
 
+/**
+ * Return whether an identifier names something another module or component owns: the name an
+ * import reads from its module (`imported`, when renamed away), or a JSX attribute such as
+ * Recharts' `shape` prop. Object keys stay checked: most are names the code owns, such as a
+ * `Schema.Struct` field, so a key a library owns is written computed, `{ ["shape"]: … }`, which
+ * the formatter keeps (it unquotes a plain `"shape"` key back to an identifier).
+ */
+function isForeignName(node: ESTree.Node): boolean {
+  const parent = node.parent;
+  if (parent === null) return false;
+  if (parent.type === "ImportSpecifier") return parent.imported === node && parent.local !== node;
+  return parent.type === "JSXAttribute" && parent.name === node;
+}
+
 /** Ban the case-insensitive substring "shape" in every JavaScript and TypeScript symbol name. */
 export const noForbiddenTermInSymbolNamesRule = defineRule({
   meta: {
@@ -29,7 +43,13 @@ export const noForbiddenTermInSymbolNamesRule = defineRule({
   },
   createOnce(context) {
     const reportForbiddenSymbolName = (node: ESTree.Node & { name: string }) => {
-      if (!containsForbiddenSymbolName(node.name) || isBorrowedMemberName(node)) return;
+      if (
+        !containsForbiddenSymbolName(node.name) ||
+        isBorrowedMemberName(node) ||
+        isForeignName(node)
+      ) {
+        return;
+      }
       context.report({
         node,
         messageId: "forbiddenSymbolName",
