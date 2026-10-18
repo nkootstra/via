@@ -6,6 +6,7 @@
  */
 import { infiniteQueryOptions, type QueryClient, queryOptions } from "@tanstack/react-query";
 import { Effect, Option, Redacted } from "effect";
+import { historyRange } from "../lib/history-range.ts";
 import { run } from "./client.ts";
 import type { LoginStatus, RequestPage } from "./types.ts";
 
@@ -202,27 +203,49 @@ export const historyBreakdownQuery = (
 /** Where a page of requests starts: after the last request of the page before. */
 type RequestCursor = Option.Option.Value<RequestPage["next"]>;
 
-/** The first page starts at the newest request: after none. */
-const newest: Option.Option<RequestCursor> = Option.none();
+/** A page after the first: the first page's range, and the request it starts after. */
+interface LaterPage {
+  readonly range: HistoryRange;
+  readonly after: RequestCursor;
+}
 
-/** The requests in the range, newest first, a page at a time. */
-export const historyRequestsQuery = (range: HistoryRange, filter: HistoryFilters) =>
+/** The first page starts at the newest request: after none. */
+const newest: Option.Option<LaterPage> = Option.none();
+
+/** How far back the usage page looks, and how wide its bars are. */
+export interface HistorySpan {
+  readonly days: number;
+  readonly bucket: "hour" | "day";
+}
+
+/**
+ * The requests in the span, newest first, a page at a time. The first page takes
+ * the span's range when it's fetched and the pages after it keep that range, so
+ * the list is keyed on the span, not on a range that moves as the hour turns.
+ */
+export const historyRequestsQuery = (span: HistorySpan, filter: HistoryFilters) =>
   infiniteQueryOptions({
-    queryKey: ["history", "requests", range, filter],
-    queryFn: ({ pageParam }) =>
-      run((admin) =>
-        admin.history.requests({
-          query: {
-            ...range,
-            ...filter,
-            ...(pageParam === undefined
-              ? {}
-              : { afterAt: pageParam.at, afterId: pageParam.requestId }),
-          },
-        }),
-      ),
+    queryKey: ["history", "requests", span, filter],
+    queryFn: ({ pageParam }) => {
+      const range = pageParam?.range ?? historyRange(span.days, span.bucket, Date.now());
+
+      return run((admin) =>
+        admin.history
+          .requests({
+            query: {
+              ...range,
+              ...filter,
+              ...(pageParam === undefined
+                ? {}
+                : { afterAt: pageParam.after.at, afterId: pageParam.after.requestId }),
+            },
+          })
+          .pipe(Effect.map((page) => ({ ...page, range }))),
+      );
+    },
     initialPageParam: Option.getOrUndefined(newest),
-    getNextPageParam: (page) => Option.getOrUndefined(page.next),
+    getNextPageParam: (page): LaterPage | undefined =>
+      Option.getOrUndefined(Option.map(page.next, (after) => ({ range: page.range, after }))),
     // Refetching an infinite query fetches every page it holds again, one by one, so
     // the list keeps up only while it shows its first page; loaded further, it holds still.
     refetchInterval: (query) =>

@@ -3,7 +3,7 @@ import { Option } from "effect";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { breakdown, cost, group, request } from "../src/testing/history.ts";
-import { renderApp } from "./app.tsx";
+import { fakeClock, renderApp, skip } from "./app.tsx";
 import { openSource } from "./event-source.ts";
 
 const HOUR = 3_600_000;
@@ -317,6 +317,46 @@ describe("the usage page", () => {
     await user.click(screen.getByRole("button", { name: "Load more" }));
     await waitFor(() => expect(within(log).getAllByRole("row")).toHaveLength(61));
     expect(screen.queryByRole("button", { name: "Load more" })).toBeNull();
+  });
+
+  it("holds a list read further still as the hour turns", async () => {
+    vi.useRealTimers();
+    fakeClock();
+    vi.setSystemTime(new Date("2026-09-27T12:59:00.000Z"));
+
+    const many = Array.from({ length: 60 }, (_, i) =>
+      request({ requestId: `r${i}`, at: now.getTime() - i * 1_000 }),
+    );
+
+    const { user } = renderApp("/usage", { ...seed, historyRequests: many });
+
+    const log = await screen.findByRole("table", { name: "Requests" });
+    await user.click(screen.getByRole("button", { name: "Load more" }));
+    await waitFor(() => expect(within(log).getAllByRole("row")).toHaveLength(61));
+
+    // Past 13:00, the range the page asks about for its charts ends an hour later.
+    await skip(120_000);
+
+    expect(
+      within(screen.getByRole("table", { name: "Requests" })).getAllByRole("row"),
+    ).toHaveLength(61);
+  });
+
+  it("keeps a first page up with requests past the hour", async () => {
+    vi.useRealTimers();
+    fakeClock();
+    vi.setSystemTime(new Date("2026-09-27T12:59:00.000Z"));
+
+    const { state } = renderApp("/usage", seed);
+
+    await screen.findByRole("table", { name: "Requests" });
+    await skip(120_000);
+
+    const requests = state.historyQueries.filter(
+      (query) => !query.has("groupBy") && !query.has("bucket"),
+    );
+
+    expect(requests.at(-1)?.get("to")).toBe(String(Date.parse("2026-09-27T14:00:00.000Z")));
   });
 
   it("keeps focus on Load more while the next page loads", async () => {

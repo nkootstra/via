@@ -4,7 +4,7 @@ import { historyRequestsQuery } from "../src/api/admin.ts";
 
 /** How often the request list asks again while it holds `pages` pages. */
 const intervalWith = (pages: number) => {
-  const { refetchInterval } = historyRequestsQuery({ from: 0, to: 1 }, {});
+  const { refetchInterval } = historyRequestsQuery({ days: 1, bucket: "hour" }, {});
   const query = { state: { data: { pages: Array.from({ length: pages }), pageParams: [] } } };
 
   // SAFETY: `refetchInterval` reads only `state.data.pages` of the query it's handed.
