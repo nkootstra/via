@@ -1,4 +1,4 @@
-import { Rejection } from "@via/pool";
+import { isReason, Rejection } from "@via/pool";
 import { Data, DateTime, Option, Schema } from "effect";
 
 // Codex's own error mapping treats all of these as an exhausted account.
@@ -74,7 +74,14 @@ export const readRejection = (
   now: number,
 ): Rejection => {
   const error = Option.map(decodeErrorBody(body), (b) => b.error);
-  const code = Option.getOrUndefined(Option.flatMapNullishOr(error, (e) => e.code ?? e.type));
+
+  // Only an identifier names the rejection: the pool keeps it, and a code can be any text.
+  const code = Option.getOrUndefined(
+    Option.filter(
+      Option.flatMapNullishOr(error, (e) => e.code ?? e.type),
+      isReason,
+    ),
+  );
 
   const retryAfterMs = retryAfterIn(headers["retry-after"], now);
 

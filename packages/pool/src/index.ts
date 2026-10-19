@@ -1,4 +1,4 @@
-export { classify, Rejection, Verdict } from "./classify.ts";
+export { classify, isReason, Rejection, Verdict } from "./classify.ts";
 
 export { PoolStates } from "./pool-states.ts";
 
