@@ -73,6 +73,7 @@ type Problem =
   // Which wrong key in a row this is, so a repeat is heard, not just seen.
   | { readonly kind: "wrong-key"; readonly attempt: number }
   | { readonly kind: "not-kept" }
+  | { readonly kind: "other-origin" }
   | { readonly kind: "too-many"; readonly until: number }
   | { readonly kind: "unreachable"; readonly message: string };
 
@@ -115,6 +116,8 @@ function Alert({
               "via took the key, but this browser didn't keep the session. Clear this site's cookies and sign in again."}
             {problem.kind === "too-many" &&
               "Too many wrong keys. via is pausing sign-ins for a minute."}
+            {problem.kind === "other-origin" &&
+              "Open via at its own address; a reverse proxy must pass the Host header through unchanged."}
             {problem.kind === "unreachable" && problem.message}
           </span>
           {problem.kind === "too-many" && (
@@ -180,6 +183,8 @@ function SignIn() {
       }
 
       if (outcome === "not-kept") return setProblem({ kind: "not-kept" });
+
+      if (outcome === "other-origin") return setProblem({ kind: "other-origin" });
 
       if (outcome === "too-many") {
         setLocked(true);

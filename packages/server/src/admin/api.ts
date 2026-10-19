@@ -463,7 +463,7 @@ class SessionGroup extends HttpApiGroup.make("session")
   .add(
     HttpApiEndpoint.post("signIn", "/session", {
       payload: Schema.Struct({ key: Key }),
-      error: [Unauthorized, TooManySignInsError],
+      error: [Unauthorized, Forbidden, TooManySignInsError],
     }),
   )
   .add(
