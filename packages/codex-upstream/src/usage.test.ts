@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Layer, Result, type Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { CodexUpstream, UsageUnavailableError } from "./index.ts";
 import { startFakeCodex, usagePayload } from "./testing/index.ts";
 

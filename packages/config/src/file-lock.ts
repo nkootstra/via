@@ -9,7 +9,7 @@ import {
   Schedule,
   Schema,
 } from "effect";
-import { Reactivity } from "effect/unstable/reactivity";
+import { Reactivity } from "effect/reactivity";
 import { dirname } from "node:path";
 import { CorruptFileError } from "./json-file.ts";
 
@@ -71,17 +71,17 @@ export const withFileLock = <A, E, R>(
       yield* fs.makeDirectory(dirname(path), { recursive: true, mode: 0o700 });
       yield* createOwnerOnly(fs, filename);
 
+      const failed = (error: { readonly message: string }) =>
+        new CorruptFileError({ path: filename, reason: error.message });
+
       const database = yield* SqliteClient.make({
         filename,
         disableWAL: true,
         busyTimeout: 0,
-      }).pipe(Effect.provide(Reactivity.layer));
+      }).pipe(Effect.provide(Reactivity.layer), Effect.mapError(failed));
 
       // Changes the mode by name, opening no descriptor. The file holds no data, only the lock.
       yield* fs.chmod(filename, 0o600);
-
-      const failed = (error: { readonly message: string }) =>
-        new CorruptFileError({ path: filename, reason: error.message });
 
       const connection = yield* database.reserve.pipe(Effect.mapError(failed));
 

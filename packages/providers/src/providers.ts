@@ -18,7 +18,7 @@ import {
   HttpClientError,
   HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import {
   OllamaNotEditableError,
   OllamaUnreachableError,

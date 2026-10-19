@@ -5,7 +5,7 @@ import { KeyStore } from "@via/keys";
 import { PoolStates } from "@via/pool";
 import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { Clock, Duration, Effect, FiberHandle, Queue, Schema, Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 import { UsageHistory } from "@via/usage";
 import { type AdminState, StateEvent } from "./api.ts";
 import { adminState, type StateOptions } from "./state.ts";

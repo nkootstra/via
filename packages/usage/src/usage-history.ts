@@ -15,8 +15,8 @@ import {
 } from "effect";
 import { dirname } from "node:path";
 import { UsageEntry } from "./entry.ts";
-import { Migrator, SqlClient } from "effect/unstable/sql";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import { Migrator, SqlClient } from "effect/sql";
+import type { SqlError } from "effect/sql/SqlError";
 
 /** Where a page of the request list starts: just after this request. */
 interface RequestCursor {

@@ -1,5 +1,4 @@
-import { Effect, Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import { maskAddress, maskEmails, maskKeyTail } from "../src/lib/mask.ts";
 

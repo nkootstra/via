@@ -1,6 +1,6 @@
 import type { ModelPrice } from "@via/config";
 import { Effect, Layer, type Redacted } from "effect";
-import { HttpRouter, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, HttpServerResponse } from "effect/http";
 import { adminRoutes, type OpencodeGoEnvironment } from "./admin/routes.ts";
 import { chatCompletions } from "./proxy/chat-completions.ts";
 import { ModelCatalog } from "./models/catalog.ts";

@@ -7,7 +7,7 @@ import {
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { idToken, jwt } from "./tokens.ts";
 import { CLIENT_ID, CodexAuth } from "../codex-auth.ts";
 

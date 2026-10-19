@@ -1,5 +1,5 @@
 import { Effect, Schema } from "effect";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientResponse } from "effect/http";
 import { OllamaUnreachableError } from "./errors.ts";
 import { LOOKUP_TIMEOUT, ModelList, unansweredWithin } from "./provider.ts";
 

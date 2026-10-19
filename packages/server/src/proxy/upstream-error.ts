@@ -1,5 +1,5 @@
 import { Effect, Option, Schema, Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 
 /** Why an upstream refused a request, as far as its answer says: a code and a message. */
 export interface UpstreamError {

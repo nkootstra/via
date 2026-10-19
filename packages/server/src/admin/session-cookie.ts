@@ -5,7 +5,7 @@ import {
   HttpRouter,
   HttpServerRequest,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { session } from "./api.ts";
 import { AdminSessions } from "./sessions.ts";
 

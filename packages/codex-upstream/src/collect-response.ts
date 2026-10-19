@@ -1,5 +1,5 @@
 import { Context, Duration, Effect, Schema, Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 import { readFailure } from "./rejection.ts";
 import {
   isTerminalEvent,

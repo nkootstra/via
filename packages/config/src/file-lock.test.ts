@@ -1,7 +1,7 @@
 import { BunChildProcessSpawner, BunFileSystem, BunPath } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Deferred, Duration, Effect, Fiber, FileSystem, Layer, Stream, Exit } from "effect";
-import { ChildProcess } from "effect/unstable/process";
+import { ChildProcess } from "effect/process";
 import { dirname } from "node:path";
 import { TestClock } from "effect/testing";
 import { FileLockTimeoutError, withFileLock } from "./index.ts";

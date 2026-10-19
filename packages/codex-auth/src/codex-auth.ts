@@ -1,5 +1,5 @@
 import { Context, Duration, Effect, Layer, Option, Predicate, Schema } from "effect";
-import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import { JwtPayload } from "./claims.ts";
 import { AuthRequestError } from "./errors.ts";
 

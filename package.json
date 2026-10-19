@@ -21,10 +21,10 @@
       "react": "19.3.0",
       "react-dom": "19.3.0",
       "vite": "8.3.0",
-      "effect": "4.0.0-rc.117",
-      "@effect/platform-bun": "4.0.0-rc.117",
-      "@effect/sql-sqlite-bun": "4.0.0-rc.117",
-      "@effect/vitest": "4.0.0-rc.117",
+      "effect": "4.0.3",
+      "@effect/platform-bun": "4.0.3",
+      "@effect/sql-sqlite-bun": "4.0.3",
+      "@effect/vitest": "4.0.3",
       "vitest": "^5.0.1",
       "recharts": "3.10.1",
       "react-is": "19.3.0"
@@ -44,7 +44,7 @@
     "check": "oxlint --deny-warnings && oxfmt --check && knip && VITEST_MAX_WORKERS=2 turbo run typecheck test"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.48.1",
+    "@effect/tsgo": "0.51.1",
     "@oxlint/plugins": "1.87.0",
     "@types/bun": "^1.4.3",
     "knip": "6.39.0",
@@ -52,6 +52,9 @@
     "oxlint": "1.87.0",
     "turbo": "^2.11.7",
     "typescript": "7.0.2"
+  },
+  "overrides": {
+    "@effect/platform-node-shared": "4.0.3"
   },
   "packageManager": "bun@1.4.3"
 }

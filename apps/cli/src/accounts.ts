@@ -12,7 +12,7 @@ import {
 } from "@via/providers";
 import type { ProviderState } from "@via/providers/schemas";
 import { Clock, Console, Effect, Layer, Record, Redacted } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { apiKeys } from "./api-keys.ts";
 import { readApiKey } from "./read-key.ts";
 import { localTime } from "./time.ts";

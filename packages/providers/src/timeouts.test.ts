@@ -2,7 +2,7 @@ import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Deferred, type Duration, Effect, Fiber, FileSystem, Layer, Redacted } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient, HttpClientError, HttpRouter, HttpServer } from "effect/unstable/http";
+import { FetchHttpClient, HttpClientError, HttpRouter, HttpServer } from "effect/http";
 import { OpencodeGoUnavailableError } from "./errors.ts";
 import { OpencodeGoAccounts, Providers } from "./index.ts";
 

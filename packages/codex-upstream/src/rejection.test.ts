@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Rejection } from "@via/pool";
-import { Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Schema } from "effect";
 import { readFailure, readRejection } from "./rejection.ts";
 
 const RESETS_AT_SECONDS = 1_700_003_600;

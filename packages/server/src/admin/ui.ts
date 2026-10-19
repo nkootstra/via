@@ -1,5 +1,5 @@
 import { Effect, FileSystem, Layer, Schema } from "effect";
-import { HttpRouter, type HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpRouter, type HttpServerRequest, HttpServerResponse } from "effect/http";
 import { AdminState } from "./api.ts";
 import { AdminSessions } from "./sessions.ts";
 import { adminState, type StateOptions } from "./state.ts";

@@ -8,7 +8,7 @@ import {
   HttpServer,
   HttpServerRequest,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { issuedTokens, refreshedTokens } from "./testing/index.ts";
 import { AuthRequestError, CodexAuth, type DeviceCode, type Tokens } from "./index.ts";
 

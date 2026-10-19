@@ -4,7 +4,7 @@ import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
 import { UsageHistory } from "@via/usage";
 import { Effect, Layer, Option } from "effect";
-import { SqlError, UnknownError } from "effect/unstable/sql/SqlError";
+import { SqlError, UnknownError } from "effect/sql/SqlError";
 import { ok, type Via, withVia } from "./testing/harness.ts";
 
 /** A prompt an upstream's error quotes back, which the usage history must never keep. */

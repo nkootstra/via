@@ -17,7 +17,7 @@ import {
   HttpServerRequest,
   HttpServerRespondable,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import type { UsageEntry } from "@via/usage";
 import type { TokenUsage } from "./token-usage.ts";
 import type { UpstreamError } from "../proxy/upstream-error.ts";
@@ -114,7 +114,7 @@ const requestId = (headers: Record<string, string>) =>
     const crypto = yield* Crypto.Crypto;
 
     // A true infra fault (the platform's entropy source failing); no per-request fallback applies.
-    return yield* crypto.randomUUIDv4.pipe(Effect.orDie);
+    return yield* crypto.randomUUIDv4().pipe(Effect.orDie);
   });
 
 /** The usage annotations for a request's log line — absent when none was reported. */

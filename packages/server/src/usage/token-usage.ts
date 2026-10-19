@@ -1,6 +1,6 @@
 import { ResponsesUsage } from "@via/codex-upstream";
 import { Effect, Option, Schema, Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 
 /** Token counts an upstream reported for one answered request. */
 export interface TokenUsage {

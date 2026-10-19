@@ -1,7 +1,7 @@
 import { type CatalogModel, resolveAlias } from "@via/codex-upstream";
 import { type FallbackRule, FallbackRuleStore } from "@via/fallbacks";
 import { Effect, Option, type Schema } from "effect";
-import { HttpServerResponse } from "effect/unstable/http";
+import { HttpServerResponse } from "effect/http";
 import { ModelCatalog } from "../models/catalog.ts";
 import { modelOf } from "../proxy/dispatch.ts";
 import { Providers } from "@via/providers";

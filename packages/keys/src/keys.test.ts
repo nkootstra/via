@@ -2,6 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { CorruptFileError, withFileLock } from "@via/config";
 import {
+  Arbitrary,
   Clock,
   Context,
   Deferred,
@@ -18,7 +19,6 @@ import {
   SubscriptionRef,
 } from "effect";
 import { TestClock } from "effect/testing";
-import { Arbitrary } from "effect/unstable/arbitrary";
 import { DuplicateKeyNameError, KeyNotFoundError, KeyStore } from "./index.ts";
 
 const withKeyStore = <A, E>(

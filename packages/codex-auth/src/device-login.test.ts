@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { ACCESS_TOKEN_EXP, issuedTokens, withIssuer } from "./testing/index.ts";
 import { AuthRequestError, CodexAuth, type DeviceCode, DeviceLoginTimeoutError } from "./index.ts";
 

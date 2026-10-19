@@ -8,7 +8,7 @@ import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { startFakeProvider } from "@via/providers/testing";
 import { Clock, Effect, Fiber, FileSystem, Layer, Redacted, Schedule, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { UsageSnapshots } from "./usage-snapshots.ts";
 
 /**

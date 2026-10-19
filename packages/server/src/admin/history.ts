@@ -12,7 +12,7 @@ import {
   UsageHistory,
 } from "@via/usage";
 import { Effect } from "effect";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpApiBuilder } from "effect/http-api";
 import { AdminApi } from "./api.ts";
 
 /** The history is via's own database; failing to use it is a defect, which answers 500. */

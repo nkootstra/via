@@ -12,7 +12,7 @@ import {
 import { type FakeProvider, startFakeProvider } from "@via/providers/testing";
 import { Clock, Effect, FileSystem, Layer, Logger, Redacted, References } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { AccountPool } from "./account-pool.ts";
 import { collectLogs } from "./testing/logs.ts";
 import { UsagePoll } from "./usage-poll.ts";

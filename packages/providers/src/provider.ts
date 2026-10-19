@@ -1,6 +1,6 @@
 import type { ProviderConfig } from "@via/config";
 import { Duration, Effect, Redacted, Schema } from "effect";
-import { Headers, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
+import { Headers, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/http";
 import type { ProviderUsage } from "./schemas.ts";
 
 /**

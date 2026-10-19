@@ -4,7 +4,7 @@ import { reply, startFakeCodex } from "@via/codex-upstream/testing";
 import { startFakeProvider } from "@via/providers/testing";
 import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { HttpClientResponse } from "effect/unstable/http";
+import { HttpClientResponse } from "effect/http";
 import { type Via, ok, withVia } from "../testing/harness.ts";
 
 const ModelList = Schema.Struct({

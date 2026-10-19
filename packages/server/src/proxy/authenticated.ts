@@ -1,6 +1,6 @@
 import { KeyStore } from "@via/keys";
 import { Effect, Option } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 import { openAiError } from "./openai-error.ts";
 import { RequestLog } from "../usage/request-log.ts";
 

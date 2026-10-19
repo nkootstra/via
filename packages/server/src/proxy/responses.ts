@@ -1,7 +1,7 @@
 import { relayStream } from "@via/codex-upstream";
 import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
-import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
+import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { authenticated } from "./authenticated.ts";
 import { dispatch, modelOf } from "./dispatch.ts";
 import { withFallbacks } from "../fallback/fallback.ts";

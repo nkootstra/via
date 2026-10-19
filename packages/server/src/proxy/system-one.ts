@@ -1,6 +1,6 @@
 import { Providers } from "@via/providers";
 import { Effect, Option, Schema } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 import { authenticated } from "./authenticated.ts";
 import { modelOf } from "./dispatch.ts";
 import { forward } from "./forward.ts";

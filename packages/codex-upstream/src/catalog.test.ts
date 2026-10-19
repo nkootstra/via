@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect, Layer } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { CodexUpstream, modelIds, ModelsUnavailableError } from "./index.ts";
 import { startFakeCodex } from "./testing/fake-codex.ts";
 

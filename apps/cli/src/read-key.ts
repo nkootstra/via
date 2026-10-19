@@ -1,5 +1,5 @@
 import { Effect, Redacted, Schema, Stdio, Stream, String as Str } from "effect";
-import { Prompt } from "effect/unstable/cli";
+import { Prompt } from "effect/cli";
 
 class NoApiKeyError extends Schema.TaggedError<NoApiKeyError>()("NoApiKeyError", {
   provider: Schema.String,

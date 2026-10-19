@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { startFakeProvider } from "@via/providers/testing";
 import { Effect, Layer, Schema } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { createKey, freePort, runVia, serveVia, tempHome, writeConfig } from "./helpers.ts";
 
 /** A home whose config.yaml sends OpenRouter and Ollama to fakes of them. */

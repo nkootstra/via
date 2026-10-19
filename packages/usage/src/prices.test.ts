@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { ModelPrice } from "@via/config";
-import { Option, Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Option, Schema } from "effect";
 import { costOf, priceBook } from "./prices.ts";
 import type { ModelUsage } from "./usage-history.ts";
 

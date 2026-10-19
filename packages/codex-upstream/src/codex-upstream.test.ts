@@ -10,7 +10,7 @@ import {
   HttpClientResponse,
   HttpRouter,
   HttpServer,
-} from "effect/unstable/http";
+} from "effect/http";
 import { CodexUpstream, type ResponsesBody } from "./index.ts";
 import { reply, type Reply, startFakeCodex } from "./testing/index.ts";
 

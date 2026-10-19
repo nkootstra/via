@@ -9,7 +9,7 @@ import {
   toChatStreamFromMessages,
 } from "@via/translate";
 import { Clock, Effect, Option, Schema } from "effect";
-import { type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
+import { type HttpClientResponse, HttpServerResponse } from "effect/http";
 import { openAiError } from "./openai-error.ts";
 import { collected, readBody, relayed } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
