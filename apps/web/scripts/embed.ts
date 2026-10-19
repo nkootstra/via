@@ -62,7 +62,7 @@ const files = (await readdir(client, { recursive: true, withFileTypes: true }))
 
 /**
  * `script` as the browser's HTML parser reads it, which is what its CSP hashes:
- * line breaks as `\n`, and a NUL, which Start's bootstrap script has, as U+FFFD.
+ * line breaks as `\n`, and a NUL, which Start's bootstrap script has carried, as U+FFFD.
  */
 const parsed = (script: string) =>
   script.replaceAll("\r\n", "\n").replaceAll("\r", "\n").replaceAll("\0", "\uFFFD");
