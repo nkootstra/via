@@ -6,10 +6,26 @@ import {
   Layer,
   Option,
   Schema,
+  SchemaGetter,
   type Stream,
   SubscriptionRef,
 } from "effect";
+import { isReason } from "./classify.ts";
 import type { AccountState, PoolState } from "./select.ts";
+
+/** `reason` if it is an identifier, else `unknown`. */
+const identified = SchemaGetter.transform((reason: string) =>
+  isReason(reason) ? reason : "unknown",
+);
+
+/**
+ * A saved cooldown's reason, which is never an upstream's text: an older via
+ * saved an upstream's code whatever it said, so one that isn't an identifier is
+ * read, and saved, as `unknown`.
+ */
+const SavedReason = Schema.String.pipe(
+  Schema.decodeTo(Schema.String, { decode: identified, encode: identified }),
+);
 
 /**
  * The cooldowns still running, by account id, those lockouts interrupted included: what
@@ -17,7 +33,7 @@ import type { AccountState, PoolState } from "./select.ts";
  */
 const Cooldowns = Schema.Record(
   Schema.String,
-  Schema.Struct({ until: Schema.Finite, reason: Schema.String }),
+  Schema.Struct({ until: Schema.Finite, reason: SavedReason }),
 );
 
 const running = (state: PoolState, now: number): typeof Cooldowns.Type =>
