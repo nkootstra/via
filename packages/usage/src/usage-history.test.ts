@@ -8,8 +8,10 @@ import {
   Fiber,
   FileSystem,
   Option,
+  Predicate,
   Schema,
   Stream,
+  Tracer,
 } from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
@@ -311,6 +313,57 @@ describe("UsageHistory.series", () => {
       expect(days).toEqual(["2026-10-03T14:30:00.000Z", "2026-10-04T13:30:00.000Z"]);
       expect(hours).toEqual(["2026-10-04T09:30:00.000Z"]);
     }),
+  );
+
+  it.effect("starts the hours on the hour again after the clocks move half an hour", () =>
+    Effect.gen(function* () {
+      // Lord Howe Island moves from UTC+10:30 to UTC+11 at 02:00 on 4 October 2026,
+      // so its clocks skip from 02:00 to 02:30 and the next hour starts at 03:00.
+      const hours = yield* bucketsAt("Australia/Lord_Howe", "hour", [
+        "2026-10-03T14:45:00Z",
+        "2026-10-03T15:45:00Z",
+        "2026-10-03T16:15:00Z",
+      ]);
+
+      expect(hours).toEqual([
+        "2026-10-03T14:30:00.000Z",
+        "2026-10-03T15:30:00.000Z",
+        "2026-10-03T16:00:00.000Z",
+      ]);
+    }),
+  );
+
+  it.effect("reads the series in a single pass over the requests", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(entry());
+        const spans: Array<Tracer.NativeSpan> = [];
+
+        const tracer = Tracer.make({
+          span(options) {
+            const span = new Tracer.NativeSpan(options);
+            spans.push(span);
+
+            return span;
+          },
+        });
+
+        yield* usage
+          .series({ from: 0, to: 2_000 * HOUR, bucket: "hour", timeZone: utc, groupBy: "model" })
+          .pipe(Effect.withTracer(tracer));
+
+        const statements = spans.flatMap((span) => {
+          const text = span.attributes.get("db.query.text");
+
+          return Predicate.isString(text) ? [text] : [];
+        });
+
+        // One statement, so a request recorded meanwhile can't fall outside the buckets, and
+        // no join: matching each request against a list of buckets costs requests × buckets.
+        expect(statements).toHaveLength(1);
+        expect(statements[0]).not.toMatch(/JOIN|json_each/i);
+      }),
+    ),
   );
 
   it.effect("groups by account, filing a request no account served under its provider", () =>
@@ -639,7 +692,7 @@ const groupings = Arbitrary.schema(Schema.Literals(["model", "account", "key", "
 
 const buckets = Arbitrary.schema(Schema.Literals(["hour", "day"]));
 
-/** Zones whole and part hours off UTC, with and without summer time. */
+/** Zones whole and part hours off UTC, with and without summer time, Lord Howe's only half an hour. */
 const zones = Arbitrary.schema(
   Schema.Literals([
     "UTC",
@@ -648,6 +701,7 @@ const zones = Arbitrary.schema(
     "Australia/Adelaide",
     "Asia/Kolkata",
     "Asia/Kathmandu",
+    "Australia/Lord_Howe",
   ]),
 );
 
@@ -669,6 +723,10 @@ const localTime = (at: number, zone: string) =>
     minute: "2-digit",
     hourCycle: "h23",
   }).format(at);
+
+/** How far `zone` is off UTC at `at`, as `GMT+10:30`. */
+const localOffset = (at: number, zone: string) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: zone, timeZoneName: "longOffset" }).format(at);
 
 const sum = (values: ReadonlyArray<number>) => values.reduce((a, b) => a + b, 0);
 
@@ -732,7 +790,12 @@ layer(UsageHistory.layerMemory)("UsageHistory properties", (shared) => {
 
             expect(inside.length).toBe(point.requests);
             expect(localBucket(point.bucket - 1, bucket, zone)).not.toBe(local);
-            expect(localTime(point.bucket, zone)).toMatch(bucket === "hour" ? /:00$/ : /^00:00$/);
+
+            // An hour starts on the hour, or where the clocks change by half an hour.
+            const changed = localOffset(point.bucket - 1, zone) !== localOffset(point.bucket, zone);
+
+            if (bucket === "day") expect(localTime(point.bucket, zone)).toBe("00:00");
+            else if (!changed) expect(localTime(point.bucket, zone)).toMatch(/:00$/);
           }
         }),
       ),
