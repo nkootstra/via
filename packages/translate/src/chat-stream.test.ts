@@ -209,6 +209,30 @@ describe("toChatStream", () => {
     }),
   );
 
+  it.effect("finishes a response whose detail counts are null", () =>
+    Effect.gen(function* () {
+      const usage = {
+        input_tokens: 12,
+        input_tokens_details: { cached_tokens: null },
+        output_tokens: 5,
+        output_tokens_details: { reasoning_tokens: null },
+        total_tokens: 17,
+      };
+
+      const events = yield* chatEvents(
+        [created, { type: "response.completed", response: { usage } }],
+        { includeUsage: true },
+      );
+
+      expect(events.slice(-2)).toEqual([
+        expect.objectContaining({
+          usage: { prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 },
+        }),
+        "[DONE]",
+      ]);
+    }),
+  );
+
   it.effect("ends a failed response with an error chunk instead of [DONE]", () =>
     Effect.gen(function* () {
       const events = yield* chatEvents([

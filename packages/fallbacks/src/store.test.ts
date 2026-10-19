@@ -87,6 +87,22 @@ layer(BunFileSystem.layer)("FallbackRuleStore", (it) => {
     ),
   );
 
+  it.effect("names the model id beyond ASCII that makes the file unreadable", () =>
+    withStore((store, file) =>
+      Effect.gen(function* () {
+        yield* (yield* FileSystem.FileSystem).writeFileString(
+          file,
+          JSON.stringify([sol, { model: "gpt-x", fallbacks: ["ollama/模型"] }]),
+        );
+
+        const error = yield* Effect.flip(store.list);
+
+        expect(error).toBeInstanceOf(CorruptFileError);
+        expect(error.message).toContain('"ollama/模型" is not a model id');
+      }),
+    ),
+  );
+
   it.effect("sees a rule another process set, without restarting", () =>
     withStore((serve, file) =>
       Effect.gen(function* () {

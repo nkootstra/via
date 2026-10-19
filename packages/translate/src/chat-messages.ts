@@ -142,7 +142,8 @@ export const toMessagesRequest = (chat: ChatRequest) => {
         .filter((turn) => turn.content.length > 0),
     ),
     max_tokens: maxTokens,
-    ...(chat.temperature != null && { temperature: chat.temperature }),
+    // Chat takes a temperature up to 2; Messages refuses one above 1.
+    ...(chat.temperature != null && { temperature: Math.min(chat.temperature, 1) }),
     ...(chat.top_p != null && { top_p: chat.top_p }),
     ...(stop !== undefined && { stop_sequences: Predicate.isString(stop) ? [stop] : stop }),
     ...(chat.tools && {
@@ -312,7 +313,9 @@ const ErrorEvent = Schema.Struct({
   error: Schema.Struct({ type: Schema.String, message: Schema.String }),
 });
 
-// Pings and block ends have no Chat Completions counterpart.
+const BlockStop = Schema.Struct({ type: Schema.Literal("content_block_stop"), index: Schema.Int });
+
+// Pings have no Chat Completions counterpart.
 const Other = Schema.Struct({ type: Schema.String });
 
 const StreamEvent = Schema.Union([
@@ -320,6 +323,7 @@ const StreamEvent = Schema.Union([
   BlockStart,
   BlockDelta,
   MessageDelta,
+  BlockStop,
   ErrorEvent,
   Other,
 ]);
@@ -334,12 +338,19 @@ const isBlockDelta = Schema.is(BlockDelta);
 
 const isMessageDelta = Schema.is(MessageDelta);
 
+const isBlockStop = Schema.is(BlockStop);
+
 const isError = Schema.is(ErrorEvent);
 
 type State = {
   readonly envelope: string;
   /** The chat tool call index of each tool_use block, by Messages block index. */
   readonly toolIndex: ReadonlyMap<number, number>;
+  /**
+   * The input each open tool_use block started with, by Messages block index,
+   * until arguments stream for it: a block that ends without any sends it then.
+   */
+  readonly startInput: ReadonlyMap<number, Schema.Json>;
   readonly counts: Counts;
   readonly stopReason: string | null | undefined;
   /** Whether the stream reached `message_stop` or an error. */
@@ -386,6 +397,7 @@ export const toChatStreamFromMessages = <E, R>(
   const initial = (): State => ({
     envelope: envelope("", options.created, ""),
     toolIndex: new Map(),
+    startInput: new Map(),
     counts: noCounts,
     stopReason: undefined,
     ended: false,
@@ -405,10 +417,11 @@ export const toChatStreamFromMessages = <E, R>(
     if (isBlockStart(event) && "input" in event.content_block) {
       const index = state.toolIndex.size;
       const toolIndex = new Map(state.toolIndex).set(event.index, index);
-      const { id, name } = event.content_block;
+      const { id, name, input } = event.content_block;
+      const startInput = new Map(state.startInput).set(event.index, input);
 
       return [
-        { ...state, toolIndex },
+        { ...state, toolIndex, startInput },
         [
           chunk(state, {
             tool_calls: [{ index, id, type: "function", function: { name, arguments: "" } }],
@@ -431,13 +444,35 @@ export const toChatStreamFromMessages = <E, R>(
         // Arguments for a call the client never saw announced belong to no tool call.
         if (index === undefined) return [state, []];
 
+        const startInput = new Map(state.startInput);
+
+        // Anthropic sends a call without arguments as one empty delta, to stand for `{}`.
+        if (delta.partial_json !== "") startInput.delete(event.index);
+
         return [
-          state,
+          { ...state, startInput },
           [chunk(state, { tool_calls: [{ index, function: { arguments: delta.partial_json } }] })],
         ];
       }
 
       return [state, []];
+    }
+
+    if (isBlockStop(event)) {
+      const index = state.toolIndex.get(event.index);
+      const input = state.startInput.get(event.index);
+
+      if (index === undefined || input === undefined) return [state, []];
+
+      const startInput = new Map(state.startInput);
+      startInput.delete(event.index);
+
+      // No arguments streamed, so the call has those its block started with, as the whole
+      // answer reads them.
+      return [
+        { ...state, startInput },
+        [chunk(state, { tool_calls: [{ index, function: { arguments: JSON.stringify(input) } }] })],
+      ];
     }
 
     if (isMessageDelta(event)) {

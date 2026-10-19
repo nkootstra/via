@@ -317,9 +317,12 @@ A fallback rule names a model and up to three others for via to try, in
 order, when that model can't serve a request. The first one that answers
 does, and its answer carries `x-via-fallback: <asked> -> <answered>`, such as
 `x-via-fallback: gpt-5.6-sol -> opencode-go/kimi-k3`; its body names the model
-that answered. Set them on the web UI's [Fallbacks page](#web-ui) or with
-`via fallbacks set`; they are kept in `fallbacks.json` in via's
-[home](#configuration):
+that answered. As the header carries them, a rule's model ids are printable
+ASCII without spaces, as every provider's are. Set them on the web UI's
+[Fallbacks page](#web-ui) or with `via fallbacks set`; they are kept in
+`fallbacks.json` in via's [home](#configuration). One id beyond that, such as
+`ollama/模型`, makes via report the whole file as invalid, naming the id, and
+no rule in it applies until it's fixed:
 
 ```json
 [{ "model": "gpt-5.6-sol", "fallbacks": ["opencode-go/kimi-k3", "gpt-5.5"] }]
@@ -1041,7 +1044,9 @@ request in another with `ModelProtocolUnsupported`. For a
 translating the request and the answer, streamed or not, tool calls and
 usage included, and remembers which one the model answered in, so later
 requests go straight there. A restart forgets, at the cost of one refused
-request per model. A `/v1/responses` request still goes only as it came, so
+request per model. A request translated to Messages asks for a `temperature`
+of at most 1, the highest Messages takes, and goes without its
+`response_format`, which Messages has no field for. A `/v1/responses` request still goes only as it came, so
 a model OpenCode Go serves only in Chat Completions or Messages refuses it.
 
 `/v1/models` lists every provider's

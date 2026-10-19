@@ -31,11 +31,11 @@ const OtherItem = Schema.Struct({ type: Schema.String });
 
 /**
  * Responses usage with the total, which Chat Completions reports. An upstream
- * may leave the total out; `chatUsage` adds it up then.
+ * may leave the total out, or send `null`; `chatUsage` adds it up then.
  */
 export const Usage = Schema.Struct({
   ...ResponsesUsage.fields,
-  total_tokens: Schema.optionalKey(Schema.Finite),
+  total_tokens: Schema.optionalKey(Schema.NullOr(Schema.Finite)),
 });
 
 export const CompletedResponse = Schema.Struct({
@@ -71,8 +71,8 @@ export const chatUsage = (usage: typeof Usage.Type) => {
     prompt_tokens: usage.input_tokens,
     completion_tokens: usage.output_tokens,
     total_tokens: usage.total_tokens ?? usage.input_tokens + usage.output_tokens,
-    ...(cached !== undefined && { prompt_tokens_details: { cached_tokens: cached } }),
-    ...(reasoning !== undefined && {
+    ...(cached != null && { prompt_tokens_details: { cached_tokens: cached } }),
+    ...(reasoning != null && {
       completion_tokens_details: { reasoning_tokens: reasoning },
     }),
   };

@@ -56,7 +56,20 @@ describe("FallbackRule", () => {
     Effect.gen(function* () {
       for (const id of [" gpt-5", "gpt 5", "gpt-5\r\nx-evil: 1"]) {
         expect(yield* problem({ model: "a", fallbacks: [id] })).toContain(
-          "A model id has no spaces or control characters",
+          `${JSON.stringify(id)} is not a model id, which is printable ASCII without spaces`,
+        );
+      }
+    }),
+  );
+
+  it.effect("refuses a model id beyond ASCII, which a response header can't carry", () =>
+    Effect.gen(function* () {
+      for (const id of ["ollama/模型", "gpt-5é"]) {
+        expect(yield* problem({ model: "a", fallbacks: [id] })).toContain(
+          `${JSON.stringify(id)} is not a model id, which is printable ASCII without spaces`,
+        );
+        expect(yield* problem({ model: id, fallbacks: ["a"] })).toContain(
+          `${JSON.stringify(id)} is not a model id, which is printable ASCII without spaces`,
         );
       }
     }),

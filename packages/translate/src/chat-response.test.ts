@@ -203,8 +203,26 @@ describe("toChatCompletion", () => {
     ).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 });
   });
 
+  it("leaves out the token details reported as null", () => {
+    expect(
+      withUsage({
+        ...usage,
+        input_tokens_details: { cached_tokens: null },
+        output_tokens_details: { reasoning_tokens: null },
+      }),
+    ).toEqual({ prompt_tokens: 12, completion_tokens: 5, total_tokens: 17 });
+  });
+
   it("adds up the total when the upstream leaves it out", () => {
     expect(withUsage({ input_tokens: 12, output_tokens: 5 })).toEqual({
+      prompt_tokens: 12,
+      completion_tokens: 5,
+      total_tokens: 17,
+    });
+  });
+
+  it("adds up the total when the upstream reports it as null", () => {
+    expect(withUsage({ input_tokens: 12, output_tokens: 5, total_tokens: null })).toEqual({
       prompt_tokens: 12,
       completion_tokens: 5,
       total_tokens: 17,
