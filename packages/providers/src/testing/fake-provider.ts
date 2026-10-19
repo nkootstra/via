@@ -2,12 +2,7 @@
 // OpenCode Go, that records every request it receives.
 import { BunHttpServer } from "@effect/platform-bun";
 import { Deferred, Effect, Layer, Predicate, Schema, Stream } from "effect";
-import {
-  HttpRouter,
-  HttpServer,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
 
 /** One request as via sent it. */
 export type ProviderRequest = {

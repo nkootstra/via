@@ -9,14 +9,9 @@
  * as coming from this page, which via requires of cookie-signed changes.
  */
 import { AdminApi, Unauthorized } from "@via/server/admin-api";
-import { Data, Effect, Layer, Schema } from "effect";
-import {
-  FetchHttpClient,
-  HttpClient,
-  HttpClientError,
-  HttpClientRequest,
-} from "effect/unstable/http";
-import { HttpApiClient } from "effect/unstable/httpapi";
+import { Data, Effect, Equal, Layer, Schema } from "effect";
+import { FetchHttpClient, HttpClient, HttpClientError, HttpClientRequest } from "effect/http";
+import { HttpApiClient } from "effect/http-api";
 
 export type AdminClient = HttpApiClient.ForApi<typeof AdminApi>;
 
@@ -34,7 +29,15 @@ const fetchLayer = FetchHttpClient.layer.pipe(
 );
 
 const client = HttpApiClient.make(AdminApi, {
-  transformClient: HttpClient.mapRequest(HttpClientRequest.setHeader("x-via-csrf", "1")),
+  transformClient: (http) =>
+    http.pipe(
+      HttpClient.mapRequest(HttpClientRequest.setHeader("x-via-csrf", "1")),
+      // A response outside the contract fails with the response in its error, and
+      // Effect hashes that error to merge it with the decode failure. Hashed by its
+      // fields, a response walks every object it reaches, the body's getters and
+      // happy-dom's whole window among them; a response is only ever itself.
+      HttpClient.transformResponse(Effect.map(Equal.byReferenceUnsafe)),
+    ),
 });
 
 const isUnauthorized = Schema.is(Unauthorized);

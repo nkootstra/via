@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Schema } from "effect";
 import { providerState } from "./index.ts";
 
 const NOW = Date.parse("2026-09-27T12:00:00.000Z");

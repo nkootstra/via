@@ -48,7 +48,7 @@ import {
   HttpClientRequest,
   HttpClientResponse,
   HttpServer,
-} from "effect/unstable/http";
+} from "effect/http";
 import { ViaServer } from "../index.ts";
 import type { EmbeddedUi } from "../admin/ui.ts";
 

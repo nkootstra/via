@@ -29,7 +29,7 @@ import {
   HttpApiSchema,
   HttpApiSecurity,
   OpenApi,
-} from "effect/unstable/httpapi";
+} from "effect/http-api";
 
 /**
  * A name or label a request carries: longer than any real one, short enough that

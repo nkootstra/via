@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 import { classify, Verdict } from "@via/pool";
-import { Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Schema } from "effect";
 import { rateLimitRejection } from "./opencode-go-rejection.ts";
 
 const NOW = 1_700_000_000_000;

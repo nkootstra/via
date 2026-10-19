@@ -1,6 +1,6 @@
 import { KeyStore } from "@via/keys";
 import { Clock, Console, Effect } from "effect";
-import { Argument, Command, Flag } from "effect/unstable/cli";
+import { Argument, Command, Flag } from "effect/cli";
 import { localTime, timeAgo } from "./time.ts";
 
 const create = Command.make(

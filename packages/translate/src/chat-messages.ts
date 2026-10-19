@@ -3,7 +3,7 @@
 // whole or streamed.
 import { streamIncomplete } from "@via/codex-upstream";
 import { Effect, Option, Predicate, Schema, Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 import type { ChatRequest } from "./chat-request.ts";
 
 /** The output tokens asked for when the client names no limit; Messages requires one. */

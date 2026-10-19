@@ -1,6 +1,6 @@
 import { Effect, Layer, Option, Redacted } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
-import { HttpApiBuilder } from "effect/unstable/httpapi";
+import { HttpServerRequest } from "effect/http";
+import { HttpApiBuilder } from "effect/http-api";
 import { AdminAuthorization, bearer, Forbidden, Unauthorized } from "./api.ts";
 import { AdminSessions } from "./sessions.ts";
 import { hasLiveSession } from "./session-cookie.ts";

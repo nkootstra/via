@@ -1,5 +1,5 @@
 import { Data, Effect } from "effect";
-import type { HttpServerResponse } from "effect/unstable/http";
+import type { HttpServerResponse } from "effect/http";
 
 /**
  * How a request for one model went: `Answered` with what the client gets, a

@@ -17,9 +17,9 @@
   },
   "dependencies": {
     "@stylexjs/stylex": "catalog:",
-    "@tanstack/react-query": "5.104.1",
-    "@tanstack/react-router": "1.170.41",
-    "@tanstack/react-start": "1.168.60",
+    "@tanstack/react-query": "5.104.2",
+    "@tanstack/react-router": "1.170.42",
+    "@tanstack/react-start": "1.168.61",
     "@via/server": "workspace:*",
     "@via/ui": "workspace:*",
     "effect": "catalog:",
@@ -40,9 +40,9 @@
     "@via/providers": "workspace:*",
     "@via/tsconfig": "workspace:*",
     "@vitejs/plugin-react": "6.1.2",
-    "axe-core": "4.13.0",
+    "axe-core": "4.14.0",
     "happy-dom": "catalog:",
-    "msw": "3.0.2",
+    "msw": "3.0.3",
     "vite": "catalog:",
     "vitest": "catalog:"
   }

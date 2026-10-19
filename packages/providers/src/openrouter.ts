@@ -1,5 +1,5 @@
 import { Clock, Effect, Schema } from "effect";
-import { HttpClientResponse } from "effect/unstable/http";
+import { HttpClientResponse } from "effect/http";
 import { OpenrouterKeyRejectedError, OpenrouterUnavailableError } from "./errors.ts";
 import { budgetOf } from "./openrouter-budget.ts";
 import { keyed, LOOKUP_TIMEOUT, probe, type Provider, unansweredWithin } from "./provider.ts";

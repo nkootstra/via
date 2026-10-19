@@ -3,12 +3,7 @@
 // answers. The golden fixtures in ./fixtures come from openai/codex.
 import { BunHttpServer } from "@effect/platform-bun";
 import { Clock, Deferred, Effect, Layer, Schema, Stream } from "effect";
-import {
-  HttpRouter,
-  HttpServer,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/unstable/http";
+import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { type CodexRequest, jsonText, type Plan, type Reply, reply } from "./replies.ts";
 import { modelsPayload, usagePayload } from "./streams.ts";
 

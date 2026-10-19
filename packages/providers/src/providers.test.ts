@@ -14,7 +14,7 @@ import {
   Schema,
   Stream,
 } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientResponse } from "effect/http";
 import { OpencodeGoKeyRejectedError, OpencodeGoUnavailableError } from "./errors.ts";
 import { OpencodeGoAccounts, Providers } from "./index.ts";
 import { providerReply, startFakeProvider } from "./testing/index.ts";

@@ -6,7 +6,7 @@ import { DuplicateKeyNameError } from "@via/keys";
 import { providerReply } from "@via/providers/testing";
 import { Clock, Deferred, Effect, Fiber, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import type { HttpClientResponse } from "effect/unstable/http";
+import type { HttpClientResponse } from "effect/http";
 import { type Via, ok, withVia } from "../testing/harness.ts";
 import { LoginNotFoundError, TooManyLoginsError } from "./api.ts";
 

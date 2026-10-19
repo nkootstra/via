@@ -1,8 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { SqliteClient } from "@effect/sql-sqlite-bun";
-import { SqlClient } from "effect/unstable/sql";
+import { SqlClient } from "effect/sql";
 import { describe, expect, it, layer } from "@effect/vitest";
 import {
+  Arbitrary,
   DateTime,
   Deferred,
   Duration,
@@ -16,7 +17,6 @@ import {
   Tracer,
 } from "effect";
 import { TestClock } from "effect/testing";
-import { Arbitrary } from "effect/unstable/arbitrary";
 import type { UsageEntry } from "./entry.ts";
 import { UsageHistory } from "./usage-history.ts";
 

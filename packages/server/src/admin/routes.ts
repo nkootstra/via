@@ -22,8 +22,8 @@ import {
   Schema,
   Stream,
 } from "effect";
-import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
-import { HttpApiBuilder, HttpApiScalar, OpenApi } from "effect/unstable/httpapi";
+import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { HttpApiBuilder, HttpApiScalar, OpenApi } from "effect/http-api";
 import { AdminApi, FallbackRulesFileError, session } from "./api.ts";
 import {
   adminAuthorization,

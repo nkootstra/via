@@ -8,7 +8,7 @@ import { OpencodeGoAccounts, OpencodeGoPool, Providers } from "@via/providers";
 import { expect, layer } from "@effect/vitest";
 import { Clock, Effect, FileSystem, Layer, Logger, References } from "effect";
 import { TestClock } from "effect/testing";
-import { FetchHttpClient, type HttpClient } from "effect/unstable/http";
+import { FetchHttpClient, type HttpClient } from "effect/http";
 import { AccountPool } from "./account-pool.ts";
 import { collectLogs } from "./testing/logs.ts";
 import { UsagePoll } from "./usage-poll.ts";

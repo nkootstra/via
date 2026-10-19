@@ -18,9 +18,9 @@ import {
   type Redacted,
   References,
 } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
-import { HttpClient, HttpServer } from "effect/unstable/http";
-import { OtlpSerialization, OtlpTracer } from "effect/unstable/observability";
+import { Command, Flag } from "effect/cli";
+import { HttpClient, HttpServer } from "effect/http";
+import { OtlpSerialization, OtlpTracer } from "effect/observability";
 import { apiKeys, importOpencodeGoKey } from "./api-keys.ts";
 import { version } from "./version.ts";
 

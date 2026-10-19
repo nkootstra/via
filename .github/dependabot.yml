@@ -51,8 +51,13 @@ updates:
         # The language service versions on its own.
         exclude-patterns:
           - "@effect/tsgo"
-      # Everything else that isn't a major update, in one PR a week.
+      # Everything else that isn't a major update, in one PR a week. Effect is
+      # kept out: its bumps need code changes, and the override of
+      # @effect/platform-node-shared in package.json moves with them by hand.
       minor-and-patch:
         update-types:
           - minor
           - patch
+        exclude-patterns:
+          - "effect"
+          - "@effect/*"

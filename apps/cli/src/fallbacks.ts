@@ -1,6 +1,6 @@
 import { FallbackRuleStore, parseRule } from "@via/fallbacks";
 import { Console, Effect } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 
 const list = Command.make("list", {}, () =>
   Effect.gen(function* () {

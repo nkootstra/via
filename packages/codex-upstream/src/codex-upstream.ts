@@ -6,7 +6,7 @@ import {
   HttpClientError,
   HttpClientRequest,
   HttpClientResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import type { CatalogModel } from "./models.ts";
 import { prepareBody, type ResponsesBody } from "./prepare-body.ts";
 import { readRejection, RequestRejectedError } from "./rejection.ts";

@@ -1,5 +1,5 @@
 import { Effect, Option, Predicate, Schema, Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 
 const OPEN = "<think>";
 

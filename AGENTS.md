@@ -70,7 +70,7 @@ OpenAI-compatible local endpoint. Bun + turborepo, TypeScript 7, Effect v4.
   Read its fields through `Schema.is` guards or small decoders, and branch on
   values with `Predicate` rather than `typeof`.
 - Files go through the platform `FileSystem` service. HTTP goes through
-  `HttpClient` / `HttpRouter` from `effect/unstable/http`. Time goes through
+  `HttpClient` / `HttpRouter` from `effect/http`. Time goes through
   `Clock` (tests use `TestClock`).
 - `Effect.die` / `orDie` only at true boundaries, with a comment explaining why.
   The same goes for anything that turns a typed error into a default
@@ -84,7 +84,7 @@ by mechanism (`utils/`, `handlers/`, `types.ts`). `errors.ts` and
 `schemas.ts` exist only as browser-safe entry points for the admin API
 contract.
 
-- `apps/cli`: the `via` binary (`effect/unstable/cli`); the composition root.
+- `apps/cli`: the `via` binary (`effect/cli`); the composition root.
 - `apps/web`: the admin web UI, a static React SPA (TanStack Start in SPA
   mode, TanStack Query, `@via/ui`) that via serves at `/ui`. It is browser
   React: Effect is used only at its API boundary (`src/api`, a typed client of

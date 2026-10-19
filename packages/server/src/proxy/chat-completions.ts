@@ -1,7 +1,7 @@
 import { ChatRequest, toResponsesRequest } from "@via/translate";
 import { Providers } from "@via/providers";
 import { Effect, Option, Result, Schema } from "effect";
-import { HttpServerRequest } from "effect/unstable/http";
+import { HttpServerRequest } from "effect/http";
 import { authenticated } from "./authenticated.ts";
 import { asOpenAiError, dispatch, modelOf } from "./dispatch.ts";
 import { withFallbacks } from "../fallback/fallback.ts";

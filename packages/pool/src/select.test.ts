@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Option, Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Option, Schema } from "effect";
 import {
   type AccountState,
   type PoolAccount,

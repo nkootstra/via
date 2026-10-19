@@ -1,6 +1,6 @@
 /** What the admin API's endpoints answer, as its contract types them. */
 import type { AdminApi } from "@via/server/admin-api";
-import type { HttpApiEndpoint } from "effect/unstable/httpapi";
+import type { HttpApiEndpoint } from "effect/http-api";
 
 type Groups = (typeof AdminApi)["groups"];
 

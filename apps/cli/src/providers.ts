@@ -2,7 +2,7 @@ import { loadConfig } from "@via/config";
 import { maskKey, parseOllamaAddress, Providers } from "@via/providers";
 import { OllamaAddressInvalidError, OpenrouterNotEditableError } from "@via/providers/errors";
 import { Console, Effect, Record } from "effect";
-import { Argument, Command } from "effect/unstable/cli";
+import { Argument, Command } from "effect/cli";
 import { apiKeys } from "./api-keys.ts";
 import { readApiKey } from "./read-key.ts";
 import { version } from "./version.ts";

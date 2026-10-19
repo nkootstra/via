@@ -9,7 +9,7 @@ import {
   toResponsesRequest,
 } from "@via/translate";
 import { Effect, identity, Option, Schema, Stream } from "effect";
-import { Headers, type HttpClientResponse, HttpServerResponse } from "effect/unstable/http";
+import { Headers, type HttpClientResponse, HttpServerResponse } from "effect/http";
 import { chatFromMessages, chatFromResponses } from "./chat-answer.ts";
 import { ModelProtocols, type Protocol } from "./model-protocols.ts";
 import { noAccountLeft, streams } from "./dispatch.ts";

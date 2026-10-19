@@ -1,7 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Duration, Effect, Exit, Fiber, Redacted, Schema } from "effect";
+import { Arbitrary, Duration, Effect, Exit, Fiber, Redacted, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { Arbitrary } from "effect/unstable/arbitrary";
 import { TooManySignInsError, Unauthorized } from "./api.ts";
 import { AdminSessions } from "./sessions.ts";
 

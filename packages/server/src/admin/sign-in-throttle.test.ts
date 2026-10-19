@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Schema } from "effect";
 import { type Failures, type Limits, SIGN_IN_LIMITS, attempt } from "./sign-in-throttle.ts";
 
 /** Small limits, so a few dozen sign-ins reach them. */

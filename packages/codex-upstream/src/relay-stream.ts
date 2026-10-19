@@ -1,5 +1,5 @@
 import { Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 import { isTerminalEvent, streamIncomplete } from "./responses-events.ts";
 
 // The Responses API's stream error event, which clients such as the openai SDK raise.

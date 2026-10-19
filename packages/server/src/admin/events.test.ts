@@ -3,7 +3,7 @@ import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, type Reply, reply } from "@via/codex-upstream/testing";
 import { Clock, Effect, Exit, Fiber, FileSystem, Option, Queue, Scope, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 import { type AdminState, AdminEvent } from "./api.ts";
 import { ok, type Via, withVia } from "../testing/harness.ts";
 

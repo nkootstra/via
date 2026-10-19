@@ -1,8 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Clock, Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
+import { Arbitrary, Clock, Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
-import { Arbitrary } from "effect/unstable/arbitrary";
 import { PoolStates } from "./pool-states.ts";
 import { type PoolState, select } from "./select.ts";
 

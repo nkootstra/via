@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Deferred, Effect, Exit, Fiber, Option, type Schema, Stream } from "effect";
-import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/http";
+import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 import { startFakeCodex } from "./fake-codex.ts";
 import { codexErrorFixture, codexFixture } from "./fixtures.ts";
 import { reply } from "./replies.ts";

@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import type { ProviderConfig } from "@via/config";
 import { Effect, Exit, FileSystem, Layer, Option, type Scope } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { OllamaNotEditableError, OllamaUnreachableError } from "./errors.ts";
 import { OllamaAddress, OpencodeGoAccounts, Providers } from "./index.ts";
 import { startFakeProvider } from "./testing/index.ts";

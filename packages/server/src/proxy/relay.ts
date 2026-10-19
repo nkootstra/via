@@ -5,13 +5,13 @@ import {
   UpstreamFailedError,
 } from "@via/codex-upstream";
 import { Data, Duration, Effect, Function, Option, Predicate, Schema, Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 import {
   Headers,
   type HttpClientError,
   type HttpClientResponse,
   HttpServerResponse,
-} from "effect/unstable/http";
+} from "effect/http";
 import { keepAlive } from "./keep-alive.ts";
 import { openAiError } from "./openai-error.ts";
 import { RequestLog } from "../usage/request-log.ts";

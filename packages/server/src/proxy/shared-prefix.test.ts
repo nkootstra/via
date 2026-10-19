@@ -1,6 +1,5 @@
 import { describe, expect, it } from "@effect/vitest";
-import { Schema } from "effect";
-import { Arbitrary } from "effect/unstable/arbitrary";
+import { Arbitrary, Schema } from "effect";
 import { withSharedPrefix } from "./shared-prefix.ts";
 
 const system = (session: string) =>

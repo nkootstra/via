@@ -1,7 +1,7 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { Effect, FileSystem, Schema } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { AdminState } from "./api.ts";
 import type { EmbeddedUi } from "./ui.ts";
 import { ok, type Via, withVia } from "../testing/harness.ts";

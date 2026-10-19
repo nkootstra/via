@@ -11,7 +11,7 @@ import { seedAccount, startFakeIssuer } from "@via/codex-auth/testing";
 import { CorruptFileError, FileLockTimeoutError } from "@via/config";
 import { PoolStates } from "@via/pool";
 import { Effect, FileSystem, Layer, Logger, Option, PlatformError } from "effect";
-import { FetchHttpClient } from "effect/unstable/http";
+import { FetchHttpClient } from "effect/http";
 import { AccountPool } from "./account-pool.ts";
 import { collectLogs } from "./testing/logs.ts";
 

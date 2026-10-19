@@ -6,7 +6,7 @@ import {
   streamIncomplete,
 } from "@via/codex-upstream";
 import { Schema, Stream } from "effect";
-import { Sse } from "effect/unstable/encoding";
+import { Sse } from "effect/encoding";
 import { chatUsage, finishReason, toolCall, Usage } from "./chat-response.ts";
 
 const Created = Schema.Struct({
