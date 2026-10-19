@@ -40,6 +40,24 @@ describe("rateLimitRejection", () => {
     );
   });
 
+  it("names the cooldown rate_limited when the used-up window's name isn't an identifier", () => {
+    const usage = {
+      provider: "opencode-go",
+      windows: [
+        {
+          window: "the window of 'my secret prompt'",
+          status: "limited",
+          usedPercent: 100,
+          resetsAt: iso(NOW + 60 * MINUTE),
+        },
+      ],
+    };
+
+    expect(until(usage, undefined, NOW)).toEqual(
+      Verdict.Cooldown({ until: NOW + 60 * MINUTE, reason: "rate_limited" }),
+    );
+  });
+
   const WindowSpec = Schema.Struct({
     usedPercent: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 150 })),
     resetsAtOffset: Schema.Int.check(Schema.isBetween({ minimum: -3_600, maximum: 3_600 })),

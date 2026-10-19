@@ -852,6 +852,13 @@ changes only once it restarts.
 - Running cooldowns are saved in `state.json`, so a restarted `via serve` keeps
   them. Lockouts aren't saved: a restart gives a locked-out account one more try,
   once a cooldown it was locked out in has run out.
+- A cooldown's or lockout's reason, which `state.json`, the logs and
+  `GET /admin/pool` show, is always a code such as `usage_limit_reached`.
+  When an upstream's code is anything other than a short identifier (letters,
+  digits, `_`, `.`, `:` and `-`, up to 64 characters), via names the reason
+  after the answer instead: `rate_limited`, `upstream_<status>` or `forbidden`.
+  An older via may have saved such a code in `state.json`; it is read as
+  `unknown`.
 - In the background, via also asks ChatGPT for each account's usage when it
   starts and every 15 minutes after that, a few accounts at a time, so an
   already-exhausted account cools down before its next request would hit a 429. The web UI shows the same usage. This never ends a cooldown early, only starts one or
@@ -1113,10 +1120,9 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   seconds until an account frees up. For an error the upstream answered,
   `upstream_error` is the code it gave, such as `ModelProtocolUnsupported`,
   when that is an identifier (letters, digits and `_.:-`, at most 64). This
-  line never has the upstream's message, but other lines can carry the
-  upstream's words: the `INFO` line for a fallback gives the upstream's code
-  as it came, and the `WARN` line for a Codex stream that broke off says what
-  went wrong.
+  line never has the upstream's message. Nor does the `INFO` line for a
+  fallback, which gives the upstream's code on the same terms and its status,
+  such as `http_503`, otherwise.
 - A request the client gave up on before via answered is logged with
   `http.status=499`, as nginx does. The client never sees that status. Like a
   `404` for a path via doesn't serve, it is only that line, not an error.
@@ -1129,6 +1135,13 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
 It also warns when an account cools down, is locked out, or has its token
 rejected, and says until when; and when an account's file can't be read or its
 new tokens can't be saved.
+
+via writes its log to standard output and keeps no log file. Where the lines
+go from there is up to you: a terminal, `docker logs`, journald. They hold no
+prompt or answer. When an upstream fails a request or sends an event via can't
+read, the log says so in via's own words, with the status, the error code or
+where in the event the problem was, but not the event's content or the
+upstream's message.
 
 ### Usage history
 
@@ -1329,8 +1342,9 @@ and keeps its label (see
   refused. Upgrading clears the messages an older via kept, via's own included,
   as the two can't be told apart. What via deletes or clears in it is
   overwritten (SQLite's `secure_delete`), not left in the file's free space.
-  The [logs](#logs) are another matter: some lines can still carry an
-  upstream's words.
+- `state.json` holds account ids, when their cooldowns end and a reason code
+  for each, never an upstream's message. The log, on standard output only,
+  holds no prompt or answer (see [Logs](#logs)).
 - API keys are stored only as SHA-256 hashes.
 - `VIA_ADMIN_KEY` can add, change and remove accounts and API keys. Keep it
   out of clients; only its SHA-256 hash is compared, in constant time. It can

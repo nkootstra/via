@@ -119,6 +119,47 @@ layer(BunFileSystem.layer)("PoolStates", (it) => {
     }),
   );
 
+  it.effect("keeps a saved cooldown whose reason isn't an identifier, but not its reason", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/state.json`;
+      // As an older via saved an upstream's code that was words.
+      yield* fs.writeFileString(
+        path,
+        JSON.stringify({
+          "acc-a": { until: 60_000, reason: "You asked: 'summarise my medical records'" },
+          "acc-b": { until: 60_000, reason: "usage_limit_reached" },
+        }),
+      );
+
+      const restarted = yield* run(path, (states) =>
+        Effect.andThen(states.coolDown("acc-c", 60_000, "rate_limited"), states.get),
+      );
+
+      expect(restarted).toEqual({
+        "acc-a": { status: "cooling", until: 60_000, reason: "unknown" },
+        "acc-b": { status: "cooling", until: 60_000, reason: "usage_limit_reached" },
+        "acc-c": { status: "cooling", until: 60_000, reason: "rate_limited" },
+      });
+      expect(yield* fs.readFileString(path)).not.toContain("medical");
+    }),
+  );
+
+  it.effect("never saves a reason that isn't an identifier", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/state.json`;
+      yield* run(path, (states) =>
+        states.coolDown("acc-a", 60_000, "You asked: 'summarise my medical records'"),
+      );
+
+      expect(yield* fs.readFileString(path)).not.toContain("medical");
+      expect(yield* run(path, (states) => states.get)).toEqual({
+        "acc-a": { status: "cooling", until: 60_000, reason: "unknown" },
+      });
+    }),
+  );
+
   it.effect("forgets lockouts and elapsed cooldowns on a restart", () =>
     Effect.gen(function* () {
       const path = `${yield* (yield* FileSystem.FileSystem).makeTempDirectoryScoped()}/state.json`;

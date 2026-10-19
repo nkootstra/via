@@ -1,4 +1,14 @@
-import { Data, Duration, Predicate } from "effect";
+import { Data, Duration, Predicate, Schema } from "effect";
+
+/**
+ * A reason the pool keeps for setting an account aside: an identifier, such as
+ * `usage_limit_reached`. It is saved in `state.json`, logged and shown in the
+ * admin API, and an upstream's code can be any text, even a quote of the request.
+ */
+const Reason = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.:-]{1,64}$/));
+
+/** Whether `reason` is one the pool can keep. */
+export const isReason = Schema.is(Reason);
 
 /**
  * Why an upstream refused a request, in the pool's own terms: each upstream reads

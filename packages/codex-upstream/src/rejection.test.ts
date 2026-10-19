@@ -254,6 +254,34 @@ describe("readRejection", () => {
       expect(readRejection(status, {}, body, NOW)).toEqual(expected);
     },
   );
+
+  // Kept as a cooldown's reason in state.json and logged: an upstream's code can be any text.
+  it.prop(
+    "names a rejection only by an identifier, whatever code Codex gives",
+    {
+      status: Arbitrary.schema(Schema.Literals([403, 429, 503])),
+      code: Arbitrary.schema(Schema.String),
+    },
+    ({ status, code }) => {
+      const rejection = readRejection(status, {}, codexError({ code }), NOW);
+
+      return "reason" in rejection && /^[A-Za-z0-9_.:-]{1,64}$/.test(rejection.reason);
+    },
+  );
+
+  it("names a rejection by its status when Codex's code is words", () => {
+    const code = "You asked: 'summarise my medical records'";
+
+    expect(readRejection(429, {}, codexError({ code }), NOW)).toEqual(
+      Rejection.Exhausted({ reason: "rate_limited" }),
+    );
+    expect(readRejection(503, {}, codexError({ type: code }), NOW)).toEqual(
+      Rejection.Unavailable({ reason: "upstream_503" }),
+    );
+    expect(readRejection(403, {}, codexError({ code }), NOW)).toEqual(
+      Rejection.Forbidden({ reason: "forbidden" }),
+    );
+  });
 });
 
 describe("readFailure", () => {

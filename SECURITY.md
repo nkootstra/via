@@ -33,6 +33,8 @@ Examples of what's in scope:
   owner-only.
 - A prompt, an answer, an upstream's error message or a secret ending up in the usage history
   (`usage.db`), which keeps only what the README lists.
+- A prompt, an answer or an upstream's error message ending up in via's log
+  or in `state.json`.
 - A client request that makes via send headers or requests to an upstream
   (Codex, OpenCode Go or a configured provider) that it didn't intend.
 
