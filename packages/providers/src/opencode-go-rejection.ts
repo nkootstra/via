@@ -1,4 +1,4 @@
-import { Rejection } from "@via/pool";
+import { isReason, Rejection } from "@via/pool";
 import { Option, Schema } from "effect";
 import type { ProviderUsage } from "./schemas.ts";
 import { providerState } from "./state.ts";
@@ -41,9 +41,11 @@ export const rateLimitRejection = (
 ): Rejection => {
   const state = providerState(usage, now);
   const exhausted = state.status === "exhausted" ? state : undefined;
+  // The window's name is OpenCode Go's, so it names the cooldown only as an identifier.
+  const named = exhausted === undefined ? undefined : `${exhausted.window}_exhausted`;
 
   return Rejection.Exhausted({
-    reason: exhausted === undefined ? "rate_limited" : `${exhausted.window}_exhausted`,
+    reason: named !== undefined && isReason(named) ? named : "rate_limited",
     resetsAt: exhausted === undefined ? undefined : Date.parse(exhausted.until),
     retryAfterMs: retryAfterMsOf(retryAfter),
   });
