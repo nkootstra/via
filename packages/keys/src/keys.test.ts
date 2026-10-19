@@ -42,11 +42,19 @@ const fail = (reason: "AlreadyExists" | "NotFound", method: string, path: string
     }),
   );
 
-/** A file system in memory, with just the calls a store makes on its key file and lock. */
+/** Whether `path` is a lock database or the file one is created from. */
+const isLock = (path: string) => path.includes(".lock.db");
+
+/**
+ * A file system in memory, with just the calls a store makes on its key file; its lock, and the
+ * file that lock is created from, stay on `disk`.
+ */
 const memoryFileSystem = (disk: FileSystem.FileSystem) => {
   const files = new Map<string, string>();
 
   return FileSystem.makeNoop({
+    exists: (path) => (isLock(path) ? disk.exists(path) : Effect.succeed(files.has(path))),
+    link: (from, to) => disk.link(from, to),
     makeDirectory: () => Effect.void,
     chmod: () => Effect.void,
     readFileString: (path) => {
@@ -62,7 +70,7 @@ const memoryFileSystem = (disk: FileSystem.FileSystem) => {
           }),
     // Opened only to write a new file and flush it, as `writeJsonFile` does with its temp file.
     open: (path, options) =>
-      path.endsWith(".lock.db")
+      isLock(path)
         ? disk.open(path, options)
         : Effect.sync((): FileSystem.File => {
             files.set(path, "");
@@ -93,10 +101,12 @@ const memoryFileSystem = (disk: FileSystem.FileSystem) => {
             files.set(to, text);
           });
     },
-    remove: (path) =>
-      Effect.sync(() => {
-        files.delete(path);
-      }),
+    remove: (path, options) =>
+      isLock(path)
+        ? disk.remove(path, options)
+        : Effect.sync(() => {
+            files.delete(path);
+          }),
   });
 };
 

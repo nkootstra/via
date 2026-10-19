@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { Effect, FileSystem, Schema } from "effect";
+import { Effect, Exit, FileSystem, PlatformError, Schema } from "effect";
 import { CorruptFileError, readJsonFile, writeJsonFile } from "./index.ts";
 
 const Greeting = Schema.Struct({ hello: Schema.String });
@@ -10,6 +10,34 @@ const tempDir = Effect.gen(function* () {
 
   return yield* fs.makeTempDirectoryScoped();
 });
+
+/**
+ * A failed `sync` of `path`, as a real file system reports an errno `code` it has no reason for,
+ * such as EINVAL: as `reason`, with the errno in its cause.
+ */
+const syncFailure = (reason: PlatformError.SystemErrorTag, code: string, path: string) =>
+  PlatformError.systemError({
+    _tag: reason,
+    module: "FileSystem",
+    method: "sync",
+    pathOrDescriptor: path,
+    cause: Object.assign(new Error(code), { code }),
+  });
+
+/** The file system, except that flushing `dir` itself fails with the errno `code`. */
+const directorySyncFails = (fs: FileSystem.FileSystem, dir: string, code: string) =>
+  FileSystem.FileSystem.of({
+    ...fs,
+    open: (path, options) =>
+      Effect.map(fs.open(path, options), (handle) =>
+        path === dir
+          ? // The handle's methods live on its prototype, so it is extended rather than spread.
+            Object.create(handle, {
+              sync: { value: Effect.fail(syncFailure("Unknown", code, path)) },
+            })
+          : handle,
+      ),
+  });
 
 layer(BunFileSystem.layer)("json files", (it) => {
   it.effect("round-trips data, creating parent directories", () =>
@@ -74,14 +102,16 @@ layer(BunFileSystem.layer)("json files", (it) => {
     }),
   );
 
-  it.effect("flushes the new contents to disk before they replace the file", () =>
+  it.effect("flushes the new contents to disk before they replace the file, then the rename", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
-      const file = `${yield* tempDir}/a.json`;
+      const dir = yield* tempDir;
+      const file = `${dir}/a.json`;
       const calls: Array<string> = [];
 
       // Records which file each flush and rename touches: a rename of contents that were never
-      // flushed can survive a crash as an empty file.
+      // flushed can survive a crash as an empty file, and a rename whose directory was never
+      // flushed can be undone by one, bringing back the old file.
       const recording = FileSystem.FileSystem.of({
         ...fs,
         open: (path, options) =>
@@ -107,11 +137,44 @@ layer(BunFileSystem.layer)("json files", (it) => {
         Effect.provideService(FileSystem.FileSystem, recording),
       );
 
-      const tmp = calls.at(-1)?.slice("rename ".length);
-      expect(calls).toEqual([`sync ${tmp}`, `rename ${tmp}`]);
+      const tmp = calls.at(-2)?.slice("rename ".length);
+      expect(calls).toEqual([`sync ${tmp}`, `rename ${tmp}`, `sync ${dir}`]);
       expect(yield* readJsonFile(file, Greeting, () => ({ hello: "fallback" }))).toEqual({
         hello: "x",
       });
+    }),
+  );
+
+  it.effect.each(["EINVAL", "ENOTSUP"])(
+    "writes the file where the directory can't be flushed (%s)",
+    (code) =>
+      Effect.gen(function* () {
+        const fs = yield* FileSystem.FileSystem;
+        const dir = yield* tempDir;
+        const file = `${dir}/a.json`;
+
+        yield* writeJsonFile(file, Greeting, { hello: "x" }).pipe(
+          Effect.provideService(FileSystem.FileSystem, directorySyncFails(fs, dir, code)),
+        );
+
+        expect(yield* readJsonFile(file, Greeting, () => ({ hello: "fallback" }))).toEqual({
+          hello: "x",
+        });
+      }),
+  );
+
+  it.effect("fails a write whose directory can't be flushed for an I/O error", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const dir = yield* tempDir;
+
+      const exit = yield* Effect.exit(
+        writeJsonFile(`${dir}/a.json`, Greeting, { hello: "x" }).pipe(
+          Effect.provideService(FileSystem.FileSystem, directorySyncFails(fs, dir, "EIO")),
+        ),
+      );
+
+      expect(Exit.isFailure(exit)).toBe(true);
     }),
   );
 

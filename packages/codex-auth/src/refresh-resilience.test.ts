@@ -166,6 +166,47 @@ layer(BunFileSystem.layer)("AccountTokens refreshing", (it) => {
     { timeout: 20_000 },
   );
 
+  it.effect(
+    "keeps a rotation it can't save right after saving the one kept before it",
+    () =>
+      Effect.gen(function* () {
+        const authDir = yield* tempAuthDir;
+        yield* seedAccount(authDir, "a", { expiresAt: 0 });
+        const disk = { failures: Infinity };
+
+        // The disk fills up again while the issuer rotates the second token.
+        const { auth, used } = rotatingIssuer(() =>
+          Effect.sync(() => {
+            if (used.length === 2) disk.failures = Infinity;
+          }),
+        );
+
+        yield* Effect.gen(function* () {
+          const store = yield* AccountStore;
+          const tokens = yield* AccountTokens;
+
+          const first = yield* settled(tokens.fresh(yield* store.find("a")));
+          expect(first.accessToken).toBe("at-2");
+
+          // "rt-2" is saved before the refresh that spends it, whose "rt-3" can't be.
+          disk.failures = 0;
+          const second = yield* settled(tokens.refreshRejected("a", "at-2"));
+          expect(second.accessToken).toBe("at-3");
+          expect((yield* store.find("a")).refreshToken).toBe("rt-2");
+
+          disk.failures = 0;
+          const third = yield* settled(tokens.refreshRejected("a", "at-3"));
+
+          expect(third.accessToken).toBe("at-4");
+          expect(used).toEqual(["rt-1", "rt-2", "rt-3"]);
+          expect((yield* store.find("a")).refreshToken).toBe("rt-4");
+        }).pipe(Effect.provide(tokensLayer(authDir, auth, yield* flakyDisk(authDir, disk))));
+      }),
+    // Saves that fail and are tried again, each taking and freeing locks on disk: a loaded
+    // machine (the whole repo's tests at once) needs longer.
+    { timeout: 20_000 },
+  );
+
   it.effect("two processes refreshing the same account at once spend its refresh token once", () =>
     Effect.gen(function* () {
       const authDir = yield* tempAuthDir;

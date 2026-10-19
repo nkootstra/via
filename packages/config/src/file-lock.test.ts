@@ -49,6 +49,42 @@ layer(BunFileSystem.layer)("withFileLock", (it) => {
     }),
   );
 
+  it.effect("never lets the lock database be read by others, nor opens it itself", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const file = yield* tempFile;
+      const filename = `${file}.lock.db`;
+      const seen: Array<string> = [];
+
+      // Another user who opened the file while it was readable would keep it open and could
+      // hold a lock on it forever; and closing a descriptor of the file drops this process's lock.
+      const recording = FileSystem.FileSystem.of({
+        ...fs,
+        open: (path, options) =>
+          Effect.andThen(
+            Effect.sync(() => {
+              if (path === filename) seen.push("open");
+            }),
+            fs.open(path, options),
+          ),
+        chmod: (path, mode) =>
+          Effect.gen(function* () {
+            if (path === filename)
+              seen.push(`mode ${((yield* fs.stat(path)).mode & 0o777).toString(8)}`);
+
+            return yield* fs.chmod(path, mode);
+          }),
+      });
+
+      yield* withFileLock(file, Effect.void).pipe(
+        Effect.provideService(FileSystem.FileSystem, recording),
+      );
+
+      expect(seen).toEqual(["mode 600"]);
+      expect(yield* fs.readDirectory(dirname(file))).toEqual(["data.json.lock.db"]);
+    }),
+  );
+
   it.effect("releases the lock when the effect fails", () =>
     Effect.gen(function* () {
       const file = yield* tempFile;
@@ -284,6 +320,58 @@ layer(
         yield* child.kill({ killSignal: "SIGKILL" });
         yield* Effect.exit(child.exitCode);
         expect(yield* withFileLock(file, Effect.succeed("recovered"))).toBe("recovered");
+      }),
+    ),
+  );
+
+  it.effect("keeps a holder exclusive after another fiber of its process waited for the lock", () =>
+    TestClock.withLive(
+      Effect.gen(function* () {
+        const file = yield* tempFile;
+
+        // On POSIX, closing any descriptor of a file drops every lock the process holds on it,
+        // so a waiter that opens and closes the lock file could hand the lock to another process.
+        const child = yield* ChildProcess.make(
+          process.execPath,
+          [
+            "-e",
+            `
+        import { Effect, Console } from "effect";
+        import { BunFileSystem } from "@effect/platform-bun";
+        import { withFileLock } from "./src/index.ts";
+        const file = process.argv[1];
+        await Effect.runPromise(withFileLock(file,
+          Effect.gen(function* () {
+            yield* Effect.exit(withFileLock(file, Effect.void, { giveUpAfter: "100 millis" }));
+            yield* Console.log("held");
+            yield* Effect.sleep("1 day");
+          })
+        ).pipe(Effect.provide(BunFileSystem.layer)));
+      `,
+            file,
+          ],
+          { cwd: new URL("..", import.meta.url).pathname },
+        );
+
+        yield* Effect.addFinalizer(() =>
+          Effect.gen(function* () {
+            if (yield* child.isRunning) yield* child.kill({ killSignal: "SIGKILL" });
+          }).pipe(Effect.orDie),
+        );
+        expect(
+          yield* child.stdout.pipe(
+            Stream.decodeText,
+            Stream.splitLines,
+            Stream.take(1),
+            Stream.runCollect,
+          ),
+        ).toEqual(["held"]);
+
+        const outcome = yield* Effect.exit(
+          withFileLock(file, Effect.succeed("entered"), { giveUpAfter: "100 millis" }),
+        );
+
+        expect(outcome).toEqual(Exit.fail(new FileLockTimeoutError({ path: file })));
       }),
     ),
   );
