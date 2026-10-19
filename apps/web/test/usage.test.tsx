@@ -189,7 +189,7 @@ describe("the usage page", () => {
     expect(within(log).getByText(name).getAttribute("title")).toBe(code);
   });
 
-  it("says why a request failed, in the upstream's or via's own words", async () => {
+  it("says why a request failed: the upstream's code, or via's own words", async () => {
     renderApp("/usage", {
       ...seed,
       historyRequests: [
@@ -198,16 +198,22 @@ describe("the usage page", () => {
           model: "opencode-go/grok-4.7",
           status: 400,
           error: Option.some("ModelProtocolUnsupported"),
-          errorMessage: Option.some("Model does not support this protocol."),
+        }),
+        request({
+          requestId: "outage",
+          status: 502,
+          error: Option.some("server_error"),
+          errorMessage: Option.some("Codex failed the request (HTTP 500)"),
         }),
       ],
     });
 
     const log = await screen.findByRole("table", { name: "Requests" });
-    const [row] = within(log).getAllByRole("row").slice(1);
+    const [refused, outage] = within(log).getAllByRole("row").slice(1);
 
-    expect(row?.textContent).toContain("ModelProtocolUnsupported");
-    expect(row?.textContent).toContain("Model does not support this protocol.");
+    expect(refused?.textContent).toContain("ModelProtocolUnsupported");
+    expect(outage?.textContent).toContain("server_error");
+    expect(outage?.textContent).toContain("Codex failed the request (HTTP 500)");
   });
 
   it("narrows the whole page to a row picked in the breakdown, and keeps it in the URL", async () => {
