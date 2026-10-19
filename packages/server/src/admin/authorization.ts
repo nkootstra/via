@@ -15,13 +15,36 @@ export const originOf = (request: HttpServerRequest.HttpServerRequest) => {
 };
 
 /**
+ * Whether the browser says the request comes from via's own origin. A browser sets
+ * `Origin` itself. The origin's scheme isn't compared: behind a proxy that ends TLS,
+ * via sees plain HTTP while the browser says `https`. A URL's host is lower case, and
+ * `Host` is compared as such: host names are case-insensitive.
+ */
+const fromOwnOrigin = (request: HttpServerRequest.HttpServerRequest) =>
+  originOf(request)?.host === request.headers.host?.toLowerCase();
+
+/**
  * Whether a request that only has a session cookie comes from via's own page, and
- * so may change something. A browser sets `Origin` itself, and a cross-site form
- * can't add `x-via-csrf`. The origin's scheme isn't compared: behind a proxy that
- * ends TLS, via sees plain HTTP while the browser says `https`.
+ * so may change something: a cross-site form can't add `x-via-csrf`.
  */
 const fromOwnPage = (request: HttpServerRequest.HttpServerRequest) =>
-  request.headers["x-via-csrf"] === "1" && originOf(request)?.host === request.headers.host;
+  request.headers["x-via-csrf"] === "1" && fromOwnOrigin(request);
+
+/**
+ * Refuses a sign-in another site's page sent, before its key is checked, so it never
+ * counts as a failed sign-in against the admin's own address. A sign-in without
+ * `Origin`, as the CLI or curl sends, goes through.
+ */
+export const signInFromOwnOrigin = Effect.gen(function* () {
+  const request = yield* HttpServerRequest.HttpServerRequest;
+
+  if (request.headers.origin !== undefined && !fromOwnOrigin(request)) {
+    return yield* new Forbidden({
+      message:
+        "Open via at its own address; a reverse proxy must pass the Host header through unchanged.",
+    });
+  }
+});
 
 /** Methods that only read, which need no check for a forged request. */
 const reads = new Set(["GET", "HEAD"]);

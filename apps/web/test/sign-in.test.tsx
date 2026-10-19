@@ -1,4 +1,4 @@
-import { TooManySignInsError, Unauthorized } from "@via/server/admin-api";
+import { Forbidden, TooManySignInsError, Unauthorized } from "@via/server/admin-api";
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { delay, http, HttpResponse } from "msw";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -78,6 +78,23 @@ describe("signing in", () => {
     await signIn(user, "not-the-key");
 
     expect((await screen.findByRole("alert")).textContent).toContain("That key isn't right");
+    expect(state.signedIn).toBe(false);
+    expect(screen.getByRole("heading", { name: "Sign in" })).toBeDefined();
+  });
+
+  it("says how to reach via when it refuses a sign-in from another address", async () => {
+    const { state, user } = renderApp("/sign-in", { signedIn: false });
+    server.use(
+      http.post("*/admin/session", () =>
+        failure(Forbidden, new Forbidden({ message: "A sign-in from another site" }), 403),
+      ),
+    );
+
+    await signIn(user, state.adminKey);
+
+    expect((await screen.findByRole("alert")).textContent).toBe(
+      "Open via at its own address; a reverse proxy must pass the Host header through unchanged.",
+    );
     expect(state.signedIn).toBe(false);
     expect(screen.getByRole("heading", { name: "Sign in" })).toBeDefined();
   });

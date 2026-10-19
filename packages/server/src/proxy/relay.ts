@@ -4,7 +4,7 @@ import {
   streamIncomplete,
   UpstreamFailedError,
 } from "@via/codex-upstream";
-import { Data, Duration, Effect, Option, Predicate, Schema, Stream } from "effect";
+import { Data, Duration, Effect, Function, Option, Predicate, Schema, Stream } from "effect";
 import { Sse } from "effect/unstable/encoding";
 import {
   Headers,
@@ -231,12 +231,13 @@ export const relayed = <E>(
           : spotUsage(answer, sse, log.usage),
     );
 
-    // Timed outermost: the request log counts the stream from when the server starts it.
     const passed = options.headers ?? Headers.empty;
 
-    const timed = log.timed(
-      sse ? keepAlive(spotStreamError(relaying, log.upstreamFailed)) : relaying,
-    );
+    // Timed outermost: the request log counts the stream from when the server starts it. Its
+    // first chunk is the answer's, though, not a comment via sent while the upstream was quiet.
+    const timed = sse
+      ? log.timed(spotStreamError(relaying, log.upstreamFailed), keepAlive)
+      : log.timed(relaying, Function.identity);
 
     const { incomplete } = options;
 

@@ -285,12 +285,9 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
 
       if (upstream.status !== 400) return yield* outcomeOf(attempt.path, upstream);
 
-      // A 400 is read whole: it may only mean the model speaks another protocol. One whose
-      // body breaks off reads as empty, so it is passed on as the plain 400 it is.
-      const text = yield* upstream.text.pipe(
-        readBody,
-        Effect.orElseSucceed(() => ""),
-      );
+      // A 400 is read whole, up to the limit: it may only mean the model speaks another
+      // protocol. One whose body breaks off reads as empty, so it is passed on as a plain 400.
+      const text = yield* upToLimit(upstream);
 
       const refusal = upstreamErrorOf(text);
       const unsupported = Option.contains(refusal.code, PROTOCOL_UNSUPPORTED);
