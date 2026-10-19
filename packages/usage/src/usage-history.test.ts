@@ -747,7 +747,8 @@ layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
           requestId: "r1",
           status: 400,
           error: Option.some("invalid_input"),
-          errorMessage: Option.some(`Can't read ${prompt}`),
+          // Long enough to spill into overflow pages, which clearing it frees.
+          errorMessage: Option.some(`Can't read ${`${prompt} `.repeat(1_000)}`),
         }),
         entry({
           requestId: "r2",
@@ -801,6 +802,19 @@ layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
       });
 
       expect(JSON.stringify(page.requests)).not.toContain(prompt);
+
+      // Nor are its bytes left in the file, in a page's free space, once the WAL is moved in.
+      yield* Effect.flatMap(
+        SqlClient.SqlClient,
+        (sql) => sql`PRAGMA wal_checkpoint(TRUNCATE)`,
+      ).pipe(Effect.provide(SqliteClient.layer({ filename: path })));
+
+      for (const file of [path, `${path}-wal`]) {
+        if (!(yield* fs.exists(file))) continue;
+        const bytes = new TextDecoder("latin1").decode(yield* fs.readFile(file));
+
+        expect(bytes).not.toContain(prompt);
+      }
     }),
   );
 

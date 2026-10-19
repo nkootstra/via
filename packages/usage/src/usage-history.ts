@@ -598,10 +598,19 @@ export class UsageHistory extends Context.Service<
     readonly changes: Stream.Stream<void>;
   }
 >()("via/UsageHistory") {
-  /** The history in SQLite's `filename`, migrated as needed; `:memory:` lasts only as long as the layer. */
+  /**
+   * The history in SQLite's `filename`, migrated as needed; `:memory:` lasts only as long as the
+   * layer. What it deletes or clears, the migrations included, is overwritten, not left in the
+   * file's free space: SQLite does that only with `secure_delete`, which is off by default on Linux.
+   */
   private static readonly open = (filename: string) =>
     Layer.effect(UsageHistory, make).pipe(
       Layer.provide(SqliteMigrator.layer({ loader: migrations })),
+      Layer.provide(
+        Layer.effectDiscard(
+          Effect.flatMap(SqlClient.SqlClient, (sql) => sql`PRAGMA secure_delete = ON`),
+        ),
+      ),
       Layer.provide(SqliteClient.layer({ filename })),
     );
 
