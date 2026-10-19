@@ -7,7 +7,7 @@ export interface UpstreamError {
   readonly message: Option.Option<string>;
 }
 
-/** The longest message kept: enough for any real one, too short to carry much of a request. */
+/** The longest message passed on: enough for any real one, too short to carry much of a request. */
 const MESSAGE_LIMIT = 500;
 
 const Text = Schema.NonEmptyString;
@@ -28,8 +28,8 @@ const decodeErrorObject = Schema.decodeUnknownOption(Schema.fromJsonString(Error
 
 const decodeDetail = Schema.decodeUnknownOption(Schema.fromJsonString(Detail));
 
-/** `text` as the usage history keeps a message: trimmed and cut to 500 characters. */
-export const cut = (text: string) => text.trim().slice(0, MESSAGE_LIMIT);
+/** `text` as via passes a message on: trimmed and cut to 500 characters. */
+const cut = (text: string) => text.trim().slice(0, MESSAGE_LIMIT);
 
 const present = (text: string | null | undefined) =>
   Option.filter(Option.fromNullishOr(text), (found) => found.trim() !== "");

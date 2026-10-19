@@ -1106,7 +1106,12 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   upstream dropped the connection).
 - For an error via answers itself, `error` is its code and `retry_after` the
   seconds until an account frees up. For an error the upstream answered,
-  `upstream_error` is the code it gave, such as `ModelProtocolUnsupported`.
+  `upstream_error` is the code it gave, such as `ModelProtocolUnsupported`,
+  when that is an identifier (letters, digits and `_.:-`, at most 64). This
+  line never has the upstream's message, but other lines can carry the
+  upstream's words: the `INFO` line for a fallback gives the upstream's code
+  as it came, and the `WARN` line for a Codex stream that broke off says what
+  went wrong.
 - A request the client gave up on before via answered is logged with
   `http.status=499`, as nginx does. The client never sees that status. Like a
   `404` for a path via doesn't serve, it is only that line, not an error.
@@ -1126,8 +1131,8 @@ new tokens can't be saved.
 database: when it came in, the API key's id and name, the model, the provider
 and account that served it, the model asked for and why it couldn't serve when
 a [fallback](#fallback-models) answered instead, its status, why it failed if it did (the error
-code and message, via's own or the upstream's, the message cut to 500
-characters), its input, cached, cache-write,
+code, via's own or the upstream's when that is an identifier, and via's own
+message; never the upstream's message, which can quote the request), its input, cached, cache-write,
 output and reasoning tokens as the upstream reported them, any cost the
 upstream billed (OpenRouter reports one), and how long it took to answer and,
 for a streamed answer, to send its first chunk. It never keeps a prompt or an answer. Requests older
@@ -1307,9 +1312,14 @@ and keeps its label (see
   `opencode-go.json`, readable only by you, and an OpenRouter key added in the
   web UI in `openrouter.json`.
 - The usage history, `usage.db`, holds API key names, account labels and
-  models, never prompts or answers, and is readable only by you. It does keep
-  an upstream's error message, cut to 500 characters, which could quote part
-  of a request the upstream refused.
+  models, never prompts or answers, and is readable only by you. Of an
+  upstream's error it keeps only the status and the code, when the code is an
+  identifier, never the message, which could quote the request the upstream
+  refused. Upgrading clears the messages an older via kept, via's own included,
+  as the two can't be told apart. What via deletes or clears in it is
+  overwritten (SQLite's `secure_delete`), not left in the file's free space.
+  The [logs](#logs) are another matter: some lines can still carry an
+  upstream's words.
 - API keys are stored only as SHA-256 hashes.
 - `VIA_ADMIN_KEY` can add, change and remove accounts and API keys. Keep it
   out of clients; only its SHA-256 hash is compared, in constant time. It can

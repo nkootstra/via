@@ -31,7 +31,7 @@ Examples of what's in scope:
   admin's own address locked out of signing in.
 - Files in `~/.config/via` (or `$VIA_HOME`) created with permissions wider than
   owner-only.
-- A prompt, an answer or a secret ending up in the usage history
+- A prompt, an answer, an upstream's error message or a secret ending up in the usage history
   (`usage.db`), which keeps only what the README lists.
 - A client request that makes via send headers or requests to an upstream
   (Codex, OpenCode Go or a configured provider) that it didn't intend.

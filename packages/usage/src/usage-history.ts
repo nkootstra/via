@@ -235,6 +235,20 @@ const migrations = Migrator.fromRecord({
     yield* sql`ALTER TABLE requests ADD COLUMN requested_model TEXT`;
     yield* sql`ALTER TABLE requests ADD COLUMN fallback_reason TEXT`;
   }),
+  // An older via kept an upstream's error message, which can quote the request it refused, and
+  // its code, which can be any text. Its messages can't be told from via's own, so none is kept;
+  // a code or fallback reason is kept only as the identifier the server now keeps one as.
+  "5_no_upstream_words": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    /** Whether `column` holds something other than an identifier, as `^[A-Za-z0-9_.:-]{1,64}$`. */
+    const notACode = (column: string) =>
+      sql`${sql(column)} IS NOT NULL AND (length(${sql(column)}) NOT BETWEEN 1 AND 64 OR ${sql(column)} GLOB '*[^A-Za-z0-9_.:-]*')`;
+
+    yield* sql`UPDATE requests SET error_message = NULL WHERE error_message IS NOT NULL`;
+    yield* sql`UPDATE requests SET error = NULL WHERE ${notACode("error")}`;
+    yield* sql`UPDATE requests SET fallback_reason = NULL WHERE ${notACode("fallback_reason")}`;
+  }),
 });
 
 const make = Effect.gen(function* () {
@@ -584,10 +598,19 @@ export class UsageHistory extends Context.Service<
     readonly changes: Stream.Stream<void>;
   }
 >()("via/UsageHistory") {
-  /** The history in SQLite's `filename`, migrated as needed; `:memory:` lasts only as long as the layer. */
+  /**
+   * The history in SQLite's `filename`, migrated as needed; `:memory:` lasts only as long as the
+   * layer. What it deletes or clears, the migrations included, is overwritten, not left in the
+   * file's free space: SQLite does that only with `secure_delete`, which is off by default on Linux.
+   */
   private static readonly open = (filename: string) =>
     Layer.effect(UsageHistory, make).pipe(
       Layer.provide(SqliteMigrator.layer({ loader: migrations })),
+      Layer.provide(
+        Layer.effectDiscard(
+          Effect.flatMap(SqlClient.SqlClient, (sql) => sql`PRAGMA secure_delete = ON`),
+        ),
+      ),
       Layer.provide(SqliteClient.layer({ filename })),
     );
 

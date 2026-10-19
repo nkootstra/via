@@ -1,4 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
+import { SqliteClient } from "@effect/sql-sqlite-bun";
+import { SqlClient } from "effect/unstable/sql";
 import { describe, expect, it, layer } from "@effect/vitest";
 import { Deferred, Duration, Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
 import { TestClock } from "effect/testing";
@@ -733,6 +735,89 @@ describe("UsageHistory retention", () => {
 });
 
 layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
+  withFs.effect("forgets the upstream's words an older via kept of why a request failed", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/usage.db`;
+      const open = UsageHistory.layer(path);
+      const prompt = "REVIEW_PRIVATE_PROMPT_7a19";
+
+      const kept = [
+        entry({
+          requestId: "r1",
+          status: 400,
+          error: Option.some("invalid_input"),
+          // Long enough to spill into overflow pages, which clearing it frees.
+          errorMessage: Option.some(`Can't read ${`${prompt} `.repeat(1_000)}`),
+        }),
+        entry({
+          requestId: "r2",
+          status: 400,
+          error: Option.some(`bad input: ${prompt}`),
+          requestedModel: Option.some("gpt-6-sol"),
+          fallbackReason: Option.some(`bad input: ${prompt}`),
+        }),
+        entry({
+          requestId: "r3",
+          status: 429,
+          error: Option.some("rate_limit_exceeded"),
+          errorMessage: Option.some("Every account is cooling down"),
+          requestedModel: Option.some("gpt-6-sol"),
+          fallbackReason: Option.some("rate_limit_exceeded"),
+        }),
+      ];
+
+      yield* Effect.flatMap(UsageHistory, (usage) =>
+        Effect.forEach(kept, usage.record, { discard: true }),
+      ).pipe(Effect.provide(open));
+
+      // The database as an older via left it: one that never ran the migration that forgets them.
+      yield* Effect.flatMap(
+        SqlClient.SqlClient,
+        (sql) => sql`DELETE FROM effect_sql_migrations WHERE name = 'no_upstream_words'`,
+      ).pipe(Effect.provide(SqliteClient.layer({ filename: path })));
+
+      const page = yield* Effect.flatMap(UsageHistory, (usage) =>
+        usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 }),
+      ).pipe(Effect.provide(open));
+
+      const byId = new Map(page.requests.map((request) => [request.requestId, request]));
+
+      expect(byId.get("r1")).toMatchObject({
+        error: Option.some("invalid_input"),
+        errorMessage: Option.none(),
+      });
+
+      expect(byId.get("r2")).toMatchObject({
+        error: Option.none(),
+        requestedModel: Option.some("gpt-6-sol"),
+        fallbackReason: Option.none(),
+      });
+
+      // via's own words can't be told from an upstream's, so they go too; its codes stay.
+      expect(byId.get("r3")).toMatchObject({
+        error: Option.some("rate_limit_exceeded"),
+        errorMessage: Option.none(),
+        fallbackReason: Option.some("rate_limit_exceeded"),
+      });
+
+      expect(JSON.stringify(page.requests)).not.toContain(prompt);
+
+      // Nor are its bytes left in the file, in a page's free space, once the WAL is moved in.
+      yield* Effect.flatMap(
+        SqlClient.SqlClient,
+        (sql) => sql`PRAGMA wal_checkpoint(TRUNCATE)`,
+      ).pipe(Effect.provide(SqliteClient.layer({ filename: path })));
+
+      for (const file of [path, `${path}-wal`]) {
+        if (!(yield* fs.exists(file))) continue;
+        const bytes = new TextDecoder("latin1").decode(yield* fs.readFile(file));
+
+        expect(bytes).not.toContain(prompt);
+      }
+    }),
+  );
+
   withFs.effect("keeps the database readable by its owner only, and across a restart", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;
