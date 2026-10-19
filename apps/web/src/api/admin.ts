@@ -22,12 +22,13 @@ export const sessionQuery = queryOptions({
   staleTime: 30_000,
 });
 
-export type SignInOutcome = "signed-in" | "wrong-key" | "too-many" | "not-kept";
+export type SignInOutcome = "signed-in" | "wrong-key" | "too-many" | "not-kept" | "other-origin";
 
 /**
  * Signs in with the admin key, then checks the session took: a browser that refuses
  * or shadows the cookie would otherwise bounce straight back to sign-in without a word.
- * A wrong key, the rate limit and a session not kept are outcomes, not failures.
+ * A wrong key, the rate limit, a page via doesn't take as its own (403) and a session
+ * not kept are outcomes, not failures.
  */
 export const signIn = (key: string) =>
   run((admin) =>
@@ -41,6 +42,7 @@ export const signIn = (key: string) =>
       Effect.catchTags({
         Unauthorized: () => Effect.succeed<SignInOutcome>("wrong-key"),
         TooManySignInsError: () => Effect.succeed<SignInOutcome>("too-many"),
+        Forbidden: () => Effect.succeed<SignInOutcome>("other-origin"),
       }),
     ),
   );

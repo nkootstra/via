@@ -516,6 +516,13 @@ cookie instead, so the key is never kept in the page:
   is `Secure` when the browser signed in over HTTPS, which via tells from the
   request's `Origin` header, so a proxy that ends TLS in front of via needs
   no setting for it.
+- A sign-in whose `Origin` host isn't the `Host` it was sent to answers 403
+  before its key is checked, so another site's page can't make the browser
+  send wrong keys and get the admin's own address refused. Host names are
+  compared without regard to case. A reverse proxy in front of via must pass
+  the `Host` header through unchanged, or the web UI can't sign in; it says
+  so. Sign-ins without `Origin`, as the CLI or curl send them, are taken as
+  before.
 - Browsers keep cookies by host, not by port, so the browser also sends
   `via_session` to every other service on via's host, such as another app on
   `localhost:3000`, and `SameSite=Strict` doesn't stop it: to a browser, every
@@ -1087,7 +1094,8 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
   when it reports either (OpenRouter reports its cost). Absent usage stays
   absent, never a zero.
 - For an answer the client asked to stream, `headers_ms` and `first_chunk_ms`
-  say when its headers and first chunk went out, and `stream_end` how it ended: `completed`, `client_aborted`
+  say when its headers and the first chunk of its answer went out (a `: keepalive`
+  comment doesn't count), and `stream_end` how it ended: `completed`, `client_aborted`
   (the client went away first) or `failed` (it broke off, such as when the
   upstream dropped the connection).
 - For an error via answers itself, `error` is its code and `retry_after` the
