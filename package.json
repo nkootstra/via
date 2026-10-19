@@ -8,7 +8,7 @@
       "npm"
     ],
     "catalog": {
-      "@base-ui/react": "1.8.0",
+      "@base-ui/react": "1.9.0",
       "@stylexjs/stylex": "0.19.1",
       "@stylexjs/unplugin": "0.19.1",
       "@testing-library/dom": "10.4.2",
@@ -20,12 +20,12 @@
       "motion": "14.1.0",
       "react": "19.3.0",
       "react-dom": "19.3.0",
-      "vite": "8.3.0",
-      "effect": "4.0.0-rc.117",
-      "@effect/platform-bun": "4.0.0-rc.117",
-      "@effect/sql-sqlite-bun": "4.0.0-rc.117",
-      "@effect/vitest": "4.0.0-rc.117",
-      "vitest": "^5.0.1",
+      "vite": "8.3.4",
+      "effect": "4.0.3",
+      "@effect/platform-bun": "4.0.3",
+      "@effect/sql-sqlite-bun": "4.0.3",
+      "@effect/vitest": "4.0.3",
+      "vitest": "^5.0.4",
       "recharts": "3.10.1",
       "react-is": "19.3.0"
     }
@@ -44,10 +44,10 @@
     "check": "oxlint --deny-warnings && oxfmt --check && knip && VITEST_MAX_WORKERS=2 turbo run typecheck test"
   },
   "devDependencies": {
-    "@effect/tsgo": "0.48.1",
+    "@effect/tsgo": "0.51.1",
     "@oxlint/plugins": "1.87.0",
     "@types/bun": "^1.4.3",
-    "knip": "6.39.0",
+    "knip": "6.41.0",
     "oxfmt": "^0.72.0",
     "oxlint": "1.87.0",
     "turbo": "^2.11.7",
