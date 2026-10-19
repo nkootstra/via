@@ -2,6 +2,7 @@ import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun";
 import {
   Clock,
   Context,
+  DateTime,
   Duration,
   Effect,
   FileSystem,
@@ -67,8 +68,8 @@ export interface SeriesQuery extends Filters {
   readonly from: number;
   readonly to: number;
   readonly bucket: "hour" | "day";
-  /** Minutes the viewer's clock is ahead of UTC, so days start at their midnight. */
-  readonly tzOffsetMinutes: number;
+  /** The viewer's time zone, whose midnights start the days and whose hours start the hours. */
+  readonly timeZone: DateTime.TimeZone;
   readonly groupBy: GroupBy;
 }
 
@@ -183,7 +184,134 @@ const decodePercentiles = Schema.decodeUnknownEffect(Schema.Array(PercentileRow)
 
 const decodeCount = Schema.decodeUnknownEffect(Schema.Struct({ n: Schema.Finite }));
 
-const BUCKET_MS = { hour: 60 * 60 * 1000, day: 24 * 60 * 60 * 1000 } as const;
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The slots requests are first totalled in. Every time zone's offset is a whole
+ * number of quarter hours, and the clocks change on a quarter hour, so every
+ * hour and day starts on one. (Antarctica/Casey changes a minute past; that
+ * minute's requests count in the hour before.)
+ */
+const SLOT_MS = 15 * 60 * 1000;
+
+/** `n` modulo `size`, never negative. */
+const modulo = (n: number, size: number) => ((n % size) + size) % size;
+
+/** How far ahead of UTC the clocks in `zone` are at `at`, in milliseconds. */
+const offsetAt = (at: number, zone: DateTime.TimeZone) =>
+  DateTime.zonedOffset(DateTime.makeZonedUnsafe(at, { timeZone: zone }));
+
+/** The first slot after `from`, up to `to`, where the clocks in `zone` change; `to` without one. */
+const changeAfter = (from: number, to: number, zone: DateTime.TimeZone) => {
+  const offset = offsetAt(from, zone);
+  let at = from - modulo(from, SLOT_MS) + SLOT_MS;
+
+  while (at < to && offsetAt(at, zone) === offset) at += SLOT_MS;
+
+  return Math.min(at, to);
+};
+
+/**
+ * When the hour or day that holds `at` starts in `zone`. A day starts at local
+ * midnight, so it can last 23 or 25 hours. An hour starts on the hour of the
+ * local clock, or when the clocks change: the hour a clock repeats when summer
+ * time ends is two, and a change of half an hour leaves a half hour.
+ */
+const bucketStart = (at: number, bucket: SeriesQuery["bucket"], zone: DateTime.TimeZone) => {
+  if (bucket === "day") {
+    const local = DateTime.makeZonedUnsafe(at, { timeZone: zone });
+
+    return DateTime.toEpochMillis(DateTime.startOf(local, "day"));
+  }
+
+  const offset = offsetAt(at, zone);
+  const onTheHour = at - modulo(at + offset, HOUR_MS);
+
+  return offsetAt(onTheHour, zone) === offset ? onTheHour : changeAfter(onTheHour, at, zone);
+};
+
+/** When the hour or day after the one starting at `start` starts in `zone`. */
+const nextStart = (start: number, bucket: SeriesQuery["bucket"], zone: DateTime.TimeZone) => {
+  if (bucket === "hour") {
+    const offset = offsetAt(start, zone);
+    const onTheHour = start + HOUR_MS - modulo(start + offset, HOUR_MS);
+
+    return offsetAt(onTheHour, zone) === offset ? onTheHour : changeAfter(start, onTheHour, zone);
+  }
+
+  // A day later on the clock: a day is a step of the calendar, not 24 hours.
+  const local = DateTime.makeZonedUnsafe(start, { timeZone: zone });
+
+  return DateTime.toEpochMillis(DateTime.startOf(DateTime.add(local, { days: 1 }), "day"));
+};
+
+/**
+ * The starts of the hours or days in `zone` from the one that holds `first`
+ * up to and including the one after `last`, which ends the last bucket.
+ */
+const bucketStarts = (
+  first: number,
+  last: number,
+  bucket: SeriesQuery["bucket"],
+  zone: DateTime.TimeZone,
+) => {
+  let start = bucketStart(first, bucket, zone);
+  const starts = [start];
+
+  while (start <= last) {
+    start = nextStart(start, bucket, zone);
+    starts.push(start);
+  }
+
+  return starts;
+};
+
+/**
+ * Folds `slots`, oldest first, into the hours or days of `zone` that hold
+ * them: their counts and sums add up.
+ */
+const intoBuckets = (
+  slots: ReadonlyArray<SeriesPoint>,
+  bucket: SeriesQuery["bucket"],
+  zone: DateTime.TimeZone,
+) => {
+  const first = slots[0];
+  const last = slots.at(-1);
+
+  if (first === undefined || last === undefined) return [];
+
+  const starts = bucketStarts(first.bucket, last.bucket, bucket, zone);
+  const points = new Map<string, SeriesPoint>();
+  let index = 0;
+
+  for (const slot of slots) {
+    while ((starts[index + 1] ?? Infinity) <= slot.bucket) index += 1;
+
+    const start = starts[index] ?? slot.bucket;
+    const id = `${start} ${slot.group}`;
+    const sum = points.get(id);
+
+    points.set(
+      id,
+      sum === undefined
+        ? { ...slot, bucket: start }
+        : {
+            bucket: start,
+            group: slot.group,
+            requests: sum.requests + slot.requests,
+            measured: sum.measured + slot.measured,
+            inputTokens: sum.inputTokens + slot.inputTokens,
+            cachedTokens: sum.cachedTokens + slot.cachedTokens,
+            outputTokens: sum.outputTokens + slot.outputTokens,
+            reasoningTokens: sum.reasoningTokens + slot.reasoningTokens,
+          },
+    );
+  }
+
+  return [...points.values()].toSorted((a, b) =>
+    a.bucket === b.bucket ? (a.group < b.group ? -1 : 1) : a.bucket - b.bucket,
+  );
+};
 
 const noPercentiles: Percentiles = { p50: Option.none(), p95: Option.none() };
 
@@ -379,17 +507,14 @@ const make = Effect.gen(function* () {
   };
 
   const series = Effect.fn("UsageHistory.series")(function* (query: SeriesQuery) {
-    const size = BUCKET_MS[query.bucket];
-    const offset = query.tzOffsetMinutes * 60 * 1000;
     const { key } = grouping(query.groupBy);
 
-    // Floors each time, shifted to the viewer's clock, to its bucket. SQLite's `%`
-    // truncates toward zero, so the remainder is made non-negative first.
-    const local = sql`(at + ${offset})`;
-
+    // SQLite knows no time zones, so it totals each quarter-hour slot, in one pass
+    // over the requests, and the slots are folded into the viewer's hours or days.
+    // `%` truncates toward zero, so the remainder is made non-negative first.
     const rows = yield* sql`
       SELECT
-        ${local} - ((${local} % ${size}) + ${size}) % ${size} - ${offset} AS bucket,
+        at - ((at % ${SLOT_MS}) + ${SLOT_MS}) % ${SLOT_MS} AS bucket,
         ${key} AS "group",
         COUNT(*) AS requests,
         COUNT(input_tokens) AS measured,
@@ -404,7 +529,9 @@ const make = Effect.gen(function* () {
     `;
 
     // Rows only ever come from this query, so they always decode.
-    return yield* decodePoints(rows).pipe(Effect.orDie);
+    const slots = yield* decodePoints(rows).pipe(Effect.orDie);
+
+    return intoBuckets(slots, query.bucket, query.timeZone);
   });
 
   /** The first-chunk percentiles of each group of `key`, by nearest rank, of answered requests only. */

@@ -164,7 +164,7 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
 
           const series = yield* history(
             via,
-            `series?${range}&bucket=hour&tzOffsetMinutes=0&groupBy=model&${model}`,
+            `series?${range}&bucket=hour&timeZone=UTC&groupBy=model&${model}`,
           );
 
           expect(breakdown).toMatchObject({
@@ -242,7 +242,7 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
 
           const series = yield* history(
             via,
-            `series?${range}&bucket=hour&tzOffsetMinutes=0&groupBy=model`,
+            `series?${range}&bucket=hour&timeZone=UTC&groupBy=model`,
           );
 
           expect(series).toMatchObject({
@@ -281,6 +281,42 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
         Effect.gen(function* () {
           const response = yield* via.get("/admin/history/requests?from=soon&to=1", adminKey);
           expect(response.status).toBe(400);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("starts each day at midnight in the viewer's time zone", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          // The test clock starts at 1970-01-01T00:00Z, when Amsterdam was an hour ahead.
+          yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
+
+          const series = yield* history(
+            via,
+            `series?${range}&bucket=day&timeZone=Europe/Amsterdam&groupBy=model`,
+          );
+
+          expect(series).toEqual({
+            points: [expect.objectContaining({ bucket: -60 * 60 * 1000, requests: 1 })],
+          });
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("refuses a time zone it doesn't know, or an offset in place of one", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const series = `/admin/history/series?${range}&bucket=day&groupBy=model`;
+          const unknown = yield* via.get(`${series}&timeZone=Mars/Olympus`, adminKey);
+          const offset = yield* via.get(`${series}&tzOffsetMinutes=60`, adminKey);
+
+          expect([unknown.status, offset.status]).toEqual([400, 400]);
         }),
       { adminKey },
     ),

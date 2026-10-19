@@ -379,6 +379,10 @@ a reference page at `/admin/docs`, where you can also try the routes out. API
 keys from `via keys create` don't work on `/admin`, and the admin key doesn't
 work on `/v1`.
 
+`GET /admin/history/series` takes an IANA `timeZone` in place of the
+`tzOffsetMinutes` it took before, which it no longer accepts; see
+[Usage history](#usage-history).
+
 | Route                                     | What it does                                                                                            |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `POST /admin/session`                     | Sign in with `{"key": "<VIA_ADMIN_KEY>"}`; sets a cookie.                                               |
@@ -680,7 +684,8 @@ The **Usage** page shows the [usage history](#usage-history): requests,
 tokens, cache hit rate, API-equivalent cost and time to first token (of
 streamed answers that didn't fail) over the
 last day, week, 30 or 90 days; tokens per hour or day, stacked by model,
-account or key; a table of each; and the requests themselves, newest first.
+account or key, with the days running from midnight to midnight in your
+browser's time zone; a table of each; and the requests themselves, newest first.
 A request that a [fallback](#fallback-models) answered shows the model that
 answered, with "Fell back from" and the model asked for under it, and the
 request count says how many fell back. Filter the whole page to one model,
@@ -1145,7 +1150,13 @@ The [web UI](#web-ui)'s Usage page and the `/admin/history` routes of the
 [admin API](#admin-api) read it. Each takes a range, `from` and `to` in epoch
 milliseconds; `series` and `breakdown` also take `groupBy` (`model`,
 `account`, `key` or `provider`), and `series` takes a `bucket` (`hour` or
-`day`) and `tzOffsetMinutes`, so days start at your midnight. A request no
+`day`) and `timeZone`, an IANA time zone such as `Europe/Amsterdam`, so days
+start at your midnight, also across a change to or from summer time, when a day
+lasts 23 or 25 hours. An hour starts on the hour of your clock, or when the
+clock changes: the hour it repeats when summer time ends is a bar of its own,
+and a change of half an hour, as on Lord Howe Island, leaves a half hour. An
+unknown time zone answers 400. `timeZone` replaces the `tzOffsetMinutes` that
+`series` took before: a request that sends only `tzOffsetMinutes` now answers 400. A request no
 account served, such as one to a plain provider, counts under
 `provider:<name>` when grouped by account. All three also take filters:
 `model` (the model that answered), `accountId` (an account's id, or

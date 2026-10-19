@@ -701,8 +701,8 @@ class UsageHistoryGroup extends HttpApiGroup.make("history")
       query: {
         ...HistoryRange,
         bucket: Schema.Literals(["hour", "day"]),
-        /** Minutes the viewer's clock is ahead of UTC, so their days start at midnight. */
-        tzOffsetMinutes: IntParam.check(Schema.isBetween({ minimum: -840, maximum: 840 })),
+        /** The viewer's IANA time zone, such as `Europe/Amsterdam`, so their days start at midnight. */
+        timeZone: Schema.TimeZoneNamedFromString,
         groupBy: GroupBy,
         ...HistoryFilters,
       },

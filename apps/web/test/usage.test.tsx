@@ -154,7 +154,7 @@ describe("the usage page", () => {
 
     const series = state.historyQueries.filter((query) => query.has("bucket")).at(-1);
     expect(series?.get("bucket")).toBe("day");
-    expect(series?.get("tzOffsetMinutes")).toBe(String(-now.getTimezoneOffset()));
+    expect(series?.get("timeZone")).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone);
     expect(Number(series?.get("to")) - Number(series?.get("from"))).toBe(30 * 24 * HOUR);
   });
 
