@@ -2,7 +2,7 @@ import { defineRule } from "@oxlint/plugins";
 
 import {
 	isInsideBroadEffectHandler,
-	isTagMember,
+	tagMember,
 	tagMemberFromComparison,
 } from "../shared/tagged-values.ts";
 
@@ -33,7 +33,7 @@ export const noManualTagComparisonRule = defineRule({
 			},
 			SwitchStatement(node) {
 				if (
-					!isTagMember(node.discriminant) ||
+					tagMember(node.discriminant) === undefined ||
 					isInsideBroadEffectHandler(node)
 				) {
 					return;

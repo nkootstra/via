@@ -7,12 +7,22 @@ type TypeAssertion = ESTree.TSAsExpression | ESTree.TSTypeAssertion;
 const DEFAULT_SAFETY_MARKERS = ["SAFETY"] as const;
 
 const commentOwnerKinds = new Set([
+  "DoWhileStatement",
   "ExpressionStatement",
+  "ForInStatement",
+  "ForOfStatement",
+  "ForStatement",
+  "IfStatement",
   "PropertyDefinition",
   "ReturnStatement",
+  "SwitchStatement",
   "ThrowStatement",
   "VariableDeclaration",
+  "WhileStatement",
 ]);
+
+/** Blocks the walk never climbs out of: a comment outside one is about other code. */
+const commentBoundaryKinds = new Set(["BlockStatement", "StaticBlock", "TSModuleBlock"]);
 
 function isConstAssertion(node: TypeAssertion): boolean {
   return (
@@ -73,7 +83,7 @@ function hasSafetyComment(
         hasSafetyJustificationBefore(sourceCode, exportDeclaration, node, pattern)
       );
     }
-    if (current.parent.type === "Program") return false;
+    if (commentBoundaryKinds.has(current.type) || current.parent.type === "Program") return false;
     current = current.parent;
   }
 }
