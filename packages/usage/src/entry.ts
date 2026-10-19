@@ -12,10 +12,13 @@ export const UsageEntry = Schema.Struct({
   status: Schema.Finite,
   /**
    * Why the request failed, as a code: via's own, such as `rate_limit_exceeded`,
-   * or the upstream's, such as `ModelProtocolUnsupported`.
+   * or the upstream's, such as `ModelProtocolUnsupported`, when it is an identifier.
    */
   error: Nullable(Schema.String),
-  /** Why, in words: via's message, or the upstream's, cut to 500 characters. */
+  /**
+   * Why, in via's own words. An upstream's message is never kept: it can quote
+   * the request it refused.
+   */
   errorMessage: Nullable(Schema.String),
   /** How a streamed answer ended: `completed`, `client_aborted` or `failed`. */
   streamEnd: Nullable(Schema.String),

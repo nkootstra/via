@@ -7,6 +7,9 @@ import { Effect, Layer, Option } from "effect";
 import { SqlError, UnknownError } from "effect/unstable/sql/SqlError";
 import { ok, type Via, withVia } from "./testing/harness.ts";
 
+/** A prompt an upstream's error quotes back, which the usage history must never keep. */
+const PROMPT = "REVIEW_PRIVATE_PROMPT_7a19";
+
 /** Every request the history has, newest first, once via has logged the last one. */
 const recorded = (via: Via) =>
   Effect.gen(function* () {
@@ -142,7 +145,7 @@ layer(BunFileSystem.layer)("usage history", (it) => {
     ),
   );
 
-  it.effect("keeps why a provider refused a request, in its words", () =>
+  it.effect("keeps a provider's error code, but not its message", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
         via.provider.respond(
@@ -164,7 +167,7 @@ layer(BunFileSystem.layer)("usage history", (it) => {
         expect(request).toMatchObject({
           status: 400,
           error: Option.some("ModelProtocolUnsupported"),
-          errorMessage: Option.some("Model does not support this protocol."),
+          errorMessage: Option.none(),
         });
 
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
@@ -174,7 +177,7 @@ layer(BunFileSystem.layer)("usage history", (it) => {
     ),
   );
 
-  it.effect("keeps why Codex refused a request, which it says only in a detail", () =>
+  it.effect("keeps no error message for a Codex refusal, which says why only in a detail", () =>
     withVia(
       () => reply.error(400, { detail: "Input must be a list" }),
       (via) =>
@@ -185,29 +188,109 @@ layer(BunFileSystem.layer)("usage history", (it) => {
           expect(request).toMatchObject({
             status: 400,
             error: Option.none(),
-            errorMessage: Option.some("Input must be a list"),
+            errorMessage: Option.none(),
           });
         }),
     ),
   );
 
-  it.effect("cuts the message Codex failed a response with to 500 characters", () =>
+  it.effect("keeps via's words, not Codex's, for a response Codex failed", () =>
     withVia(
       () =>
         reply.sse(
           `event: response.failed\ndata: ${JSON.stringify({
             type: "response.failed",
-            response: { error: { code: "server_is_overloaded", message: "x".repeat(2_000) } },
+            response: { error: { code: "server_is_overloaded", message: PROMPT } },
           })}\n\n`,
         ),
       (via) =>
         Effect.gen(function* () {
-          yield* (yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" })).text;
+          const response = yield* via.post("/v1/responses", {
+            model: "gpt-6-astra",
+            input: PROMPT,
+          });
+
+          // The client still hears why.
+          expect(yield* response.text).toContain(PROMPT);
           const [request] = yield* recorded(via);
 
-          expect(request?.status).toBe(502);
-          expect(request?.errorMessage).toEqual(Option.some("x".repeat(500)));
+          expect(request).toMatchObject({
+            error: Option.some("server_is_overloaded"),
+            errorMessage: Option.some("Codex failed the response"),
+          });
         }),
+    ),
+  );
+
+  it.effect("keeps via's words, not Codex's, for a Codex outage", () =>
+    withVia(
+      () => reply.error(500, { error: { code: "server_error", message: PROMPT } }),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/chat/completions", {
+            model: "gpt-6-astra",
+            messages: [{ role: "user", content: PROMPT }],
+          });
+
+          expect(yield* response.text).toContain(PROMPT);
+          const [request] = yield* recorded(via);
+
+          expect(request).toMatchObject({
+            status: 502,
+            error: Option.some("server_error"),
+            errorMessage: Option.some("Codex failed the request (HTTP 500)"),
+          });
+        }),
+    ),
+  );
+
+  it.effect(
+    "keeps an upstream's status and code, never its message, which can quote the prompt",
+    () =>
+      withVia(ok, (via) =>
+        Effect.gen(function* () {
+          via.provider.respond((request) => ({
+            status: 400,
+            contentType: "application/json",
+            body: JSON.stringify({ error: { code: "invalid_input", message: request.body.input } }),
+          }));
+
+          const response = yield* via.post("/v1/responses", {
+            model: "openrouter/test",
+            input: PROMPT,
+          });
+
+          // What the client gets is unchanged: the upstream's answer, as it sent it.
+          expect(yield* response.text).toContain(PROMPT);
+          const [request] = yield* recorded(via);
+
+          expect(request).toMatchObject({
+            status: 400,
+            error: Option.some("invalid_input"),
+            errorMessage: Option.none(),
+          });
+        }),
+      ),
+  );
+
+  it.effect("keeps no error code that isn't an identifier, as one quoting the prompt", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond((request) => ({
+          status: 400,
+          contentType: "application/json",
+          body: JSON.stringify({ error: { code: `bad input: ${request.body.input}` } }),
+        }));
+
+        yield* (yield* via.post("/v1/responses", { model: "openrouter/test", input: PROMPT })).text;
+        const [request] = yield* recorded(via);
+
+        expect(request).toMatchObject({ status: 400, error: Option.none() });
+        expect(JSON.stringify(request)).not.toContain(PROMPT);
+        expect(JSON.stringify((yield* via.logged("Sent HTTP response")).annotations)).not.toContain(
+          PROMPT,
+        );
+      }),
     ),
   );
 
@@ -248,29 +331,6 @@ layer(BunFileSystem.layer)("usage history", (it) => {
       },
     ),
   );
-  it.effect("upstream error text can retain prompt text", () =>
-    withVia(ok, (via) =>
-      Effect.gen(function* () {
-        const prompt = "REVIEW_PRIVATE_PROMPT_7a19";
-        via.provider.respond((request) => ({
-          status: 400,
-          contentType: "application/json",
-          body: JSON.stringify({ error: { code: "invalid_input", message: request.body.input } }),
-        }));
-
-        const response = yield* via.post("/v1/responses", {
-          model: "openrouter/test",
-          input: prompt,
-        });
-
-        yield* response.text;
-        const requests = yield* recorded(via);
-        expect(requests).toHaveLength(1);
-        expect(requests[0]?.errorMessage).toEqual(Option.some(prompt));
-      }),
-    ),
-  );
-
   it.effect("records a cut-off Responses stream as failed", () =>
     withVia(
       () =>

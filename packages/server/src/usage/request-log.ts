@@ -20,7 +20,7 @@ import {
 } from "effect/unstable/http";
 import type { UsageEntry } from "@via/usage";
 import type { TokenUsage } from "./token-usage.ts";
-import { cut, type UpstreamError } from "../proxy/upstream-error.ts";
+import type { UpstreamError } from "../proxy/upstream-error.ts";
 
 /**
  * Notes, for the one line via logs about each request, what the request is
@@ -40,7 +40,10 @@ export class RequestLog extends Context.Service<
     readonly served: (by: string, accountId?: string) => Effect.Effect<void>;
     /** Records the error code of an answer via gives itself, such as `rate_limit_exceeded`. */
     readonly refused: (code: string, message: string) => Effect.Effect<void>;
-    /** Records why an upstream refused the request, as its answer says. */
+    /**
+     * Records that an upstream refused the request, with the code its answer gives. Its message,
+     * which can quote the request, is left out.
+     */
     readonly upstreamFailed: (error: UpstreamError) => Effect.Effect<void>;
     /**
      * Records that the model the client asked for, `requested`, couldn't serve, for `reason`,
@@ -84,6 +87,15 @@ const streamEnd = (exit: Exit.Exit<unknown, unknown>) =>
     : Cause.hasInterruptsOnly(exit.cause)
       ? "client_aborted"
       : "failed";
+
+/**
+ * An error code as the log and the usage history keep one: an identifier, such as
+ * `rate_limit_exceeded`. An upstream's code can be any text, even a quote of the request.
+ */
+const Code = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.:-]{1,64}$/));
+
+/** `code`, if it is an identifier. */
+const asCode = Schema.decodeOption(Code);
 
 /** A textual UUID (any version), the shape a client's `x-request-id` must have to be kept. */
 const RequestIdHeader = Schema.String.pipe(Schema.check(Schema.isUUID()));
@@ -159,12 +171,9 @@ const entryOf = (
     status: line.status,
     error: Option.orElse(line.error, () =>
       Option.flatMap(line.upstreamError, (upstream) => upstream.code),
-    ),
-    // Cut here too: via passes some upstream messages on in its own errors, as it does Codex's
-    // reason for failing a response.
-    errorMessage: Option.orElse(line.errorMessage, () =>
-      Option.flatMap(line.upstreamError, (upstream) => upstream.message),
-    ).pipe(Option.map(cut)),
+    ).pipe(Option.flatMap(asCode)),
+    // Only via's own words: an upstream's message can quote the request it refused.
+    errorMessage: line.errorMessage,
     streamEnd: streamedAnswer(line) ? line.streamEnd : Option.none(),
     keyId: Option.map(line.key, (key) => key.id),
     keyName: Option.map(line.key, (key) => key.name),
@@ -183,7 +192,7 @@ const entryOf = (
       ? Option.map(line.firstChunkAt, (at) => at - start)
       : Option.none(),
     requestedModel: line.requestedModel,
-    fallbackReason: line.fallbackReason,
+    fallbackReason: Option.flatMap(line.fallbackReason, asCode),
   };
 };
 
@@ -200,8 +209,8 @@ interface Noted {
   readonly accountId: Option.Option<string>;
   /** via's own words for an error it answered itself; its code is `error`. */
   readonly errorMessage: Option.Option<string>;
-  /** Why the upstream refused the request, when it did. */
-  readonly upstreamError: Option.Option<UpstreamError>;
+  /** That the upstream refused the request, when it did, with its code if it is an identifier. */
+  readonly upstreamError: Option.Option<Pick<UpstreamError, "code">>;
   readonly error: Option.Option<string>;
   readonly usage: Option.Option<TokenUsage>;
   /** The model the client asked for, when it couldn't serve and another model took the request. */
@@ -293,14 +302,14 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
           ),
           ...noted("model", line.model),
           ...noted("served_by", line.servedBy),
-          ...noted("error", line.error),
+          ...noted("error", Option.flatMap(line.error, asCode)),
           ...noted(
             "upstream_error",
             Option.flatMap(line.upstreamError, (upstream) => upstream.code),
           ),
           ...noted("retry_after", line.retryAfter),
           ...noted("requested_model", line.requestedModel),
-          ...noted("fallback_reason", line.fallbackReason),
+          ...noted("fallback_reason", Option.flatMap(line.fallbackReason, asCode)),
           ...usageAnnotations(line.usage),
           ...(streamedAnswer(line)
             ? {
@@ -352,7 +361,8 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         note({ servedBy: Option.some(by), accountId: Option.fromUndefinedOr(accountId) }),
       refused: (code, message) =>
         note({ error: Option.some(code), errorMessage: Option.some(message) }),
-      upstreamFailed: (error) => note({ upstreamError: Option.some(error) }),
+      upstreamFailed: (error) =>
+        note({ upstreamError: Option.some({ code: Option.flatMap(error.code, asCode) }) }),
       fellBack: (requested, reason) =>
         note({ requestedModel: Option.some(requested), fallbackReason: Option.some(reason) }),
       setAside: Ref.modify(noting, (sofar): [Effect.Effect<void>, Noted] => {

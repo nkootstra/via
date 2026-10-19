@@ -41,14 +41,18 @@ export const noAccountLeft = (waitMs: Option.Option<number>, kind = "account") =
       unavailable(
         "rate_limit_exceeded",
         openAiError(429, "rate_limit_exceeded", `Every ${kind} is cooling down`, {
-          "retry-after": String(Math.ceil(ms / 1000)),
+          headers: { "retry-after": String(Math.ceil(ms / 1000)) },
         }),
       ),
   });
 
+/** What via says of a request Codex failed with `status`, in its own words. */
+const failedRequest = (status: number) => `Codex failed the request (HTTP ${status})`;
+
 /**
  * The answer to a Codex outage: 503 when Codex is overloaded, else 502, with
  * its Retry-After. Every account would meet the same outage, so none is tried.
+ * The client gets Codex's message; the log line only via's words.
  */
 const outage = (
   status: number,
@@ -60,11 +64,14 @@ const outage = (
     openAiError(
       status === 503 || reason === "server_is_overloaded" ? 503 : 502,
       reason,
-      Option.getOrElse(
-        upstreamErrorOf(body).message,
-        () => `Codex failed the request (HTTP ${status})`,
-      ),
-      retryAfterMs === undefined ? {} : { "retry-after": String(Math.ceil(retryAfterMs / 1000)) },
+      Option.getOrElse(upstreamErrorOf(body).message, () => failedRequest(status)),
+      {
+        headers:
+          retryAfterMs === undefined
+            ? {}
+            : { "retry-after": String(Math.ceil(retryAfterMs / 1000)) },
+        noted: failedRequest(status),
+      },
     ),
   );
 
