@@ -235,6 +235,20 @@ const migrations = Migrator.fromRecord({
     yield* sql`ALTER TABLE requests ADD COLUMN requested_model TEXT`;
     yield* sql`ALTER TABLE requests ADD COLUMN fallback_reason TEXT`;
   }),
+  // An older via kept an upstream's error message, which can quote the request it refused, and
+  // its code, which can be any text. Its messages can't be told from via's own, so none is kept;
+  // a code or fallback reason is kept only as the identifier the server now keeps one as.
+  "5_no_upstream_words": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+
+    /** Whether `column` holds something other than an identifier, as `^[A-Za-z0-9_.:-]{1,64}$`. */
+    const notACode = (column: string) =>
+      sql`${sql(column)} IS NOT NULL AND (length(${sql(column)}) NOT BETWEEN 1 AND 64 OR ${sql(column)} GLOB '*[^A-Za-z0-9_.:-]*')`;
+
+    yield* sql`UPDATE requests SET error_message = NULL WHERE error_message IS NOT NULL`;
+    yield* sql`UPDATE requests SET error = NULL WHERE ${notACode("error")}`;
+    yield* sql`UPDATE requests SET fallback_reason = NULL WHERE ${notACode("fallback_reason")}`;
+  }),
 });
 
 const make = Effect.gen(function* () {
