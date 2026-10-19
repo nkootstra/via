@@ -134,11 +134,11 @@ export const collected = (
   );
 
 /**
- * The answer to a response the upstream failed in its stream: a 502 with its
- * code and reason. The log line keeps only via's words for it.
+ * The answer to a response `by`, an upstream such as `Codex`, failed in its
+ * stream: a 502 with its code and reason. The log line keeps only via's words for it.
  */
-export const failedResponse = (error: UpstreamFailedError) =>
-  openAiError(502, error.code, error.reason, { noted: "Codex failed the response" });
+export const failedResponse = (by: string) => (error: UpstreamFailedError) =>
+  openAiError(502, error.code, error.reason, { noted: `${by} failed the response` });
 
 const decodeFailed = Schema.decodeUnknownOption(Schema.fromJsonString(ResponseFailed));
 

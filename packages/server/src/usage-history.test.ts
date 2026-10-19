@@ -222,6 +222,42 @@ layer(BunFileSystem.layer)("usage history", (it) => {
     ),
   );
 
+  it.effect("names the provider, not Codex, for a response OpenCode Go failed", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond((request) =>
+          request.path === "/responses"
+            ? {
+                status: 200,
+                contentType: "text/event-stream",
+                body: `event: response.failed\ndata: ${JSON.stringify({
+                  type: "response.failed",
+                  response: { error: { code: "invalid_prompt", message: PROMPT } },
+                })}\n\n`,
+              }
+            : {
+                status: 400,
+                contentType: "application/json",
+                body: JSON.stringify({ error: { code: "ModelProtocolUnsupported" } }),
+              },
+        );
+
+        const response = yield* via.post("/v1/chat/completions", {
+          model: "opencode-go/test",
+          messages: [{ role: "user", content: PROMPT }],
+        });
+
+        expect(yield* response.text).toContain(PROMPT);
+        const [request] = yield* recorded(via);
+
+        expect(request).toMatchObject({
+          error: Option.some("invalid_prompt"),
+          errorMessage: Option.some("OpenCode Go failed the response"),
+        });
+      }),
+    ),
+  );
+
   it.effect("keeps via's words, not Codex's, for a Codex outage", () =>
     withVia(
       () => reply.error(500, { error: { code: "server_error", message: PROMPT } }),

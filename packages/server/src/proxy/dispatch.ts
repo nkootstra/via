@@ -228,8 +228,8 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
       const failed = classify(reply.failure.rejection, yield* Clock.currentTimeMillis);
 
       return yield* Verdict.$is("Unavailable")(failed)
-        ? unavailable(failed.reason, failedResponse(reply.failure))
-        : answered(failedResponse(reply.failure));
+        ? unavailable(failed.reason, failedResponse("Codex")(reply.failure))
+        : answered(failedResponse("Codex")(reply.failure));
     }
 
     const rejected = sent.failure;

@@ -190,7 +190,7 @@ const attempts = (
     answer: (upstream) =>
       chatFromResponses(upstream, chat.value).pipe(
         Effect.catchTags({
-          UpstreamFailedError: failedResponse,
+          UpstreamFailedError: failedResponse("OpenCode Go"),
           BrokenStreamError: brokenResponse,
         }),
       ),
