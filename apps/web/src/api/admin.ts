@@ -5,7 +5,7 @@
  * data their page needs with these, and the page reads it with the same ones.
  */
 import { infiniteQueryOptions, type QueryClient, queryOptions } from "@tanstack/react-query";
-import { Effect, Option, Redacted } from "effect";
+import { DateTime, Effect, Option, Redacted } from "effect";
 import { historyRange } from "../lib/history-range.ts";
 import { run } from "./client.ts";
 import type { LoginStatus, RequestPage } from "./types.ts";
@@ -176,18 +176,20 @@ export interface HistoryFilters {
 export const historySeriesQuery = (
   range: HistoryRange,
   bucket: "hour" | "day",
-  tzOffsetMinutes: number,
   groupBy: HistoryGroupBy,
   filters: HistoryFilters,
-) =>
-  queryOptions({
-    queryKey: ["history", "series", range, bucket, tzOffsetMinutes, groupBy, filters],
+) => {
+  const timeZone = DateTime.zoneMakeLocal();
+
+  return queryOptions({
+    queryKey: ["history", "series", range, bucket, timeZone.id, groupBy, filters],
     queryFn: () =>
       run((admin) =>
-        admin.history.series({ query: { ...range, bucket, tzOffsetMinutes, groupBy, ...filters } }),
+        admin.history.series({ query: { ...range, bucket, timeZone, groupBy, ...filters } }),
       ),
     refetchInterval: HISTORY_REFRESH_MS,
   });
+};
 
 /** Each group's usage over the range, with the totals. */
 export const historyBreakdownQuery = (

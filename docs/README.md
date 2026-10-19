@@ -1140,7 +1140,9 @@ The [web UI](#web-ui)'s Usage page and the `/admin/history` routes of the
 [admin API](#admin-api) read it. Each takes a range, `from` and `to` in epoch
 milliseconds; `series` and `breakdown` also take `groupBy` (`model`,
 `account`, `key` or `provider`), and `series` takes a `bucket` (`hour` or
-`day`) and `tzOffsetMinutes`, so days start at your midnight. A request no
+`day`) and `timeZone`, an IANA time zone such as `Europe/Amsterdam`, so days
+start at your midnight, also across a change to or from summer time, when a day
+lasts 23 or 25 hours. An unknown time zone answers 400. A request no
 account served, such as one to a plain provider, counts under
 `provider:<name>` when grouped by account. All three also take filters:
 `model` (the model that answered), `accountId` (an account's id, or

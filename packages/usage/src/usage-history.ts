@@ -2,6 +2,7 @@ import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun";
 import {
   Clock,
   Context,
+  DateTime,
   Duration,
   Effect,
   FileSystem,
@@ -67,8 +68,8 @@ export interface SeriesQuery extends Filters {
   readonly from: number;
   readonly to: number;
   readonly bucket: "hour" | "day";
-  /** Minutes the viewer's clock is ahead of UTC, so days start at their midnight. */
-  readonly tzOffsetMinutes: number;
+  /** The viewer's time zone, whose midnights start the days and whose hours start the hours. */
+  readonly timeZone: DateTime.TimeZone;
   readonly groupBy: GroupBy;
 }
 
@@ -183,7 +184,57 @@ const decodePercentiles = Schema.decodeUnknownEffect(Schema.Array(PercentileRow)
 
 const decodeCount = Schema.decodeUnknownEffect(Schema.Struct({ n: Schema.Finite }));
 
-const BUCKET_MS = { hour: 60 * 60 * 1000, day: 24 * 60 * 60 * 1000 } as const;
+const decodeSpan = Schema.decodeUnknownEffect(
+  Schema.Struct({ first: Schema.NullOr(Schema.Finite), last: Schema.NullOr(Schema.Finite) }),
+);
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * When the hour or day that holds `at` starts in `zone`. A day starts at local
+ * midnight, so it can last 23 or 25 hours; an hour is a real hour, so the one a
+ * clock repeats when summer time ends is two.
+ */
+const bucketStart = (at: number, bucket: SeriesQuery["bucket"], zone: DateTime.TimeZone) => {
+  const local = DateTime.makeZonedUnsafe(at, { timeZone: zone });
+
+  if (bucket === "day") return DateTime.toEpochMillis(DateTime.startOf(local, "day"));
+
+  const intoHour = (((at + DateTime.zonedOffset(local)) % HOUR_MS) + HOUR_MS) % HOUR_MS;
+
+  return at - intoHour;
+};
+
+/** When the hour or day after the one starting at `start` starts in `zone`. */
+const nextStart = (start: number, bucket: SeriesQuery["bucket"], zone: DateTime.TimeZone) => {
+  if (bucket === "hour") return start + HOUR_MS;
+
+  // A day later on the clock: a day is a step of the calendar, not 24 hours.
+  const local = DateTime.makeZonedUnsafe(start, { timeZone: zone });
+
+  return DateTime.toEpochMillis(DateTime.startOf(DateTime.add(local, { days: 1 }), "day"));
+};
+
+/**
+ * The starts of the hours or days in `zone` from the one that holds `first`
+ * up to and including the one after `last`, which ends the last bucket.
+ */
+const bucketStarts = (
+  first: number,
+  last: number,
+  bucket: SeriesQuery["bucket"],
+  zone: DateTime.TimeZone,
+) => {
+  let start = bucketStart(first, bucket, zone);
+  const starts = [start];
+
+  while (start <= last) {
+    start = nextStart(start, bucket, zone);
+    starts.push(start);
+  }
+
+  return starts;
+};
 
 const noPercentiles: Percentiles = { p50: Option.none(), p95: Option.none() };
 
@@ -365,17 +416,27 @@ const make = Effect.gen(function* () {
   };
 
   const series = Effect.fn("UsageHistory.series")(function* (query: SeriesQuery) {
-    const size = BUCKET_MS[query.bucket];
-    const offset = query.tzOffsetMinutes * 60 * 1000;
     const { key } = grouping(query.groupBy);
 
-    // Floors each time, shifted to the viewer's clock, to its bucket. SQLite's `%`
-    // truncates toward zero, so the remainder is made non-negative first.
-    const local = sql`(at + ${offset})`;
+    const [span] = yield* sql`
+      SELECT MIN(at) AS first, MAX(at) AS last FROM requests WHERE ${matching(query)}
+    `;
+
+    // MIN and MAX always decode: SQLite answers them with a number, or NULL without rows.
+    const { first, last } = yield* decodeSpan(span).pipe(Effect.orDie);
+
+    if (first === null || last === null) return [];
+
+    // SQLite knows no time zones, so the buckets' bounds come in as a JSON array, and
+    // each request joins the one it falls in.
+    const starts = JSON.stringify(bucketStarts(first, last, query.bucket, query.timeZone));
 
     const rows = yield* sql`
+      WITH buckets AS (
+        SELECT value AS start, LEAD(value) OVER (ORDER BY key) AS next FROM json_each(${starts})
+      )
       SELECT
-        ${local} - ((${local} % ${size}) + ${size}) % ${size} - ${offset} AS bucket,
+        buckets.start AS bucket,
         ${key} AS "group",
         COUNT(*) AS requests,
         COUNT(input_tokens) AS measured,
@@ -383,7 +444,7 @@ const make = Effect.gen(function* () {
         COALESCE(SUM(cached_tokens), 0) AS "cachedTokens",
         COALESCE(SUM(output_tokens), 0) AS "outputTokens",
         COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens"
-      FROM requests
+      FROM buckets JOIN requests ON at >= buckets.start AND at < buckets.next
       WHERE ${matching(query)}
       GROUP BY bucket, "group"
       ORDER BY bucket, "group"

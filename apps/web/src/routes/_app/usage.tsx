@@ -368,7 +368,6 @@ function Usage() {
   const filters = filtersOf(search);
   const bucket = RANGES[rangeKey].bucket;
   const range = rangeOf(rangeKey, now);
-  const tzOffsetMinutes = -new Date(now).getTimezoneOffset();
 
   // Each change replaces the page's entry: Back leaves the page rather than stepping
   // back through every filter tried on it.
@@ -393,7 +392,7 @@ function Usage() {
   });
 
   const series = useQuery({
-    ...historySeriesQuery(range, bucket, tzOffsetMinutes, groupBy, filters),
+    ...historySeriesQuery(range, bucket, groupBy, filters),
     ...live,
     placeholderData: keepPreviousData,
   });

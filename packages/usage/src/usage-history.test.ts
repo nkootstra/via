@@ -1,6 +1,16 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { describe, expect, it, layer } from "@effect/vitest";
-import { Deferred, Duration, Effect, Fiber, FileSystem, Option, Schema, Stream } from "effect";
+import {
+  DateTime,
+  Deferred,
+  Duration,
+  Effect,
+  Fiber,
+  FileSystem,
+  Option,
+  Schema,
+  Stream,
+} from "effect";
 import { TestClock } from "effect/testing";
 import { Arbitrary } from "effect/unstable/arbitrary";
 import type { UsageEntry } from "./entry.ts";
@@ -33,6 +43,8 @@ const entry = (overrides: Partial<UsageEntry> = {}): UsageEntry => ({
   fallbackReason: Option.none(),
   ...overrides,
 });
+
+const utc = DateTime.zoneMakeNamedUnsafe("UTC");
 
 const history = <A, E>(body: (history: UsageHistory["Service"]) => Effect.Effect<A, E>) =>
   Effect.flatMap(UsageHistory, body).pipe(Effect.provide(UsageHistory.layerMemory));
@@ -173,6 +185,28 @@ describe("UsageHistory", () => {
   );
 });
 
+/** The buckets of requests at each of `times`, in `zone`. */
+const bucketsAt = (zone: string, bucket: "hour" | "day", times: ReadonlyArray<string>) =>
+  history((usage) =>
+    Effect.gen(function* () {
+      yield* Effect.forEach(
+        times,
+        (time, i) => usage.record(entry({ requestId: `r${i}`, at: Date.parse(time) })),
+        { discard: true },
+      );
+
+      const points = yield* usage.series({
+        from: 0,
+        to: Date.parse("2030-01-01T00:00:00Z"),
+        bucket,
+        timeZone: DateTime.zoneMakeNamedUnsafe(zone),
+        groupBy: "model",
+      });
+
+      return points.map((p) => new Date(p.bucket).toISOString());
+    }),
+  );
+
 describe("UsageHistory.series", () => {
   it.effect("sums each hour's tokens per model", () =>
     history((usage) =>
@@ -186,7 +220,7 @@ describe("UsageHistory.series", () => {
           from: 0,
           to: 24 * HOUR,
           bucket: "hour",
-          tzOffsetMinutes: 0,
+          timeZone: utc,
           groupBy: "model",
         });
 
@@ -226,24 +260,57 @@ describe("UsageHistory.series", () => {
     ),
   );
 
-  it.effect("starts each day at local midnight", () =>
-    history((usage) =>
-      Effect.gen(function* () {
-        const midnight = 1_000 * 24 * HOUR;
-        // 23:30 UTC is already the next day an hour east of UTC.
-        yield* usage.record(entry({ at: midnight - HOUR / 2 }));
+  it.effect("starts each day at local midnight across a change to summer time", () =>
+    Effect.gen(function* () {
+      // Amsterdam moves from UTC+1 to UTC+2 at 02:00 on 29 March 2026: that day has 23 hours.
+      const days = yield* bucketsAt("Europe/Amsterdam", "day", [
+        "2026-03-28T23:30:00Z",
+        "2026-03-29T12:00:00Z",
+        "2026-03-29T22:30:00Z",
+      ]);
 
-        const points = yield* usage.series({
-          from: 0,
-          to: 2 * midnight,
-          bucket: "day",
-          tzOffsetMinutes: 60,
-          groupBy: "model",
-        });
+      expect(days).toEqual(["2026-03-28T23:00:00.000Z", "2026-03-29T22:00:00.000Z"]);
+    }),
+  );
 
-        expect(points.map((p) => p.bucket)).toEqual([midnight - HOUR]);
-      }),
-    ),
+  it.effect("starts each day at local midnight across a change back from summer time", () =>
+    Effect.gen(function* () {
+      // Amsterdam moves from UTC+2 back to UTC+1 at 03:00 on 25 October 2026: that day has 25 hours.
+      const days = yield* bucketsAt("Europe/Amsterdam", "day", [
+        "2026-10-24T22:30:00Z",
+        "2026-10-25T22:30:00Z",
+        "2026-10-25T23:30:00Z",
+      ]);
+
+      expect(days).toEqual(["2026-10-24T22:00:00.000Z", "2026-10-25T23:00:00.000Z"]);
+    }),
+  );
+
+  it.effect("keeps the hour that repeats when summer time ends apart from the first", () =>
+    Effect.gen(function* () {
+      // 00:30 and 01:30 UTC are both 02:30 in Amsterdam on 25 October 2026.
+      const hours = yield* bucketsAt("Europe/Amsterdam", "hour", [
+        "2026-10-25T00:30:00Z",
+        "2026-10-25T01:30:00Z",
+      ]);
+
+      expect(hours).toEqual(["2026-10-25T00:00:00.000Z", "2026-10-25T01:00:00.000Z"]);
+    }),
+  );
+
+  it.effect("starts days and hours on the half hour in a zone half an hour off", () =>
+    Effect.gen(function* () {
+      // Adelaide moves from UTC+9:30 to UTC+10:30 at 02:00 on 4 October 2026.
+      const days = yield* bucketsAt("Australia/Adelaide", "day", [
+        "2026-10-03T15:00:00Z",
+        "2026-10-04T14:00:00Z",
+      ]);
+
+      const hours = yield* bucketsAt("Asia/Kolkata", "hour", ["2026-10-04T10:15:00Z"]);
+
+      expect(days).toEqual(["2026-10-03T14:30:00.000Z", "2026-10-04T13:30:00.000Z"]);
+      expect(hours).toEqual(["2026-10-04T09:30:00.000Z"]);
+    }),
   );
 
   it.effect("groups by account, filing a request no account served under its provider", () =>
@@ -264,7 +331,7 @@ describe("UsageHistory.series", () => {
           from: 0,
           to: 2_000 * HOUR,
           bucket: "day",
-          tzOffsetMinutes: 0,
+          timeZone: utc,
           groupBy: "account",
         });
 
@@ -307,7 +374,7 @@ describe("UsageHistory filters", () => {
           ...range,
           ...filters,
           bucket: "day",
-          tzOffsetMinutes: 0,
+          timeZone: utc,
           groupBy: "model",
         });
 
@@ -533,9 +600,15 @@ describe("UsageHistory.breakdown", () => {
   );
 });
 
+/**
+ * Ten days from 27 March 2026, across Europe's change to summer time on the 29th
+ * and South Australia's change back on 5 April.
+ */
+const SPAN = { from: Date.parse("2026-03-27T00:00:00Z"), to: Date.parse("2026-04-06T00:00:00Z") };
+
 /** A request, in small ranges so that property runs share hours, models and keys. */
 const Spec = Schema.Struct({
-  hour: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 71 })),
+  hour: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 239 })),
   model: Schema.Literals(["m1", "m2", "m3"]),
   key: Schema.Literals(["k1", "k2"]),
   account: Schema.Literals(["a1", "a2", "none"]),
@@ -548,7 +621,7 @@ const Spec = Schema.Struct({
 const toEntry = (spec: typeof Spec.Type, i: number) =>
   entry({
     requestId: `r${i}`,
-    at: spec.hour * HOUR + i,
+    at: SPAN.from + spec.hour * HOUR + i,
     model: spec.model,
     keyId: Option.some(spec.key),
     accountId: spec.account === "none" ? Option.none() : Option.some(spec.account),
@@ -566,9 +639,36 @@ const groupings = Arbitrary.schema(Schema.Literals(["model", "account", "key", "
 
 const buckets = Arbitrary.schema(Schema.Literals(["hour", "day"]));
 
-const offsets = Arbitrary.schema(
-  Schema.Int.check(Schema.isBetween({ minimum: -720, maximum: 840 })),
+/** Zones whole and part hours off UTC, with and without summer time. */
+const zones = Arbitrary.schema(
+  Schema.Literals([
+    "UTC",
+    "Europe/Amsterdam",
+    "America/New_York",
+    "Australia/Adelaide",
+    "Asia/Kolkata",
+    "Asia/Kathmandu",
+  ]),
 );
+
+/** The local hour, with its offset to tell a repeated hour apart, or the local day, of `at` in `zone`. */
+const localBucket = (at: number, bucket: "hour" | "day", zone: string) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    ...(bucket === "hour" ? { hour: "2-digit", hourCycle: "h23", timeZoneName: "longOffset" } : {}),
+  }).format(at);
+
+/** The local time of day of `at` in `zone`, as `HH:mm`. */
+const localTime = (at: number, zone: string) =>
+  new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).format(at);
 
 const sum = (values: ReadonlyArray<number>) => values.reduce((a, b) => a + b, 0);
 
@@ -583,14 +683,15 @@ const emptied = <A, E>(body: (history: UsageHistory["Service"]) => Effect.Effect
 layer(UsageHistory.layerMemory)("UsageHistory properties", (shared) => {
   shared.effect.prop(
     "the series and the breakdown both add up to every request's tokens, however they group",
-    { specs, groupBy: groupings, bucket: buckets, tzOffsetMinutes: offsets },
-    ({ specs: values, groupBy, bucket, tzOffsetMinutes }) =>
+    { specs, groupBy: groupings, bucket: buckets, zone: zones },
+    ({ specs: values, groupBy, bucket, zone }) =>
       emptied((usage) =>
         Effect.gen(function* () {
           const entries = values.map(toEntry);
           yield* Effect.forEach(entries, usage.record, { discard: true });
-          const range = { from: 0, to: 72 * HOUR };
-          const points = yield* usage.series({ ...range, bucket, tzOffsetMinutes, groupBy });
+          const range = SPAN;
+          const timeZone = DateTime.zoneMakeNamedUnsafe(zone);
+          const points = yield* usage.series({ ...range, bucket, timeZone, groupBy });
           const { groups } = yield* usage.breakdown({ ...range, groupBy });
           const tokens = sum(entries.map((e) => Option.getOrElse(e.inputTokens, () => 0)));
 
@@ -607,30 +708,31 @@ layer(UsageHistory.layerMemory)("UsageHistory properties", (shared) => {
   );
 
   shared.effect.prop(
-    "a bucket never holds a request from outside it",
-    { specs, bucket: buckets, tzOffsetMinutes: offsets },
-    ({ specs: values, bucket, tzOffsetMinutes }) =>
+    "a bucket holds the requests of one local hour or day, and starts when it does",
+    { specs, bucket: buckets, zone: zones },
+    ({ specs: values, bucket, zone }) =>
       emptied((usage) =>
         Effect.gen(function* () {
           const entries = values.map(toEntry);
           yield* Effect.forEach(entries, usage.record, { discard: true });
 
           const points = yield* usage.series({
-            from: 0,
-            to: 72 * HOUR,
+            ...SPAN,
             bucket,
-            tzOffsetMinutes,
+            timeZone: DateTime.zoneMakeNamedUnsafe(zone),
             groupBy: "model",
           });
 
-          const size = bucket === "hour" ? HOUR : 24 * HOUR;
-
           for (const point of points) {
+            const local = localBucket(point.bucket, bucket, zone);
+
             const inside = entries.filter(
-              (e) => e.model === point.group && e.at >= point.bucket && e.at < point.bucket + size,
+              (e) => e.model === point.group && localBucket(e.at, bucket, zone) === local,
             );
 
             expect(inside.length).toBe(point.requests);
+            expect(localBucket(point.bucket - 1, bucket, zone)).not.toBe(local);
+            expect(localTime(point.bucket, zone)).toMatch(bucket === "hour" ? /:00$/ : /^00:00$/);
           }
         }),
       ),
