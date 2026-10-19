@@ -1107,8 +1107,11 @@ timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP respo
 - For an error via answers itself, `error` is its code and `retry_after` the
   seconds until an account frees up. For an error the upstream answered,
   `upstream_error` is the code it gave, such as `ModelProtocolUnsupported`,
-  when that is an identifier (letters, digits and `_.:-`, at most 64); its
-  message is never logged.
+  when that is an identifier (letters, digits and `_.:-`, at most 64). This
+  line never has the upstream's message, but other lines can carry the
+  upstream's words: the `INFO` line for a fallback gives the upstream's code
+  as it came, and the `WARN` line for a Codex stream that broke off says what
+  went wrong.
 - A request the client gave up on before via answered is logged with
   `http.status=499`, as nginx does. The client never sees that status. Like a
   `404` for a path via doesn't serve, it is only that line, not an error.
@@ -1313,7 +1316,10 @@ and keeps its label (see
   upstream's error it keeps only the status and the code, when the code is an
   identifier, never the message, which could quote the request the upstream
   refused. Upgrading clears the messages an older via kept, via's own included,
-  as the two can't be told apart.
+  as the two can't be told apart. What via deletes or clears in it is
+  overwritten (SQLite's `secure_delete`), not left in the file's free space.
+  The [logs](#logs) are another matter: some lines can still carry an
+  upstream's words.
 - API keys are stored only as SHA-256 hashes.
 - `VIA_ADMIN_KEY` can add, change and remove accounts and API keys. Keep it
   out of clients; only its SHA-256 hash is compared, in constant time. It can
