@@ -1,4 +1,5 @@
 import { streamIncomplete } from "@via/codex-upstream";
+import { isReason } from "@via/pool";
 import { OpencodeGoPool, type ProviderPath, Providers, type Route } from "@via/providers";
 import {
   ChatRequest,
@@ -148,7 +149,10 @@ const outcomeOf = (
     ? Effect.map(readWhole(upstream), ({ refusal, response }): Outcome =>
         Outcome.Unavailable({
           response,
-          reason: Option.getOrElse(refusal.code, () => `http_${upstream.status}`),
+          reason: refusal.code.pipe(
+            Option.filter(isReason),
+            Option.getOrElse(() => `http_${upstream.status}`),
+          ),
         }),
       )
     : answered(relay(path)(upstream));

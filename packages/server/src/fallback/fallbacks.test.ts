@@ -347,6 +347,27 @@ layer(BunFileSystem.layer)("fallback models", (it) => {
     ),
   );
 
+  it.effect("logs a provider's outage by its status when its code isn't an identifier", () =>
+    withVia(
+      exhausted,
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(
+            byModel({
+              y: providerReply.json({ error: { code: "refused: my secret plan" } }, 503),
+              z: providerReply.json(answer),
+            }),
+          );
+
+          const response = yield* via.post("/v1/chat/completions", chat("gpt-x"));
+
+          expect(response.headers["x-via-fallback"]).toBe("gpt-x -> opencode-go/z");
+          expect(yield* via.logged("openrouter/y can't serve (http_503)")).toBeDefined();
+        }),
+      { fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y", "opencode-go/z"] }] },
+    ),
+  );
+
   it.effect(
     "answers as the model asked for when no fallback can serve, retrying when the first may",
     () =>
