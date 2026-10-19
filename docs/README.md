@@ -379,6 +379,10 @@ a reference page at `/admin/docs`, where you can also try the routes out. API
 keys from `via keys create` don't work on `/admin`, and the admin key doesn't
 work on `/v1`.
 
+`GET /admin/history/series` takes an IANA `timeZone` in place of the
+`tzOffsetMinutes` it took before, which it no longer accepts; see
+[Usage history](#usage-history).
+
 | Route                                     | What it does                                                                                            |
 | ----------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `POST /admin/session`                     | Sign in with `{"key": "<VIA_ADMIN_KEY>"}`; sets a cookie.                                               |
@@ -1143,7 +1147,11 @@ milliseconds; `series` and `breakdown` also take `groupBy` (`model`,
 `account`, `key` or `provider`), and `series` takes a `bucket` (`hour` or
 `day`) and `timeZone`, an IANA time zone such as `Europe/Amsterdam`, so days
 start at your midnight, also across a change to or from summer time, when a day
-lasts 23 or 25 hours. An unknown time zone answers 400. A request no
+lasts 23 or 25 hours. An hour starts on the hour of your clock, or when the
+clock changes: the hour it repeats when summer time ends is a bar of its own,
+and a change of half an hour, as on Lord Howe Island, leaves a half hour. An
+unknown time zone answers 400. `timeZone` replaces the `tzOffsetMinutes` that
+`series` took before: a request that sends only `tzOffsetMinutes` now answers 400. A request no
 account served, such as one to a plain provider, counts under
 `provider:<name>` when grouped by account. All three also take filters:
 `model` (the model that answered), `accountId` (an account's id, or

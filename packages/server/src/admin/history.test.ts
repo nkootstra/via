@@ -307,17 +307,16 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
     ),
   );
 
-  it.effect("refuses a time zone it doesn't know", () =>
+  it.effect("refuses a time zone it doesn't know, or an offset in place of one", () =>
     withVia(
       ok,
       (via) =>
         Effect.gen(function* () {
-          const response = yield* via.get(
-            `/admin/history/series?${range}&bucket=day&timeZone=Mars/Olympus&groupBy=model`,
-            adminKey,
-          );
+          const series = `/admin/history/series?${range}&bucket=day&groupBy=model`;
+          const unknown = yield* via.get(`${series}&timeZone=Mars/Olympus`, adminKey);
+          const offset = yield* via.get(`${series}&tzOffsetMinutes=60`, adminKey);
 
-          expect(response.status).toBe(400);
+          expect([unknown.status, offset.status]).toEqual([400, 400]);
         }),
       { adminKey },
     ),
