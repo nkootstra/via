@@ -680,7 +680,8 @@ The **Usage** page shows the [usage history](#usage-history): requests,
 tokens, cache hit rate, API-equivalent cost and time to first token (of
 streamed answers that didn't fail) over the
 last day, week, 30 or 90 days; tokens per hour or day, stacked by model,
-account or key; a table of each; and the requests themselves, newest first.
+account or key, with the days running from midnight to midnight in your
+browser's time zone; a table of each; and the requests themselves, newest first.
 A request that a [fallback](#fallback-models) answered shows the model that
 answered, with "Fell back from" and the model asked for under it, and the
 request count says how many fell back. Filter the whole page to one model,

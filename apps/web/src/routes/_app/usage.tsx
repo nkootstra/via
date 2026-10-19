@@ -56,7 +56,7 @@ import {
   formatUsd,
   tokensOf,
 } from "../../lib/usage-format.ts";
-import { historyRange } from "../../lib/history-range.ts";
+import { historyBuckets, historyRange } from "../../lib/history-range.ts";
 
 /**
  * An id a search param carries. TanStack Router reads a value that looks like a
@@ -135,10 +135,6 @@ const hasFilters = (search: UsageSearch) =>
   search.key !== undefined ||
   search.failed === true ||
   search.fellBack === true;
-
-const HOUR = 3_600_000;
-
-const DAY = 24 * HOUR;
 
 /**
  * The spans the page looks back over: the last 24 hours in hours, the rest in
@@ -341,11 +337,10 @@ const pointsOf = (
   range: HistoryRange,
   bucket: "hour" | "day",
 ): ReadonlyArray<ChartPoint> => {
-  const size = bucket === "hour" ? HOUR : DAY;
   const ids = new Set(shown.map((one) => one.id));
   const bars = new Map<number, Map<string, number>>();
 
-  for (let at = range.from; at < range.to; at += size) bars.set(at, new Map());
+  for (const at of historyBuckets(range, bucket)) bars.set(at, new Map());
 
   for (const point of series.points) {
     const values = bars.get(point.bucket) ?? new Map<string, number>();
