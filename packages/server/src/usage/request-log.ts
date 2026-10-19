@@ -58,9 +58,14 @@ export class RequestLog extends Context.Service<
     readonly unlogged: Effect.Effect<void>;
     /**
      * `stream`, timed: the line waits for it to end and says when its first chunk came.
-     * It still fails as `stream` does, but without its error, which Bun would print.
+     * `around`, such as `keepAlive`, wraps `stream` once its first chunk is timed, so
+     * what it adds doesn't count as the first chunk. It still fails as `around` does,
+     * but without its error, which Bun would print.
      */
-    readonly timed: <A, E, R>(stream: Stream.Stream<A, E, R>) => Stream.Stream<A, undefined, R>;
+    readonly timed: <A, E, R, B, E2, R2>(
+      stream: Stream.Stream<A, E, R>,
+      around: (timed: Stream.Stream<A, E, R>) => Stream.Stream<B, E2, R2>,
+    ) => Stream.Stream<B, undefined, R2>;
   }
 >()("via/RequestLog") {}
 
@@ -379,7 +384,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       }),
       usage: (usage) => note({ usage: Option.some(usage) }),
       unlogged: note({ logged: false }),
-      timed: (stream) =>
+      timed: (stream, around) =>
         // The line waits for the stream only once it runs: a response sent without its body,
         // such as a 204, never runs it. The server starts it as it sends the response, which
         // is before `app` ends, so the request cannot write the line while the stream runs.
@@ -402,10 +407,12 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
                   finish,
                 ),
             ),
-            // Only the first chunk is timed; `tap` would run an effect for every chunk.
-            Stream.onFirst(stream, () =>
-              Effect.flatMap(Clock.currentTimeMillis, (now) =>
-                note({ firstChunkAt: Option.some(now) }),
+            around(
+              // Only the first chunk is timed; `tap` would run an effect for every chunk.
+              Stream.onFirst(stream, () =>
+                Effect.flatMap(Clock.currentTimeMillis, (now) =>
+                  note({ firstChunkAt: Option.some(now) }),
+                ),
               ),
             ),
           ),

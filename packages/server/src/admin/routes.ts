@@ -25,7 +25,13 @@ import {
 import { HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http";
 import { HttpApiBuilder, HttpApiScalar, OpenApi } from "effect/unstable/httpapi";
 import { AdminApi, FallbackRulesFileError, session } from "./api.ts";
-import { adminAuthorization, bearerKey, clientOf, originOf } from "./authorization.ts";
+import {
+  adminAuthorization,
+  bearerKey,
+  clientOf,
+  originOf,
+  signInFromOwnOrigin,
+} from "./authorization.ts";
 import { history } from "./history.ts";
 import { AdminSessions, SESSION_LIFETIME } from "./sessions.ts";
 import { sessionsEnded, signOutAll, staleSessionCookies } from "./session-cookie.ts";
@@ -86,8 +92,9 @@ const sessions = HttpApiBuilder.group(AdminApi, "session", (handlers) =>
 
     return handlers
       .handle("signIn", ({ payload, request }) =>
-        Effect.flatMap(admin.signIn(payload.key, clientOf(request)), (token) =>
-          setSessionCookie(token, SESSION_LIFETIME),
+        signInFromOwnOrigin.pipe(
+          Effect.andThen(admin.signIn(payload.key, clientOf(request))),
+          Effect.flatMap((token) => setSessionCookie(token, SESSION_LIFETIME)),
         ),
       )
       .handle("get", () => Effect.void)
@@ -350,7 +357,7 @@ const events = (options: StateOptions) =>
             ? Effect.never
             : sessionsEnded(admin, request);
 
-          const body = (yield* RequestLog).timed(keepAlive(Stream.interruptWhen(stream, ended)));
+          const body = (yield* RequestLog).timed(Stream.interruptWhen(stream, ended), keepAlive);
 
           return HttpServerResponse.stream(Stream.provideContext(body, context), {
             contentType: "text/event-stream",

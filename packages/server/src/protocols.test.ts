@@ -1,7 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type ProviderReply, providerReply } from "@via/providers/testing";
-import { Effect, Option } from "effect";
+import { Deferred, Effect, Fiber, Option } from "effect";
+import { TestClock } from "effect/testing";
 import { ok, type Via, withVia } from "./testing/harness.ts";
 
 /** OpenCode Go's answer for a model asked for in a protocol it doesn't speak. */
@@ -219,6 +220,44 @@ layer(BunFileSystem.layer)("OpenCode Go's protocols", (it) => {
           outputTokens: Option.some(4),
           streamEnd: Option.some("completed"),
         });
+      }),
+    ),
+  );
+
+  it.effect("times the first chunk from the answer, not from via's keep-alive comments", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const release = yield* Deferred.make<void>();
+        const started = yield* Deferred.make<void>();
+
+        // The answer starts at once, then goes quiet for 8 seconds before its first event ends.
+        via.provider.respond((request) =>
+          request.path === "/messages"
+            ? {
+                status: 200,
+                contentType: "text/event-stream",
+                body: sse(messageEvents),
+                held: Effect.andThen(Deferred.succeed(started, undefined), Deferred.await(release)),
+              }
+            : unsupported(request),
+        );
+
+        const answer = yield* Effect.forkChild(chat(via, true));
+        yield* Deferred.await(started);
+
+        for (let second = 0; second < 8; second++) {
+          yield* via.timer("1 second");
+          yield* TestClock.adjust("1 second");
+        }
+
+        yield* Deferred.succeed(release, undefined);
+        const { text } = yield* Fiber.join(answer);
+        expect(text).toContain(": keepalive");
+        yield* via.logged("Sent HTTP response");
+
+        const page = yield* via.usage.requests({ from: 0, to: Number.MAX_SAFE_INTEGER, limit: 5 });
+        const firstChunkMs = page.requests[0]?.firstChunkMs ?? Option.none();
+        expect(Option.getOrElse(firstChunkMs, () => 0)).toBeGreaterThanOrEqual(8000);
       }),
     ),
   );
