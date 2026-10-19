@@ -1288,7 +1288,12 @@ layer(BunFileSystem.layer)("admin API", (it) => {
       ok,
       (via) =>
         Effect.gen(function* () {
-          const response = yield* signIn(via, adminKey, { origin: "https://via.example.com" });
+          // Behind a proxy that ends TLS: the browser's host, but plain HTTP to via.
+          const response = yield* signIn(via, adminKey, {
+            origin: "https://via.example.com",
+            host: "via.example.com",
+          });
+
           expect(setCookie(response)).toContain("Secure");
         }),
       { adminKey },
@@ -1419,6 +1424,71 @@ layer(BunFileSystem.layer)("admin API", (it) => {
           expect((yield* signIn(via, adminKey, from("198.51.100.99"))).status).toBe(429);
           yield* TestClock.adjust("1 minute");
           expect((yield* signIn(via, adminKey)).status).toBe(204);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("refuses sign-ins from another site without counting them against the admin", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          // What a cross-site page can send without a preflight: no Content-Type at all.
+          const crossSite = yield* clocked(
+            via,
+            Effect.forEach(
+              Array.from({ length: 10 }),
+              () =>
+                Effect.promise(() =>
+                  fetch(`${via.baseUrl}/admin/session`, {
+                    method: "POST",
+                    headers: { origin: "https://evil.example.com" },
+                    body: new Blob([JSON.stringify({ key: "wrong" })]),
+                  }),
+                ),
+              { concurrency: "unbounded" },
+            ),
+          );
+
+          expect(crossSite.map(({ status }) => status)).toEqual(
+            Array.from({ length: 10 }, () => 403),
+          );
+          expect((yield* signIn(via, adminKey, { origin: via.baseUrl })).status).toBe(204);
+          expect((yield* signIn(via, adminKey)).status).toBe(204);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("takes a sign-in whose Host differs from its Origin only in case", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* signIn(via, adminKey, {
+            origin: "https://via.example.com",
+            host: "VIA.Example.com",
+          });
+
+          expect(response.status).toBe(204);
+        }),
+      { adminKey },
+    ),
+  );
+
+  it.effect("tells a browser signing in from elsewhere how to reach via", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* signIn(via, adminKey, { origin: "https://evil.example.com" });
+
+          expect(response.status).toBe(403);
+          expect(yield* response.json).toMatchObject({
+            message:
+              "Open via at its own address; a reverse proxy must pass the Host header through unchanged.",
+          });
         }),
       { adminKey },
     ),

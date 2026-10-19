@@ -27,7 +27,8 @@ Examples of what's in scope:
 - Getting the admin state from `/admin/events` after the session that opened
   the stream has ended.
 - Guessing the admin key faster than the sign-in limits allow, through
-  `POST /admin/session` or a bearer key.
+  `POST /admin/session` or a bearer key, or another site's page getting the
+  admin's own address locked out of signing in.
 - Files in `~/.config/via` (or `$VIA_HOME`) created with permissions wider than
   owner-only.
 - A prompt, an answer or a secret ending up in the usage history
