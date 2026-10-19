@@ -29,6 +29,7 @@ const setWidth = (width: number) => {
 };
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   localStorage.clear();
   setWidth(1024);
 });
@@ -184,6 +185,43 @@ describe("Sidebar", () => {
       );
 
       expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("stays closed after the screen widens with it open and narrows again", async () => {
+      // happy-dom tells a media query's listeners only when it starts to match, not
+      // when it stops, so the breakpoint's query is stood in for both ways.
+      const listeners = new Set<() => void>();
+      const breakpoint = { narrow: true };
+      const realMatchMedia = window.matchMedia.bind(window);
+      vi.stubGlobal("matchMedia", (query: string) =>
+        query === "(max-width: 767px)"
+          ? {
+              get matches() {
+                return breakpoint.narrow;
+              },
+              addEventListener: (_: string, listener: () => void) => listeners.add(listener),
+              removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+            }
+          : realMatchMedia(query),
+      );
+
+      const cross = (narrow: boolean) =>
+        act(() => {
+          breakpoint.narrow = narrow;
+
+          for (const listener of listeners) listener();
+        });
+
+      const user = userEvent.setup();
+      render(<Shell />);
+      await user.click(trigger());
+      expect(screen.getByRole("dialog", { name: "Sidebar" })).toBeDefined();
+
+      cross(false);
+      cross(true);
+
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(trigger().getAttribute("aria-expanded")).toBe("false");
     });
 
     it("doesn't carry a collapsed wide sidebar into the drawer's state", async () => {

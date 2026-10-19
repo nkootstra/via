@@ -30,6 +30,7 @@ import {
   type HistoryFilters,
   type HistoryGroupBy,
   type HistoryRange,
+  type HistorySpan,
 } from "../../api/admin.ts";
 import type {
   HistoryBreakdown,
@@ -500,7 +501,7 @@ function Usage() {
               />
             </Section>
             <Section title="Requests">
-              <Requests range={range} filters={filters} format={format} />
+              <Requests span={RANGES[rangeKey]} filters={filters} format={format} />
             </Section>
           </>
         )}
@@ -841,18 +842,18 @@ const requestColumns = [
 ] as const;
 
 function Requests({
-  range,
+  span,
   filters,
   format,
 }: {
-  readonly range: HistoryRange;
+  readonly span: HistorySpan;
   readonly filters: HistoryFilters;
   readonly format: ReturnType<typeof useTimeFormat>;
 }) {
   const mask = useMask();
 
   const requests = useInfiniteQuery({
-    ...historyRequestsQuery(range, filters),
+    ...historyRequestsQuery({ days: span.days, bucket: span.bucket }, filters),
     ...useSignalledOptions(),
   });
 

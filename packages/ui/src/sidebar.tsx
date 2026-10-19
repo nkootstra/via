@@ -334,6 +334,15 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
   const mobile = useMobile();
   const [open, setOpen] = useState(storedOpen);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  // Past the breakpoint the drawer goes, so it doesn't come back open, trapping focus,
+  // when the screen narrows again.
+  const [wasMobile, setWasMobile] = useState(mobile);
+
+  if (mobile !== wasMobile) {
+    setWasMobile(mobile);
+    setDrawerOpen(false);
+  }
+
   const panelId = useId();
 
   const toggle = useCallback(() => {
