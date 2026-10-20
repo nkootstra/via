@@ -20,6 +20,8 @@ export function CostAmount({ cost }: { readonly cost: HistoryGroup["cost"] }) {
       Unknown
     </span>
   ) : (
-    <span {...stylex.props(styles.number)}>{formatUsd(cost.apiEquivalentUsd + cost.billedUsd)}</span>
+    <span {...stylex.props(styles.number)}>
+      {formatUsd(cost.apiEquivalentUsd + cost.billedUsd)}
+    </span>
   );
 }

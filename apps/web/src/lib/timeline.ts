@@ -79,7 +79,11 @@ export const timelineOf = (rootId: string, turns: ReadonlyArray<UsageRequest>): 
 
     const seen = new Set([id]);
 
-    for (let at: string | undefined = parent; at !== undefined && own.has(at); at = parents.get(at)) {
+    for (
+      let at: string | undefined = parent;
+      at !== undefined && own.has(at);
+      at = parents.get(at)
+    ) {
       if (seen.has(at)) return rootId;
 
       seen.add(at);
@@ -91,19 +95,16 @@ export const timelineOf = (rootId: string, turns: ReadonlyArray<UsageRequest>): 
   const itemsOf = (id: string): ReadonlyArray<TimelineItem> => {
     const children = [...own.keys()].filter((child) => child !== rootId && parentOf(child) === id);
 
-    const agents = children.map(
-      (child): TimelineAgent => ({
-        kind: "agent",
-        id: child,
-        agentType: Option.firstSomeOf((own.get(child) ?? []).map((row) => row.turn.agentType)),
-        items: itemsOf(child),
-      }),
-    );
+    const agents = children.map((child): TimelineAgent => ({
+      kind: "agent",
+      id: child,
+      agentType: Option.firstSomeOf((own.get(child) ?? []).map((row) => row.turn.agentType)),
+      items: itemsOf(child),
+    }));
 
     // A turn before a sub-agent that started at the same moment: it started the sub-agent.
     return [...(own.get(id) ?? []), ...agents].toSorted(
-      (a, b) =>
-        startOf(a) - startOf(b) || (a.kind === b.kind ? 0 : a.kind === "turn" ? -1 : 1),
+      (a, b) => startOf(a) - startOf(b) || (a.kind === b.kind ? 0 : a.kind === "turn" ? -1 : 1),
     );
   };
 

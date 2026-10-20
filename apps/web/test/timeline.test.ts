@@ -26,13 +26,17 @@ const sub = (requestId: string, at: number, id: string, parent: string, agentTyp
     agentType: Option.fromNullishOr(agentType),
   });
 
-/** The items' shape: a turn's id, or a sub-agent's id and type around its items. */
-const shape = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<unknown> =>
+/** The items in outline: a turn's id, or a sub-agent's id and type around its items. */
+const outline = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<unknown> =>
   items.map((item) =>
     item.kind === "turn"
       ? item.turn.requestId
-      : { agent: item.id, type: Option.getOrNull(item.agentType), items: shape(item.items) },
+      : { agent: item.id, type: Option.getOrNull(item.agentType), items: outline(item.items) },
   );
+
+/** The turns' numbers, down the rows. */
+const numbers = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<number> =>
+  items.flatMap((item) => (item.kind === "turn" ? [item.number] : numbers(item.items)));
 
 describe("timelineOf", () => {
   it("spans the conversation from its first turn to the end of its last", () => {
@@ -60,9 +64,13 @@ describe("timelineOf", () => {
       turn("c", 9_000),
     ]);
 
-    expect(shape(timeline.items)).toEqual([
+    expect(outline(timeline.items)).toEqual([
       "a",
-      { agent: "root:agent-1", type: "Explore", items: ["s1", "s2", { agent: "nested", type: null, items: ["n1"] }] },
+      {
+        agent: "root:agent-1",
+        type: "Explore",
+        items: ["s1", "s2", { agent: "nested", type: null, items: ["n1"] }],
+      },
       "b",
       "c",
     ]);
@@ -75,16 +83,13 @@ describe("timelineOf", () => {
       turn("b", 3_000),
     ]);
 
-    const numbers = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<number> =>
-      items.flatMap((item) => (item.kind === "turn" ? [item.number] : numbers(item.items)));
-
     expect(numbers(timeline.items)).toEqual([1, 2, 3]);
   });
 
   it("keeps a sub-agent whose parent left no turns under the conversation itself", () => {
     const timeline = timelineOf("root", [turn("a", 0), sub("s1", 2_000, "child", "gone")]);
 
-    expect(shape(timeline.items)).toEqual(["a", { agent: "child", type: null, items: ["s1"] }]);
+    expect(outline(timeline.items)).toEqual(["a", { agent: "child", type: null, items: ["s1"] }]);
   });
 
   it("keeps sub-agents that name each other as parent under the conversation itself", () => {
@@ -94,7 +99,7 @@ describe("timelineOf", () => {
       sub("y1", 2_000, "y", "x"),
     ]);
 
-    expect(shape(timeline.items)).toEqual([
+    expect(outline(timeline.items)).toEqual([
       "a",
       { agent: "x", type: null, items: ["x1"] },
       { agent: "y", type: null, items: ["y1"] },
