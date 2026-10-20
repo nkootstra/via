@@ -17,6 +17,7 @@ import { dirname } from "node:path";
 import { UsageEntry } from "./entry.ts";
 import { Migrator, SqlClient } from "effect/sql";
 import type { SqlError } from "effect/sql/SqlError";
+import type * as Statement from "effect/sql/Statement";
 
 /** Where a page of the request list starts: just after this request. */
 interface RequestCursor {
@@ -149,6 +150,16 @@ export interface Breakdown {
   readonly firstChunkMs: Percentiles;
 }
 
+/** What upstreams billed of a model's requests, and the tokens of those they didn't. */
+const Billing = {
+  billedUsd: Schema.Finite,
+  billedRequests: Schema.Finite,
+  unbilledInput: Schema.Finite,
+  unbilledCached: Schema.Finite,
+  unbilledCacheWrite: Schema.Finite,
+  unbilledOutput: Schema.Finite,
+};
+
 const ModelRow = Schema.Struct({
   group: Schema.String,
   label: Schema.String,
@@ -160,12 +171,104 @@ const ModelRow = Schema.Struct({
   measured: Schema.Finite,
   unmeasured: Schema.Finite,
   ...TokenSums,
-  billedUsd: Schema.Finite,
-  billedRequests: Schema.Finite,
-  unbilledInput: Schema.Finite,
-  unbilledCached: Schema.Finite,
-  unbilledCacheWrite: Schema.Finite,
-  unbilledOutput: Schema.Finite,
+  ...Billing,
+});
+
+/** Where a page of the conversation list starts: just after this conversation. */
+interface ConversationCursor {
+  /** The conversation's latest activity. */
+  readonly at: number;
+  readonly id: string;
+}
+
+export interface ConversationQuery extends Filters {
+  readonly from: number;
+  readonly to: number;
+  readonly limit: number;
+  readonly cursor?: ConversationCursor | undefined;
+}
+
+/**
+ * A conversation and the ones its sub-agents had, as a whole: the turns of them
+ * all, and when the conversation itself began and was last active.
+ */
+export interface ConversationUsage {
+  readonly id: string;
+  /** Where its id came from: a header's name, `body.<field>`, or `hash` for a guess. */
+  readonly source: string;
+  /** As the conversation's own latest turn had them. */
+  readonly client: Option.Option<string>;
+  readonly keyName: Option.Option<string>;
+  readonly firstAt: number;
+  readonly lastAt: number;
+  /** Its requests, its sub-agents' included. */
+  readonly turns: number;
+  /** The sub-agents' conversations, at any depth. */
+  readonly subagents: number;
+  /** Turns that failed, as `Outcome` defines it. */
+  readonly failed: number;
+  /** Turns another model answered because the one asked for couldn't serve. */
+  readonly fellBack: number;
+  readonly inputTokens: number;
+  readonly cachedTokens: number;
+  readonly outputTokens: number;
+  readonly reasoningTokens: number;
+  readonly models: ReadonlyArray<ModelUsage>;
+}
+
+export interface ConversationPage {
+  readonly conversations: ReadonlyArray<ConversationUsage>;
+  /** Where the next page starts, when there is one. */
+  readonly next: Option.Option<ConversationCursor>;
+}
+
+/** A conversation, as a whole, and every turn of it and its sub-agents', oldest first. */
+export interface ConversationTurns {
+  readonly summary: ConversationUsage;
+  readonly turns: ReadonlyArray<UsageEntry>;
+}
+
+const ConversationRow = Schema.Struct({
+  id: Schema.String,
+  firstAt: Schema.Finite,
+  lastAt: Schema.Finite,
+  turns: Schema.Finite,
+  subagents: Schema.Finite,
+  failed: Schema.Finite,
+  fellBack: Schema.Finite,
+  ...TokenSums,
+});
+
+const ConversationModelRow = Schema.Struct({ id: Schema.String, model: Schema.String, ...Billing });
+
+const ConversationLabelRow = Schema.Struct({
+  id: Schema.String,
+  source: Schema.String,
+  client: Schema.OptionFromNullOr(Schema.String),
+  keyName: Schema.OptionFromNullOr(Schema.String),
+});
+
+const decodeConversationRows = Schema.decodeUnknownEffect(Schema.Array(ConversationRow));
+
+const decodeConversationModelRows = Schema.decodeUnknownEffect(Schema.Array(ConversationModelRow));
+
+const decodeConversationLabelRows = Schema.decodeUnknownEffect(Schema.Array(ConversationLabelRow));
+
+const decodeIds = Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: Schema.String })));
+
+/** What a model's rows bill, as `costOf` prices it. */
+const modelUsage = (
+  row: Pick<typeof ModelRow.Type, "model" | keyof typeof Billing>,
+): ModelUsage => ({
+  model: row.model,
+  billedUsd: row.billedUsd,
+  billedRequests: row.billedRequests,
+  unbilled: {
+    inputTokens: row.unbilledInput,
+    cachedTokens: row.unbilledCached,
+    cacheWriteTokens: row.unbilledCacheWrite,
+    outputTokens: row.unbilledOutput,
+  },
 });
 
 const PercentileRow = Schema.Struct({
@@ -430,6 +533,17 @@ const make = Effect.gen(function* () {
         : [query.fellBack ? sql`requested_model IS NOT NULL` : sql`requested_model IS NULL`]),
     ]);
 
+  /** The SQL columns of `Billing`, summed over a model's requests. */
+  const billing = sql`
+    COALESCE(SUM(cost_usd), 0) AS "billedUsd",
+    COUNT(cost_usd) AS "billedRequests",
+    COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN input_tokens END), 0) AS "unbilledInput",
+    COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN cached_tokens END), 0) AS "unbilledCached",
+    COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN cache_write_tokens END), 0)
+      AS "unbilledCacheWrite",
+    COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN output_tokens END), 0) AS "unbilledOutput"
+  `;
+
   const columns = sql`
     request_id AS "requestId", at, status, error, error_message AS "errorMessage",
     stream_end AS "streamEnd",
@@ -600,13 +714,7 @@ const make = Effect.gen(function* () {
         COALESCE(SUM(cached_tokens), 0) AS "cachedTokens",
         COALESCE(SUM(output_tokens), 0) AS "outputTokens",
         COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens",
-        COALESCE(SUM(cost_usd), 0) AS "billedUsd",
-        COUNT(cost_usd) AS "billedRequests",
-        COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN input_tokens END), 0) AS "unbilledInput",
-        COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN cached_tokens END), 0) AS "unbilledCached",
-        COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN cache_write_tokens END), 0)
-          AS "unbilledCacheWrite",
-        COALESCE(SUM(CASE WHEN cost_usd IS NULL THEN output_tokens END), 0) AS "unbilledOutput"
+        ${billing}
       FROM requests
       WHERE ${matching(query)}
       GROUP BY "group", model
@@ -650,17 +758,7 @@ const make = Effect.gen(function* () {
         outputTokens: total("outputTokens"),
         reasoningTokens: total("reasoningTokens"),
         firstChunkMs: byGroup.get(group) ?? noPercentiles,
-        models: models.map((row) => ({
-          model: row.model,
-          billedUsd: row.billedUsd,
-          billedRequests: row.billedRequests,
-          unbilled: {
-            inputTokens: row.unbilledInput,
-            cachedTokens: row.unbilledCached,
-            cacheWriteTokens: row.unbilledCacheWrite,
-            outputTokens: row.unbilledOutput,
-          },
-        })),
+        models: models.map(modelUsage),
       };
     });
 
@@ -668,6 +766,154 @@ const make = Effect.gen(function* () {
       groups: totalled.toSorted((a, b) => b.requests - a.requests),
       firstChunkMs: overall === undefined ? noPercentiles : { p50: overall.p50, p95: overall.p95 },
     } satisfies Breakdown;
+  });
+
+  /**
+   * `tree`: each conversation `roots` picks, as `root`, with itself and every
+   * conversation under it, at any depth, as `id`. `UNION` keeps each pair once,
+   * so a client that names a conversation its own ancestor ends the recursion.
+   */
+  const conversationTree = (roots: Statement.Fragment) => sql`
+    WITH RECURSIVE
+      links(id, parent) AS (
+        SELECT DISTINCT conversation_id, parent_conversation_id FROM requests
+        WHERE parent_conversation_id IS NOT NULL
+      ),
+      tree(root, id) AS (
+        SELECT DISTINCT conversation_id, conversation_id FROM requests
+        WHERE conversation_id IS NOT NULL AND ${roots}
+        UNION
+        SELECT tree.root, links.id FROM links JOIN tree ON links.parent = tree.id
+      )
+  `;
+
+  /** The conversations `ids` name, as a whole over their turns that `where` keeps, in that order. */
+  const summaries = Effect.fn("UsageHistory.summaries")(function* (
+    ids: ReadonlyArray<string>,
+    where: Statement.Fragment,
+  ) {
+    if (ids.length === 0) return [];
+
+    const tree = conversationTree(sql.in("conversation_id", ids));
+
+    // Rows only ever come from these queries, so they always decode.
+    const totals = yield* sql`
+      ${tree}
+      SELECT
+        tree.root AS id,
+        MIN(at) AS "firstAt",
+        MAX(at) AS "lastAt",
+        COUNT(*) AS turns,
+        COUNT(DISTINCT CASE WHEN tree.id <> tree.root THEN tree.id END) AS subagents,
+        COALESCE(SUM(${failed}), 0) AS failed,
+        COUNT(requested_model) AS "fellBack",
+        COALESCE(SUM(input_tokens), 0) AS "inputTokens",
+        COALESCE(SUM(cached_tokens), 0) AS "cachedTokens",
+        COALESCE(SUM(output_tokens), 0) AS "outputTokens",
+        COALESCE(SUM(reasoning_tokens), 0) AS "reasoningTokens"
+      FROM requests JOIN tree ON requests.conversation_id = tree.id
+      WHERE ${where}
+      GROUP BY tree.root
+    `.pipe(Effect.flatMap((rows) => decodeConversationRows(rows).pipe(Effect.orDie)));
+
+    const models = yield* sql`
+      ${tree}
+      SELECT tree.root AS id, model, ${billing}
+      FROM requests JOIN tree ON requests.conversation_id = tree.id
+      WHERE ${where}
+      GROUP BY tree.root, model
+    `.pipe(Effect.flatMap((rows) => decodeConversationModelRows(rows).pipe(Effect.orDie)));
+
+    // The bare columns beside the one MAX(at) come from the conversation's own latest turn.
+    const labels = yield* sql`
+      SELECT
+        conversation_id AS id,
+        COALESCE(session_source, 'hash') AS source,
+        client,
+        key_name AS "keyName",
+        MAX(at)
+      FROM requests
+      WHERE ${sql.in("conversation_id", ids)}
+      GROUP BY conversation_id
+    `.pipe(Effect.flatMap((rows) => decodeConversationLabelRows(rows).pipe(Effect.orDie)));
+
+    const byId = new Map(totals.map((row) => [row.id, row]));
+    const labelOf = new Map(labels.map((row) => [row.id, row]));
+
+    return ids.flatMap((id): ReadonlyArray<ConversationUsage> => {
+      const total = byId.get(id);
+      const label = labelOf.get(id);
+
+      if (total === undefined || label === undefined) return [];
+
+      return [
+        {
+          ...total,
+          source: label.source,
+          client: label.client,
+          keyName: label.keyName,
+          models: models.filter((row) => row.id === id).map(modelUsage),
+        },
+      ];
+    });
+  });
+
+  const conversations = Effect.fn("UsageHistory.conversations")(function* (
+    query: ConversationQuery,
+  ) {
+    const lastAt = sql`MAX(at)`;
+
+    // One more than a page, to tell whether another page follows.
+    const rows = yield* sql`
+      ${conversationTree(sql`parent_conversation_id IS NULL`)}
+      SELECT tree.root AS id
+      FROM requests JOIN tree ON requests.conversation_id = tree.id
+      WHERE ${matching(query)}
+      GROUP BY tree.root
+      HAVING ${
+        query.cursor === undefined
+          ? sql`1 = 1`
+          : sql`(${lastAt} < ${query.cursor.at} OR (${lastAt} = ${query.cursor.at} AND tree.root < ${query.cursor.id}))`
+      }
+      ORDER BY ${lastAt} DESC, tree.root DESC
+      LIMIT ${query.limit + 1}
+    `.pipe(
+      // Rows only ever come from this query, so they always decode.
+      Effect.flatMap((found) => decodeIds(found).pipe(Effect.orDie)),
+    );
+
+    const page = yield* summaries(
+      rows.slice(0, query.limit).map((row) => row.id),
+      matching(query),
+    );
+
+    const last = page.at(-1);
+
+    return {
+      conversations: page,
+      next:
+        rows.length > query.limit && last !== undefined
+          ? Option.some({ at: last.lastAt, id: last.id })
+          : Option.none(),
+    } satisfies ConversationPage;
+  });
+
+  const conversation = Effect.fn("UsageHistory.conversation")(function* (id: string) {
+    const [summary] = yield* summaries([id], sql`1 = 1`);
+
+    if (summary === undefined) return Option.none<ConversationTurns>();
+
+    const rows = yield* sql`
+      ${conversationTree(sql`conversation_id = ${id}`)}
+      SELECT ${columns} FROM requests
+      WHERE conversation_id IN (SELECT id FROM tree)
+      ORDER BY at, request_id
+    `;
+
+    // Rows only ever come from `record`, so they always decode.
+    const turns = yield* decodeEntries(rows).pipe(Effect.orDie);
+
+    return Option.some<ConversationTurns>({ summary, turns });
   });
 
   const prune = Effect.gen(function* () {
@@ -697,6 +943,8 @@ const make = Effect.gen(function* () {
     requests,
     series,
     breakdown,
+    conversations,
+    conversation,
     prune,
     clear: Effect.tap(clear, bump),
     changes,
@@ -733,6 +981,15 @@ export class UsageHistory extends Context.Service<
     readonly series: (query: SeriesQuery) => Effect.Effect<ReadonlyArray<SeriesPoint>, SqlError>;
     /** Each group's usage over `[from, to)`. */
     readonly breakdown: (query: BreakdownQuery) => Effect.Effect<Breakdown, SqlError>;
+    /**
+     * A page of the conversations no other conversation started that have turns in
+     * `[from, to)`, the latest active first, each over those turns and its sub-agents'.
+     */
+    readonly conversations: (query: ConversationQuery) => Effect.Effect<ConversationPage, SqlError>;
+    /** A conversation and every turn of it and its sub-agents', if it has any. */
+    readonly conversation: (
+      id: string,
+    ) => Effect.Effect<Option.Option<ConversationTurns>, SqlError>;
     /** Forgets requests older than 90 days; it also runs by itself once a day. */
     readonly prune: Effect.Effect<void, SqlError>;
     /** Forgets every request, and says how many there were. */
