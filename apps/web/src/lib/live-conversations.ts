@@ -141,6 +141,49 @@ export const pendingSummary = (
   };
 };
 
+/** The conversations a list shows live, and those it doesn't list yet, from the turns in flight. */
+interface Unlisted {
+  /** Every conversation a turn in flight belongs to, its parents' included. */
+  readonly live: ReadonlySet<string>;
+  /** The conversations none of whose turns, nor parents, the list has, the latest active first. */
+  readonly pending: ReadonlyArray<ConversationSummary>;
+}
+
+/**
+ * Of the turns in flight, `live`, and those that ended since, `ended`: which
+ * conversations they keep live, and which they started that `listed` hasn't.
+ */
+export const unlisted = (
+  listed: ReadonlySet<string>,
+  ended: ReadonlyArray<EndedTurn>,
+  live: ReadonlyArray<LiveTurn>,
+): Unlisted => {
+  const entries = ended.map(({ entry }) => entry);
+  const chains = ancestry([...entries, ...live]);
+  const chainOf = (requestId: string) => chains.get(requestId) ?? [];
+
+  // The conversation a turn started that the list hasn't, if it did.
+  const unlistedRoot = ({ requestId }: { readonly requestId: string }) => {
+    const chain = chainOf(requestId);
+
+    return chain.some((id) => listed.has(id)) ? undefined : chain.at(-1);
+  };
+
+  const endedBy = Map.groupBy(entries, unlistedRoot);
+  const liveBy = Map.groupBy(live, unlistedRoot);
+
+  return {
+    live: new Set(live.flatMap(({ requestId }) => chainOf(requestId))),
+    pending: [...new Set([...endedBy.keys(), ...liveBy.keys()])]
+      .flatMap((root) =>
+        root === undefined
+          ? []
+          : [pendingSummary(root, endedBy.get(root) ?? [], liveBy.get(root) ?? [])],
+      )
+      .toSorted((a, b) => b.lastAt - a.lastAt),
+  };
+};
+
 /**
  * Each turn's conversation, by request id, then those its parents lead up
  * through, as `turns` say, the last the one it all started from as far as

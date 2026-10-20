@@ -247,6 +247,99 @@ describe("the usage page's conversations", () => {
 
     await waitFor(() => expect(asked()).toBeGreaterThan(before));
   });
+
+  it("marks a conversation with a turn in flight, its sub-agents' included, as live", async () => {
+    renderApp("/usage?tab=conversations", seed);
+    const table = await screen.findByRole("table", { name: "Conversations" });
+
+    act(() =>
+      openSource().turn({
+        event: "turn.started",
+        data: liveTurn({
+          requestId: "l1",
+          conversationId: Option.some("ses_1:explore"),
+          parentConversationId: Option.some("ses_1"),
+        }),
+      }),
+    );
+
+    await waitFor(() =>
+      expect(within(rowsOf(table)[0] ?? table).queryByText("Live")).not.toBeNull(),
+    );
+    expect(within(rowsOf(table)[1] ?? table).queryByText("Live")).toBeNull();
+    expect(rowsOf(table)).toHaveLength(2);
+  });
+
+  it("puts a conversation whose first turn is in flight at the top, until the history has it", async () => {
+    const { state } = renderApp("/usage?tab=conversations", seed);
+    const table = await screen.findByRole("table", { name: "Conversations" });
+    const source = openSource();
+
+    act(() =>
+      source.turn({
+        event: "turn.started",
+        data: liveTurn({
+          requestId: "l1",
+          conversationId: Option.some("ses_new"),
+          client: Option.some("claude-cli/2.0.14"),
+        }),
+      }),
+    );
+
+    await waitFor(() => expect(rowsOf(table)).toHaveLength(3));
+    const [fresh] = rowsOf(table);
+    expect(fresh?.textContent).toContain("Claude Code 2.0.14");
+    expect(within(fresh ?? table).getByText("Live")).toBeDefined();
+    expect(
+      within(fresh ?? table)
+        .getByRole("link")
+        .getAttribute("href"),
+    ).toContain("conversation=ses_new");
+
+    // It ends: it stays, no longer live, until the history has it.
+    const entry = turn("l1", now.getTime() - 5_000 - T0, {
+      conversationId: Option.some("ses_new"),
+      client: Option.some("claude-cli/2.0.14"),
+    });
+
+    act(() => source.turn({ event: "turn.ended", data: { entry, attempts: [] } }));
+    await waitFor(() => expect(within(rowsOf(table)[0] ?? table).queryByText("Live")).toBeNull());
+    expect(rowsOf(table)[0]?.textContent).toContain("Claude Code 2.0.14");
+
+    state.conversations = [
+      {
+        summary: conversation({
+          id: "ses_new",
+          client: Option.some("claude-cli/2.0.14"),
+          lastAt: entry.at,
+        }),
+        turns: [entry],
+        attempts: [],
+      },
+      opencode,
+      aider,
+    ];
+    act(() => source.history());
+
+    await waitFor(() => expect(rowsOf(table)[0]?.textContent).toContain("$0.12"));
+    expect(rowsOf(table)).toHaveLength(3);
+  });
+
+  it("leaves a conversation whose first turn is in flight out of a filtered list", async () => {
+    renderApp("/usage?tab=conversations&model=gpt-6-astra", seed);
+    const table = await screen.findByRole("table", { name: "Conversations" });
+
+    act(() =>
+      openSource().turn({
+        event: "turn.started",
+        data: liveTurn({ requestId: "l1", conversationId: Option.some("ses_new") }),
+      }),
+    );
+    act(() => openSource().turn({ event: "turn.started", data: liveTurn({ requestId: "l2" }) }));
+
+    await waitFor(() => expect(within(table).queryByText("Live")).not.toBeNull());
+    expect(rowsOf(table)).toHaveLength(2);
+  });
 });
 
 describe("a conversation", () => {

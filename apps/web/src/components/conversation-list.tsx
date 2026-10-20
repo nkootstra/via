@@ -3,6 +3,7 @@ import * as stylex from "@stylexjs/stylex";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
+  Badge,
   Button,
   EmptyState,
   Table,
@@ -17,8 +18,10 @@ import { colors, fonts, radii, space, text, fontWeights, weights } from "@via/ui
 import { Option } from "effect";
 import { historyConversationsQuery, type HistoryFilters, type HistorySpan } from "../api/admin.ts";
 import { useSignalledOptions } from "../api/live.ts";
+import { useEndedTurns, useLiveTurns } from "../api/turns.ts";
 import type { ConversationSummary } from "../api/types.ts";
 import { harnessName } from "../lib/harness.ts";
+import { unlisted } from "../lib/live-conversations.ts";
 import { useMask } from "../lib/privacy.ts";
 import { ago, formatMoment, useNow } from "../lib/time.ts";
 import { useTimeFormat } from "../lib/time-format.ts";
@@ -121,6 +124,9 @@ export function ConversationList({
     ...useSignalledOptions(),
   });
 
+  const ended = useEndedTurns();
+  const inFlight = useLiveTurns();
+
   if (conversations.isError) {
     return (
       <QueryError
@@ -135,7 +141,11 @@ export function ConversationList({
     return <TableSkeleton rows={3} columns={columns} label="Loading conversations" />;
   }
 
-  const rows = conversations.data.pages.flatMap((page) => page.conversations);
+  const listed = conversations.data.pages.flatMap((page) => page.conversations);
+  const { live, pending } = unlisted(new Set(listed.map(({ id }) => id)), ended, inFlight);
+  // A conversation the history doesn't have yet leads the list; a filtered list can't say
+  // whether it matches until then.
+  const rows = [...(filtered ? [] : pending), ...listed];
 
   if (rows.length === 0) {
     return filtered ? (
@@ -176,7 +186,12 @@ export function ConversationList({
           </TableHeader>
           <TableBody>
             {rows.map((conversation, index) => (
-              <ConversationRow key={conversation.id} conversation={conversation} index={index} />
+              <ConversationRow
+                key={conversation.id}
+                conversation={conversation}
+                live={live.has(conversation.id)}
+                index={index}
+              />
             ))}
           </TableBody>
         </Table>
@@ -198,9 +213,12 @@ export function ConversationList({
 
 function ConversationRow({
   conversation,
+  live,
   index,
 }: {
   readonly conversation: ConversationSummary;
+  /** Whether a turn of it, or of a sub-agent of it, is in flight. */
+  readonly live: boolean;
   readonly index: number;
 }) {
   const mask = useMask();
@@ -226,6 +244,11 @@ function ConversationRow({
             {harnessName(conversation.client, conversation.source)}
           </Link>
           {conversation.guessed && <GuessedBadge />}
+          {live && (
+            <Badge color="green" variant="dot" title="A turn of it is in flight now">
+              Live
+            </Badge>
+          )}
         </span>
         <span
           title={`${formatMoment(conversation.firstAt, format)} – ${formatMoment(conversation.lastAt, format)}`}
