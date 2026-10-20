@@ -50,6 +50,7 @@ import {
   TableRow,
   ThemeControl,
   ToastProvider,
+  Tooltip,
   useToast,
   type BadgeColor,
 } from "../src/index.ts";
@@ -273,6 +274,16 @@ function Gallery() {
               {color}
             </Badge>
           ))}
+        </div>
+      </Section>
+
+      <Section title="Tooltip (hover or focus the badge)">
+        <div {...stylex.props(styles.row)}>
+          <Tooltip content="Its client sent no conversation id, so via guessed it.">
+            <Badge color="amber" tabIndex={0}>
+              Guessed
+            </Badge>
+          </Tooltip>
         </div>
       </Section>
 
