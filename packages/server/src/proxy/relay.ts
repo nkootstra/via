@@ -14,9 +14,10 @@ import {
 } from "effect/http";
 import { keepAlive } from "./keep-alive.ts";
 import { openAiError } from "./openai-error.ts";
-import { RequestLog } from "../usage/request-log.ts";
+import { type AttemptFailure, RequestLog } from "../usage/request-log.ts";
 import { spotUsage, usageOf } from "../usage/token-usage.ts";
 import { spotStreamError, spotUpstreamError } from "./upstream-error.ts";
+import { causeOf } from "../usage/failure.ts";
 
 /**
  * How long an upstream may go quiet in the middle of an answer before via
@@ -38,6 +39,10 @@ class UpstreamBodyTimeoutError extends Data.TaggedError("UpstreamBodyTimeoutErro
     return "The upstream body did not complete within 5 minutes";
   }
 }
+
+/** Notes, in the request's log line, that its current upstream attempt failed. */
+const attemptFailed = (failure: AttemptFailure) =>
+  Effect.flatMap(RequestLog, (log) => log.attemptFailed(failure));
 
 /** Bounds bodies read before via can answer or try a fallback. */
 export const readBody = <A, E, R>(body: Effect.Effect<A, E, R>) =>
@@ -111,17 +116,32 @@ export const collected = (
     ),
     Effect.catchTags({
       IncompleteStreamError: (error) =>
-        Effect.fail(new BrokenStreamError({ message: error.message })),
-      ResponseTooLargeError: (error) => openAiError(502, "upstream_too_large", error.message),
-      ResponseTimeoutError: (error) => openAiError(504, "upstream_timeout", error.message),
-      UpstreamStalledError: (error) => openAiError(504, "upstream_timeout", error.message),
+        Effect.andThen(
+          attemptFailed({ cause: "network" }),
+          Effect.fail(new BrokenStreamError({ message: error.message })),
+        ),
+      ResponseTooLargeError: (error) =>
+        Effect.andThen(attemptFailed({}), openAiError(502, "upstream_too_large", error.message)),
+      ResponseTimeoutError: (error) =>
+        Effect.andThen(
+          attemptFailed({ cause: "timeout" }),
+          openAiError(504, "upstream_timeout", error.message),
+        ),
+      UpstreamStalledError: (error) =>
+        Effect.andThen(
+          attemptFailed({ cause: "timeout" }),
+          openAiError(504, "upstream_timeout", error.message),
+        ),
       HttpClientError: (error) =>
-        broken(
-          "The connection to Codex broke off in the middle of its answer",
-          // Its own message names only the request; what broke is in its cause.
-          Predicate.isError(error.cause)
-            ? `${error.message}: ${error.cause.message}`
-            : error.message,
+        Effect.andThen(
+          attemptFailed({ cause: "network" }),
+          broken(
+            "The connection to Codex broke off in the middle of its answer",
+            // Its own message names only the request; what broke is in its cause.
+            Predicate.isError(error.cause)
+              ? `${error.message}: ${error.cause.message}`
+              : error.message,
+          ),
         ),
       SseError: (error) => broken("Codex sent an event via can't read", error.message),
       SchemaError: (error) => broken("Codex sent an event via can't read", error.message),
@@ -220,7 +240,13 @@ export const relayed = <E>(
     const sse =
       options.sse ?? (upstream.headers["content-type"] ?? "").includes("text/event-stream");
 
-    const body = untilQuiet(upstream.stream);
+    // Broken off, the answer the attempt began didn't serve.
+    const body = untilQuiet(upstream.stream).pipe(
+      Stream.tapErrorTag("UpstreamStalledError", () => log.attemptFailed({ cause: "timeout" })),
+      Stream.tapErrorTag("HttpClientError", (error) =>
+        log.attemptFailed({ cause: causeOf(error) }),
+      ),
+    );
 
     const answer =
       sse && options.onFailed !== undefined ? spotFailure(body, options.onFailed) : body;

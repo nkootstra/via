@@ -18,11 +18,12 @@ import {
   HttpServerRespondable,
   HttpServerResponse,
 } from "effect/http";
-import type { UsageEntry } from "@via/usage";
+import type { RequestAttempt, UsageEntry } from "@via/usage";
 import type { TokenUsage } from "./token-usage.ts";
 import type { UpstreamError } from "../proxy/upstream-error.ts";
 import { clientOf } from "../proxy/client.ts";
 import type { Conversation } from "../proxy/session.ts";
+import { categorize, keptMessage } from "./failure.ts";
 
 /**
  * Notes, for the one line via logs about each request, what the request is
@@ -57,6 +58,25 @@ export class RequestLog extends Context.Service<
      * afresh, and gives back what puts it back, should no other model serve.
      */
     readonly setAside: Effect.Effect<Effect.Effect<void>>;
+    /**
+     * Records that an upstream attempt starts now: the model last asked, sent to its
+     * provider, by `account` when an account of a pool takes it.
+     */
+    readonly attempt: (account?: {
+      readonly id: string;
+      readonly label: string;
+    }) => Effect.Effect<void>;
+    /**
+     * Records the status the upstream answered the current attempt with. An attempt left
+     * open ends with the request: it served, or, with an error status, the upstream refused it.
+     */
+    readonly upstreamAnswered: (status: number) => Effect.Effect<void>;
+    /**
+     * Records that the current attempt ended now without serving, so via tries another
+     * account, protocol or model, or gives up: with the status and error the upstream
+     * answered, if it did, or with why it never answered or broke off.
+     */
+    readonly attemptFailed: (failure: AttemptFailure) => Effect.Effect<void>;
     /** Records the conversation the request belongs to. */
     readonly conversation: (conversation: Conversation) => Effect.Effect<void>;
     /** Records the token usage the upstream reported for the answer. */
@@ -206,6 +226,90 @@ const entryOf = (
   };
 };
 
+/** What via knows of an attempt that didn't serve, as `RequestLog.attemptFailed` takes it. */
+export interface AttemptFailure {
+  readonly status?: number;
+  readonly error?: UpstreamError;
+  readonly cause?: "timeout" | "network";
+}
+
+/** An upstream attempt, as the request notes it. */
+interface Attempted {
+  readonly startedAt: number;
+  readonly model: Option.Option<string>;
+  readonly account: Option.Option<{ readonly id: string; readonly label: string }>;
+  readonly status: Option.Option<number>;
+  readonly error: Option.Option<UpstreamError>;
+  readonly cause: Option.Option<"timeout" | "network">;
+  /** When it failed; one still open ends with the request. */
+  readonly failedAt: Option.Option<number>;
+}
+
+/**
+ * How an attempt ended: one noted as failed did, as did one via tried another after. The
+ * last one, still open, served, unless the upstream answered with an error status (it
+ * refused the request, and the client got that), broke off with an error, or the request
+ * still failed.
+ */
+const outcomeOf = (attempt: Attempted, last: boolean, line: Noted): RequestAttempt["outcome"] => {
+  if (Option.isSome(attempt.failedAt) || !last) return "failed";
+
+  if (Option.exists(attempt.status, (status) => status >= 400)) return "refused";
+
+  return Option.isSome(attempt.error) || line.status >= 400 ? "failed" : "served";
+};
+
+/** The usage-history attempts of request `id`, ended at `end`, as `line` noted them. */
+const attemptsOf = (id: string, end: number, line: Noted): ReadonlyArray<RequestAttempt> =>
+  line.attempts.flatMap((attempt, seq): ReadonlyArray<RequestAttempt> => {
+    if (Option.isNone(attempt.model)) return [];
+
+    const next = line.attempts[seq + 1];
+    const last = next === undefined;
+    const outcome = outcomeOf(attempt, last, line);
+    const failed = outcome !== "served";
+    const endedAt = Option.getOrElse(attempt.failedAt, () => next?.startedAt ?? end);
+    const error = failed ? attempt.error : Option.none();
+    const code = Option.flatMap(error, (found) => Option.flatMap(found.code, asCode));
+    const downstreamProvider = Option.flatMap(error, (found) => found.downstreamProvider);
+
+    return [
+      {
+        requestId: id,
+        seq,
+        startedAt: attempt.startedAt,
+        durationMs: endedAt - attempt.startedAt,
+        // The answer's first chunk came from the attempt that answered, the last one.
+        firstChunkMs:
+          last && Option.isNone(attempt.failedAt) && streamedAnswer(line)
+            ? Option.map(line.firstChunkAt, (at) => at - attempt.startedAt)
+            : Option.none(),
+        provider: providerOf(attempt.model.value),
+        model: attempt.model.value,
+        accountId: Option.map(attempt.account, (account) => account.id),
+        accountLabel: Option.map(attempt.account, (account) => account.label),
+        status: attempt.status,
+        outcome,
+        category: failed
+          ? Option.some(
+              categorize({
+                status: attempt.status,
+                code,
+                downstreamProvider,
+                cause: attempt.cause,
+              }),
+            )
+          : Option.none(),
+        upstreamCode: code,
+        downstreamProvider,
+        message: keptMessage(
+          attempt.status,
+          Option.flatMap(error, (found) => found.message),
+        ),
+      },
+    ];
+  });
+
 /** What a request's log line says, noted while the request is handled. */
 interface Noted {
   readonly key: Option.Option<ClientKey>;
@@ -228,6 +332,8 @@ interface Noted {
   /** Why the model asked for couldn't serve. */
   readonly fallbackReason: Option.Option<string>;
   readonly conversation: Option.Option<Conversation>;
+  /** Every upstream attempt, in order, fallbacks included. */
+  readonly attempts: ReadonlyArray<Attempted>;
   readonly retryAfter: Option.Option<string>;
   readonly status: number;
   readonly headersAt: number;
@@ -289,6 +395,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       requestedModel: Option.none(),
       fallbackReason: Option.none(),
       conversation: Option.none(),
+      attempts: [],
       retryAfter: Option.none(),
       status: 0,
       headersAt: start,
@@ -344,7 +451,10 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         onNone: () => Effect.void,
         onSome: (model) =>
           Effect.flatMap(Clock.currentTimeMillis, (end) =>
-            history.record(entryOf(id, start, end, model, clientOf(request.headers), line)),
+            history.keep(
+              entryOf(id, start, end, model, clientOf(request.headers), line),
+              attemptsOf(id, end, line),
+            ),
           ).pipe(
             Effect.catchCause((cause) =>
               Effect.logWarning("Could not keep the request in the usage history", cause),
@@ -365,6 +475,16 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       ),
     );
 
+    /** Updates the current attempt, while it is open. */
+    const noteAttempt = (update: (attempt: Attempted) => Attempted) =>
+      Ref.update(noting, (sofar) => {
+        const current = sofar.attempts.at(-1);
+
+        if (current === undefined || Option.isSome(current.failedAt)) return sofar;
+
+        return { ...sofar, attempts: [...sofar.attempts.slice(0, -1), update(current)] };
+      });
+
     const service = RequestLog.of({
       key: (key) => note({ key: Option.some(key) }),
       asked: (model, stream) =>
@@ -374,7 +494,40 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       refused: (code, message) =>
         note({ error: Option.some(code), errorMessage: Option.some(message) }),
       upstreamFailed: (error) =>
-        note({ upstreamError: Option.some({ code: Option.flatMap(error.code, asCode) }) }),
+        Effect.andThen(
+          note({ upstreamError: Option.some({ code: Option.flatMap(error.code, asCode) }) }),
+          noteAttempt((attempt) => ({ ...attempt, error: Option.some(error) })),
+        ),
+      attempt: (account) =>
+        Effect.flatMap(Clock.currentTimeMillis, (now) =>
+          Ref.update(noting, (sofar) => ({
+            ...sofar,
+            attempts: [
+              ...sofar.attempts,
+              {
+                startedAt: now,
+                model: sofar.model,
+                account: Option.fromUndefinedOr(account),
+                status: Option.none(),
+                error: Option.none(),
+                cause: Option.none(),
+                failedAt: Option.none(),
+              },
+            ],
+          })),
+        ),
+      upstreamAnswered: (status) =>
+        noteAttempt((attempt) => ({ ...attempt, status: Option.some(status) })),
+      attemptFailed: (failure) =>
+        Effect.flatMap(Clock.currentTimeMillis, (now) =>
+          noteAttempt((attempt) => ({
+            ...attempt,
+            status: Option.orElse(Option.fromUndefinedOr(failure.status), () => attempt.status),
+            error: Option.orElse(Option.fromUndefinedOr(failure.error), () => attempt.error),
+            cause: Option.fromUndefinedOr(failure.cause),
+            failedAt: Option.some(now),
+          })),
+        ),
       fellBack: (requested, reason) =>
         note({ requestedModel: Option.some(requested), fallbackReason: Option.some(reason) }),
       setAside: Ref.modify(noting, (sofar): [Effect.Effect<void>, Noted] => {

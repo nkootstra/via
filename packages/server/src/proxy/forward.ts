@@ -8,7 +8,7 @@ import {
   toMessagesRequest,
   toResponsesRequest,
 } from "@via/translate";
-import { Effect, identity, Option, Schema, Stream } from "effect";
+import { Duration, Effect, identity, Option, Schema, Stream } from "effect";
 import { Headers, type HttpClientResponse, HttpServerResponse } from "effect/http";
 import { chatFromMessages, chatFromResponses } from "./chat-answer.ts";
 import { ModelProtocols, type Protocol } from "./model-protocols.ts";
@@ -19,6 +19,7 @@ import { brokenResponse, failedResponse, readBody, relayed } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
+import { causeOf } from "../usage/failure.ts";
 
 /** The headers of a provider's answer a client may act on: when to try again, and its rate limits. */
 const passedOn = (upstream: HttpClientResponse.HttpClientResponse) =>
@@ -117,6 +118,16 @@ const upToLimit = (upstream: HttpClientResponse.HttpClientResponse) =>
   );
 
 /**
+ * Why an account's rate limit or refused key says it was refused, for the attempt it ends:
+ * nothing, if its body takes more than a moment, as the next account waits on it.
+ */
+const briefly = (upstream: HttpClientResponse.HttpClientResponse) =>
+  upToLimit(upstream).pipe(
+    Effect.timeoutOption(Duration.seconds(5)),
+    Effect.map((text) => upstreamErrorOf(Option.getOrElse(text, () => ""))),
+  );
+
+/**
  * A provider's error answer, read whole and noted in the request's log line,
  * as the client gets it: with its status, content type and `passedOn` headers.
  */
@@ -145,17 +156,26 @@ const outcomeOf = (
   path: ProviderPath,
   upstream: HttpClientResponse.HttpClientResponse,
 ): Effect.Effect<Outcome, never, RequestLog> =>
-  isOutage(upstream.status)
-    ? Effect.map(readWhole(upstream), ({ refusal, response }): Outcome =>
-        Outcome.Unavailable({
-          response,
-          reason: refusal.code.pipe(
-            Option.filter(isReason),
-            Option.getOrElse(() => `http_${upstream.status}`),
-          ),
-        }),
-      )
-    : answered(relay(path)(upstream));
+  Effect.gen(function* () {
+    const log = yield* RequestLog;
+
+    if (!isOutage(upstream.status)) {
+      yield* log.upstreamAnswered(upstream.status);
+
+      return yield* answered(relay(path)(upstream));
+    }
+
+    const { refusal, response } = yield* readWhole(upstream);
+    yield* log.attemptFailed({ status: upstream.status, error: refusal });
+
+    return Outcome.Unavailable({
+      response,
+      reason: refusal.code.pipe(
+        Option.filter(isReason),
+        Option.getOrElse(() => `http_${upstream.status}`),
+      ),
+    });
+  });
 
 /** How a request goes out in one of OpenCode Go's protocols, and how its answer comes back. */
 interface Attempt {
@@ -256,25 +276,29 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
 
     // Every way to send it, on this account; a 429 or a refused key moves on to the next account.
     for (const [index, attempt] of tries.entries()) {
+      yield* log.attempt({ id: account.id, label: account.label });
+
       const sent = yield* providers
         .send(route, attempt.path, attempt.body, session, { apiKey: account.apiKey, headers })
         .pipe(
           Effect.asSome,
           // OpenCode Go is unreachable for every account alike, so there is no one to fail over to.
-          Effect.catchTag("HttpClientError", () => Effect.succeedNone),
+          Effect.catchTag("HttpClientError", (error) =>
+            Effect.as(log.attemptFailed({ cause: causeOf(error) }), Option.none()),
+          ),
         );
 
       if (Option.isNone(sent)) return yield* unreachable(route);
       const upstream = sent.value;
 
-      if (upstream.status === 429) {
-        yield* pool.rateLimited(account, upstream.headers["retry-after"]);
-        break;
-      }
+      // A rate limit, a refused key and a forbidden account, as OpenCode Go's key check reads them.
+      if (upstream.status === 429 || upstream.status === 401 || upstream.status === 403) {
+        yield* log.attemptFailed({ status: upstream.status, error: yield* briefly(upstream) });
 
-      // A refused key and a forbidden account alike, as OpenCode Go's key check reads them.
-      if (upstream.status === 401 || upstream.status === 403) {
-        yield* pool.lockOut(account, "unauthorized");
+        yield* upstream.status === 429
+          ? pool.rateLimited(account, upstream.headers["retry-after"])
+          : pool.lockOut(account, "unauthorized");
+
         break;
       }
 
@@ -283,6 +307,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
 
       if (upstream.status < 400) {
         if (index > 0) yield* protocols.set(route.model, attempt.protocol);
+        yield* log.upstreamAnswered(upstream.status);
 
         return yield* answered(attempt.answer(upstream));
       }
@@ -295,6 +320,11 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
 
       const refusal = upstreamErrorOf(text);
       const unsupported = Option.contains(refusal.code, PROTOCOL_UNSUPPORTED);
+
+      // A protocol the model doesn't speak is no refusal of the request: the attempt failed.
+      yield* unsupported
+        ? log.attemptFailed({ status: upstream.status, error: refusal })
+        : log.upstreamAnswered(upstream.status);
 
       if (unsupported && index < tries.length - 1) continue;
 
@@ -348,9 +378,12 @@ export const forward = Effect.fn("forward")(function* (
 
   if (route.pooled) return yield* forwardPooled(route, path, body, session, headers);
   yield* log.served(route.provider);
+  yield* log.attempt();
 
   return yield* (yield* Providers).send(route, path, body, session, { headers }).pipe(
     Effect.flatMap((upstream) => outcomeOf(path, upstream)),
-    Effect.catchTag("HttpClientError", () => unreachable(route)),
+    Effect.catchTag("HttpClientError", (error) =>
+      Effect.andThen(log.attemptFailed({ cause: causeOf(error) }), unreachable(route)),
+    ),
   );
 });

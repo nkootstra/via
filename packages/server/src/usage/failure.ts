@@ -1,5 +1,6 @@
 import type { FailureCategory } from "@via/usage";
-import { Option } from "effect";
+import { Option, Schema } from "effect";
+import type { HttpClientError } from "effect/http";
 
 /** What via knows of an upstream attempt that didn't serve. */
 export interface Failure {
@@ -79,6 +80,18 @@ export const categorize = (failure: Failure): FailureCategory => {
 
   return status >= 400 && status < 500 ? "bad_request" : "unknown";
 };
+
+/**
+ * A request Codex or a provider didn't answer in time: both fail it as a transport error
+ * that says it gave "no answer within" the limit.
+ */
+const isUnanswered = Schema.is(
+  Schema.Struct({ description: Schema.String.check(Schema.isPattern(/^no answer within /)) }),
+);
+
+/** Why an upstream couldn't be sent a request, or answer it: too slow, or out of reach. */
+export const causeOf = (error: HttpClientError.HttpClientError): "timeout" | "network" =>
+  isUnanswered(error.reason) ? "timeout" : "network";
 
 /** The longest message kept, as `upstreamErrorOf` cuts one. */
 const MESSAGE_LIMIT = 500;
