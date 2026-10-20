@@ -746,8 +746,26 @@ back or its client left; a sub-agent's turns sit on rows nested under the
 conversation that started it, named for the sub-agent's type when its client
 says. Point at a bar, or move to it with Tab and the arrow keys, for the turn's
 model, who served it, tokens, any billed cost, duration, time to first token and
-error. Under the timeline, the turns are listed oldest first. **All
+error. A turn with [upstream attempts](#upstream-attempts) has a toggle beside
+its number that opens them beneath it, on the same axis: each attempt's
+provider (and the one a router such as OpenRouter sent it on to), account,
+model and status, why it didn't serve ("Budget exhausted", "Rate limited",
+"Downstream unavailable" and so on), the upstream's code, and its message when
+via kept one. A turn that took more than one attempt, or had one fail, shows
+their count on its toggle. A request kept before via kept attempts has none to
+open. Under the timeline, the turns are listed oldest first. **All
 conversations** goes back to the list.
+
+The tab is live while the page's [event stream](#admin-api) is open: a
+conversation with a turn in flight, its own or a sub-agent's, has a **Live**
+badge, and one whose first turn is in flight leads the list before the history
+has it (unless a filter is on, as via can't yet say whether it matches). On a
+conversation's timeline, a turn in flight is striped and runs to now, with its
+attempts so far, the one under way growing with it, and the axis runs to now.
+The bars grow ten times a second, or once a second when you ask for less motion
+(your device's reduced motion setting, or **Motion** set to Reduced). When the
+turn ends, its bar takes the answer's colour at once, and the history's turn
+takes its place without a gap.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
