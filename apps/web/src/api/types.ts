@@ -1,5 +1,5 @@
 /** What the admin API's endpoints answer, as its contract types them. */
-import type { AdminApi } from "@via/server/admin-api";
+import type { AdminApi, TurnEvent } from "@via/server/admin-api";
 import type { HttpApiEndpoint } from "effect/http-api";
 
 type Groups = (typeof AdminApi)["groups"];
@@ -55,6 +55,12 @@ export type ConversationSummary = ConversationPage["conversations"][number];
 
 /** A conversation, and every turn of it and its sub-agents', oldest first. */
 export type Conversation = SuccessOf<Groups["history"]["endpoints"]["conversation"]>;
+
+/** A turn via is handling now, as `/admin/events` sends it. */
+export type LiveTurn = Extract<TurnEvent, { event: "turn.started" }>["data"];
+
+/** A turn that ended, as `/admin/events` sends it: the request and its attempts, as kept. */
+export type EndedTurn = Extract<TurnEvent, { event: "turn.ended" }>["data"];
 
 /** A model's fallback rule, and how it stands now. */
 export type Fallback = SuccessOf<Groups["fallbacks"]["endpoints"]["list"]>[number];

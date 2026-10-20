@@ -1,14 +1,16 @@
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { TurnEvent } from "@via/server/admin-api";
 import { Option } from "effect";
-import { describe, expect, it, onTestFinished } from "vitest";
+import { describe, expect, it, onTestFinished, vi } from "vitest";
 import { createLiveUpdates } from "../src/api/live.ts";
-import { liveTurnsKey } from "../src/api/turns.ts";
+import { endedTurnsKey, liveTurnsKey } from "../src/api/turns.ts";
 import { openSource } from "./event-source.ts";
 
 type Turn = Extract<TurnEvent, { event: "turn.started" }>["data"];
 
 type Attempt = Extract<TurnEvent, { event: "turn.attempt" }>["data"];
+
+type Ended = Extract<TurnEvent, { event: "turn.ended" }>["data"];
 
 const turn = (requestId: string): Turn => ({
   requestId,
@@ -78,8 +80,14 @@ const listening = () => {
   onTestFinished(stop);
 
   return {
+    queryClient,
     source: openSource(),
     turns: () => queryClient.getQueryData<ReadonlyArray<Turn>>(liveTurnsKey),
+    /** The turns that ended which it holds still, by id. */
+    held: () =>
+      queryClient
+        .getQueryData<ReadonlyArray<Ended>>(endedTurnsKey)
+        ?.map(({ entry }) => entry.requestId) ?? [],
   };
 };
 
@@ -107,5 +115,50 @@ describe("the turns in flight", () => {
     source.turn({ event: "turn.started", data: turn("r1") });
     source.fail();
     expect(turns()).toEqual([]);
+  });
+
+  it("keeps them however long no page shows them", () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const { source, turns } = listening();
+
+    source.turn({ event: "turn.started", data: turn("r1") });
+    vi.advanceTimersByTime(60 * 60_000);
+
+    expect(turns()).toEqual([turn("r1")]);
+  });
+
+  it("holds a turn that ended until the history it is in has been fetched again", async () => {
+    const { queryClient, source, held } = listening();
+    let fetches = 0;
+
+    // A page's query of the history, which a `history` event fetches again.
+    const observer = new QueryObserver(queryClient, {
+      queryKey: ["history", "requests"],
+      queryFn: () => ++fetches,
+    });
+
+    onTestFinished(observer.subscribe(() => {}));
+    await vi.waitFor(() => expect(observer.getCurrentResult().data).toBe(1));
+
+    source.turn({ event: "turn.started", data: turn("r1") });
+    source.turn(ended("r1"));
+    expect(held()).toEqual(["r1"]);
+
+    source.history();
+    expect(held()).toEqual(["r1"]);
+    await vi.waitFor(() => expect(held()).toEqual([]));
+    expect(observer.getCurrentResult().data).toBe(2);
+  });
+
+  it("lets go of the turns that ended when the stream drops", () => {
+    const { source, held } = listening();
+
+    source.turn(ended("r1"));
+    source.fail();
+
+    expect(held()).toEqual([]);
   });
 });
