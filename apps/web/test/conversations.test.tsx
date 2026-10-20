@@ -8,6 +8,8 @@ import {
   conversation,
   cost,
   group,
+  liveTurn,
+  openAttempt,
   request,
 } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
@@ -435,5 +437,140 @@ describe("a conversation", () => {
 
     expect(await screen.findByRole("heading", { name: "Conversation not found" })).toBeDefined();
     expect(screen.getByRole("link", { name: "All conversations" })).toBeDefined();
+  });
+});
+
+/** A turn of ses_1 that came in five seconds before the tests' clock, and ended a second later. */
+const kept = turn("l1", now.getTime() - 5_000 - T0, { durationMs: 1_000 });
+
+/** The name of the bar of turn `number` in `within`, once there is one. */
+const barName = async (within_: HTMLElement, number: number) => {
+  const pattern = new RegExp(`^Turn ${number},`);
+
+  await waitFor(() =>
+    expect(within(within_).getAllByRole("button", { name: pattern })).toHaveLength(1),
+  );
+
+  return within(within_).getByRole("button", { name: pattern }).getAttribute("aria-label") ?? "";
+};
+
+describe("a conversation, while a turn is in flight", () => {
+  it("draws the turn up to now, as in flight, with its attempt under way", async () => {
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+    const timeline = await screen.findByRole("list", { name: "Timeline" });
+
+    act(() => openSource().turn({ event: "turn.started", data: liveTurn({ requestId: "l1" }) }));
+    act(() =>
+      openSource().turn({
+        event: "turn.attempt",
+        data: openAttempt({ requestId: "l1", accountLabel: Option.some("a@example.com") }),
+      }),
+    );
+
+    const name = await barName(timeline, 6);
+    expect(name).toContain("In flight");
+    expect(name).toContain("5.0 s so far");
+    expect(screen.getByRole("list", { name: "Legend" }).textContent).toContain("In flight");
+
+    await user.click(
+      await within(timeline).findByRole("button", { name: /^Attempts of turn 6\b/ }),
+    );
+
+    const [open] = within(screen.getByRole("list", { name: "Attempts of turn 6" })).getAllByRole(
+      "listitem",
+    );
+
+    expect(open?.textContent).toContain("a@example.com");
+    expect(open?.textContent).toContain("In flight");
+  });
+
+  it("puts the kept turn in its place as it ends, before the history is fetched again", async () => {
+    const { state } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+    const timeline = await screen.findByRole("list", { name: "Timeline" });
+    const source = openSource();
+
+    act(() => source.turn({ event: "turn.started", data: liveTurn({ requestId: "l1" }) }));
+    expect(await barName(timeline, 6)).toContain("In flight");
+    const asked = state.requests.length;
+
+    act(() =>
+      source.turn({
+        event: "turn.ended",
+        data: { entry: kept, attempts: [keptAttempt({ requestId: "l1" })] },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(
+        within(timeline)
+          .getByRole("button", { name: /^Turn 6,/ })
+          .getAttribute("aria-label"),
+      ).toContain("OK"),
+    );
+    expect(await barName(timeline, 6)).toContain("1.0 s");
+    expect(state.requests.length).toBe(asked);
+
+    // The history has it now, and says so.
+    state.conversations = [{ ...opencode, turns: [...opencode.turns, kept] }, aider];
+    act(() => source.history());
+
+    await waitFor(() => expect(state.requests.length).toBeGreaterThan(asked));
+    expect(await barName(timeline, 6)).toContain("OK");
+    expect(within(timeline).queryByRole("button", { name: /^Turn 7,/ })).toBeNull();
+  });
+
+  it("nests a sub-agent's turn in flight under the conversation that started it", async () => {
+    renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+    const timeline = await screen.findByRole("list", { name: "Timeline" });
+
+    act(() =>
+      openSource().turn({
+        event: "turn.started",
+        data: liveTurn({
+          requestId: "l1",
+          conversationId: Option.some("ses_1:explore"),
+          parentConversationId: Option.some("ses_1"),
+          agentType: Option.some("explore"),
+        }),
+      }),
+    );
+
+    const explore = await within(timeline).findByRole("list", { name: "Sub-agent: explore" });
+    expect(await barName(explore, 6)).toContain("In flight");
+  });
+
+  it("leaves out another conversation's turns in flight", async () => {
+    renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+    const timeline = await screen.findByRole("list", { name: "Timeline" });
+
+    act(() =>
+      openSource().turn({
+        event: "turn.started",
+        data: liveTurn({ requestId: "x1", conversationId: Option.some("ses_2") }),
+      }),
+    );
+    act(() => openSource().turn({ event: "turn.started", data: liveTurn({ requestId: "l1" }) }));
+
+    expect(await barName(timeline, 6)).toContain("In flight");
+    expect(barsOf(timeline)).toHaveLength(6);
+  });
+
+  it("opens a conversation whose first turn is still in flight", async () => {
+    renderApp("/usage?tab=conversations&conversation=ses_new", seed);
+    await screen.findByRole("heading", { name: "Conversation not found" });
+
+    act(() =>
+      openSource().turn({
+        event: "turn.started",
+        data: liveTurn({
+          requestId: "l1",
+          conversationId: Option.some("ses_new"),
+          client: Option.some("claude-cli/2.0.14"),
+        }),
+      }),
+    );
+
+    expect(await screen.findByRole("heading", { name: /Claude Code 2\.0\.14/ })).toBeDefined();
+    expect(await barName(screen.getByRole("list", { name: "Timeline" }), 1)).toContain("In flight");
   });
 });

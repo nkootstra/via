@@ -8,7 +8,7 @@
  * via sent it, until the history queries have fetched again and have it: a
  * page shows it in their place until then, so it never blinks out between.
  */
-import type { QueryClient } from "@tanstack/react-query";
+import { type QueryClient, skipToken, useQuery } from "@tanstack/react-query";
 import { TurnEvent } from "@via/server/admin-api";
 import { Schema } from "effect";
 import type { EndedTurn, LiveTurn } from "./types.ts";
@@ -89,6 +89,16 @@ export function releaseEnded(queryClient: QueryClient, ids: ReadonlySet<string>)
     ended.filter(({ entry }) => !ids.has(entry.requestId)),
   );
 }
+
+const none: ReadonlyArray<never> = [];
+
+/** The turns in flight, oldest first; the caller renders again as they change. */
+export const useLiveTurns = (): ReadonlyArray<LiveTurn> =>
+  useQuery<ReadonlyArray<LiveTurn>>({ queryKey: liveTurnsKey, queryFn: skipToken }).data ?? none;
+
+/** The turns that ended which the history may not have yet; the caller renders again as they change. */
+export const useEndedTurns = (): ReadonlyArray<EndedTurn> =>
+  useQuery<ReadonlyArray<EndedTurn>>({ queryKey: endedTurnsKey, queryFn: skipToken }).data ?? none;
 
 /**
  * Forgets every turn in flight, and those that ended: once the stream drops, a

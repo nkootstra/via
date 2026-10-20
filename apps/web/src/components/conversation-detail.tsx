@@ -19,15 +19,18 @@ import {
 import { Stat, StatList } from "@via/ui/chart";
 import { colors, fonts, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { Option, Schema } from "effect";
+import { useReducedMotionConfig } from "motion/react";
 import { historyConversationQuery } from "../api/admin.ts";
 import { useSignalledOptions } from "../api/live.ts";
-import type { Conversation, UsageRequest } from "../api/types.ts";
+import { useEndedTurns, useLiveTurns } from "../api/turns.ts";
+import type { ConversationSummary, UsageRequest } from "../api/types.ts";
 import { harnessName } from "../lib/harness.ts";
+import { pendingSummary, type Standing, standing } from "../lib/live-conversations.ts";
 import { withoutPrefix } from "../lib/model-entries.ts";
 import { useMask } from "../lib/privacy.ts";
 import { providerName } from "../lib/provider-name.ts";
 import { failed, outcomeDetail, outcomeOf } from "../lib/request-outcome.ts";
-import { formatMoment } from "../lib/time.ts";
+import { formatMoment, useNow } from "../lib/time.ts";
 import { useTimeFormat } from "../lib/time-format.ts";
 import { timelineOf } from "../lib/timeline.ts";
 import {
@@ -143,13 +146,24 @@ function BackLink() {
   );
 }
 
+const nothingKept = { turns: [], attempts: [] };
+
 export function ConversationDetail({ id }: { readonly id: string }) {
   const conversation = useQuery({ ...historyConversationQuery(id), ...useSignalledOptions() });
+  const ended = useEndedTurns();
+  const live = useLiveTurns();
+  const now = standing(id, conversation.data ?? nothingKept, ended, live);
+  const pending = now.turns.length > 0 || now.live.length > 0;
 
   return (
     <div {...stylex.props(styles.root)}>
       <BackLink />
-      {conversation.isError ? (
+      {conversation.data !== undefined ? (
+        <Opened summary={conversation.data.summary} standing={now} />
+      ) : // A conversation whose first turn is in flight, or just ended: the history has none of it yet.
+      pending && isNotFound(conversation.error) ? (
+        <Opened summary={pendingSummary(id, now.turns, now.live)} standing={now} />
+      ) : conversation.isError ? (
         isNotFound(conversation.error) ? (
           <EmptyState
             icon={<UsageIcon size={18} />}
@@ -164,19 +178,31 @@ export function ConversationDetail({ id }: { readonly id: string }) {
             onRetry={() => void conversation.refetch()}
           />
         )
-      ) : conversation.data === undefined ? (
-        <Skeleton height="240px" />
       ) : (
-        <Opened conversation={conversation.data} />
+        <Skeleton height="240px" />
       )}
     </div>
   );
 }
 
-function Opened({ conversation }: { readonly conversation: Conversation }) {
-  const { summary, turns, attempts } = conversation;
+/**
+ * How often the clock ticks while a turn is in flight, so its bar grows: often
+ * enough to glide, or once a second for a viewer who asks for less motion.
+ * With none in flight, nothing grows, and once a minute is plenty.
+ */
+const TICK_MS = { gliding: 100, still: 1_000, idle: 60_000 } as const;
+
+function Opened({
+  summary,
+  standing: { turns, attempts, live },
+}: {
+  readonly summary: ConversationSummary;
+  readonly standing: Standing;
+}) {
   const format = useTimeFormat();
   const mask = useMask();
+  const still = useReducedMotionConfig() === true;
+  const now = useNow(live.length === 0 ? TICK_MS.idle : still ? TICK_MS.still : TICK_MS.gliding);
 
   const costDetail =
     summary.cost.unpriced.length > 0
@@ -218,6 +244,7 @@ function Opened({ conversation }: { readonly conversation: Conversation }) {
                   ]
                 : []),
               ...trouble,
+              ...(live.length > 0 ? [`${formatCount(live.length)} in flight`] : []),
             ].join(" · ") || undefined
           }
         />
@@ -244,12 +271,14 @@ function Opened({ conversation }: { readonly conversation: Conversation }) {
       </StatList>
       <Section title="Timeline">
         <Panel>
-          <Waterfall timeline={timelineOf(summary.id, turns, { attempts })} />
+          <Waterfall timeline={timelineOf(summary.id, turns, { attempts, live, now })} />
         </Panel>
       </Section>
-      <Section title="Turns">
-        <Turns rootId={summary.id} turns={turns} />
-      </Section>
+      {turns.length > 0 && (
+        <Section title="Turns">
+          <Turns rootId={summary.id} turns={turns} />
+        </Section>
+      )}
     </>
   );
 }
