@@ -25,6 +25,14 @@ export const formatUsd = (amount: number) =>
 export const formatMs = (ms: number) =>
   ms < 1_000 ? `${Math.round(ms)} ms` : `${(ms / 1_000).toFixed(1)} s`;
 
+/** A longer stretch of time: 12 s under a minute, then 4.5 min, then 1.2 h. */
+export const formatDuration = (ms: number) =>
+  ms < 60_000
+    ? formatMs(ms)
+    : ms < 3_600_000
+      ? `${Number((ms / 60_000).toFixed(1))} min`
+      : `${Number((ms / 3_600_000).toFixed(1))} h`;
+
 /** A share as a whole percentage, or a dash when there is nothing to share. */
 export const formatShare = (part: number, total: number) =>
   total === 0 ? "–" : `${Math.round((part / total) * 100)}%`;

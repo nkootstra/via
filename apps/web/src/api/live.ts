@@ -52,8 +52,8 @@ export function createLiveUpdates(queryClient: QueryClient) {
       });
 
       // The usage history is too big to push, so via only says it changed. Its queries
-      // fetch again, but not a request list with more pages loaded: that fetches every
-      // page it holds, and a list read further holds still.
+      // fetch again, but not a list of requests or conversations with more pages loaded:
+      // that fetches every page it holds, and a list read further holds still.
       source.addEventListener("history", () => {
         setOpen(true);
 
@@ -61,7 +61,6 @@ export function createLiveUpdates(queryClient: QueryClient) {
           queryKey: ["history"],
           predicate: (query) =>
             !(
-              query.queryKey[1] === "requests" &&
               Predicate.hasProperty(query.state.data, "pages") &&
               Array.isArray(query.state.data.pages) &&
               query.state.data.pages.length > 1

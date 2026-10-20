@@ -1,7 +1,9 @@
 import { screen, within } from "@testing-library/react";
 import axe from "axe-core";
+import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
+import { conversation, request } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
 
 /**
@@ -126,6 +128,26 @@ const fallbacks = [
       ],
       serving: "opencode-go/kimi-k2",
     },
+  },
+];
+
+/** A conversation with a sub-agent's turn, and one that failed. */
+const conversations = [
+  {
+    summary: conversation({ id: "ses_1", guessed: true, source: "hash", subagents: 1, failed: 1 }),
+    turns: [
+      request({ requestId: "t1", conversationId: Option.some("ses_1") }),
+      request({
+        requestId: "s1",
+        at: Date.parse("2026-09-27T11:30:05.000Z"),
+        conversationId: Option.some("ses_1:review"),
+        parentConversationId: Option.some("ses_1"),
+        agentType: Option.some("review"),
+        status: 502,
+        error: Option.some("upstream_unavailable"),
+      }),
+    ],
+    attempts: [],
   },
 ];
 
@@ -291,6 +313,21 @@ describe("accessibility", { timeout: 15_000 }, () => {
     const confirm = await screen.findByRole("alertdialog", { name: "Remove home?" });
 
     expect(await violations(confirm)).toEqual([]);
+  });
+
+  it("the usage page's conversations", async () => {
+    renderApp("/usage?tab=conversations", { conversations });
+    await screen.findByRole("table", { name: "Conversations" });
+
+    expect(await violations()).toEqual([]);
+  });
+
+  it("a conversation's timeline and turns", async () => {
+    renderApp("/usage?tab=conversations&conversation=ses_1", { conversations });
+    await screen.findByRole("list", { name: "Timeline" });
+    await screen.findByRole("table", { name: "Turns" });
+
+    expect(await violations()).toEqual([]);
   });
 
   it("the revoke-key confirmation", async () => {

@@ -48,6 +48,14 @@ export type RequestPage = SuccessOf<Groups["history"]["endpoints"]["requests"]>;
 
 export type UsageRequest = RequestPage["requests"][number];
 
+export type ConversationPage = SuccessOf<Groups["history"]["endpoints"]["conversations"]>;
+
+/** A conversation as the list shows it: its turns and its sub-agents', totalled. */
+export type ConversationSummary = ConversationPage["conversations"][number];
+
+/** A conversation, and every turn of it and its sub-agents', oldest first. */
+export type Conversation = SuccessOf<Groups["history"]["endpoints"]["conversation"]>;
+
 /** A model's fallback rule, and how it stands now. */
 export type Fallback = SuccessOf<Groups["fallbacks"]["endpoints"]["list"]>[number];
 

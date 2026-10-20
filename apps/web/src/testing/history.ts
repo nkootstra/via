@@ -1,6 +1,11 @@
 /** Usage history answers for tests: a group's figures, and a breakdown of groups with their totals. */
 import { Option } from "effect";
-import type { HistoryBreakdown, HistoryGroup, UsageRequest } from "../api/types.ts";
+import type {
+  ConversationSummary,
+  HistoryBreakdown,
+  HistoryGroup,
+  UsageRequest,
+} from "../api/types.ts";
 
 export const cost = (
   apiEquivalentUsd: number,
@@ -80,5 +85,28 @@ export const request = (
   sessionSource: Option.none(),
   agentType: Option.none(),
   client: Option.none(),
+  ...fields,
+});
+
+/** A conversation the usage history kept: OpenCode's, of the hour before the usage tests' clock. */
+export const conversation = (
+  fields: Partial<ConversationSummary> & Pick<ConversationSummary, "id">,
+): ConversationSummary => ({
+  source: "x-opencode-session-id",
+  guessed: false,
+  client: Option.some("opencode/1.19.3"),
+  keyName: Option.some("laptop"),
+  models: ["gpt-6-astra"],
+  firstAt: Date.parse("2026-09-27T11:30:00.000Z"),
+  lastAt: Date.parse("2026-09-27T11:45:00.000Z"),
+  turns: 4,
+  subagents: 0,
+  inputTokens: 4_000,
+  cachedTokens: 3_000,
+  outputTokens: 800,
+  reasoningTokens: 0,
+  failed: 0,
+  fellBack: 0,
+  cost: cost(0.12),
   ...fields,
 });
