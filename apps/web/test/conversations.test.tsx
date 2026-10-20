@@ -1,8 +1,15 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Conversation } from "../src/api/types.ts";
-import { breakdown, conversation, cost, group, request } from "../src/testing/history.ts";
+import type { Conversation, TurnAttempt } from "../src/api/types.ts";
+import {
+  attempt as keptAttempt,
+  breakdown,
+  conversation,
+  cost,
+  group,
+  request,
+} from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
 import { openSource } from "./event-source.ts";
 
@@ -21,6 +28,15 @@ const turn = (requestId: string, at: number, fields: Partial<Parameters<typeof r
     client: Option.some("opencode/1.19.3"),
     ...fields,
   });
+
+/** An upstream attempt of `requestId` that served, from `at` (after T0) for `durationMs`. */
+const attempt = (
+  requestId: string,
+  seq: number,
+  at: number,
+  durationMs: number,
+  fields: Partial<TurnAttempt> = {},
+) => keptAttempt({ requestId, seq, startedAt: T0 + at, durationMs, ...fields });
 
 /** OpenCode's conversation: two turns of its own, a reviewer's two, and one that fell back. */
 const opencode: Conversation = {
@@ -60,7 +76,33 @@ const opencode: Conversation = {
     }),
     turn("t3", 58_000, { status: 499, streamEnd: Option.none() }),
   ],
-  attempts: [],
+  // The first turn's one attempt served; the reviewer's failed turn went through
+  // OpenRouter to a provider that was down; the fallback's first account was out of
+  // budget. The turn its client left was kept before attempts were.
+  attempts: [
+    attempt("t1", 0, 0, 2_000, { accountLabel: Option.some("a@example.com") }),
+    attempt("s2", 0, 20_000, 1_500, {
+      provider: "openrouter",
+      status: Option.some(502),
+      outcome: "failed",
+      category: Option.some("downstream_unavailable"),
+      downstreamProvider: Option.some("Together"),
+      message: Option.some("Provider returned error"),
+    }),
+    attempt("t2", 0, 40_000, 300, {
+      accountLabel: Option.some("a@example.com"),
+      status: Option.some(402),
+      outcome: "failed",
+      category: Option.some("budget_exhausted"),
+      upstreamCode: Option.some("usage_limit_reached"),
+      message: Option.some("You've hit your usage limit."),
+    }),
+    attempt("t2", 1, 40_300, 1_700, {
+      provider: "opencode-go",
+      model: "opencode-go/kimi-k3",
+      accountLabel: Option.some("go main"),
+    }),
+  ],
 };
 
 /** Aider's, which sent no id: via guessed it. */
@@ -92,6 +134,10 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers());
 
 const rowsOf = (table: HTMLElement) => within(table).getAllByRole("row").slice(1);
+
+/** The turns' bars in a timeline, each named "Turn <n>, …". */
+const barsOf = (timeline: HTMLElement) =>
+  within(timeline).getAllByRole("button", { name: /^Turn \d+,/ });
 
 describe("the usage page's conversations", () => {
   it("keeps the requests on the first tab, so a plain link to Usage opens as before", async () => {
@@ -238,7 +284,7 @@ describe("a conversation", () => {
     renderApp("/usage?tab=conversations&conversation=ses_1", seed);
 
     const timeline = await screen.findByRole("list", { name: "Timeline" });
-    const bars = within(timeline).getAllByRole("button");
+    const bars = barsOf(timeline);
 
     expect(bars.map((bar) => bar.getAttribute("aria-label")?.split(",")[0])).toEqual([
       "Turn 1",
@@ -249,7 +295,7 @@ describe("a conversation", () => {
     ]);
 
     const review = within(timeline).getByRole("list", { name: "Sub-agent: review" });
-    expect(within(review).getAllByRole("button")).toHaveLength(2);
+    expect(barsOf(review)).toHaveLength(2);
   });
 
   it("says how each turn ended, in its bar's name", async () => {
@@ -258,7 +304,7 @@ describe("a conversation", () => {
     const timeline = await screen.findByRole("list", { name: "Timeline" });
 
     const names = within(timeline)
-      .getAllByRole("button")
+      .getAllByRole("button", { name: /^Turn \d+,/ })
       .map((bar) => bar.getAttribute("aria-label") ?? "");
 
     expect(names[0]).toContain("OK");
@@ -271,7 +317,7 @@ describe("a conversation", () => {
     const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
 
     const timeline = await screen.findByRole("list", { name: "Timeline" });
-    const [, , failedBar, fellBackBar] = within(timeline).getAllByRole("button");
+    const [, , failedBar, fellBackBar] = barsOf(timeline);
 
     await user.hover(failedBar ?? timeline);
     const failure = await screen.findByRole("tooltip");
@@ -293,7 +339,7 @@ describe("a conversation", () => {
     const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
 
     const timeline = await screen.findByRole("list", { name: "Timeline" });
-    const bars = within(timeline).getAllByRole("button");
+    const bars = barsOf(timeline);
 
     expect(bars.filter((bar) => bar.tabIndex === 0)).toHaveLength(1);
 
@@ -306,6 +352,71 @@ describe("a conversation", () => {
     expect(document.activeElement).toBe(bars[3]);
     await user.keyboard("{Home}");
     expect(document.activeElement).toBe(bars[0]);
+  });
+
+  it("flags a turn that took more than one attempt, or had one fail", async () => {
+    renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+
+    const timeline = await screen.findByRole("list", { name: "Timeline" });
+
+    const toggle = (number: number) =>
+      within(timeline).queryByRole("button", {
+        name: new RegExp(`^Attempts of turn ${number}\\b`),
+      });
+
+    expect(toggle(1)?.getAttribute("aria-label")).toBe("Attempts of turn 1");
+    expect(toggle(3)?.getAttribute("aria-label")).toBe("Attempts of turn 3: 1, 1 failed");
+    expect(toggle(4)?.getAttribute("aria-label")).toBe("Attempts of turn 4: 2, 1 failed");
+    expect(toggle(4)?.textContent).toContain("2");
+    // Kept before via kept attempts: there are none to show.
+    expect(toggle(5)).toBeNull();
+  });
+
+  it("shows a turn's attempts on the same axis when opened, and why each didn't serve", async () => {
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+
+    const timeline = await screen.findByRole("list", { name: "Timeline" });
+    const toggle = within(timeline).getByRole("button", { name: /^Attempts of turn 4\b/ });
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByRole("list", { name: "Attempts of turn 4" })).toBeNull();
+
+    act(() => toggle.focus());
+    await user.keyboard("{Enter}");
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    const [budget, served] = within(
+      screen.getByRole("list", { name: "Attempts of turn 4" }),
+    ).getAllByRole("listitem");
+
+    expect(budget?.textContent).toContain("Codex");
+    expect(budget?.textContent).toContain("a@example.com");
+    expect(budget?.textContent).toContain("402");
+    expect(budget?.textContent).toContain("Budget exhausted");
+    expect(budget?.textContent).toContain("usage_limit_reached");
+    expect(budget?.textContent).toContain("You've hit your usage limit.");
+    expect(served?.textContent).toContain("OpenCode Go");
+    expect(served?.textContent).toContain("go main");
+    expect(served?.textContent).toContain("Served");
+
+    await user.click(toggle);
+    expect(screen.queryByRole("list", { name: "Attempts of turn 4" })).toBeNull();
+  });
+
+  it("names the provider a router sent an attempt on to", async () => {
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+
+    const timeline = await screen.findByRole("list", { name: "Timeline" });
+    await user.click(within(timeline).getByRole("button", { name: /^Attempts of turn 3\b/ }));
+
+    const [down] = within(screen.getByRole("list", { name: "Attempts of turn 3" })).getAllByRole(
+      "listitem",
+    );
+
+    expect(down?.textContent).toContain("OpenRouter → Together");
+    expect(down?.textContent).toContain("Downstream unavailable");
+    expect(down?.textContent).toContain("Provider returned error");
   });
 
   it("lists its turns, oldest first, with how each ended", async () => {

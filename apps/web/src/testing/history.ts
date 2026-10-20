@@ -4,6 +4,7 @@ import type {
   ConversationSummary,
   HistoryBreakdown,
   HistoryGroup,
+  TurnAttempt,
   UsageRequest,
 } from "../api/types.ts";
 
@@ -108,5 +109,26 @@ export const conversation = (
   failed: 0,
   fellBack: 0,
   cost: cost(0.12),
+  ...fields,
+});
+
+/** An upstream attempt of `requestId` that served, as the usage history keeps one. */
+export const attempt = (
+  fields: Partial<TurnAttempt> & Pick<TurnAttempt, "requestId">,
+): TurnAttempt => ({
+  seq: 0,
+  startedAt: Date.parse("2026-09-27T11:30:00.000Z"),
+  durationMs: 2_000,
+  firstChunkMs: Option.none(),
+  provider: "codex",
+  model: "gpt-6-astra",
+  accountId: Option.none(),
+  accountLabel: Option.none(),
+  status: Option.some(200),
+  outcome: "served",
+  category: Option.none(),
+  upstreamCode: Option.none(),
+  downstreamProvider: Option.none(),
+  message: Option.none(),
   ...fields,
 });

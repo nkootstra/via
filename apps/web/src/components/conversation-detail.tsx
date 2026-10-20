@@ -174,7 +174,7 @@ export function ConversationDetail({ id }: { readonly id: string }) {
 }
 
 function Opened({ conversation }: { readonly conversation: Conversation }) {
-  const { summary, turns } = conversation;
+  const { summary, turns, attempts } = conversation;
   const format = useTimeFormat();
   const mask = useMask();
 
@@ -244,7 +244,7 @@ function Opened({ conversation }: { readonly conversation: Conversation }) {
       </StatList>
       <Section title="Timeline">
         <Panel>
-          <Waterfall timeline={timelineOf(summary.id, turns)} />
+          <Waterfall timeline={timelineOf(summary.id, turns, { attempts })} />
         </Panel>
       </Section>
       <Section title="Turns">

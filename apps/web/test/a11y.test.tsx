@@ -3,7 +3,7 @@ import axe from "axe-core";
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
 import { account, opencodeGoAccount } from "../src/testing/admin-handlers.ts";
-import { conversation, request } from "../src/testing/history.ts";
+import { attempt, conversation, request } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
 
 /**
@@ -147,7 +147,16 @@ const conversations = [
         error: Option.some("upstream_unavailable"),
       }),
     ],
-    attempts: [],
+    attempts: [
+      attempt({
+        requestId: "s1",
+        status: Option.some(429),
+        outcome: "failed",
+        category: Option.some("rate_limited"),
+        message: Option.some("Too many requests"),
+      }),
+      attempt({ requestId: "s1", seq: 1, status: Option.some(502), outcome: "failed" }),
+    ],
   },
 ];
 
@@ -322,10 +331,12 @@ describe("accessibility", { timeout: 15_000 }, () => {
     expect(await violations()).toEqual([]);
   });
 
-  it("a conversation's timeline and turns", async () => {
-    renderApp("/usage?tab=conversations&conversation=ses_1", { conversations });
+  it("a conversation's timeline and turns, a turn's attempts open", async () => {
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", { conversations });
     await screen.findByRole("list", { name: "Timeline" });
     await screen.findByRole("table", { name: "Turns" });
+    await user.click(screen.getByRole("button", { name: /^Attempts of turn 2\b/ }));
+    await screen.findByRole("list", { name: "Attempts of turn 2" });
 
     expect(await violations()).toEqual([]);
   });

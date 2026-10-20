@@ -56,8 +56,17 @@ export type ConversationSummary = ConversationPage["conversations"][number];
 /** A conversation, and every turn of it and its sub-agents', oldest first. */
 export type Conversation = SuccessOf<Groups["history"]["endpoints"]["conversation"]>;
 
+/** An upstream attempt of a turn, as the usage history keeps it. */
+export type TurnAttempt = Conversation["attempts"][number];
+
 /** A turn via is handling now, as `/admin/events` sends it. */
 export type LiveTurn = Extract<TurnEvent, { event: "turn.started" }>["data"];
+
+/** An upstream attempt of a turn in flight, as it stands now: `open`, or `ended` and kept. */
+export type LiveAttempt = LiveTurn["attempts"][number];
+
+/** An upstream attempt still under way, with no duration or outcome yet. */
+export type OpenAttempt = Extract<LiveAttempt, { state: "open" }>;
 
 /** A turn that ended, as `/admin/events` sends it: the request and its attempts, as kept. */
 export type EndedTurn = Extract<TurnEvent, { event: "turn.ended" }>["data"];
