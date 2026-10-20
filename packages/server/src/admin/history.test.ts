@@ -420,6 +420,22 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
                 client: "opencode/1.19.3",
               },
             ],
+            // Each turn's upstream attempts, by turn: here, one account served each.
+            attempts: [
+              {
+                seq: 0,
+                provider: "codex",
+                model: "gpt-6-astra",
+                accountLabel: "a@example.com",
+                status: 200,
+                outcome: "served",
+                category: null,
+                upstreamCode: null,
+                downstreamProvider: null,
+                message: null,
+              },
+              { seq: 0, model: "gpt-6-astra-high", outcome: "served" },
+            ],
           });
 
           const missing = yield* via.get("/admin/history/conversations/ses_nope", adminKey);

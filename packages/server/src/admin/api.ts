@@ -19,7 +19,7 @@ import {
   OpenrouterUnavailableError,
 } from "@via/providers/errors";
 import { OpenrouterBudget, ProviderState } from "@via/providers/schemas";
-import { UsageEntry } from "@via/usage/entry";
+import { RequestAttempt, UsageEntry } from "@via/usage/entry";
 import { Schema } from "effect";
 import {
   HttpApi,
@@ -499,10 +499,15 @@ const ConversationPage = Schema.Struct({
   next: Schema.OptionFromNullOr(ConversationCursor),
 });
 
-/** A conversation, and every turn of it and its sub-agents', oldest first. */
+/**
+ * A conversation, and every turn of it and its sub-agents', oldest first, with each
+ * turn's upstream attempts: in the turns' order, each turn's by `seq`, its `requestId`
+ * naming the turn.
+ */
 const Conversation = Schema.Struct({
   summary: ConversationSummary,
   turns: Schema.Array(UsageEntry),
+  attempts: Schema.Array(RequestAttempt),
 });
 
 /** The usage history has no request of this conversation; the admin API answers it as a 404. */
