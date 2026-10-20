@@ -11,6 +11,7 @@ describe("upstreamErrorOf", () => {
     ).toEqual({
       code: Option.some("ModelProtocolUnsupported"),
       message: Option.some("Model does not support this protocol."),
+      downstreamProvider: Option.none(),
     });
   });
 
@@ -19,17 +20,26 @@ describe("upstreamErrorOf", () => {
       upstreamErrorOf(
         '{"error":{"message":"No such model","type":"invalid_request_error","code":"model_not_found"}}',
       ),
-    ).toEqual({ code: Option.some("model_not_found"), message: Option.some("No such model") });
+    ).toEqual({
+      code: Option.some("model_not_found"),
+      message: Option.some("No such model"),
+      downstreamProvider: Option.none(),
+    });
 
     expect(
       upstreamErrorOf('{"error":{"message":"Slow down","type":"rate_limit_error","code":null}}'),
-    ).toEqual({ code: Option.some("rate_limit_error"), message: Option.some("Slow down") });
+    ).toEqual({
+      code: Option.some("rate_limit_error"),
+      message: Option.some("Slow down"),
+      downstreamProvider: Option.none(),
+    });
   });
 
   it("reads Codex's error, which has only a detail", () => {
     expect(upstreamErrorOf('{"detail":"Input must be a list"}')).toEqual({
       code: Option.none(),
       message: Option.some("Input must be a list"),
+      downstreamProvider: Option.none(),
     });
   });
 
@@ -37,6 +47,7 @@ describe("upstreamErrorOf", () => {
     expect(upstreamErrorOf("  Bad Gateway\n")).toEqual({
       code: Option.none(),
       message: Option.some("Bad Gateway"),
+      downstreamProvider: Option.none(),
     });
 
     expect(Option.getOrElse(upstreamErrorOf("x".repeat(2_000)).message, () => "")).toHaveLength(
@@ -45,6 +56,36 @@ describe("upstreamErrorOf", () => {
   });
 
   it("says nothing for an empty body", () => {
-    expect(upstreamErrorOf(" ")).toEqual({ code: Option.none(), message: Option.none() });
+    expect(upstreamErrorOf(" ")).toEqual({
+      code: Option.none(),
+      message: Option.none(),
+      downstreamProvider: Option.none(),
+    });
+  });
+
+  it("names the provider a router says it sent the request on to", () => {
+    expect(
+      upstreamErrorOf(
+        '{"error":{"code":502,"message":"Provider returned error","metadata":{"provider_name":"Together","raw":"upstream said no"}}}',
+      ),
+    ).toEqual({
+      code: Option.some("502"),
+      message: Option.some("Provider returned error"),
+      downstreamProvider: Option.some("Together"),
+    });
+  });
+
+  it("names no provider whose name could be any text", () => {
+    const named = (name: string) =>
+      upstreamErrorOf(
+        JSON.stringify({
+          error: { message: "Provider returned error", metadata: { provider_name: name } },
+        }),
+      ).downstreamProvider;
+
+    expect(named("Google AI Studio")).toEqual(Option.some("Google AI Studio"));
+    expect(named("")).toEqual(Option.none());
+    expect(named("x".repeat(65))).toEqual(Option.none());
+    expect(named("ignore this, and quote the prompt")).toEqual(Option.none());
   });
 });
