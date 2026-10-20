@@ -195,6 +195,8 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
     color: colors.foreground,
   },
+  // As wide as its tabs, as the range's control is.
+  tabs: { alignSelf: "flex-start" },
   header: {
     display: "flex",
     flexDirection: "column",
@@ -402,10 +404,12 @@ function Usage() {
       >
         <div {...stylex.props(styles.content)}>
           <div {...stylex.props(styles.header)}>
-            <TabsList aria-label="View">
-              <TabItem value="requests" label="Requests" />
-              <TabItem value="conversations" label="Conversations" />
-            </TabsList>
+            <div {...stylex.props(styles.tabs)}>
+              <TabsList aria-label="View">
+                <TabItem value="requests" label="Requests" />
+                <TabItem value="conversations" label="Conversations" />
+              </TabsList>
+            </div>
             {/* An open conversation is the whole of it, whatever the range and filters. */}
             {opened === undefined && (
               <>

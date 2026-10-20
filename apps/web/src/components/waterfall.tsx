@@ -82,6 +82,8 @@ const styles = stylex.create({
   },
   tickStart: { transform: "none" },
   tickEnd: { transform: "translateX(-100%)" },
+  // A phone has room for the start, middle and end of the axis only.
+  tickQuarter: { display: { default: "block", "@media (max-width: 640px)": "none" } },
   list: {
     margin: 0,
     padding: 0,
@@ -156,9 +158,6 @@ const styles = stylex.create({
     minWidth: "2px",
     borderRadius: radii.full,
     backgroundColor: colors.border,
-  },
-  nested: {
-    borderInlineStart: `1px solid ${colors.border}`,
   },
   detail: {
     display: "grid",
@@ -283,6 +282,7 @@ export function Waterfall({ timeline }: { readonly timeline: Timeline }) {
                 styles.tick,
                 share === 0 && styles.tickStart,
                 share === 1 && styles.tickEnd,
+                (share === 0.25 || share === 0.75) && styles.tickQuarter,
               )}
             >
               {formatOffset(share * span)}
@@ -356,8 +356,7 @@ function AgentRows({
       </div>
       <ol
         aria-label={Option.isSome(agent.agentType) ? `Sub-agent: ${name}` : "Sub-agent"}
-        style={{ marginInlineStart: depth * INDENT_PX + 4 }}
-        {...stylex.props(styles.list, styles.nested)}
+        {...stylex.props(styles.list)}
       >
         <Items items={agent.items} timeline={timeline} depth={depth + 1} />
       </ol>

@@ -333,7 +333,7 @@ function Turns({
                 <TableCell secondary>
                   <span {...stylex.props(styles.number)}>{formatMs(turn.durationMs)}</span>
                   {Option.isSome(turn.firstChunkMs) && (
-                    <span {...stylex.props(styles.under)}>
+                    <span {...stylex.props(styles.under, styles.number)}>
                       First token {formatMs(turn.firstChunkMs.value)}
                     </span>
                   )}
