@@ -3,10 +3,12 @@ import { Schema } from "effect";
 
 type Headers = Readonly<Record<string, string | undefined>>;
 
-// Where coding agents put their conversation id: OpenCode, Kilo and Hermes
-// send `x-opencode-session`; Claude Code `x-claude-code-session-id`; Codex
-// `session-id` plus `prompt_cache_key`; Cline and Roo `session_id` on their
-// Codex paths and `x-task-id`; OpenCode `x-session-id` to other providers.
+// Where coding agents put their conversation id: OpenCode sends
+// `x-opencode-session-id` (older builds, Kilo and Hermes `x-opencode-session`);
+// Claude Code `x-claude-code-session-id`; Codex `session-id`, which its
+// sub-agents share, plus `thread-id` and `prompt_cache_key`; Cline and Roo
+// `session_id` on their Codex paths and `x-task-id`; OpenCode `x-session-id`
+// to other providers.
 // OpenCode's sub-agents also send `x-parent-session-id`, which comes first:
 // sibling sub-agents repeat one system prompt and tool list, and upstreams
 // (OpenCode Go among them) route by session, so sharing the parent's keeps
@@ -15,10 +17,12 @@ const sources: ReadonlyArray<
   (headers: Headers, body: Schema.JsonObject) => Schema.Json | undefined
 > = [
   (headers) => headers["x-parent-session-id"],
+  (headers) => headers["x-opencode-session-id"],
   (headers) => headers["x-opencode-session"],
   (headers) => headers["x-claude-code-session-id"],
   (headers) => headers["session-id"],
   (headers) => headers["session_id"],
+  (headers) => headers["thread-id"],
   (headers) => headers["x-session-id"],
   (_, body) => body["session_id"],
   (_, body) => body["prompt_cache_key"],

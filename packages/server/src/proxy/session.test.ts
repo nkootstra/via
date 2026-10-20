@@ -13,10 +13,12 @@ describe("resolveSession", () => {
   it("takes the first session id a client sent, in order of precedence", () => {
     const all = {
       "x-parent-session-id": "parent",
-      "x-opencode-session": "opencode",
+      "x-opencode-session-id": "opencode",
+      "x-opencode-session": "opencode-old",
       "x-claude-code-session-id": "claude",
       "session-id": "codex",
       session_id: "cline",
+      "thread-id": "thread",
       "x-session-id": "generic",
       "x-task-id": "task",
       "x-kilocode-taskid": "kilo",
@@ -26,10 +28,12 @@ describe("resolveSession", () => {
 
     const order = [
       ["x-parent-session-id", "parent"],
-      ["x-opencode-session", "opencode"],
+      ["x-opencode-session-id", "opencode"],
+      ["x-opencode-session", "opencode-old"],
       ["x-claude-code-session-id", "claude"],
       ["session-id", "codex"],
       ["session_id", "cline"],
+      ["thread-id", "thread"],
       ["x-session-id", "generic"],
       ["body session_id", "body"],
       ["body prompt_cache_key", "cache"],
