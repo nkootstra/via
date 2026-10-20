@@ -53,6 +53,7 @@ export function Tooltip({ content, children }: TooltipProps) {
       <BaseTooltip.Portal>
         <BaseTooltip.Positioner sideOffset={6} {...stylex.props(styles.positioner)}>
           <BaseTooltip.Popup
+            role="tooltip"
             render={(props, state) => {
               const exiting = state.transitionStatus === "ending";
               const hidden = still ? { opacity: 0 } : { opacity: 0, scale: 0.97 };

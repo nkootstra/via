@@ -16,7 +16,9 @@ describe("Tooltip", () => {
     expect(screen.queryByText("Guessed from the conversation's opening")).toBeNull();
 
     await user.hover(screen.getByRole("button", { name: "Guessed" }));
-    expect(await screen.findByText("Guessed from the conversation's opening")).toBeDefined();
+    expect((await screen.findByRole("tooltip")).textContent).toBe(
+      "Guessed from the conversation's opening",
+    );
   });
 
   it("shows its content while what it explains has keyboard focus", async () => {
