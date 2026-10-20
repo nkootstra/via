@@ -67,7 +67,7 @@ export type UsageEntry = typeof UsageEntry.Type;
  * upstream refused the request itself and the client got that refusal; `failed`, it couldn't
  * serve, so via tried another account, protocol or model, or gave up.
  */
-export const AttemptOutcome = Schema.Literals(["served", "refused", "failed"]);
+const AttemptOutcome = Schema.Literals(["served", "refused", "failed"]);
 
 /** Why an upstream attempt didn't serve, as via reads the upstream's answer. */
 export const FailureCategory = Schema.Literals([
