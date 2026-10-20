@@ -7,7 +7,8 @@ import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { Clock, Duration, Effect, FiberHandle, Queue, Schema, Stream } from "effect";
 import { Sse } from "effect/encoding";
 import { UsageHistory } from "@via/usage";
-import { type AdminState, StateEvent } from "./api.ts";
+import { type AdminState, StateEvent, TurnEvent } from "./api.ts";
+import { LiveTurns } from "../usage/live-turns.ts";
 import { adminState, type StateOptions } from "./state.ts";
 
 /** How long a change waits for the ones that come with it, so a burst goes out as one state. */
@@ -130,10 +131,24 @@ const historyEvents = Stream.unwrap(
   }),
 );
 
+const encodeTurn = Schema.encodeEffect(TurnEvent);
+
+/**
+ * The turns in flight: a `turn.started` for each as the page connects, then each
+ * turn's events as they come. A page that falls behind loses the oldest; requests
+ * never wait for it (see {@link LiveTurns}).
+ */
+const turnEvents = Stream.unwrap(Effect.map(LiveTurns, (live) => live.events)).pipe(
+  // via builds the events itself, so failing to encode one is a bug.
+  Stream.mapEffect((event) => Effect.orDie(encodeTurn(event))),
+  Stream.map(({ event, data }) => frame(event, data)),
+);
+
 /**
  * The admin UI's live updates: the admin state as `state` events (see
- * {@link stateEvents}), and a `history` event whenever the usage history
- * changes (see {@link historyEvents}).
+ * {@link stateEvents}), a `history` event whenever the usage history
+ * changes (see {@link historyEvents}), and the turns in flight (see
+ * {@link turnEvents}).
  */
 export const adminEvents = (options: StateOptions) =>
-  Stream.merge(stateEvents(options), historyEvents);
+  stateEvents(options).pipe(Stream.merge(historyEvents), Stream.merge(turnEvents));

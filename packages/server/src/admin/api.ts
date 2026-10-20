@@ -1,7 +1,7 @@
 // The admin API's contract: its endpoints, what they take and answer, and how they are
-// secured. `routes.ts` implements it. It imports only `effect` and the import-light
-// subpaths of via's other packages, so a browser can bundle it, as `@via/server/admin-api`,
-// for an API client.
+// secured. `routes.ts` implements it. It imports only `effect`, the import-light
+// subpaths of via's other packages and `../usage/turn-events.ts`, which imports no
+// more, so a browser can bundle it, as `@via/server/admin-api`, for an API client.
 import { AccountNotFoundError, AuthRequestError } from "@via/codex-auth/errors";
 import { FallbackRuleInvalidError, FallbackRuleNotFoundError } from "@via/fallbacks/rule";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
@@ -21,6 +21,7 @@ import {
 import { OpenrouterBudget, ProviderState } from "@via/providers/schemas";
 import { RequestAttempt, UsageEntry } from "@via/usage/entry";
 import { Schema } from "effect";
+import { TurnEvent } from "../usage/turn-events.ts";
 import {
   HttpApi,
   HttpApiEndpoint,
@@ -294,8 +295,10 @@ const HistoryEvent = Schema.Struct({
   data: Schema.String,
 });
 
-/** Every event `GET /admin/events` sends. */
-export const AdminEvent = Schema.Union([StateEvent, HistoryEvent]);
+export { TurnEvent };
+
+/** Every event `GET /admin/events` sends: the state, the history's changes, and the turns in flight. */
+export const AdminEvent = Schema.Union([StateEvent, HistoryEvent, ...TurnEvent.members]);
 
 /** No login with this id was started since the server did; the admin API answers it as a 404. */
 export class LoginNotFoundError extends Schema.TaggedError<LoginNotFoundError>()(

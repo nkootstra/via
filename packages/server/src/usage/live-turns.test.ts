@@ -1,6 +1,7 @@
 import { expect, it } from "@effect/vitest";
 import { Arbitrary, Effect, Option, Queue, Schema, Stream } from "effect";
-import { type LiveAttempt, type LiveTurn, LiveTurns, type TurnEvent } from "./live-turns.ts";
+import { LiveTurns } from "./live-turns.ts";
+import type { LiveAttempt, LiveTurn, TurnEvent } from "./turn-events.ts";
 
 const turn = (requestId: string, at = 1_000): LiveTurn => ({
   requestId,
