@@ -61,3 +61,63 @@ export const UsageEntry = Schema.Struct({
 });
 
 export type UsageEntry = typeof UsageEntry.Type;
+
+/**
+ * How an upstream attempt ended: `served`, its answer went to the client; `refused`, the
+ * upstream refused the request itself and the client got that refusal; `failed`, it couldn't
+ * serve, so via tried another account, protocol or model, or gave up.
+ */
+export const AttemptOutcome = Schema.Literals(["served", "refused", "failed"]);
+
+/** Why an upstream attempt didn't serve, as via reads the upstream's answer. */
+export const FailureCategory = Schema.Literals([
+  "budget_exhausted",
+  "rate_limited",
+  "auth",
+  "downstream_unavailable",
+  "context_too_long",
+  "content_filtered",
+  "bad_request",
+  "timeout",
+  "network",
+  "unknown",
+]);
+
+export type FailureCategory = typeof FailureCategory.Type;
+
+/**
+ * One upstream attempt of a request: an account or provider via sent it to, in
+ * order, fallbacks included. Prompts and answers are never kept.
+ */
+export const RequestAttempt = Schema.Struct({
+  requestId: Schema.String,
+  /** Its place among the request's attempts, from 0. */
+  seq: Schema.Finite,
+  /** When via sent it, in epoch milliseconds. */
+  startedAt: Schema.Finite,
+  /** Until it failed, or, for the attempt that answered, until the answer ended. */
+  durationMs: Schema.Finite,
+  /** From `startedAt` to the first chunk of a streamed answer, for the attempt that answered. */
+  firstChunkMs: Nullable(Schema.Finite),
+  /** `codex`, `opencode-go`, or the name of the provider. */
+  provider: Schema.String,
+  model: Schema.String,
+  accountId: Nullable(Schema.String),
+  accountLabel: Nullable(Schema.String),
+  /** The upstream's HTTP status; none when it was never reached or never answered. */
+  status: Nullable(Schema.Finite),
+  outcome: AttemptOutcome,
+  /** Why it didn't serve; none for one that served. */
+  category: Nullable(FailureCategory),
+  /** The upstream's own error code or type, when it is an identifier. */
+  upstreamCode: Nullable(Schema.String),
+  /** The provider a router such as OpenRouter says it sent the request on to. */
+  downstreamProvider: Nullable(Schema.String),
+  /**
+   * The upstream's error message, cut to 500 characters, kept only for a 401, 402, 403,
+   * 429 or 5xx: answers about the account, its limits or the upstream itself, not the request.
+   */
+  message: Nullable(Schema.String),
+});
+
+export type RequestAttempt = typeof RequestAttempt.Type;
