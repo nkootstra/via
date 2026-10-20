@@ -8,7 +8,8 @@ import { withFallbacks } from "../fallback/fallback.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
 import { collected, relayed } from "./relay.ts";
-import { resolveSession } from "./session.ts";
+import { resolveConversation, resolveSession } from "./session.ts";
+import { RequestLog } from "../usage/request-log.ts";
 
 /** POST /v1/responses: the Responses API, passed through to Codex or the provider its model names. */
 export const responses = authenticated(
@@ -22,6 +23,7 @@ export const responses = authenticated(
     const body = decoded.value;
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const session = resolveSession(headers, body);
+    yield* (yield* RequestLog).conversation(resolveConversation(headers, body));
     const providers = yield* Providers;
 
     /** Asks for the model `request` names: its provider, or Codex. */

@@ -75,5 +75,10 @@ export const request = (
   firstChunkMs: Option.some(600),
   requestedModel: Option.none(),
   fallbackReason: Option.none(),
+  conversationId: Option.none(),
+  parentConversationId: Option.none(),
+  sessionSource: Option.none(),
+  agentType: Option.none(),
+  client: Option.none(),
   ...fields,
 });

@@ -45,6 +45,11 @@ const entry = (overrides: Partial<UsageEntry> = {}): UsageEntry => ({
   firstChunkMs: Option.none(),
   requestedModel: Option.none(),
   fallbackReason: Option.none(),
+  conversationId: Option.none(),
+  parentConversationId: Option.none(),
+  sessionSource: Option.none(),
+  agentType: Option.none(),
+  client: Option.none(),
   ...overrides,
 });
 
@@ -87,6 +92,24 @@ describe("UsageHistory", () => {
         yield* usage.record(fellBack);
         const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
         expect(page.requests).toEqual([fellBack]);
+      }),
+    ),
+  );
+
+  it.effect("gives back the conversation a request belongs to, and the client that sent it", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const subAgent = entry({
+          conversationId: Option.some("t2"),
+          parentConversationId: Option.some("t1"),
+          sessionSource: Option.some("thread-id"),
+          agentType: Option.some("review"),
+          client: Option.some("codex_cli_rs/0.40.0"),
+        });
+
+        yield* usage.record(subAgent);
+        const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
+        expect(page.requests).toEqual([subAgent]);
       }),
     ),
   );
@@ -936,11 +959,27 @@ layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
         Effect.forEach(kept, usage.record, { discard: true }),
       ).pipe(Effect.provide(open));
 
-      // The database as an older via left it: one that never ran the migration that forgets them.
-      yield* Effect.flatMap(
-        SqlClient.SqlClient,
-        (sql) => sql`DELETE FROM effect_sql_migrations WHERE name = 'no_upstream_words'`,
-      ).pipe(Effect.provide(SqliteClient.layer({ filename: path })));
+      // The database as an older via left it: one that never ran the migration that forgets
+      // them, nor any after it.
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        // Dropping a column copies the table; this leaves no copy of the words behind.
+        yield* sql`PRAGMA secure_delete = ON`;
+        yield* sql`DROP INDEX requests_conversation`;
+        yield* sql`DROP INDEX requests_parent`;
+
+        for (const column of [
+          "conversation_id",
+          "parent_conversation_id",
+          "session_source",
+          "agent_type",
+          "client",
+        ]) {
+          yield* sql`ALTER TABLE requests DROP COLUMN ${sql(column)}`;
+        }
+
+        yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 5`;
+      }).pipe(Effect.provide(SqliteClient.layer({ filename: path })));
 
       const page = yield* Effect.flatMap(UsageHistory, (usage) =>
         usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 }),

@@ -377,6 +377,19 @@ const migrations = Migrator.fromRecord({
     yield* sql`UPDATE requests SET error = NULL WHERE ${notACode("error")}`;
     yield* sql`UPDATE requests SET fallback_reason = NULL WHERE ${notACode("fallback_reason")}`;
   }),
+  // Older requests belong to no conversation.
+  "6_conversations": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`ALTER TABLE requests ADD COLUMN conversation_id TEXT`;
+    yield* sql`ALTER TABLE requests ADD COLUMN parent_conversation_id TEXT`;
+    yield* sql`ALTER TABLE requests ADD COLUMN session_source TEXT`;
+    yield* sql`ALTER TABLE requests ADD COLUMN agent_type TEXT`;
+    yield* sql`ALTER TABLE requests ADD COLUMN client TEXT`;
+    // A conversation's turns, in order, and so its latest activity.
+    yield* sql`CREATE INDEX requests_conversation ON requests (conversation_id, at)`;
+    // A conversation's sub-agents.
+    yield* sql`CREATE INDEX requests_parent ON requests (parent_conversation_id, conversation_id)`;
+  }),
 });
 
 const make = Effect.gen(function* () {
@@ -426,7 +439,9 @@ const make = Effect.gen(function* () {
     cache_write_tokens AS "cacheWriteTokens",
     output_tokens AS "outputTokens", reasoning_tokens AS "reasoningTokens",
     cost_usd AS "costUsd", duration_ms AS "durationMs", first_chunk_ms AS "firstChunkMs",
-    requested_model AS "requestedModel", fallback_reason AS "fallbackReason"
+    requested_model AS "requestedModel", fallback_reason AS "fallbackReason",
+    conversation_id AS "conversationId", parent_conversation_id AS "parentConversationId",
+    session_source AS "sessionSource", agent_type AS "agentType", client
   `;
 
   const record = Effect.fn("UsageHistory.record")(function* (entry: UsageEntry) {
@@ -456,6 +471,11 @@ const make = Effect.gen(function* () {
       first_chunk_ms: row.firstChunkMs,
       requested_model: row.requestedModel,
       fallback_reason: row.fallbackReason,
+      conversation_id: row.conversationId,
+      parent_conversation_id: row.parentConversationId,
+      session_source: row.sessionSource,
+      agent_type: row.agentType,
+      client: row.client,
     })}`;
   });
 
