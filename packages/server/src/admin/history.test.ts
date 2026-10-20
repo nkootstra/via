@@ -2,7 +2,7 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { ok, type Via, withVia } from "../testing/harness.ts";
 
@@ -44,6 +44,39 @@ const traffic = (via: Via) =>
     })).text;
     yield* via.logged("openrouter/minimax-m3");
   });
+
+/**
+ * An OpenCode session, a second later its sub-agent's turn, and a second later
+ * a chat that sent no id.
+ */
+const conversationTraffic = (via: Via) =>
+  Effect.gen(function* () {
+    const opencode = { "user-agent": "opencode/1.19.3" };
+
+    yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" }, undefined, {
+      ...opencode,
+      "x-session-id": "ses_root",
+    });
+    yield* TestClock.adjust("1 second");
+    yield* via.post("/v1/responses", { model: "gpt-6-astra-high", input: "hi" }, undefined, {
+      ...opencode,
+      "x-session-id": "ses_child",
+      "x-parent-session-id": "ses_root",
+    });
+    yield* TestClock.adjust("1 second");
+    yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hello" });
+    yield* via.logged("Sent HTTP response");
+
+    // Three requests make three lines; the last can come after the first is found.
+    yield* via.usage
+      .requests({ from: 0, to: Number.MAX_SAFE_INTEGER, limit: 10 })
+      .pipe(Effect.repeat({ until: (page) => page.requests.length === 3 }));
+  });
+
+/** Where a page of conversations says the next one starts. */
+const decodeNext = Schema.decodeUnknownEffect(
+  Schema.Struct({ next: Schema.Struct({ at: Schema.Finite, id: Schema.String }) }),
+);
 
 // $1,000 per million input tokens and $10,000 per million output tokens: 10 in and 2 out cost $0.03.
 const prices = { "gpt-6-astra": { input: 1_000, output: 10_000 } };
@@ -319,6 +352,80 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
           expect([unknown.status, offset.status]).toEqual([400, 400]);
         }),
       { adminKey },
+    ),
+  );
+
+  it.effect("lists the conversations, the latest active first, with their sub-agents'", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* conversationTraffic(via);
+          const page = yield* history(via, `conversations?${range}`);
+
+          expect(page).toMatchObject({
+            conversations: [
+              { source: "hash", guessed: true, turns: 1, subagents: 0 },
+              {
+                id: "ses_root",
+                source: "x-session-id",
+                guessed: false,
+                client: "opencode/1.19.3",
+                keyName: "test",
+                models: ["gpt-6-astra", "gpt-6-astra-high"],
+                turns: 2,
+                subagents: 1,
+                inputTokens: 20,
+                outputTokens: 4,
+                failed: 0,
+                fellBack: 0,
+                cost: { apiEquivalentUsd: 0.06, billedUsd: 0, unpriced: [] },
+              },
+            ],
+            next: null,
+          });
+
+          const { at, id } = yield* history(via, `conversations?${range}&limit=1`).pipe(
+            Effect.flatMap(decodeNext),
+            Effect.map((first) => first.next),
+          );
+
+          const second = yield* history(
+            via,
+            `conversations?${range}&limit=1&afterAt=${at}&afterId=${encodeURIComponent(id)}`,
+          );
+
+          expect(second).toMatchObject({ conversations: [{ id: "ses_root" }], next: null });
+        }),
+      { adminKey, prices },
+    ),
+  );
+
+  it.effect("gives a conversation with every turn of it and its sub-agents', in order", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          yield* conversationTraffic(via);
+          const conversation = yield* history(via, "conversations/ses_root");
+
+          expect(conversation).toMatchObject({
+            summary: { id: "ses_root", turns: 2, subagents: 1 },
+            turns: [
+              { conversationId: "ses_root", parentConversationId: null, model: "gpt-6-astra" },
+              {
+                conversationId: "ses_child",
+                parentConversationId: "ses_root",
+                sessionSource: "x-session-id",
+                client: "opencode/1.19.3",
+              },
+            ],
+          });
+
+          const missing = yield* via.get("/admin/history/conversations/ses_nope", adminKey);
+          expect(missing.status).toBe(404);
+        }),
+      { adminKey, prices },
     ),
   );
 

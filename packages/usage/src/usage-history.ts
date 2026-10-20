@@ -822,6 +822,7 @@ const make = Effect.gen(function* () {
       FROM requests JOIN tree ON requests.conversation_id = tree.id
       WHERE ${where}
       GROUP BY tree.root, model
+      ORDER BY tree.root, model
     `.pipe(Effect.flatMap((rows) => decodeConversationModelRows(rows).pipe(Effect.orDie)));
 
     // The bare columns beside the one MAX(at) come from the conversation's own latest turn.
