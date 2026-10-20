@@ -2,6 +2,14 @@ import { describe, expect, it } from "@effect/vitest";
 import { Option } from "effect";
 import { upstreamErrorOf } from "./upstream-error.ts";
 
+/** The provider a router's error naming `name` is read as having sent the request on to. */
+const named = (name: string) =>
+  upstreamErrorOf(
+    JSON.stringify({
+      error: { message: "Provider returned error", metadata: { provider_name: name } },
+    }),
+  ).downstreamProvider;
+
 describe("upstreamErrorOf", () => {
   it("reads OpenCode Go's error: its type as the code", () => {
     expect(
@@ -76,13 +84,6 @@ describe("upstreamErrorOf", () => {
   });
 
   it("names no provider whose name could be any text", () => {
-    const named = (name: string) =>
-      upstreamErrorOf(
-        JSON.stringify({
-          error: { message: "Provider returned error", metadata: { provider_name: name } },
-        }),
-      ).downstreamProvider;
-
     expect(named("Google AI Studio")).toEqual(Option.some("Google AI Studio"));
     expect(named("")).toEqual(Option.none());
     expect(named("x".repeat(65))).toEqual(Option.none());
