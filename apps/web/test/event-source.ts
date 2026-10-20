@@ -3,7 +3,7 @@
  * one, push events through it and break it, as via and the network would.
  * Every EventSource the app makes is kept, newest last, until the test ends.
  */
-import { AdminState } from "@via/server/admin-api";
+import { AdminState, TurnEvent } from "@via/server/admin-api";
 import { Schema } from "effect";
 
 export const sources: Array<FakeEventSource> = [];
@@ -40,6 +40,13 @@ export class FakeEventSource extends EventTarget {
   history() {
     this.readyState = FakeEventSource.OPEN;
     this.dispatchEvent(new MessageEvent("history", { data: "changed" }));
+  }
+
+  /** via sends an event about a turn in flight, as `/admin/events` does. */
+  turn(event: TurnEvent) {
+    this.readyState = FakeEventSource.OPEN;
+    const { data } = Schema.encodeSync(TurnEvent)(event);
+    this.dispatchEvent(new MessageEvent(event.event, { data }));
   }
 
   /** The connection drops; a browser tries again on its own. */

@@ -11,6 +11,7 @@ import { Option, Predicate } from "effect";
 import { useEffect, useSyncExternalStore } from "react";
 import { builtVersion } from "../version.ts";
 import { applyState, parseState } from "./state.ts";
+import { applyTurnEvent, forgetTurns, parseTurnEvent } from "./turns.ts";
 
 export type LiveUpdates = ReturnType<typeof createLiveUpdates>;
 
@@ -68,7 +69,22 @@ export function createLiveUpdates(queryClient: QueryClient) {
         });
       });
 
-      source.addEventListener("error", () => setOpen(false));
+      // The turns in flight, which via pushes whole: no page renders them yet.
+      for (const name of ["turn.started", "turn.attempt", "turn.ended"]) {
+        source.addEventListener(name, (event) => {
+          if (!Predicate.hasProperty(event, "data") || !Predicate.isString(event.data)) return;
+
+          Option.map(parseTurnEvent(name, event.data), (turn) => {
+            applyTurnEvent(queryClient, turn);
+            setOpen(true);
+          });
+        });
+      }
+
+      source.addEventListener("error", () => {
+        setOpen(false);
+        forgetTurns(queryClient);
+      });
 
       return () => {
         source.close();
