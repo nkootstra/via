@@ -38,6 +38,7 @@ import type {
   HistorySeries,
   UsageRequest,
 } from "../../api/types.ts";
+import { CostAmount } from "../../components/cost.tsx";
 import { UsageIcon } from "../../components/icons.tsx";
 import { ModelName } from "../../components/model-name.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -57,6 +58,7 @@ import {
   tokensOf,
 } from "../../lib/usage-format.ts";
 import { historyBuckets, historyRange } from "../../lib/history-range.ts";
+import { failed, outcomeDetail, outcomeOf } from "../../lib/request-outcome.ts";
 
 /**
  * An id a search param carries. TanStack Router reads a value that looks like a
@@ -760,19 +762,7 @@ function Breakdown({
                   </span>
                 </TableCell>
                 <TableCell>
-                  {/* As the Overview has it: a model without a price costs an unknown amount, not nothing. */}
-                  {group.cost.unpriced.length > 0 ? (
-                    <span
-                      title={`No price known for ${group.cost.unpriced.join(", ")}`}
-                      {...stylex.props(styles.number)}
-                    >
-                      Unknown
-                    </span>
-                  ) : (
-                    <span {...stylex.props(styles.number)}>
-                      {formatUsd(group.cost.apiEquivalentUsd + group.cost.billedUsd)}
-                    </span>
-                  )}
+                  <CostAmount cost={group.cost} />
                 </TableCell>
                 <TableCell secondary>
                   <span {...stylex.props(styles.number, group.errors > 0 && styles.failed)}>
@@ -787,41 +777,6 @@ function Breakdown({
     </Panel>
   );
 }
-
-/** The errors via answers itself, in a word or two; the code itself is the cell's title. */
-const errorNames = new Map([
-  ["rate_limit_exceeded", "Rate limited"],
-  ["no_accounts", "No account"],
-  ["upstream_unavailable", "Unreachable"],
-  ["upstream_timeout", "Timed out"],
-  ["upstream_too_large", "Too large"],
-  ["invalid_request", "Bad request"],
-  ["invalid_api_key", "Wrong key"],
-  ["model_not_found", "Model not enabled"],
-  ["upstream_unreadable", "Unreadable"],
-  ["upstream_incomplete", "Broke off"],
-]);
-
-/** How a request ended, in a word or two. */
-const outcomeOf = (request: UsageRequest) =>
-  Option.match(request.error, {
-    onSome: (code) => errorNames.get(code) ?? code,
-    onNone: () =>
-      Option.contains(request.streamEnd, "failed")
-        ? "Broke off"
-        : request.status === 499
-          ? "Client left"
-          : request.status >= 400
-            ? `Error ${request.status}`
-            : "OK",
-  });
-
-/** The outcome's code or status, for its title. */
-const outcomeDetail = (request: UsageRequest) =>
-  Option.getOrElse(request.error, () => `HTTP ${request.status}`);
-
-const failed = (request: UsageRequest) =>
-  (request.status >= 400 && request.status !== 499) || Option.contains(request.streamEnd, "failed");
 
 /**
  * The request list's columns: the request (its model over its time), key,
