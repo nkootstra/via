@@ -410,6 +410,8 @@ work on `/v1`.
 | `GET /admin/history/series`               | Tokens per hour or day, by group (see [Usage history](#usage-history)).                                 |
 | `GET /admin/history/breakdown`            | Requests, tokens, failures, latency and cost over a range, by group.                                    |
 | `GET /admin/history/requests`             | The requests in a range, newest first, a page at a time.                                                |
+| `GET /admin/history/conversations`        | The conversations in a range, the latest active first, a page at a time.                                |
+| `GET /admin/history/conversations/:id`    | One conversation and every turn of it and its sub-agents'; `404` if via kept none.                      |
 | `DELETE /admin/history`                   | Delete the whole usage history; answers `{"deleted": <count>}`.                                         |
 | `GET /admin/pool`                         | Each account's and provider's state (see below).                                                        |
 | `GET /admin/models`                       | The models `/v1/models` lists.                                                                          |
@@ -1068,9 +1070,10 @@ Go while none of its accounts is enabled.
 
 To keep a conversation on a warm prompt cache, via gives each request a session
 id: the one the client sent, in `x-parent-session-id` (so OpenCode's sub-agents
-share their parent's), `x-opencode-session`,
-`x-claude-code-session-id`, `session-id`, `session_id`, `x-session-id`, the
-body's `session_id` or `prompt_cache_key`, `x-task-id` or `x-kilocode-taskid`;
+share their parent's), `x-opencode-session-id`, `x-opencode-session`,
+`x-claude-code-session-id`, `session-id` (which Codex's sub-agents share),
+`session_id`, `thread-id`, `x-session-id`, the body's `session_id` or
+`prompt_cache_key`, `x-task-id` or `x-kilocode-taskid`;
 otherwise one derived from the conversation's first system and user message.
 OpenCode Go gets it in `x-opencode-session`, OpenRouter in the body's
 `session_id` and, unless the client set one, `prompt_cache_key`, and Codex in
@@ -1153,7 +1156,12 @@ code, via's own or the upstream's when that is an identifier, and via's own
 message; never the upstream's message, which can quote the request), its input, cached, cache-write,
 output and reasoning tokens as the upstream reported them, any cost the
 upstream billed (OpenRouter reports one), and how long it took to answer and,
-for a streamed answer, to send its first chunk. It never keeps a prompt or an answer. Requests older
+for a streamed answer, to send its first chunk. It also keeps which
+[conversation](#conversations) the request belongs to: the session or thread id
+the client sent, the id of the conversation that started it for a sub-agent's,
+which header or body field the id came from, the sub-agent's type when the
+client says, and the client, as the first product of its `User-Agent` (such as
+`opencode/1.19.3`). It never keeps a prompt or an answer. Requests older
 than 90 days are deleted at startup and once a day after that. Starting two via
 processes together does not overwrite an existing usage database. A streamed answer
 that ends with an SSE error is recorded as failed, including an answer that via
@@ -1207,6 +1215,42 @@ so a price change applies to old requests too:
 Token totals leave out answered requests whose upstream reported no usage, and
 the page says how many. A failed request has no tokens to report, so it isn't
 counted there; the Requests list says why it failed.
+
+#### Conversations
+
+via groups requests into conversations by the ids coding agents send. A
+request's conversation is its own, not its parent's: Codex's `thread-id` (or
+the body's `client_metadata.thread_id`, or `conversation_id` from older
+builds), Claude Code's `x-claude-code-session-id`, or for its sub-agent
+`x-claude-code-agent-id` within that session, OpenCode's
+`x-opencode-session-id`, and then the ids the session id above reads. A
+sub-agent's conversation sits under the one that started it, from
+`x-codex-parent-thread-id`, `x-claude-code-parent-agent-id` (else its session),
+`x-opencode-parent-session-id` or `x-parent-session-id`; its type comes from
+`x-openai-subagent` or `x-claude-code-agent-type`. A request whose client sent
+no id, as Aider and Continue do, gets a hash of the conversation's opening, the
+same for every turn, and the conversation is marked `guessed`. An id longer than
+100 characters is kept as its SHA-256 hash. Requests kept before this release
+belong to no conversation.
+
+`conversations` lists the conversations no other started, the latest active
+first, that have turns in the range the filters keep. Each counts those turns,
+its sub-agents' included, with its `id`, `source` (the header, `body.<field>`
+or `hash`), `guessed`, `client`, `keyName`, `models`, `firstAt`, `lastAt`,
+`turns`, `subagents`, its tokens, `failed`, `fellBack` and `cost`, priced as
+above. It takes the range, the filters and `limit` as `requests` does, and
+pages the same way: pass `next`'s `at` and `id` back as `afterAt` and
+`afterId`. `conversations/<id>` answers `{"summary": {...}, "turns": [...]}`,
+every request of the conversation and its sub-agents', oldest first, whenever
+they came in.
+
+```sh
+curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
+  "http://127.0.0.1:8317/admin/history/conversations?$RANGE"
+# {"conversations":[{"id":"ses_...","source":"x-opencode-session-id","guessed":false,...}],"next":null}
+curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
+  "http://127.0.0.1:8317/admin/history/conversations/ses_..."
+```
 
 ### Tracing
 
@@ -1336,7 +1380,9 @@ and keeps its label (see
   `opencode-go.json`, readable only by you, and an OpenRouter key added in the
   web UI in `openrouter.json`.
 - The usage history, `usage.db`, holds API key names, account labels and
-  models, never prompts or answers, and is readable only by you. Of an
+  models, the session, thread and parent ids clients send and the first
+  product of their `User-Agent`, never prompts or answers, and is readable
+  only by you. Of an
   upstream's error it keeps only the status and the code, when the code is an
   identifier, never the message, which could quote the request the upstream
   refused. Upgrading clears the messages an older via kept, via's own included,

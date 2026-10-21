@@ -116,6 +116,11 @@ describe("deleting the usage history", () => {
     firstChunkMs: Option.none(),
     requestedModel: Option.none(),
     fallbackReason: Option.none(),
+    conversationId: Option.none(),
+    parentConversationId: Option.none(),
+    sessionSource: Option.none(),
+    agentType: Option.none(),
+    client: Option.none(),
   };
 
   it("asks first, then deletes every request via kept", async () => {

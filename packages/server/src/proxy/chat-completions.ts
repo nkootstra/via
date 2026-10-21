@@ -9,7 +9,8 @@ import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
 import { answered } from "./outcome.ts";
 import { chatFromResponses } from "./chat-answer.ts";
-import { resolveSession } from "./session.ts";
+import { resolveConversation, resolveSession } from "./session.ts";
+import { RequestLog } from "../usage/request-log.ts";
 import { withSharedPrefix } from "./shared-prefix.ts";
 
 const decodeChat = Schema.decodeUnknownEffect(ChatRequest);
@@ -37,6 +38,7 @@ export const chatCompletions = authenticated(
     const body = withSharedPrefix(json.value);
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const session = resolveSession(headers, body);
+    yield* (yield* RequestLog).conversation(resolveConversation(headers, body));
     const providers = yield* Providers;
 
     /** Asks for the model `request` names: its provider as it is, or Codex, translated. */

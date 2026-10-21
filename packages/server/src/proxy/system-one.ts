@@ -6,7 +6,8 @@ import { modelOf } from "./dispatch.ts";
 import { forward } from "./forward.ts";
 import { openAiError } from "./openai-error.ts";
 import { responseOf } from "./outcome.ts";
-import { resolveSession } from "./session.ts";
+import { resolveConversation, resolveSession } from "./session.ts";
+import { RequestLog } from "../usage/request-log.ts";
 
 /**
  * POST /v1/systemone: Ollama's System One, which answers choice, yes/no and
@@ -33,6 +34,7 @@ export const systemOne = authenticated(
     }
 
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
+    yield* (yield* RequestLog).conversation(resolveConversation(headers, body));
 
     return responseOf(
       yield* forward(route.value, "/systemone", body, resolveSession(headers, body), headers),

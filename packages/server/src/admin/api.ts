@@ -458,6 +458,63 @@ const RequestPage = Schema.Struct({
   next: Schema.OptionFromNullOr(RequestCursor),
 });
 
+/**
+ * A conversation as a whole: its turns and its sub-agents', at any depth. Its
+ * id is the session or thread id its client sent, or, `guessed`, a hash of its
+ * opening, for a client that sent none; `source` says which header or body
+ * field held it, or `hash`. The client, as its User-Agent names it, and the key
+ * are as its own latest turn had them.
+ */
+const ConversationSummary = Schema.Struct({
+  id: Schema.String,
+  source: Schema.String,
+  guessed: Schema.Boolean,
+  client: Schema.OptionFromNullOr(Schema.String),
+  keyName: Schema.OptionFromNullOr(Schema.String),
+  /** Every model its turns went to. */
+  models: Schema.Array(Schema.String),
+  /** Its first and latest turn, in epoch milliseconds. */
+  firstAt: Schema.Finite,
+  lastAt: Schema.Finite,
+  /** Its requests, its sub-agents' included. */
+  turns: Schema.Finite,
+  /** How many sub-agents' conversations it started, at any depth. */
+  subagents: Schema.Finite,
+  inputTokens: Schema.Finite,
+  cachedTokens: Schema.Finite,
+  outputTokens: Schema.Finite,
+  reasoningTokens: Schema.Finite,
+  /** Turns that failed. */
+  failed: Schema.Finite,
+  /** Turns another model answered because the one asked for couldn't serve. */
+  fellBack: Schema.Finite,
+  cost: Cost,
+});
+
+/** Where the next page of conversations starts: after this one, last active `at`. */
+const ConversationCursor = Schema.Struct({ at: Schema.Finite, id: Schema.String });
+
+const ConversationPage = Schema.Struct({
+  conversations: Schema.Array(ConversationSummary),
+  next: Schema.OptionFromNullOr(ConversationCursor),
+});
+
+/** A conversation, and every turn of it and its sub-agents', oldest first. */
+const Conversation = Schema.Struct({
+  summary: ConversationSummary,
+  turns: Schema.Array(UsageEntry),
+});
+
+/** The usage history has no request of this conversation; the admin API answers it as a 404. */
+export class ConversationNotFoundError extends Schema.TaggedError<ConversationNotFoundError>()(
+  "ConversationNotFoundError",
+  { id: Schema.String },
+) {
+  override get message() {
+    return "via kept no request of this conversation, or forgot them after 90 days.";
+  }
+}
+
 /** Signing in to the admin API with the admin key, for a browser. */
 class SessionGroup extends HttpApiGroup.make("session")
   .add(
@@ -726,6 +783,28 @@ class UsageHistoryGroup extends HttpApiGroup.make("history")
         ...HistoryFilters,
       },
       success: RequestPage,
+    }),
+  )
+  // The conversations no other started with turns in the range that the filters keep, the
+  // latest active first, each totalled over those turns, its sub-agents' included.
+  .add(
+    HttpApiEndpoint.get("conversations", "/history/conversations", {
+      query: {
+        ...HistoryRange,
+        limit: Schema.optionalKey(IntParam.check(Schema.isBetween({ minimum: 1, maximum: 500 }))),
+        /** The `next` of the page before: the list goes on after that conversation. */
+        afterAt: Schema.optionalKey(IntParam),
+        afterId: Schema.optionalKey(Name),
+        ...HistoryFilters,
+      },
+      success: ConversationPage,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("conversation", "/history/conversations/:id", {
+      params: { id: Schema.String },
+      success: Conversation,
+      error: ConversationNotFoundError.pipe(HttpApiSchema.status(404)),
     }),
   )
   .add(

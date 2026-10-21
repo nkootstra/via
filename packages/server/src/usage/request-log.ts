@@ -21,6 +21,8 @@ import {
 import type { UsageEntry } from "@via/usage";
 import type { TokenUsage } from "./token-usage.ts";
 import type { UpstreamError } from "../proxy/upstream-error.ts";
+import { clientOf } from "../proxy/client.ts";
+import type { Conversation } from "../proxy/session.ts";
 
 /**
  * Notes, for the one line via logs about each request, what the request is
@@ -55,6 +57,8 @@ export class RequestLog extends Context.Service<
      * afresh, and gives back what puts it back, should no other model serve.
      */
     readonly setAside: Effect.Effect<Effect.Effect<void>>;
+    /** Records the conversation the request belongs to. */
+    readonly conversation: (conversation: Conversation) => Effect.Effect<void>;
     /** Records the token usage the upstream reported for the answer. */
     readonly usage: (usage: TokenUsage) => Effect.Effect<void>;
     /** Leaves the request out of the log, as a file a page fetches with it. */
@@ -158,6 +162,7 @@ const entryOf = (
   start: number,
   end: number,
   model: string,
+  client: Option.Option<string>,
   line: Noted,
 ): UsageEntry => {
   const usage = line.usage;
@@ -193,6 +198,11 @@ const entryOf = (
       : Option.none(),
     requestedModel: line.requestedModel,
     fallbackReason: Option.flatMap(line.fallbackReason, asCode),
+    conversationId: Option.map(line.conversation, (found) => found.conversationId),
+    parentConversationId: Option.flatMap(line.conversation, (found) => found.parentConversationId),
+    sessionSource: Option.map(line.conversation, (found) => found.source),
+    agentType: Option.flatMap(line.conversation, (found) => found.agentType),
+    client,
   };
 };
 
@@ -217,6 +227,7 @@ interface Noted {
   readonly requestedModel: Option.Option<string>;
   /** Why the model asked for couldn't serve. */
   readonly fallbackReason: Option.Option<string>;
+  readonly conversation: Option.Option<Conversation>;
   readonly retryAfter: Option.Option<string>;
   readonly status: number;
   readonly headersAt: number;
@@ -277,6 +288,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       usage: Option.none(),
       requestedModel: Option.none(),
       fallbackReason: Option.none(),
+      conversation: Option.none(),
       retryAfter: Option.none(),
       status: 0,
       headersAt: start,
@@ -332,7 +344,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         onNone: () => Effect.void,
         onSome: (model) =>
           Effect.flatMap(Clock.currentTimeMillis, (end) =>
-            history.record(entryOf(id, start, end, model, line)),
+            history.record(entryOf(id, start, end, model, clientOf(request.headers), line)),
           ).pipe(
             Effect.catchCause((cause) =>
               Effect.logWarning("Could not keep the request in the usage history", cause),
@@ -392,6 +404,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
           },
         ];
       }),
+      conversation: (conversation) => note({ conversation: Option.some(conversation) }),
       usage: (usage) => note({ usage: Option.some(usage) }),
       unlogged: note({ logged: false }),
       timed: (stream, around) =>

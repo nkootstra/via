@@ -344,6 +344,63 @@ layer(BunFileSystem.layer)("usage history", (it) => {
     ),
   );
 
+  it.effect("keeps the conversation a Codex sub-agent's request belongs to, and its client", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" }, undefined, {
+          "user-agent": "codex_cli_rs/0.40.0 (Mac OS 15.5.0; arm64)",
+          "session-id": "s1",
+          "thread-id": "t2",
+          "x-codex-parent-thread-id": "t1",
+          "x-openai-subagent": "review",
+        });
+
+        const [request] = yield* recorded(via);
+
+        expect(request).toMatchObject({
+          conversationId: Option.some("t2"),
+          parentConversationId: Option.some("t1"),
+          sessionSource: Option.some("thread-id"),
+          agentType: Option.some("review"),
+          client: Option.some("codex_cli_rs/0.40.0"),
+        });
+      }),
+    ),
+  );
+
+  it.effect("keeps a guessed conversation for a chat whose client sent no id", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const chat = (...content: ReadonlyArray<string>) =>
+          via.post(
+            "/v1/chat/completions",
+            {
+              model: "opencode-go/kimi-k3",
+              messages: content.map((text) => ({ role: "user", content: text })),
+            },
+            undefined,
+            { "user-agent": "aider/0.86.1" },
+          );
+
+        yield* chat("hi");
+        yield* chat("hi", "and then?");
+
+        // The second line can be logged after the first is found.
+        const [second, first] = yield* recorded(via).pipe(
+          Effect.repeat({ until: (requests) => requests.length === 2 }),
+        );
+
+        expect(first).toMatchObject({
+          sessionSource: Option.some("hash"),
+          parentConversationId: Option.none(),
+          client: Option.some("aider/0.86.1"),
+        });
+
+        expect(second?.conversationId).toEqual(first?.conversationId);
+      }),
+    ),
+  );
+
   it.effect("still answers when the history can't keep a request", () =>
     withVia(
       ok,

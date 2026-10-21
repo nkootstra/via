@@ -45,6 +45,11 @@ const entry = (overrides: Partial<UsageEntry> = {}): UsageEntry => ({
   firstChunkMs: Option.none(),
   requestedModel: Option.none(),
   fallbackReason: Option.none(),
+  conversationId: Option.none(),
+  parentConversationId: Option.none(),
+  sessionSource: Option.none(),
+  agentType: Option.none(),
+  client: Option.none(),
   ...overrides,
 });
 
@@ -87,6 +92,24 @@ describe("UsageHistory", () => {
         yield* usage.record(fellBack);
         const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
         expect(page.requests).toEqual([fellBack]);
+      }),
+    ),
+  );
+
+  it.effect("gives back the conversation a request belongs to, and the client that sent it", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const subAgent = entry({
+          conversationId: Option.some("t2"),
+          parentConversationId: Option.some("t1"),
+          sessionSource: Option.some("thread-id"),
+          agentType: Option.some("review"),
+          client: Option.some("codex_cli_rs/0.40.0"),
+        });
+
+        yield* usage.record(subAgent);
+        const page = yield* usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 });
+        expect(page.requests).toEqual([subAgent]);
       }),
     ),
   );
@@ -857,6 +880,161 @@ layer(UsageHistory.layerMemory)("UsageHistory properties", (shared) => {
 
 const DAY = 24 * HOUR;
 
+/** A turn of conversation `id`, under `parent` for a sub-agent's. */
+const turn = (
+  requestId: string,
+  at: number,
+  id: string,
+  parent?: string,
+  overrides: Partial<UsageEntry> = {},
+) =>
+  entry({
+    requestId,
+    at,
+    conversationId: Option.some(id),
+    parentConversationId: Option.fromUndefinedOr(parent),
+    sessionSource: Option.some("x-session-id"),
+    client: Option.some("opencode/1.19.3"),
+    ...overrides,
+  });
+
+/** One conversation with a sub-agent and its own sub-agent, another, and a request without one. */
+const conversations = [
+  turn("r1", 1 * HOUR, "root"),
+  turn("r2", 2 * HOUR, "child", "root", { model: "gpt-6-sol", agentType: Option.some("review") }),
+  turn("r3", 3 * HOUR, "grandchild", "child", {
+    status: 500,
+    error: Option.some("server_error"),
+    inputTokens: Option.none(),
+    cachedTokens: Option.none(),
+    outputTokens: Option.none(),
+  }),
+  turn("r4", 4 * HOUR, "root", undefined, {
+    requestedModel: Option.some("gpt-6-sol"),
+    fallbackReason: Option.some("rate_limit_exceeded"),
+  }),
+  turn("r5", 5 * HOUR, "other", undefined, {
+    sessionSource: Option.some("hash"),
+    client: Option.none(),
+    keyName: Option.some("ci"),
+  }),
+  entry({ requestId: "r6", at: 6 * HOUR }),
+];
+
+describe("UsageHistory.conversations", () => {
+  const all = { from: 0, to: 2_000 * HOUR, limit: 10 };
+
+  it.effect("lists the conversations that no other started, the latest active first", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* Effect.forEach(conversations, usage.record, { discard: true });
+        const page = yield* usage.conversations(all);
+
+        expect(page.conversations.map((c) => c.id)).toEqual(["other", "root"]);
+        expect(page.next).toEqual(Option.none());
+
+        expect(page.conversations[1]).toMatchObject({
+          id: "root",
+          source: "x-session-id",
+          client: Option.some("opencode/1.19.3"),
+          keyName: Option.some("laptop"),
+          firstAt: 1 * HOUR,
+          lastAt: 4 * HOUR,
+          // Its sub-agents' turns count as its own.
+          turns: 4,
+          subagents: 2,
+          failed: 1,
+          fellBack: 1,
+          inputTokens: 300,
+          cachedTokens: 120,
+          outputTokens: 60,
+          reasoningTokens: 0,
+        });
+
+        expect(page.conversations[1]?.models.map((m) => m.model).toSorted()).toEqual([
+          "gpt-6-astra",
+          "gpt-6-sol",
+        ]);
+
+        expect(page.conversations[0]).toMatchObject({
+          source: "hash",
+          client: Option.none(),
+          keyName: Option.some("ci"),
+          turns: 1,
+          subagents: 0,
+        });
+      }),
+    ),
+  );
+
+  it.effect("pages on the latest activity, without skipping conversations that share it", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* Effect.forEach(
+          [turn("a1", HOUR, "a"), turn("b1", HOUR, "b"), turn("c1", 2 * HOUR, "c")],
+          usage.record,
+          { discard: true },
+        );
+
+        const first = yield* usage.conversations({ ...all, limit: 2 });
+        expect(first.conversations.map((c) => c.id)).toEqual(["c", "b"]);
+        expect(first.next).toEqual(Option.some({ at: HOUR, id: "b" }));
+
+        const second = yield* usage.conversations({
+          ...all,
+          limit: 2,
+          cursor: Option.getOrUndefined(first.next),
+        });
+
+        expect(second.conversations.map((c) => c.id)).toEqual(["a"]);
+        expect(second.next).toEqual(Option.none());
+      }),
+    ),
+  );
+
+  it.effect("counts only the turns in the range that the filters keep", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* Effect.forEach(conversations, usage.record, { discard: true });
+
+        const recent = yield* usage.conversations({ ...all, from: 2 * HOUR, to: 4 * HOUR });
+        expect(recent.conversations).toMatchObject([{ id: "root", turns: 2, subagents: 2 }]);
+
+        const sol = yield* usage.conversations({ ...all, model: "gpt-6-sol" });
+        expect(sol.conversations).toMatchObject([{ id: "root", turns: 1, subagents: 1 }]);
+      }),
+    ),
+  );
+});
+
+describe("UsageHistory.conversation", () => {
+  it.effect("gives a conversation's turns and its sub-agents', in order, and its totals", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* Effect.forEach(conversations.toReversed(), usage.record, { discard: true });
+        const found = yield* usage.conversation("root");
+
+        expect(Option.map(found, (c) => c.turns.map((t) => t.requestId))).toEqual(
+          Option.some(["r1", "r2", "r3", "r4"]),
+        );
+
+        expect(Option.map(found, (c) => c.summary)).toMatchObject(
+          Option.some({ id: "root", turns: 4, subagents: 2, lastAt: 4 * HOUR }),
+        );
+      }),
+    ),
+  );
+
+  it.effect("finds no conversation it has no request of", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* Effect.forEach(conversations, usage.record, { discard: true });
+        expect(yield* usage.conversation("nope")).toEqual(Option.none());
+      }),
+    ),
+  );
+});
+
 describe("UsageHistory.changes", () => {
   it.effect("signals at once, then after each request kept and each clear", () =>
     history((usage) =>
@@ -956,11 +1134,27 @@ layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
         Effect.forEach(kept, usage.record, { discard: true }),
       ).pipe(Effect.provide(open));
 
-      // The database as an older via left it: one that never ran the migration that forgets them.
-      yield* Effect.flatMap(
-        SqlClient.SqlClient,
-        (sql) => sql`DELETE FROM effect_sql_migrations WHERE name = 'no_upstream_words'`,
-      ).pipe(Effect.provide(SqliteClient.layer({ filename: path })));
+      // The database as an older via left it: one that never ran the migration that forgets
+      // them, nor any after it.
+      yield* Effect.gen(function* () {
+        const sql = yield* SqlClient.SqlClient;
+        // Dropping a column copies the table; this leaves no copy of the words behind.
+        yield* sql`PRAGMA secure_delete = ON`;
+        yield* sql`DROP INDEX requests_conversation`;
+        yield* sql`DROP INDEX requests_parent`;
+
+        for (const column of [
+          "conversation_id",
+          "parent_conversation_id",
+          "session_source",
+          "agent_type",
+          "client",
+        ]) {
+          yield* sql`ALTER TABLE requests DROP COLUMN ${sql(column)}`;
+        }
+
+        yield* sql`DELETE FROM effect_sql_migrations WHERE migration_id >= 5`;
+      }).pipe(Effect.provide(SqliteClient.layer({ filename: path })));
 
       const page = yield* Effect.flatMap(UsageHistory, (usage) =>
         usage.requests({ from: 0, to: 2_000 * HOUR, limit: 10 }),

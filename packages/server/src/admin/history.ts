@@ -3,6 +3,7 @@ import type { ModelPrice } from "@via/config";
 import { KeyStore } from "@via/keys";
 import { OpencodeGoAccounts, Providers } from "@via/providers";
 import {
+  type ConversationUsage,
   costOf,
   type GroupBy,
   type GroupUsage,
@@ -11,9 +12,9 @@ import {
   priceBook,
   UsageHistory,
 } from "@via/usage";
-import { Effect } from "effect";
+import { Effect, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
-import { AdminApi } from "./api.ts";
+import { AdminApi, ConversationNotFoundError } from "./api.ts";
 
 /** The history is via's own database; failing to use it is a defect, which answers 500. */
 const readHistory = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.orDie(effect);
@@ -77,6 +78,27 @@ const totals = (groups: ReadonlyArray<GroupUsage>, firstChunkMs: Percentiles, bo
     groups.flatMap((group) => group.models),
     book,
   ),
+});
+
+/** A conversation as the admin API answers it, priced with `book`. */
+const conversationSummary = (conversation: ConversationUsage, book: PriceBook) => ({
+  id: conversation.id,
+  source: conversation.source,
+  guessed: conversation.source === "hash",
+  client: conversation.client,
+  keyName: conversation.keyName,
+  models: conversation.models.map((usage) => usage.model),
+  firstAt: conversation.firstAt,
+  lastAt: conversation.lastAt,
+  turns: conversation.turns,
+  subagents: conversation.subagents,
+  inputTokens: conversation.inputTokens,
+  cachedTokens: conversation.cachedTokens,
+  outputTokens: conversation.outputTokens,
+  reasoningTokens: conversation.reasoningTokens,
+  failed: conversation.failed,
+  fellBack: conversation.fellBack,
+  cost: costOf(conversation.models, book),
 });
 
 /** A query's `fellBack`, as the history reads it. */
@@ -143,5 +165,50 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
             fellBack: fellBackOf(query),
           }),
         ).pipe(readHistory),
+      )
+      .handle("conversations", ({ query }) =>
+        Effect.gen(function* () {
+          const book = priceBook(prices, { local: yield* (yield* Providers).local });
+
+          const page = yield* readHistory(
+            Effect.flatMap(UsageHistory, (usage) =>
+              usage.conversations({
+                from: query.from,
+                to: query.to,
+                limit: query.limit ?? PAGE,
+                cursor:
+                  query.afterAt === undefined || query.afterId === undefined
+                    ? undefined
+                    : { at: query.afterAt, id: query.afterId },
+                model: query.model,
+                accountId: query.accountId,
+                keyId: query.keyId,
+                outcome: query.outcome,
+                fellBack: fellBackOf(query),
+              }),
+            ),
+          );
+
+          return {
+            conversations: page.conversations.map((found) => conversationSummary(found, book)),
+            next: page.next,
+          };
+        }),
+      )
+      .handle("conversation", ({ params }) =>
+        Effect.gen(function* () {
+          const book = priceBook(prices, { local: yield* (yield* Providers).local });
+
+          const found = yield* readHistory(
+            Effect.flatMap(UsageHistory, (usage) => usage.conversation(params.id)),
+          );
+
+          if (Option.isNone(found)) return yield* new ConversationNotFoundError({ id: params.id });
+
+          return {
+            summary: conversationSummary(found.value.summary, book),
+            turns: found.value.turns,
+          };
+        }),
       ),
   );

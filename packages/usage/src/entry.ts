@@ -45,6 +45,19 @@ export const UsageEntry = Schema.Struct({
   requestedModel: Nullable(Schema.String),
   /** Why the model asked for couldn't serve, as a code, such as `rate_limit_exceeded`. */
   fallbackReason: Nullable(Schema.String),
+  /**
+   * The conversation the request belongs to: the session or thread id its client sent,
+   * or, without one, a hash of the conversation's opening. A sub-agent's is its own.
+   */
+  conversationId: Nullable(Schema.String),
+  /** The conversation that started this one, for a sub-agent's request. */
+  parentConversationId: Nullable(Schema.String),
+  /** Where `conversationId` came from: a header's name, `body.<field>`, or `hash` for a guess. */
+  sessionSource: Nullable(Schema.String),
+  /** What kind of sub-agent sent the request, such as `review`, when its client says. */
+  agentType: Nullable(Schema.String),
+  /** The harness that sent it, with its version, as its User-Agent names it: `opencode/1.19.3`. */
+  client: Nullable(Schema.String),
 });
 
 export type UsageEntry = typeof UsageEntry.Type;
