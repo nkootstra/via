@@ -57,6 +57,10 @@ interface Pattern {
   readonly secret?: (value: string) => boolean;
 }
 
+/** A name a secret is assigned to, such as `OPENAI_API_KEY` or `"accessToken"`, in text. */
+const SECRET_NAME =
+  "\\b[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|secret|token|password|passwd|credential|access[_-]?key|private[_-]?key)[A-Za-z0-9_]{0,40}";
+
 /** The patterns, the most specific first: what one replaces, the next doesn't see. */
 const patterns: ReadonlyArray<Pattern> = [
   {
@@ -109,12 +113,20 @@ const patterns: ReadonlyArray<Pattern> = [
   },
   {
     kind: "secret",
-    pattern:
-      /(\b[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|secret|token|password|passwd|credential|access[_-]?key|private[_-]?key)[A-Za-z0-9_]{0,40}["']?\s*[:=]\s*["']?(?:(?:basic|digest|token|apikey)[ \t]+)?)([^\s"'`,;<>]{12,})/gi,
+    pattern: new RegExp(
+      `(${SECRET_NAME}["']?\\s*[:=]\\s*["']?(?:(?:basic|digest|token|apikey)[ \\t]+)?)([^\\s"'\`,;<>]{12,})`,
+      "gi",
+    ),
     keep: true,
     secret: looksSecret,
   },
 ];
+
+/** An array of strings assigned to a secret-looking name, in text: `"api_keys": ["…", "…"]`. */
+const SECRET_ARRAY = new RegExp(`(${SECRET_NAME}["']?\\s*[:=]\\s*)\\[([^\\[\\]]*)\\]`, "gi");
+
+/** A quoted item of such an array. */
+const QUOTED = /(["'])([^"'\s]*)\1/g;
 
 /**
  * Whether `value`, after an Authorization header with no scheme via knows, is a credential
@@ -222,7 +234,7 @@ const redactor = () => {
       return `[file: ${sizeOf(decodedSize(input))}]`;
     }
 
-    return patterns.reduce((sofar, { kind, pattern, keep, secret }) => {
+    const patterned = patterns.reduce((sofar, { kind, pattern, keep, secret }) => {
       // Every pattern is global, so `replace` starts each search afresh.
       return sofar.replace(pattern, (match: string, ...rest: ReadonlyArray<string | number>) => {
         // After the groups come the match's offset and the whole text.
@@ -235,6 +247,18 @@ const redactor = () => {
         return keep === true ? `${parts.slice(0, -1).join("")}${marker(kind)}` : marker(kind);
       });
     }, input);
+
+    // Each item of an array under a secret-looking name is a secret when it looks like one.
+    return patterned.replace(SECRET_ARRAY, (_match, name: string, items: string) => {
+      const kept = items.replace(QUOTED, (item, quote: string, value: string) => {
+        if (!looksSecret(value)) return item;
+        count("secret");
+
+        return `${quote}${marker("secret")}${quote}`;
+      });
+
+      return `${name}[${kept}]`;
+    });
   };
 
   const json = (value: Schema.Json, key?: string, siblings?: Schema.JsonObject): Schema.Json => {

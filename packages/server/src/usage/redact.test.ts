@@ -242,6 +242,17 @@ describe("redact", () => {
   });
 
   it.each([
+    ['"api_keys": ["Zq8Lm2Xp9Wt4Yc7Vb3Nn", "Hello"]', '"api_keys": ["[redacted:secret]", "Hello"]'],
+    [
+      '{\n  "tokens": [\n    "Zq8Lm2Xp9Wt4Yc7Vb3Nn",\n    "Hk4Rt7Ws2Qa9Ze5Xc1Vb"\n  ]\n}',
+      '{\n  "tokens": [\n    "[redacted:secret]",\n    "[redacted:secret]"\n  ]\n}',
+    ],
+    ["SECRETS=['Zq8Lm2Xp9Wt4Yc7Vb3Nn']", "SECRETS=['[redacted:secret]']"],
+  ])("replaces secrets in an array under a secret-named key, in text: %s", (sent, kept) => {
+    expect(redactedText(sent)).toBe(kept);
+  });
+
+  it.each([
     ["Authorization: opaqueCred3ntial", "Authorization: [redacted:authorization]"],
     ["Authorization: Custom abcdef123456", "Authorization: Custom [redacted:authorization]"],
     ["Proxy-Authorization: Token abcdefgh", "Proxy-Authorization: Token [redacted:authorization]"],
