@@ -36,13 +36,17 @@ import { QueryError } from "./query-error.tsx";
 
 const styles = stylex.create({
   scroll: { overflowX: "auto" },
+  // Every row keeps a badge's height and never wraps, so a "Live" badge coming
+  // and going doesn't shift the rows: the name gives way with an ellipsis.
   title: {
     display: "flex",
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     alignItems: "center",
     gap: space.s2,
     minWidth: 0,
+    minHeight: "24px",
   },
+  badge: { flexShrink: 0 },
   // The harness's name opens the conversation: reads as the name, acts as a link.
   open: {
     minWidth: 0,
@@ -243,11 +247,17 @@ function ConversationRow({
           >
             {harnessName(conversation.client, conversation.source)}
           </Link>
-          {conversation.guessed && <GuessedBadge />}
+          {conversation.guessed && (
+            <span {...stylex.props(styles.badge)}>
+              <GuessedBadge />
+            </span>
+          )}
           {live && (
-            <Badge color="green" variant="dot" title="A turn of it is in flight now">
-              Live
-            </Badge>
+            <span {...stylex.props(styles.badge)}>
+              <Badge color="green" variant="dot" title="A turn of it is in flight now">
+                Live
+              </Badge>
+            </span>
           )}
         </span>
         <span
