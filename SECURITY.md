@@ -31,7 +31,8 @@ Examples of what's in scope:
   admin's own address locked out of signing in.
 - Files in `~/.config/via` (or `$VIA_HOME`) created with permissions wider than
   owner-only.
-- A prompt, an answer, an upstream's error message or a secret ending up in the usage history
+- A prompt, an answer, a secret, or an upstream's error message other than one
+  answered with a 401, 402, 403, 429 or 5xx, ending up in the usage history
   (`usage.db`), which keeps only what the README lists.
 - A prompt, an answer or an upstream's error message ending up in via's log
   or in `state.json`.

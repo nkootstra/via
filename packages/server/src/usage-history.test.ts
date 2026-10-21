@@ -415,7 +415,7 @@ layer(BunFileSystem.layer)("usage history", (it) => {
           UsageHistory,
           Effect.map(UsageHistory, (history) => ({
             ...history,
-            record: () =>
+            keep: () =>
               Effect.fail(
                 new SqlError({ reason: new UnknownError({ cause: new Error("disk full") }) }),
               ),

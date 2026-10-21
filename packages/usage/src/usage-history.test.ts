@@ -17,7 +17,7 @@ import {
   Tracer,
 } from "effect";
 import { TestClock } from "effect/testing";
-import type { UsageEntry } from "./entry.ts";
+import type { RequestAttempt, UsageEntry } from "./entry.ts";
 import { UsageHistory } from "./usage-history.ts";
 
 const HOUR = 60 * 60 * 1000;
@@ -1035,6 +1035,114 @@ describe("UsageHistory.conversation", () => {
   );
 });
 
+/** Attempt `seq` of request `requestId`, served unless `overrides` say otherwise. */
+const attempt = (
+  requestId: string,
+  seq: number,
+  overrides: Partial<RequestAttempt> = {},
+): RequestAttempt => ({
+  requestId,
+  seq,
+  startedAt: 1 * HOUR + seq * 1_000,
+  durationMs: 900,
+  firstChunkMs: Option.none(),
+  provider: "codex",
+  model: "gpt-6-astra",
+  accountId: Option.some("acc-1"),
+  accountLabel: Option.some("a@example.com"),
+  status: Option.some(200),
+  outcome: "served",
+  category: Option.none(),
+  upstreamCode: Option.none(),
+  downstreamProvider: Option.none(),
+  message: Option.none(),
+  ...overrides,
+});
+
+describe("UsageHistory attempts", () => {
+  const exhausted = attempt("r1", 0, {
+    status: Option.some(429),
+    outcome: "failed",
+    category: Option.some("budget_exhausted"),
+    upstreamCode: Option.some("usage_limit_reached"),
+    message: Option.some("You've hit your usage limit."),
+  });
+
+  const downstream = attempt("r4", 0, {
+    provider: "openrouter",
+    model: "openrouter/minimax-m3",
+    accountId: Option.none(),
+    accountLabel: Option.none(),
+    status: Option.some(502),
+    outcome: "failed",
+    category: Option.some("downstream_unavailable"),
+    upstreamCode: Option.some("502"),
+    downstreamProvider: Option.some("Together"),
+  });
+
+  it.effect("gives a conversation's attempts back with it, by turn and then in order", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.keep(turn("r4", 4 * HOUR, "root"), [
+          attempt("r4", 1, { firstChunkMs: Option.some(300) }),
+          downstream,
+        ]);
+        yield* usage.keep(turn("r2", 2 * HOUR, "child", "root"), [attempt("r2", 0)]);
+        yield* usage.keep(turn("r1", HOUR, "root"), [attempt("r1", 1), exhausted]);
+        // A request of another conversation keeps its attempts to itself.
+        yield* usage.keep(entry({ requestId: "r9" }), [attempt("r9", 0)]);
+
+        const found = yield* usage.conversation("root");
+
+        expect(Option.map(found, (c) => c.attempts)).toEqual(
+          Option.some([
+            exhausted,
+            attempt("r1", 1),
+            attempt("r2", 0),
+            downstream,
+            attempt("r4", 1, { firstChunkMs: Option.some(300) }),
+          ]),
+        );
+      }),
+    ),
+  );
+
+  it.effect("forgets the attempts with the requests it clears", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        const r1 = turn("r1", HOUR, "root");
+        yield* usage.keep(r1, [exhausted]);
+        yield* usage.clear;
+        yield* usage.record(r1);
+
+        const found = yield* usage.conversation("root");
+        expect(Option.map(found, (c) => c.attempts)).toEqual(Option.some([]));
+      }),
+    ),
+  );
+
+  it.effect("forgets the attempts older than 90 days, with their requests", () => {
+    const now = 200 * DAY;
+
+    return historyAt(now, (usage) =>
+      Effect.gen(function* () {
+        const at = now - 90 * DAY - 1;
+        yield* usage.keep(turn("old", at, "root"), [attempt("old", 0, { startedAt: at })]);
+        yield* usage.keep(turn("new", now - DAY, "root"), [
+          attempt("new", 0, { startedAt: now - DAY }),
+        ]);
+
+        yield* usage.prune;
+
+        const found = yield* usage.conversation("root");
+        expect(Option.map(found, (c) => c.attempts.map((a) => a.requestId))).toEqual(
+          Option.some(["new"]),
+        );
+      }),
+    );
+  });
+});
+
 describe("UsageHistory.changes", () => {
   it.effect("signals at once, then after each request kept and each clear", () =>
     history((usage) =>
@@ -1140,6 +1248,7 @@ layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
         const sql = yield* SqlClient.SqlClient;
         // Dropping a column copies the table; this leaves no copy of the words behind.
         yield* sql`PRAGMA secure_delete = ON`;
+        yield* sql`DROP TABLE request_attempts`;
         yield* sql`DROP INDEX requests_conversation`;
         yield* sql`DROP INDEX requests_parent`;
 

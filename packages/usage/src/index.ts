@@ -1,4 +1,4 @@
-export { UsageEntry } from "./entry.ts";
+export { type FailureCategory, type RequestAttempt, UsageEntry } from "./entry.ts";
 
 export {
   type ConversationUsage,

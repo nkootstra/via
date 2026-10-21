@@ -1,10 +1,14 @@
 import { Effect, Option, Schema, Stream } from "effect";
 import { Sse } from "effect/encoding";
 
-/** Why an upstream refused a request, as far as its answer says: a code and a message. */
+/**
+ * Why an upstream refused a request, as far as its answer says: a code and a message,
+ * and, from a router such as OpenRouter, the provider it sent the request on to.
+ */
 export interface UpstreamError {
   readonly code: Option.Option<string>;
   readonly message: Option.Option<string>;
+  readonly downstreamProvider: Option.Option<string>;
 }
 
 /** The longest message passed on: enough for any real one, too short to carry much of a request. */
@@ -18,8 +22,18 @@ const ErrorObject = Schema.Struct({
     code: Schema.optionalKey(Schema.NullOr(Schema.Union([Text, Schema.Finite]))),
     type: Schema.optionalKey(Schema.NullOr(Text)),
     message: Schema.optionalKey(Schema.NullOr(Text)),
+    /** OpenRouter's detail, such as `provider_name`; the rest of it is the provider's. */
+    metadata: Schema.optionalKey(Schema.Json),
   }),
 });
+
+/**
+ * A provider's name as a router gives it, such as `Google AI Studio`: words, not
+ * text that could quote the request.
+ */
+const ProviderName = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9][\w .()-]{0,63}$/));
+
+const decodeDownstream = Schema.decodeUnknownOption(Schema.Struct({ provider_name: ProviderName }));
 
 /** Codex's error: only a `detail`. */
 const Detail = Schema.Struct({ detail: Text });
@@ -43,20 +57,29 @@ export const upstreamErrorOf = (body: string): UpstreamError => {
   const object = decodeErrorObject(body);
 
   if (Option.isSome(object)) {
-    const { code, type, message } = object.value.error;
+    const { code, type, message, metadata } = object.value.error;
 
     return {
       code: Option.orElse(Option.map(Option.fromNullishOr(code), String), () => present(type)),
       message: Option.map(present(message), cut),
+      downstreamProvider: Option.map(decodeDownstream(metadata), (found) => found.provider_name),
     };
   }
 
   const detail = decodeDetail(body);
 
   if (Option.isSome(detail))
-    return { code: Option.none(), message: Option.some(cut(detail.value.detail)) };
+    return {
+      code: Option.none(),
+      message: Option.some(cut(detail.value.detail)),
+      downstreamProvider: Option.none(),
+    };
 
-  return { code: Option.none(), message: Option.map(present(body), cut) };
+  return {
+    code: Option.none(),
+    message: Option.map(present(body), cut),
+    downstreamProvider: Option.none(),
+  };
 };
 
 /** The most of an error body read for its cause: a real one is far shorter. */

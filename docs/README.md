@@ -411,7 +411,7 @@ work on `/v1`.
 | `GET /admin/history/breakdown`            | Requests, tokens, failures, latency and cost over a range, by group.                                    |
 | `GET /admin/history/requests`             | The requests in a range, newest first, a page at a time.                                                |
 | `GET /admin/history/conversations`        | The conversations in a range, the latest active first, a page at a time.                                |
-| `GET /admin/history/conversations/:id`    | One conversation and every turn of it and its sub-agents'; `404` if via kept none.                      |
+| `GET /admin/history/conversations/:id`    | One conversation, every turn of it and its sub-agents', and their attempts; `404` if via kept none.     |
 | `DELETE /admin/history`                   | Delete the whole usage history; answers `{"deleted": <count>}`.                                         |
 | `GET /admin/pool`                         | Each account's and provider's state (see below).                                                        |
 | `GET /admin/models`                       | The models `/v1/models` lists.                                                                          |
@@ -1153,7 +1153,9 @@ database: when it came in, the API key's id and name, the model, the provider
 and account that served it, the model asked for and why it couldn't serve when
 a [fallback](#fallback-models) answered instead, its status, why it failed if it did (the error
 code, via's own or the upstream's when that is an identifier, and via's own
-message; never the upstream's message, which can quote the request), its input, cached, cache-write,
+message; never the upstream's message, which can quote the request, though an
+[attempt](#upstream-attempts) the upstream answered 401, 402, 403, 429 or 5xx
+keeps it), its input, cached, cache-write,
 output and reasoning tokens as the upstream reported them, any cost the
 upstream billed (OpenRouter reports one), and how long it took to answer and,
 for a streamed answer, to send its first chunk. It also keeps which
@@ -1161,8 +1163,9 @@ for a streamed answer, to send its first chunk. It also keeps which
 the client sent, the id of the conversation that started it for a sub-agent's,
 which header or body field the id came from, the sub-agent's type when the
 client says, and the client, as the first product of its `User-Agent` (such as
-`opencode/1.19.3`). It never keeps a prompt or an answer. Requests older
-than 90 days are deleted at startup and once a day after that. Starting two via
+`opencode/1.19.3`). It never keeps a prompt or an answer. It also keeps each
+request's [upstream attempts](#upstream-attempts). Requests older
+than 90 days are deleted at startup and once a day after that, with their attempts. Starting two via
 processes together does not overwrite an existing usage database. A streamed answer
 that ends with an SSE error is recorded as failed, including an answer that via
 marks incomplete after the upstream cuts it off.
@@ -1216,6 +1219,46 @@ Token totals leave out answered requests whose upstream reported no usage, and
 the page says how many. A failed request has no tokens to report, so it isn't
 counted there; the Requests list says why it failed.
 
+#### Upstream attempts
+
+A request can go to more than one upstream before it is answered: the next
+Codex or OpenCode Go account when one is rate limited, out of budget or
+refused, the next protocol an OpenCode Go model may speak, and the
+[fallback models](#fallback-models). via keeps each attempt beside the request,
+in order: its `seq` (from 0), `startedAt` (epoch milliseconds), `durationMs`
+(until it failed, or, for the one that answered, until the answer ended),
+`firstChunkMs` (from its start to the first chunk of a streamed answer, for the
+one that answered), `provider`, `model`, `accountId` and `accountLabel` (for a
+pooled account), and `status`, the upstream's HTTP status (`null` when it was
+never reached or never answered). Its `outcome` is `served` (its answer went to
+the client), `refused` (the upstream refused the request itself, and the client
+got that refusal) or `failed` (it couldn't serve, so via tried the next one, or
+gave up). One that didn't serve also has:
+
+- `category`, why: `budget_exhausted` (a 402, or a code such as Codex's
+  `usage_limit_reached` or `insufficient_quota`), `rate_limited` (a 429),
+  `auth` (a 401 or 403), `downstream_unavailable` (a 502, 503 or 504, an
+  overloaded upstream, or an error a router such as OpenRouter says came from
+  the provider it sent the request on to), `context_too_long`,
+  `content_filtered`, `bad_request` (any other 4xx), `timeout`, `network` or
+  `unknown`. A code via knows outranks the status, so a 429 that says the quota
+  ran out is `budget_exhausted`.
+- `upstreamCode`, the upstream's own error code or type, when it is an
+  identifier.
+- `downstreamProvider`, the provider a router names in its error
+  (OpenRouter's `error.metadata.provider_name`), such as `Together`.
+- `message`, the upstream's error message, cut to 500 characters, **only for
+  a 401, 402, 403, 429 or 5xx**. Those answers are about the account (its key,
+  its budget, its rate limit) or the upstream itself (down or overloaded), so
+  they don't quote the request, and their words are what tells you why: "the
+  provider says the budget ran out". A 400, 413 or 422, or any other status,
+  judges the request itself and can quote the prompt back, so its message is
+  never kept, as the request's own `error` never keeps one.
+
+`conversations/<id>` gives every turn's attempts as `attempts`, in the order of
+the turns and then by `seq`, each naming its turn by `requestId`. Requests kept
+before this release have no attempts.
+
 #### Conversations
 
 via groups requests into conversations by the ids coding agents send. A
@@ -1240,9 +1283,10 @@ or `hash`), `guessed`, `client`, `keyName`, `models`, `firstAt`, `lastAt`,
 `turns`, `subagents`, its tokens, `failed`, `fellBack` and `cost`, priced as
 above. It takes the range, the filters and `limit` as `requests` does, and
 pages the same way: pass `next`'s `at` and `id` back as `afterAt` and
-`afterId`. `conversations/<id>` answers `{"summary": {...}, "turns": [...]}`,
-every request of the conversation and its sub-agents', oldest first, whenever
-they came in.
+`afterId`. `conversations/<id>` answers
+`{"summary": {...}, "turns": [...], "attempts": [...]}`: every request of the
+conversation and its sub-agents', oldest first, whenever they came in, and
+their [upstream attempts](#upstream-attempts).
 
 ```sh
 curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
@@ -1383,10 +1427,14 @@ and keeps its label (see
   models, the session, thread and parent ids clients send and the first
   product of their `User-Agent`, never prompts or answers, and is readable
   only by you. Of an
-  upstream's error it keeps only the status and the code, when the code is an
-  identifier, never the message, which could quote the request the upstream
-  refused. Upgrading clears the messages an older via kept, via's own included,
-  as the two can't be told apart. What via deletes or clears in it is
+  upstream's error it keeps the status and the code, when the code is an
+  identifier, and the name of the provider a router says it sent the request on
+  to. It keeps the message only for an attempt the upstream answered 401, 402,
+  403, 429 or 5xx (see [Upstream attempts](#upstream-attempts)), as those are
+  about the account or the upstream, not the request; never for a 400, 413,
+  422 or any other, which could quote the request the upstream refused.
+  Upgrading cleared the messages an older via kept, via's own included, as the
+  two can't be told apart. What via deletes or clears in it is
   overwritten (SQLite's `secure_delete`), not left in the file's free space.
 - `state.json` holds account ids, when their cooldowns end and a reason code
   for each, never an upstream's message. The log, on standard output only,

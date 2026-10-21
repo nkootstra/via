@@ -16,6 +16,7 @@ import { type BrokenStreamError, brokenResponse, failedResponse } from "./relay.
 import { RequestLog } from "../usage/request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
 import { upstreamErrorOf } from "./upstream-error.ts";
+import { causeOf } from "../usage/failure.ts";
 
 const namesModel = Schema.is(Schema.Struct({ model: Schema.String }));
 
@@ -190,10 +191,14 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
         return true;
       });
 
+    yield* log.attempt({ id: account.id, label: account.label });
+
     const sent = yield* codex.send(account, body, session, catalog).pipe(
       Effect.asSome,
       // Codex is unreachable for every account alike, so there is no one to fail over to.
-      Effect.catchTag("HttpClientError", () => Effect.succeedNone),
+      Effect.catchTag("HttpClientError", (error) =>
+        Effect.as(log.attemptFailed({ cause: causeOf(error) }), Option.none()),
+      ),
       Effect.result,
     );
 
@@ -206,6 +211,7 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
       }
 
       yield* log.served(account.label, account.id);
+      yield* log.upstreamAnswered(sent.success.value.status);
 
       const reply = yield* onSuccess(sent.success.value, (error) =>
         Effect.asVoid(coolDownFor(error)),
@@ -221,6 +227,14 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
 
       if (Result.isSuccess(reply)) return reply.success;
 
+      yield* log.attemptFailed({
+        error: {
+          code: Option.some(reply.failure.code),
+          message: Option.some(reply.failure.reason),
+          downstreamProvider: Option.none(),
+        },
+      });
+
       if (yield* coolDownFor(reply.failure)) continue;
 
       // `onSuccess` fails only while it collects a response, before any of it went out: Codex
@@ -233,8 +247,14 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
     }
 
     const rejected = sent.failure;
+    const refusal = upstreamErrorOf(rejected.body);
     // Read after the send, which can take minutes: a cooldown runs from Codex's answer.
     const verdict = classify(rejected.rejection, yield* Clock.currentTimeMillis);
+
+    // A refusal of the request itself goes to the client; anything else, the account or Codex failed.
+    yield* Verdict.$is("PassThrough")(verdict)
+      ? log.upstreamAnswered(rejected.status)
+      : log.attemptFailed({ status: rejected.status, error: refusal });
 
     if (Verdict.$is("Cooldown")(verdict)) {
       yield* pool.coolDown(account, verdict.until, verdict.reason);
@@ -259,7 +279,7 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
       return yield* outage(rejected.status, rejected.body, verdict);
     }
 
-    yield* log.upstreamFailed(upstreamErrorOf(rejected.body));
+    yield* log.upstreamFailed(refusal);
 
     return Outcome.Answered({ response: refused(rejected) });
   }

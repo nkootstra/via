@@ -208,6 +208,7 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
           return {
             summary: conversationSummary(found.value.summary, book),
             turns: found.value.turns,
+            attempts: found.value.attempts,
           };
         }),
       ),

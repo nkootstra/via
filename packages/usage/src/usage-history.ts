@@ -14,7 +14,7 @@ import {
   SubscriptionRef,
 } from "effect";
 import { dirname } from "node:path";
-import { UsageEntry } from "./entry.ts";
+import { RequestAttempt, UsageEntry } from "./entry.ts";
 import { Migrator, SqlClient } from "effect/sql";
 import type { SqlError } from "effect/sql/SqlError";
 import type * as Statement from "effect/sql/Statement";
@@ -222,10 +222,14 @@ export interface ConversationPage {
   readonly next: Option.Option<ConversationCursor>;
 }
 
-/** A conversation, as a whole, and every turn of it and its sub-agents', oldest first. */
+/**
+ * A conversation, as a whole, and every turn of it and its sub-agents', oldest first,
+ * with each turn's upstream attempts, by turn and then in order.
+ */
 export interface ConversationTurns {
   readonly summary: ConversationUsage;
   readonly turns: ReadonlyArray<UsageEntry>;
+  readonly attempts: ReadonlyArray<RequestAttempt>;
 }
 
 const ConversationRow = Schema.Struct({
@@ -278,6 +282,10 @@ const PercentileRow = Schema.Struct({
 });
 
 const decodeEntries = Schema.decodeUnknownEffect(Schema.Array(UsageEntry));
+
+const decodeAttempts = Schema.decodeUnknownEffect(Schema.Array(RequestAttempt));
+
+const encodeAttempt = Schema.encodeEffect(RequestAttempt);
 
 const decodePoints = Schema.decodeUnknownEffect(Schema.Array(SeriesPoint));
 
@@ -493,6 +501,32 @@ const migrations = Migrator.fromRecord({
     // A conversation's sub-agents.
     yield* sql`CREATE INDEX requests_parent ON requests (parent_conversation_id, conversation_id)`;
   }),
+  // Older requests kept none of their attempts. `request_id` names the request, as in
+  // `requests`, which a client's own x-request-id can repeat.
+  "7_request_attempts": Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    yield* sql`
+      CREATE TABLE request_attempts (
+        request_id TEXT NOT NULL,
+        seq INTEGER NOT NULL,
+        started_at INTEGER NOT NULL,
+        duration_ms INTEGER NOT NULL,
+        first_chunk_ms INTEGER,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        account_id TEXT,
+        account_label TEXT,
+        status INTEGER,
+        outcome TEXT NOT NULL,
+        category TEXT,
+        upstream_code TEXT,
+        downstream_provider TEXT,
+        message TEXT
+      )
+    `;
+    yield* sql`CREATE INDEX request_attempts_request ON request_attempts (request_id, seq)`;
+    yield* sql`CREATE INDEX request_attempts_started ON request_attempts (started_at)`;
+  }),
 });
 
 const make = Effect.gen(function* () {
@@ -592,6 +626,36 @@ const make = Effect.gen(function* () {
       client: row.client,
     })}`;
   });
+
+  const keep = Effect.fn("UsageHistory.keep")(function* (
+    entry: UsageEntry,
+    attempts: ReadonlyArray<RequestAttempt>,
+  ) {
+    yield* record(entry);
+
+    for (const attempt of attempts) {
+      // Typed as the schema's Type, as `entry` is: encoding can only fail on a programming error.
+      const row = yield* encodeAttempt(attempt).pipe(Effect.orDie);
+
+      yield* sql`INSERT INTO request_attempts ${sql.insert({
+        request_id: row.requestId,
+        seq: row.seq,
+        started_at: row.startedAt,
+        duration_ms: row.durationMs,
+        first_chunk_ms: row.firstChunkMs,
+        provider: row.provider,
+        model: row.model,
+        account_id: row.accountId,
+        account_label: row.accountLabel,
+        status: row.status,
+        outcome: row.outcome,
+        category: row.category,
+        upstream_code: row.upstreamCode,
+        downstream_provider: row.downstreamProvider,
+        message: row.message,
+      })}`;
+    }
+  }, sql.withTransaction);
 
   const requests = Effect.fn("UsageHistory.requests")(function* (query: RequestQuery) {
     const where = sql.and([
@@ -914,12 +978,35 @@ const make = Effect.gen(function* () {
     // Rows only ever come from `record`, so they always decode.
     const turns = yield* decodeEntries(rows).pipe(Effect.orDie);
 
-    return Option.some<ConversationTurns>({ summary, turns });
+    const attemptRows = yield* sql`
+      ${conversationTree(sql`conversation_id = ${id}`)},
+      turns AS (
+        SELECT request_id, MIN(at) AS at FROM requests
+        WHERE conversation_id IN (SELECT id FROM tree)
+        GROUP BY request_id
+      )
+      SELECT
+        a.request_id AS "requestId", seq, started_at AS "startedAt",
+        a.duration_ms AS "durationMs", a.first_chunk_ms AS "firstChunkMs",
+        a.provider, a.model, a.account_id AS "accountId", a.account_label AS "accountLabel",
+        a.status, outcome, category, upstream_code AS "upstreamCode",
+        downstream_provider AS "downstreamProvider", message
+      FROM request_attempts a JOIN turns ON a.request_id = turns.request_id
+      ORDER BY turns.at, a.request_id, seq
+    `;
+
+    // Rows only ever come from `keep`, so they always decode.
+    const attempts = yield* decodeAttempts(attemptRows).pipe(Effect.orDie);
+
+    return Option.some<ConversationTurns>({ summary, turns, attempts });
   });
 
   const prune = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
-    yield* sql`DELETE FROM requests WHERE at < ${now - Duration.toMillis(RETENTION)}`;
+    const cutoff = now - Duration.toMillis(RETENTION);
+    yield* sql`DELETE FROM requests WHERE at < ${cutoff}`;
+    // An attempt starts no sooner than its request, so it goes with it or a day after.
+    yield* sql`DELETE FROM request_attempts WHERE started_at < ${cutoff}`;
   }).pipe(Effect.withSpan("UsageHistory.prune"));
 
   // At start and then once a day. A failed prune is only logged: the next one retries.
@@ -932,6 +1019,7 @@ const make = Effect.gen(function* () {
   const clear = Effect.gen(function* () {
     const [counted] = yield* sql`SELECT COUNT(*) AS n FROM requests`;
     yield* sql`DELETE FROM requests`;
+    yield* sql`DELETE FROM request_attempts`;
 
     // A count of rows always decodes: SQLite answers COUNT(*) with a number.
     return (yield* decodeCount(counted).pipe(Effect.orDie)).n;
@@ -941,6 +1029,8 @@ const make = Effect.gen(function* () {
 
   return {
     record: (entry: UsageEntry) => Effect.tap(record(entry), bump),
+    keep: (entry: UsageEntry, attempts: ReadonlyArray<RequestAttempt>) =>
+      Effect.tap(keep(entry, attempts), bump),
     requests,
     series,
     breakdown,
@@ -976,6 +1066,11 @@ export class UsageHistory extends Context.Service<
   {
     /** Keeps one finished request. */
     readonly record: (entry: UsageEntry) => Effect.Effect<void, SqlError>;
+    /** Keeps one finished request with its upstream attempts, all or none of them. */
+    readonly keep: (
+      entry: UsageEntry,
+      attempts: ReadonlyArray<RequestAttempt>,
+    ) => Effect.Effect<void, SqlError>;
     /** A page of the requests in `[from, to)`, newest first. */
     readonly requests: (query: RequestQuery) => Effect.Effect<RequestPage, SqlError>;
     /** Each group's usage per hour or day in `[from, to)`, oldest first. */
@@ -987,7 +1082,7 @@ export class UsageHistory extends Context.Service<
      * `[from, to)`, the latest active first, each over those turns and its sub-agents'.
      */
     readonly conversations: (query: ConversationQuery) => Effect.Effect<ConversationPage, SqlError>;
-    /** A conversation and every turn of it and its sub-agents', if it has any. */
+    /** A conversation and every turn of it and its sub-agents', with their attempts, if it has any. */
     readonly conversation: (
       id: string,
     ) => Effect.Effect<Option.Option<ConversationTurns>, SqlError>;
