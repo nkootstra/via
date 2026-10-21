@@ -1,7 +1,8 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
-import { Effect, Option, Schema } from "effect";
+import { UsageHistory } from "@via/usage";
+import { Effect, Layer, Option, Ref, Schema } from "effect";
 import { CapturedRequestNotFoundError } from "./api.ts";
 import { ok, type Via, withVia } from "../testing/harness.ts";
 
@@ -142,6 +143,43 @@ layer(BunFileSystem.layer)("captured requests in the admin API", (it) => {
         }),
       { adminKey, keepFailedPrompts: true },
     ),
+  );
+
+  it.effect("leaves no captured request behind of a turn that settles while it deletes", () =>
+    Effect.gen(function* () {
+      // What runs as the history is deleted: after the captured requests already were.
+      const settling = yield* Ref.make<Effect.Effect<string, unknown>>(Effect.succeed(""));
+      const settled = yield* Ref.make("");
+
+      const history = Layer.effect(
+        UsageHistory,
+        Effect.map(UsageHistory, (usage) =>
+          UsageHistory.of({
+            ...usage,
+            clear: Effect.flatten(Ref.get(settling)).pipe(
+              // The turn is the test's own; one that fails fails the test.
+              Effect.orDie,
+              Effect.flatMap((id) => Ref.set(settled, id)),
+              Effect.andThen(usage.clear),
+            ),
+          }),
+        ),
+      ).pipe(Layer.provide(UsageHistory.layerMemory));
+
+      yield* withVia(
+        usageLimit,
+        (via) =>
+          Effect.gen(function* () {
+            yield* Ref.set(settling, turn(via, "late"));
+            expect((yield* via.delete("/admin/history", adminKey)).status).toBe(200);
+
+            const requestId = yield* Ref.get(settled);
+            expect(requestId).not.toBe("");
+            expect(yield* via.captured.get(requestId)).toEqual(Option.none());
+          }),
+        { adminKey, keepFailedPrompts: true, history },
+      );
+    }),
   );
 
   it.effect("needs the admin key", () =>
