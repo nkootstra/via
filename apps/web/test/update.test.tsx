@@ -20,6 +20,7 @@ const stateOf = (version: string) =>
     openrouter: null,
     fallbacks: [],
     fallbacksError: null,
+    capture: { keepFailedPrompts: false },
   }) as const;
 
 /** The version this page was built with: the repository's, in tests. */

@@ -290,6 +290,19 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
     ),
   );
 
+  it.effect("sends the state again when keeping failed prompts is turned on or off", () =>
+    withAdmin(ok, (via) =>
+      Effect.gen(function* () {
+        const { states } = yield* listen(via);
+        expect((yield* settled(via, states)).capture).toEqual({ keepFailedPrompts: false });
+
+        yield* via.put("/admin/history/capture", { keepFailedPrompts: true }, adminKey);
+        const on = yield* next(via, states, (state) => state.capture.keepFailedPrompts);
+        expect(on.capture).toEqual({ keepFailedPrompts: true });
+      }),
+    ),
+  );
+
   it.effect("sends the state again when OpenRouter's key or models change", () =>
     withAdmin(
       ok,

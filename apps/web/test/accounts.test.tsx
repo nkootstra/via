@@ -250,6 +250,7 @@ describe("the accounts page", () => {
         openrouter: null,
         fallbacks: [],
         fallbacksError: null,
+        capture: { keepFailedPrompts: false },
       }),
     );
 

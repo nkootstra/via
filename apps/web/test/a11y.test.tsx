@@ -157,6 +157,7 @@ const conversations = [
       }),
       attempt({ requestId: "s1", seq: 1, status: Option.some(502), outcome: "failed" }),
     ],
+    captured: [],
   },
 ];
 

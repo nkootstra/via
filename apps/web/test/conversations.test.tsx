@@ -105,6 +105,7 @@ const opencode: Conversation = {
       accountLabel: Option.some("go main"),
     }),
   ],
+  captured: [],
 };
 
 /** Aider's, which sent no id: via guessed it. */
@@ -122,6 +123,7 @@ const aider: Conversation = {
   }),
   turns: [turn("a1", -3_600_000, { conversationId: Option.some("3f9a0c") })],
   attempts: [],
+  captured: [],
 };
 
 const seed = {
@@ -215,6 +217,7 @@ describe("the usage page's conversations", () => {
       summary: conversation({ id: `ses_${i}`, lastAt: T0 - i * 1_000 }),
       turns: [],
       attempts: [],
+      captured: [],
     }));
 
     const { user } = renderApp("/usage?tab=conversations", { ...seed, conversations: many });
@@ -315,6 +318,7 @@ describe("the usage page's conversations", () => {
         }),
         turns: [entry],
         attempts: [],
+        captured: [],
       },
       opencode,
       aider,
@@ -364,6 +368,7 @@ describe("a conversation", () => {
       summary: conversation({ id: "ses:agent-1", client: Option.some("claude-cli/2.0.14") }),
       turns: [turn("c1", 0, { conversationId: Option.some("ses:agent-1") })],
       attempts: [],
+      captured: [],
     };
 
     const { state } = renderApp(

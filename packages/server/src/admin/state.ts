@@ -12,6 +12,7 @@ import {
   Providers,
   providerState,
 } from "@via/providers";
+import { CaptureSettingsStore } from "@via/usage";
 import { Clock, Effect, Option, Redacted } from "effect";
 import type { AdminState } from "./api.ts";
 import { ModelCatalog } from "../models/catalog.ts";
@@ -172,6 +173,12 @@ export const adminOpenrouter = Effect.flatMap(Providers, ({ openrouter }) =>
   Effect.map(openrouter.get, Option.getOrNull),
 );
 
+/** Whether via keeps failed turns' request bodies, as `GET /admin/history/capture` answers it. */
+export const adminCapture = Effect.flatMap(CaptureSettingsStore, (store) => store.get).pipe(
+  // The setting is via's own file; one it can't read is a bug, not a request error.
+  Effect.orDie,
+);
+
 /** The admin state now: what the routes above answer, the keys and the models, all at once. */
 export const adminState = ({ environment, version }: StateOptions) =>
   Effect.gen(function* () {
@@ -194,5 +201,6 @@ export const adminState = ({ environment, version }: StateOptions) =>
       ollama,
       openrouter,
       ...(yield* fallbacksNow),
+      capture: yield* adminCapture,
     } satisfies typeof AdminState.Type;
   });
