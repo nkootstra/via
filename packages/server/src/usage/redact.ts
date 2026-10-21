@@ -4,7 +4,7 @@
 import { Predicate, type Schema } from "effect";
 
 /** How many strings of one kind were replaced. */
-export interface Redaction {
+interface Redaction {
   readonly kind: string;
   readonly count: number;
 }

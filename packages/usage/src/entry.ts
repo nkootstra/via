@@ -123,7 +123,7 @@ export const RequestAttempt = Schema.Struct({
 export type RequestAttempt = typeof RequestAttempt.Type;
 
 /** The API a captured request was sent to. */
-export const CapturedEndpoint = Schema.Literals(["chat/completions", "responses"]);
+const CapturedEndpoint = Schema.Literals(["chat/completions", "responses"]);
 
 /**
  * A turn that failed or fell back, kept with its request body, while the setting to keep

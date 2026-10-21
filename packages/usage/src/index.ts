@@ -1,6 +1,5 @@
 export {
   type CapturedRequest,
-  type CaptureSettings,
   type FailureCategory,
   type RequestAttempt,
   UsageEntry,
