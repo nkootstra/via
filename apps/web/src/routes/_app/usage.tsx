@@ -37,6 +37,7 @@ import {
   type HistorySpan,
 } from "../../api/admin.ts";
 import type { HistoryBreakdown, HistoryGroup, HistorySeries } from "../../api/types.ts";
+import { CaptureIndicator } from "../../components/capture-indicator.tsx";
 import { ConversationDetail } from "../../components/conversation-detail.tsx";
 import { ConversationList } from "../../components/conversation-list.tsx";
 import { CostAmount } from "../../components/cost.tsx";
@@ -197,6 +198,14 @@ const styles = stylex.create({
   },
   // As wide as its tabs, as the range's control is.
   tabs: { alignSelf: "flex-start" },
+  // The tabs, and beside them what the tab says about itself.
+  tabRow: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: space.s3,
+  },
   header: {
     display: "flex",
     flexDirection: "column",
@@ -404,11 +413,14 @@ function Usage() {
       >
         <div {...stylex.props(styles.content)}>
           <div {...stylex.props(styles.header)}>
-            <div {...stylex.props(styles.tabs)}>
-              <TabsList aria-label="View">
-                <TabItem value="requests" label="Requests" />
-                <TabItem value="conversations" label="Conversations" />
-              </TabsList>
+            <div {...stylex.props(styles.tabRow)}>
+              <div {...stylex.props(styles.tabs)}>
+                <TabsList aria-label="View">
+                  <TabItem value="requests" label="Requests" />
+                  <TabItem value="conversations" label="Conversations" />
+                </TabsList>
+              </div>
+              {tab === "conversations" && <CaptureIndicator />}
             </div>
             {/* An open conversation is the whole of it, whatever the range and filters. */}
             {opened === undefined && (

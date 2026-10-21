@@ -309,6 +309,37 @@ export const historyConversationQuery = (id: string) =>
 /** Deletes every request the usage history kept. */
 export const clearHistory = () => run((admin) => admin.history.clear());
 
+/**
+ * The body of a failed request via kept, or none when it kept none, or no longer
+ * has it. It never changes once kept, so it is fetched once.
+ */
+export const capturedRequestQuery = (requestId: string) =>
+  queryOptions({
+    queryKey: ["history", "body", requestId],
+    queryFn: () =>
+      run((admin) =>
+        admin.history.capturedRequest({ params: { requestId } }).pipe(
+          Effect.map(Option.some),
+          Effect.catchTag("CapturedRequestNotFoundError", () => Effect.succeedNone),
+        ),
+      ),
+    staleTime: Infinity,
+  });
+
+/** Deletes every prompt via kept of a failed request; the requests themselves stay. */
+export const clearCapturedPrompts = () => run((admin) => admin.history.clearCaptured());
+
+/** Whether via keeps the prompts of failed requests. via pushes it as it changes. */
+export const captureQuery = queryOptions({
+  queryKey: ["capture"],
+  queryFn: () => run((admin) => admin.history.captureSettings()),
+  staleTime: SENT_FRESH_MS,
+});
+
+/** Turns keeping the prompts of failed requests on or off, resolving to how it now stands. */
+export const setCapture = (keepFailedPrompts: boolean) =>
+  run((admin) => admin.history.setCaptureSettings({ payload: { keepFailedPrompts } }));
+
 /** Fetches the usage page's queries again, after the history changed under them. */
 export function refreshHistory(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["history"] });

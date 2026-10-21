@@ -297,7 +297,7 @@ const HistoryEvent = Schema.Struct({
   data: Schema.String,
 });
 
-export { TurnEvent };
+export { CapturedRequest, TurnEvent };
 
 /** Every event `GET /admin/events` sends: the state, the history's changes, and the turns in flight. */
 export const AdminEvent = Schema.Union([StateEvent, HistoryEvent, ...TurnEvent.members]);
@@ -509,7 +509,7 @@ const ConversationPage = Schema.Struct({
  * turn's upstream attempts: in the turns' order, each turn's by `seq`, its `requestId`
  * naming the turn.
  */
-const Conversation = Schema.Struct({
+export const Conversation = Schema.Struct({
   summary: ConversationSummary,
   turns: Schema.Array(UsageEntry),
   attempts: Schema.Array(RequestAttempt),

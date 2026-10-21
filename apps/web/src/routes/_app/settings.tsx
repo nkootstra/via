@@ -1,10 +1,17 @@
 import * as stylex from "@stylexjs/stylex";
 import { createFileRoute } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { Button, SegmentedControl, SegmentedItem, Switch, ThemeControl } from "@via/ui";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Button, SegmentedControl, SegmentedItem, Switch, ThemeControl, useToast } from "@via/ui";
 import { colors, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { useId, useState, type ReactNode } from "react";
-import { clearHistory, refreshHistory } from "../../api/admin.ts";
+import {
+  captureQuery,
+  clearCapturedPrompts,
+  clearHistory,
+  refreshHistory,
+  setCapture,
+} from "../../api/admin.ts";
+import { CAPTURE_SETTING } from "../../components/capture-indicator.tsx";
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -58,7 +65,10 @@ const styles = stylex.create({
   control: { maxWidth: "100%" },
 });
 
-/** One setting: its label, at `id` for the control to name itself by, what it does, and the control. */
+/**
+ * One setting: its label, at `id` for the control to name itself by, what it
+ * does, at `${id}-about` for the control to be described by, and the control.
+ */
 function Setting({
   id,
   label,
@@ -76,7 +86,9 @@ function Setting({
         <span id={id} {...stylex.props(styles.label)}>
           {label}
         </span>
-        <p {...stylex.props(styles.description)}>{description}</p>
+        <p id={`${id}-about`} {...stylex.props(styles.description)}>
+          {description}
+        </p>
       </div>
       <div {...stylex.props(styles.control)}>{children}</div>
     </div>
@@ -192,10 +204,107 @@ function Settings() {
 
       <Section title="Usage history">
         <Panel>
+          <CaptureSetting />
+          <CapturedPromptsSetting />
           <UsageHistorySetting />
         </Panel>
       </Section>
     </Page>
+  );
+}
+
+/**
+ * Whether via keeps the prompts of failed requests, for every viewer: it is
+ * via's setting, not this browser's. The switch moves at once and goes back
+ * if via refuses.
+ */
+function CaptureSetting() {
+  // The anchor the Conversations tab links to, and the label the switch is named by.
+  const label = CAPTURE_SETTING;
+  const toast = useToast();
+  const queryClient = useQueryClient();
+  const capture = useQuery(captureQuery);
+
+  const change = useMutation({
+    mutationFn: setCapture,
+    onSuccess: (settings) => queryClient.setQueryData(captureQuery.queryKey, settings),
+    onError: (error) =>
+      toast.add({
+        type: "error",
+        title: "Couldn't change the setting",
+        description: error.message,
+      }),
+  });
+
+  const on = change.isPending ? change.variables : (capture.data?.keepFailedPrompts ?? false);
+
+  return (
+    <Setting
+      id={label}
+      label="Keep prompts of failed requests"
+      description={
+        <>
+          Off unless you turn it on. When a request fails or falls back, via keeps what the client
+          sent and what the upstreams answered for 7 days, so you can see why. Secrets are redacted
+          by their pattern first, which can miss some, and images are left out.
+        </>
+      }
+    >
+      <Switch
+        aria-label="Keep prompts of failed requests"
+        aria-describedby={`${label}-about`}
+        aria-busy={change.isPending}
+        checked={on}
+        onCheckedChange={(next) => change.mutate(next)}
+      />
+    </Setting>
+  );
+}
+
+/** Deletes every prompt via kept of a failed request; the requests stay in the history. */
+function CapturedPromptsSetting() {
+  const label = useId();
+  const queryClient = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(false);
+
+  return (
+    <Setting
+      id={label}
+      label="Delete captured prompts"
+      description="Deletes every prompt via kept of a failed request, now. The requests stay in the usage history."
+    >
+      <Button
+        variant="secondary"
+        aria-describedby={label}
+        onClick={() => {
+          setShown(true);
+          setOpen(true);
+        }}
+      >
+        <TrashIcon size={15} />
+        Delete captured prompts…
+      </Button>
+      {shown && (
+        <ConfirmDialog
+          open={open}
+          onClose={() => setOpen(false)}
+          onClosed={() => setShown(false)}
+          title="Delete every captured prompt?"
+          description="Every prompt via kept of a failed request goes, and what the upstreams answered to it. The requests stay in the usage history. This can't be undone."
+          confirmLabel="Delete prompts"
+          confirm={async () => {
+            await clearCapturedPrompts();
+          }}
+          onConfirmed={() => refreshHistory(queryClient)}
+          done={{
+            title: "Captured prompts deleted",
+            description: "via keeps the prompts of new failed requests while the setting is on.",
+          }}
+          failed="Couldn't delete the captured prompts"
+        />
+      )}
+    </Setting>
   );
 }
 
@@ -213,7 +322,7 @@ function UsageHistorySetting() {
     <Setting
       id={label}
       label="Delete usage history"
-      description="via keeps each request for 90 days. Deleting starts the Usage page over; keys, accounts and settings stay."
+      description="via keeps each request for 90 days. Deleting starts the Usage page over, and deletes the captured prompts too; keys, accounts and settings stay."
     >
       <Button
         variant="secondary"

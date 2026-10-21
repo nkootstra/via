@@ -11,6 +11,8 @@
  * it didn't serve; a turn that took more than one, or had one fail, says so.
  * A turn in flight runs to now and grows as the page's clock ticks; the clock
  * is the caller's, which ticks less often for a viewer who asks for less motion.
+ * A turn whose request via kept says so, and its attempts end with a button
+ * that opens the request.
  */
 import * as stylex from "@stylexjs/stylex";
 import { Tooltip } from "@via/ui";
@@ -63,7 +65,7 @@ import type {
   TimelineTurn,
 } from "../lib/timeline.ts";
 import { formatDuration, formatMs, formatTokens, formatUsd } from "../lib/usage-format.ts";
-import { ChevronRightIcon } from "./icons.tsx";
+import { ChevronRightIcon, DocumentIcon } from "./icons.tsx";
 
 /** Below this width, in pixels, a row stacks its label over its track, which keeps the axis readable. */
 const STACKED_PX = 480;
@@ -388,6 +390,36 @@ const styles = stylex.create({
     fontFamily: fonts.mono,
   },
   attemptFailed: { color: colors.destructive },
+  // The kept request's glyph, beside what the attempts came to.
+  kept: {
+    display: "inline-flex",
+    flexShrink: 0,
+    color: colors.mutedForeground,
+  },
+  // Opening a turn's kept request, under its attempts, where their details start.
+  view: {
+    gridColumn: "2",
+    justifySelf: "start",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.s1_5,
+    height: "26px",
+    paddingInline: space.s2,
+    marginInlineStart: `calc(-1 * ${space.s2})`,
+    marginBottom: space.s1_5,
+    borderWidth: 0,
+    borderRadius: "6px",
+    backgroundColor: { default: "transparent", ":hover": colors.hover },
+    fontFamily: "inherit",
+    fontSize: text.caption,
+    fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
+    color: colors.foreground,
+    cursor: "pointer",
+    outline: "none",
+    boxShadow: { default: null, ":focus-visible": `inset 0 0 0 2px ${colors.focusRing}` },
+  },
+  viewStacked: { gridColumn: "1", marginInlineStart: 0 },
   message: {
     display: "block",
     marginTop: space.s0_5,
@@ -510,6 +542,14 @@ interface Axis {
   readonly stacked: boolean;
 }
 
+/** The turns whose request via kept, and opening one, as the caller does it. */
+interface Requests {
+  readonly captured: ReadonlySet<string>;
+  readonly view: (requestId: string, number: number) => void;
+}
+
+const RequestsContext = createContext<Requests>({ captured: new Set(), view: () => {} });
+
 const AxisContext = createContext<Axis>({
   timeline: { from: 0, to: 1, items: [] },
   width: DEFAULT_TRACK_PX,
@@ -544,7 +584,17 @@ function useWidth<E extends HTMLElement>() {
   return [ref, width] as const;
 }
 
-export function Waterfall({ timeline }: { readonly timeline: Timeline }) {
+export function Waterfall({
+  timeline,
+  captured = new Set(),
+  onViewRequest = () => {},
+}: {
+  readonly timeline: Timeline;
+  /** The turns, by request id, whose request via kept. */
+  readonly captured?: ReadonlySet<string>;
+  /** Opens a turn's kept request. */
+  readonly onViewRequest?: (requestId: string, number: number) => void;
+}) {
   const rows = flatten(timeline.items);
   const order = rows.map((row) => row.turn.requestId);
   const elements = useRef(new Map<string, HTMLButtonElement>());
@@ -657,9 +707,11 @@ export function Waterfall({ timeline }: { readonly timeline: Timeline }) {
         </div>
         <AxisContext value={{ timeline, width, grid: step / span, stacked }}>
           <BarsContext value={bars}>
-            <ol aria-label="Timeline" {...stylex.props(styles.list)}>
-              <Items items={timeline.items} depth={0} />
-            </ol>
+            <RequestsContext value={{ captured, view: onViewRequest }}>
+              <ol aria-label="Timeline" {...stylex.props(styles.list)}>
+                <Items items={timeline.items} depth={0} />
+              </ol>
+            </RequestsContext>
           </BarsContext>
         </AxisContext>
       </div>
@@ -889,6 +941,7 @@ function TurnRow({
 }) {
   const { current, register, focused, move } = use(BarsContext);
   const { timeline, stacked } = use(AxisContext);
+  const requests = use(RequestsContext);
   const [opened, setOpened] = useState(false);
   const attemptsId = useId();
   const id = row.turn.requestId;
@@ -897,6 +950,7 @@ function TurnRow({
   const flagged = count > 1 || failures > 0;
   const model = modelName(row.turn.model);
   const unknown = withoutPrefix(row.turn.model) === "";
+  const kept = !row.live && requests.captured.has(id);
 
   const inner = (
     <>
@@ -918,6 +972,11 @@ function TurnRow({
         </span>
       )}
       <AttemptsFlag count={count} failures={failures} />
+      {kept && (
+        <span title="via kept this request" {...stylex.props(styles.kept)}>
+          <DocumentIcon size={12} />
+        </span>
+      )}
     </>
   );
 
@@ -937,7 +996,7 @@ function TurnRow({
             type="button"
             aria-expanded={opened}
             aria-controls={opened ? attemptsId : undefined}
-            aria-label={`Attempts of turn ${row.number}${flagged ? `: ${count}, ${failures} failed` : ""}`}
+            aria-label={`Attempts of turn ${row.number}${flagged ? `: ${count}, ${failures} failed` : ""}${kept ? ", request kept" : ""}`}
             title={`${row.turn.model}: ${count} ${count === 1 ? "attempt" : "attempts"}, ${failures} failed`}
             onClick={() => setOpened((was) => !was)}
             style={{ paddingInlineStart: depth * INDENT_PX }}
@@ -977,6 +1036,19 @@ function TurnRow({
             <AttemptRow key={placed.attempt.seq} placed={placed} depth={depth} />
           ))}
         </ol>
+      )}
+      {opened && kept && (
+        <div {...stylex.props(styles.row, stacked && styles.stacked)}>
+          <span {...stylex.props(stacked && styles.gone)} />
+          <button
+            type="button"
+            onClick={() => requests.view(id, row.number)}
+            {...stylex.props(styles.view, stacked && styles.viewStacked)}
+          >
+            <DocumentIcon size={13} />
+            View request
+          </button>
+        </div>
       )}
     </li>
   );

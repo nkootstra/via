@@ -1,6 +1,7 @@
 /**
  * One conversation, open on the usage page's Conversations tab: what it came
  * from and what it cost, its turns on a waterfall, and its turns as a table.
+ * A failed turn whose request via kept opens it in a sheet, from either.
  */
 import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
@@ -20,10 +21,11 @@ import { Stat, StatList } from "@via/ui/chart";
 import { colors, fonts, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { Option, Schema } from "effect";
 import { useReducedMotionConfig } from "motion/react";
+import { useState } from "react";
 import { historyConversationQuery } from "../api/admin.ts";
 import { useSignalledOptions } from "../api/live.ts";
 import { useEndedTurns, useLiveTurns } from "../api/turns.ts";
-import type { ConversationSummary, UsageRequest } from "../api/types.ts";
+import type { Conversation, ConversationSummary, UsageRequest } from "../api/types.ts";
 import { harnessName } from "../lib/harness.ts";
 import { pendingSummary, type Standing, standing } from "../lib/live-conversations.ts";
 import { withoutPrefix } from "../lib/model-entries.ts";
@@ -43,11 +45,13 @@ import {
   tokensOf,
 } from "../lib/usage-format.ts";
 import { changed } from "../lib/usage-search.ts";
+import { ExportMenu } from "./export-menu.tsx";
 import { GuessedBadge } from "./guessed-badge.tsx";
-import { UsageIcon } from "./icons.tsx";
+import { DocumentIcon, UsageIcon } from "./icons.tsx";
 import { ModelName } from "./model-name.tsx";
 import { Panel, Section } from "./page.tsx";
 import { QueryError } from "./query-error.tsx";
+import { RequestSheet, type ViewedTurn } from "./request-sheet.tsx";
 import { Waterfall } from "./waterfall.tsx";
 
 const styles = stylex.create({
@@ -66,7 +70,15 @@ const styles = stylex.create({
     borderRadius: radii.item,
     outlineOffset: "2px",
   },
+  // Its name and id, and beside them, while they fit, exporting it.
   header: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: space.s3,
+  },
+  heading: {
     display: "flex",
     flexDirection: "column",
     gap: space.s1,
@@ -118,6 +130,25 @@ const styles = stylex.create({
     color: colors.foreground,
   },
   failed: { color: colors.destructive },
+  view: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: space.s1,
+    height: "24px",
+    marginTop: space.s1,
+    paddingInline: space.s1_5,
+    marginInlineStart: `calc(-1 * ${space.s1_5})`,
+    borderWidth: 0,
+    borderRadius: "6px",
+    backgroundColor: { default: "transparent", ":hover": colors.hover },
+    fontFamily: "inherit",
+    fontSize: text.caption,
+    fontVariationSettings: weights.medium,
+    fontWeight: fontWeights.medium,
+    color: colors.foreground,
+    cursor: "pointer",
+    outline: { default: "none", ":focus-visible": `2px solid ${colors.focusRing}` },
+  },
   cause: {
     display: "-webkit-box",
     marginTop: space.s0_5,
@@ -148,6 +179,8 @@ function BackLink() {
 
 const nothingKept = { turns: [], attempts: [] };
 
+const noneCaptured: ReadonlySet<string> = new Set();
+
 export function ConversationDetail({ id }: { readonly id: string }) {
   const conversation = useQuery({ ...historyConversationQuery(id), ...useSignalledOptions() });
   const ended = useEndedTurns();
@@ -159,10 +192,19 @@ export function ConversationDetail({ id }: { readonly id: string }) {
     <div {...stylex.props(styles.root)}>
       <BackLink />
       {conversation.data !== undefined ? (
-        <Opened summary={conversation.data.summary} standing={now} />
+        <Opened
+          summary={conversation.data.summary}
+          standing={now}
+          captured={new Set(conversation.data.captured)}
+          kept={conversation.data}
+        />
       ) : // A conversation whose first turn is in flight, or just ended: the history has none of it yet.
       pending && isNotFound(conversation.error) ? (
-        <Opened summary={pendingSummary(id, now.turns, now.live)} standing={now} />
+        <Opened
+          summary={pendingSummary(id, now.turns, now.live)}
+          standing={now}
+          captured={noneCaptured}
+        />
       ) : conversation.isError ? (
         isNotFound(conversation.error) ? (
           <EmptyState
@@ -195,14 +237,32 @@ const TICK_MS = { gliding: 100, still: 1_000, idle: 60_000 } as const;
 function Opened({
   summary,
   standing: { turns, attempts, live },
+  captured,
+  kept,
 }: {
   readonly summary: ConversationSummary;
   readonly standing: Standing;
+  /** The turns, by request id, whose request via kept. */
+  readonly captured: ReadonlySet<string>;
+  /** What the history kept of it, to export; none while it has none of it yet. */
+  readonly kept?: Conversation;
 }) {
   const format = useTimeFormat();
   const mask = useMask();
   const still = useReducedMotionConfig() === true;
   const now = useNow(live.length === 0 ? TICK_MS.idle : still ? TICK_MS.still : TICK_MS.gliding);
+  // The turn whose request the sheet shows; it stays while the sheet closes, so it closes whole.
+  const [viewing, setViewing] = useState<ViewedTurn | undefined>(undefined);
+  const [sheetOpen, setSheetOpen] = useState(false);
+
+  const view = (requestId: string, number: number) => {
+    setViewing({
+      requestId,
+      number,
+      attempts: attempts.filter((attempt) => attempt.requestId === requestId),
+    });
+    setSheetOpen(true);
+  };
 
   const costDetail =
     summary.cost.unpriced.length > 0
@@ -219,18 +279,21 @@ function Opened({
   return (
     <>
       <div {...stylex.props(styles.header)}>
-        <h2 {...stylex.props(styles.title)}>
-          {harnessName(summary.client, summary.source)}
-          {summary.guessed && <GuessedBadge />}
-        </h2>
-        <p {...stylex.props(styles.id)}>
-          {summary.id}
-          {Option.match(summary.keyName, {
-            onNone: () => "",
-            onSome: (key) => ` · ${mask.key(key)}`,
-          })}
-          {` · ${formatMoment(summary.firstAt, format)}`}
-        </p>
+        <div {...stylex.props(styles.heading)}>
+          <h2 {...stylex.props(styles.title)}>
+            {harnessName(summary.client, summary.source)}
+            {summary.guessed && <GuessedBadge />}
+          </h2>
+          <p {...stylex.props(styles.id)}>
+            {summary.id}
+            {Option.match(summary.keyName, {
+              onNone: () => "",
+              onSome: (key) => ` · ${mask.key(key)}`,
+            })}
+            {` · ${formatMoment(summary.firstAt, format)}`}
+          </p>
+        </div>
+        {kept !== undefined && <ExportMenu conversation={kept} />}
       </div>
       <StatList>
         <Stat
@@ -271,13 +334,25 @@ function Opened({
       </StatList>
       <Section title="Timeline">
         <Panel>
-          <Waterfall timeline={timelineOf(summary.id, turns, { attempts, live, now })} />
+          <Waterfall
+            timeline={timelineOf(summary.id, turns, { attempts, live, now })}
+            captured={captured}
+            onViewRequest={view}
+          />
         </Panel>
       </Section>
       {turns.length > 0 && (
         <Section title="Turns">
-          <Turns rootId={summary.id} turns={turns} />
+          <Turns rootId={summary.id} turns={turns} captured={captured} onView={view} />
         </Section>
+      )}
+      {viewing !== undefined && (
+        <RequestSheet
+          turn={viewing}
+          open={sheetOpen}
+          onOpenChange={setSheetOpen}
+          onClosed={() => setViewing(undefined)}
+        />
       )}
     </>
   );
@@ -306,9 +381,13 @@ const agentOf = (turn: UsageRequest, rootId: string) =>
 function Turns({
   rootId,
   turns,
+  captured,
+  onView,
 }: {
   readonly rootId: string;
   readonly turns: ReadonlyArray<UsageRequest>;
+  readonly captured: ReadonlySet<string>;
+  readonly onView: (requestId: string, number: number) => void;
 }) {
   const mask = useMask();
   const format = useTimeFormat();
@@ -378,6 +457,16 @@ function Turns({
                     <span title={mask.key(turn.errorMessage.value)} {...stylex.props(styles.cause)}>
                       {mask.key(turn.errorMessage.value)}
                     </span>
+                  )}
+                  {captured.has(turn.requestId) && (
+                    <button
+                      type="button"
+                      onClick={() => onView(turn.requestId, index + 1)}
+                      {...stylex.props(styles.view)}
+                    >
+                      <DocumentIcon size={13} />
+                      View request
+                    </button>
                   )}
                 </TableCell>
               </TableRow>

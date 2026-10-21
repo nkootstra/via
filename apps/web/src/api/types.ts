@@ -76,3 +76,6 @@ export type Fallback = SuccessOf<Groups["fallbacks"]["endpoints"]["list"]>[numbe
 
 /** Whether a model could serve a request now, as a fallback rule's status says. */
 export type Availability = Fallback["status"]["source"];
+
+/** The body of a failed request via kept, redacted, with each upstream's error. */
+export type CapturedRequest = SuccessOf<Groups["history"]["endpoints"]["capturedRequest"]>;

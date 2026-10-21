@@ -18,6 +18,8 @@ export {
 
 export { AlertDialog, AlertDialogContent, AlertDialogTrigger } from "./alert-dialog.tsx";
 
+export { Sheet, SheetContent, type SheetContentProps } from "./sheet.tsx";
+
 export {
   Table,
   TableBody,
@@ -111,3 +113,5 @@ export { FilterSelect, type FilterOption, type FilterSelectProps } from "./filte
 export { SearchSelect } from "./search-select.tsx";
 
 export { Tooltip, type TooltipProps } from "./tooltip.tsx";
+
+export { ChevronDownIcon, CopyIcon } from "./icons.tsx";

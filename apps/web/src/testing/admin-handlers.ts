@@ -7,6 +7,7 @@
  */
 import {
   AdminApi,
+  CapturedRequestNotFoundError,
   ConversationNotFoundError,
   LoginNotFoundError,
   Unauthorized,
@@ -31,6 +32,7 @@ import {
 import { Effect, Option, Schema } from "effect";
 import type {
   Account,
+  CapturedRequest,
   Conversation,
   Fallback,
   Key,
@@ -114,6 +116,13 @@ export interface AdminState {
    * given, filtered by model; `/admin/history/conversations/:id` answers one.
    */
   conversations: Array<Conversation>;
+  /**
+   * The bodies via kept of failed requests, by request id: what
+   * `/admin/history/requests/:requestId/body` answers, and what a conversation says it kept.
+   */
+  captured: Map<string, CapturedRequest>;
+  /** Whether via keeps the prompts of failed requests. */
+  capture: { keepFailedPrompts: boolean };
   /** The query of every history request the fake received, in order. */
   readonly historyQueries: Array<URLSearchParams>;
   /** Where Ollama is, if via knows one. */
@@ -165,6 +174,8 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     historyBreakdown: new Map(),
     historyRequests: [],
     conversations: [],
+    captured: new Map(),
+    capture: { keepFailedPrompts: false },
     historyQueries: [],
     ollama: null,
     ollamaAt: new Map(),
@@ -735,7 +746,49 @@ export function adminHandlers(state: AdminState) {
               new ConversationNotFoundError({ id: params.id }),
               404,
             )
-          : ok(history.endpoints.conversation, found);
+          : ok(history.endpoints.conversation, {
+              ...found,
+              captured: found.turns
+                .map(({ requestId }) => requestId)
+                .filter((requestId) => state.captured.has(requestId)),
+            });
+      }),
+    ),
+    http.get<{ requestId: string }>(
+      at("/history/requests/:requestId/body"),
+      guarded(({ params }) => {
+        const found = state.captured.get(params.requestId);
+
+        return found === undefined
+          ? failure(
+              CapturedRequestNotFoundError,
+              new CapturedRequestNotFoundError({ requestId: params.requestId }),
+              404,
+            )
+          : ok(history.endpoints.capturedRequest, found);
+      }),
+    ),
+    http.delete(
+      at("/history/bodies"),
+      guarded(() => {
+        const deleted = state.captured.size;
+        state.captured = new Map();
+
+        return ok(history.endpoints.clearCaptured, { deleted });
+      }),
+    ),
+    http.get(
+      at("/history/capture"),
+      guarded(() => ok(history.endpoints.captureSettings, state.capture)),
+    ),
+    http.put(
+      at("/history/capture"),
+      guarded(async ({ request }) => {
+        state.capture = Schema.decodeUnknownSync(
+          Schema.Struct({ keepFailedPrompts: Schema.Boolean }),
+        )(await request.json());
+
+        return ok(history.endpoints.setCaptureSettings, state.capture);
       }),
     ),
   ];
