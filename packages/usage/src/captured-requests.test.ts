@@ -127,6 +127,21 @@ describe("CapturedRequests retention", () => {
     );
   });
 
+  it.effect("never gives back a request past its 7 days, even before the prune", () =>
+    Effect.gen(function* () {
+      const requests = yield* CapturedRequests;
+      yield* requests.keep(captured({ capturedAt: 0 }));
+      yield* TestClock.adjust(Duration.days(7));
+      expect(yield* requests.which(["r1"])).toEqual(["r1"]);
+      expect(Option.isSome(yield* requests.get("r1"))).toBe(true);
+
+      // Past its 7 days, though the hourly prune hasn't come round to it yet.
+      yield* TestClock.adjust(Duration.millis(1));
+      expect(yield* requests.which(["r1"])).toEqual([]);
+      expect(yield* requests.get("r1")).toEqual(Option.none());
+    }).pipe(Effect.provide(CapturedRequests.layerMemory)),
+  );
+
   it.effect("prunes every hour while it runs", () =>
     Effect.gen(function* () {
       const requests = yield* CapturedRequests;

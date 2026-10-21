@@ -69,10 +69,17 @@ const make = Effect.gen(function* () {
     `;
   });
 
+  /** The oldest a captured request can be and still be given back: the prune may not have run yet. */
+  const keptSince = Effect.map(
+    Clock.currentTimeMillis,
+    (now) => now - Duration.toMillis(RETENTION),
+  );
+
   const get = Effect.fn("CapturedRequests.get")(function* (requestId: string) {
+    const since = yield* keptSince;
     const [row] = yield* sql`
       SELECT capture FROM captured_requests
-      WHERE request_id = ${requestId}
+      WHERE request_id = ${requestId} AND captured_at >= ${since}
       ORDER BY captured_at DESC, rowid DESC
       LIMIT 1
     `;
@@ -86,9 +93,10 @@ const make = Effect.gen(function* () {
   const which = Effect.fn("CapturedRequests.which")(function* (requestIds: ReadonlyArray<string>) {
     if (requestIds.length === 0) return [];
 
+    const since = yield* keptSince;
     const rows = yield* sql`
       SELECT DISTINCT request_id AS "requestId" FROM captured_requests
-      WHERE ${sql.in("request_id", requestIds)}
+      WHERE ${sql.in("request_id", requestIds)} AND captured_at >= ${since}
     `;
 
     // Rows only ever come from `keep`, so they always decode.
@@ -98,8 +106,7 @@ const make = Effect.gen(function* () {
   });
 
   const prune = Effect.gen(function* () {
-    const now = yield* Clock.currentTimeMillis;
-    yield* sql`DELETE FROM captured_requests WHERE captured_at < ${now - Duration.toMillis(RETENTION)}`;
+    yield* sql`DELETE FROM captured_requests WHERE captured_at < ${yield* keptSince}`;
     yield* scrubWal(sql);
   }).pipe(Effect.withSpan("CapturedRequests.prune"));
 
@@ -143,9 +150,9 @@ export class CapturedRequests extends Context.Service<
   {
     /** Keeps one captured request. */
     readonly keep: (captured: CapturedRequest) => Effect.Effect<void, SqlError>;
-    /** The latest request captured with id `requestId`, if any is. */
+    /** The latest request captured with id `requestId` in the last 7 days, if any is. */
     readonly get: (requestId: string) => Effect.Effect<Option.Option<CapturedRequest>, SqlError>;
-    /** Which of `requestIds` have a captured request, in their order. */
+    /** Which of `requestIds` have a request captured in the last 7 days, in their order. */
     readonly which: (
       requestIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<string>, SqlError>;

@@ -1443,7 +1443,8 @@ answered. The setting is kept in `capture.json`, and the prompts in
 `bodies.db`, a SQLite database of their own beside `usage.db`, readable only
 by you, overwriting what it deletes (`secure_delete`) and emptying its
 `bodies.db-wal` after each delete, so a deleted prompt is left in neither. A prompt is kept for 7
-days: via deletes older ones at startup and every hour. **Delete captured
+days: via deletes older ones at startup and every hour, and never answers
+with one older than that in between. **Delete captured
 prompts** in the web UI, or `DELETE /admin/history/bodies`, deletes them all
 and keeps the history; deleting the history deletes them too.
 
