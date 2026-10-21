@@ -547,9 +547,10 @@ same rules for what is kept of an upstream's message, as the
 
 The turns in flight are kept in memory only, never on disk, and at most 1,000
 at once: a request past that isn't shown until it ends and the history has it.
-A stream that falls more than about a thousand events behind loses the oldest;
-via never waits for it to serve a request. A page that reconnects gets every
-turn in flight again, so it should drop what it held when the stream broke.
+A stream that falls more than about a thousand events behind is ended rather
+than left to miss one, and via never waits for it to serve a request. A page
+that reconnects gets every turn in flight again, so it should drop what it held
+when the stream broke.
 
 #### Signing in from a browser
 
@@ -699,7 +700,8 @@ says when it would take a request for an effort it lacks at its default.
 page's preferences:
 
 - **Privacy mode**, for streaming or sharing your screen: it hides emails
-  (in labels and error messages too), key endings, the OpenRouter key, the
+  (in labels and error messages too, and in a captured prompt's sheet and
+  Markdown report), key endings, the OpenRouter key, the
   Ollama address and the ChatGPT plan, and shows a new API key or a sign-in
   code as dots until you choose **Show** (**Copy** copies it either way).
   Renaming an account whose label it hides starts from an empty field. It
@@ -716,7 +718,8 @@ It also deletes the whole
 [usage history](#usage-history), after asking; that one isn't a preference of
 the browser, so it's gone for every viewer. So are the two settings beside it:
 **Keep prompts of failed requests**, off until you turn it on, keeps a failed
-turn's [prompt](#captured-prompts), redacted, for 7 days, and **Delete captured
+turn's [prompt](#captured-prompts), redacted, for 7 days (its switch can't be
+used until via says how it stands, and offers **Try again** if it couldn't), and **Delete captured
 prompts…** deletes every one kept, after asking, while the history stays. Automatic writes times as the browser's
 language does. Each choice applies at once, to every open tab, and is kept in
 that browser's local storage, not in via, so another browser starts from the
@@ -754,7 +757,8 @@ timeline, told as a story. A sentence sums it up ("14 turns over 1.6 min, one
 still streaming", then the model time, how many models and how many failed),
 and the turns run down a line, each at its time from the start (`0:00`,
 `1:26`) with how long it took on the right. Turns in a row that went fine on
-one model fold into one line ("Turns 8–10 · deepseek-v4.1-flash · all OK"), with
+one model fold into one line ("Turns 8–10 · deepseek-v4.1-flash · all OK", or
+"Turns 2, 4–5" in a sub-agent's thread when other turns came between), with
 a small bar per turn, pale while it waited for its first token and solid while
 it streamed; click it for each turn's model, who served it and how long it
 took. Two turns on their own keep a line each. A turn that failed, fell back,
@@ -789,8 +793,9 @@ then what each upstream attempt answered, with the attempt's provider, status
 and why it didn't serve. What via redacted (`[redacted:openai-key]`) and the
 images it left out (`[image: png, 412 KB]`) stand out as chips, and a note says
 how many of each it replaced, and when it cut long strings short. A body of a
-shape other than Chat Completions' or Responses' shows as JSON. **Copy JSON**
-copies the whole of it. While keeping failed prompts is on, the Conversations
+shape other than Chat Completions' or Responses' shows as JSON. Privacy mode
+hides the emails and key endings in all of it, as in the Markdown report.
+**Copy JSON** copies the whole of it, as kept. While keeping failed prompts is on, the Conversations
 tab says **Capturing failed prompts**, a link to the setting.
 
 **Export**, in a conversation's header, has **Download JSON**, a file named
@@ -806,8 +811,8 @@ menu says when an export holds captured prompts, as redacting by pattern can
 miss a secret.
 
 The tab is live while the page's [event stream](#admin-api) is open: a
-conversation with a turn in flight, its own or a sub-agent's, has a **Live**
-badge, and one whose first turn is in flight leads the list before the history
+conversation with a turn in flight, its own or a sub-agent's at any depth, has
+a **Live** badge, and one whose first turn is in flight leads the list before the history
 has it (unless a filter is on, as via can't yet say whether it matches). On a
 conversation's timeline, a turn in flight has a card of its own: a dot that
 breathes, how long it has taken so far, a bar of its wait and its streaming
@@ -817,7 +822,8 @@ under way counting up. The time counts up ten times a second, or once a second
 when you ask for less motion (your device's reduced motion setting, or
 **Motion** set to Reduced). When the turn ends, it takes its place in the story
 at once, on a line or a card as it went, and the history's turn takes its place
-without a gap.
+without a gap. Should the page miss a turn's end, the turn stops showing as in
+flight once the history has it, or after an hour at most.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute
@@ -1214,11 +1220,15 @@ timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP respo
 timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" request_id=2a374005-22ec-40ed-a5e5-1dfa5aa6a807 http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 key=laptop model=gpt-6-astra error=rate_limit_exceeded retry_after=120
 ```
 
-- `request_id` correlates the line to the request: the client's `x-request-id`
-  header, kept when it's a valid UUID (lower-cased), else one via generates.
-  via echoes it back as `x-request-id` on every response, and stamps it on any
-  warning logged while handling the request (a cooldown, say), even across a
-  retry onto another account.
+- `request_id` is the request's own id, a UUID via generates for every
+  request: the `requestId` the usage history, the turns in flight and a
+  captured prompt name it by. via stamps it on any warning logged while
+  handling the request (a cooldown, say), even across a retry onto another
+  account, and sends it back as `x-request-id`.
+- `client_request_id` is the client's own `x-request-id` header, when it sent
+  a valid UUID (lower-cased). via echoes that one back as `x-request-id` in
+  place of its own, so the client can correlate its answer, but never names a
+  request by it: a client can send the same one with many requests.
 - `http.span` is the whole time via took, a stream included.
 - `key` is the name of the API key the client used, `model` the model asked
   for, and `served_by` the provider, or the Codex or OpenCode Go account, that
@@ -1282,8 +1292,9 @@ for a streamed answer, to send its first chunk. It also keeps which
 [conversation](#conversations) the request belongs to: the session or thread id
 the client sent, the id of the conversation that started it for a sub-agent's,
 which header or body field the id came from, the sub-agent's type when the
-client says, and the client, as the first product of its `User-Agent` (such as
-`opencode/1.19.3`). It never keeps an answer, nor a prompt unless you turn on
+client says, and the client, as the first product of its `User-Agent` and the
+version among its segments (such as `opencode/1.19.3`, or `opencode/2.0.32`
+from `opencode/latest/2.0.32/cli`). It never keeps an answer, nor a prompt unless you turn on
 [keeping failed turns' prompts](#captured-prompts), which keeps those apart, in
 `bodies.db`. It also keeps each
 request's [upstream attempts](#upstream-attempts). Requests older
@@ -1362,8 +1373,9 @@ gave up). One that didn't serve also has:
   `auth` (a 401 or 403), `downstream_unavailable` (a 502, 503 or 504, an
   overloaded upstream, or an error a router such as OpenRouter says came from
   the provider it sent the request on to), `context_too_long`,
-  `content_filtered`, `bad_request` (any other 4xx), `timeout`, `network` or
-  `unknown`. A code via knows outranks the status, so a 429 that says the quota
+  `content_filtered`, `bad_request` (any other 4xx), `timeout`, `network` (the
+  connection failed, or the answer broke off, as with an event via can't read,
+  whose `upstreamCode` is then `upstream_incomplete`) or `unknown`. A code via knows outranks the status, so a 429 that says the quota
   ran out is `budget_exhausted`.
 - `upstreamCode`, the upstream's own error code or type, when it is an
   identifier.
@@ -1375,7 +1387,9 @@ gave up). One that didn't serve also has:
   they don't quote the request, and their words are what tells you why: "the
   provider says the budget ran out". A 400, 413 or 422, or any other status,
   judges the request itself and can quote the prompt back, so its message is
-  never kept, as the request's own `error` never keeps one.
+  never kept, as the request's own `error` never keeps one. A secret the kept
+  message quotes, such as a key or a private key, is replaced first, as in a
+  [captured prompt](#captured-prompts).
 
 `conversations/<id>` gives every turn's attempts as `attempts`, in the order of
 the turns and then by `seq`, each naming its turn by `requestId`. Requests kept
@@ -1399,7 +1413,9 @@ same for every turn, and the conversation is marked `guessed`. An id longer than
 belong to no conversation.
 
 `conversations` lists the conversations no other started, the latest active
-first, that have turns in the range the filters keep. Each counts those turns,
+first, that have turns in the range the filters keep. A conversation is a
+sub-agent's once any of its turns names its parent, and is listed on its own
+when via kept no turn of that parent. Each counts those turns,
 its sub-agents' included, with its `id`, `source` (the header, `body.<field>`
 or `hash`), `guessed`, `client`, `keyName`, `models`, `firstAt`, `lastAt`,
 `turns`, `subagents`, its tokens, `failed`, `fellBack` and `cost`, priced as
@@ -1441,8 +1457,10 @@ deleting what is kept. A turn that goes well is never kept, nor one served by
 the next account after the first was rate limited, since no other model
 answered. The setting is kept in `capture.json`, and the prompts in
 `bodies.db`, a SQLite database of their own beside `usage.db`, readable only
-by you, overwriting what it deletes (`secure_delete`). A prompt is kept for 7
-days: via deletes older ones at startup and every hour. **Delete captured
+by you, overwriting what it deletes (`secure_delete`) and emptying its
+`bodies.db-wal` after each delete, so a deleted prompt is left in neither. A prompt is kept for 7
+days: via deletes older ones at startup and every hour, and never answers
+with one older than that in between. **Delete captured
 prompts** in the web UI, or `DELETE /admin/history/bodies`, deletes them all
 and keeps the history; deleting the history deletes them too.
 
@@ -1453,10 +1471,16 @@ Before anything is written, via redacts it:
   OpenRouter (`sk-or-v1-…`) keys, GitHub tokens (`ghp_`, `gho_`, `ghs_`,
   `ghu_`, `ghr_`, `github_pat_`), AWS access keys (`AKIA…`, `ASIA…`) and a
   secret access key assigned by name, Google API keys (`AIza…`), Slack tokens
-  (`xox…`), JWTs, PEM private key blocks, the token after `Bearer` and the
-  credential of an `Authorization: Basic` header. A value assigned to a name
-  such as `API_KEY=`, `"secret": ` or `password:` is replaced too when it looks
-  random: 12 characters or more, letters and digits, no spaces.
+  (`xox…`), JWTs, PEM private keys (to their `END` line, or to the end of the
+  text when one was cut off before it), the token after `Bearer`, the
+  credential of an `Authorization` or `Proxy-Authorization` header (its scheme,
+  such as `Basic`, is kept) and the value of a `Cookie` or `Set-Cookie` header.
+  A JSON value under an `Authorization` or `Cookie` key, such as in a
+  `headers` object, is replaced whatever it looks like. A value assigned to a
+  name such as `API_KEY=`, `"secret": `, `password:` or `"accessToken":`
+  (snake_case or camelCase, and each item of an array under such a name) is
+  replaced too when it looks random: 12 characters or more, letters and
+  digits, no spaces; after a scheme such as `Basic` or `Token`, it always is.
 - Images and files sent inline, as a data URL anywhere, as base64 in
   `image_url`, `file_data` or a Responses `input_image` or `input_file`, or as
   any string of 1 KB or more of nothing but base64, become a note of what they
@@ -1617,10 +1641,13 @@ and keeps its label (see
   to. It keeps the message only for an attempt the upstream answered 401, 402,
   403, 429 or 5xx (see [Upstream attempts](#upstream-attempts)), as those are
   about the account or the upstream, not the request; never for a 400, 413,
-  422 or any other, which could quote the request the upstream refused.
+  422 or any other, which could quote the request the upstream refused. A
+  secret a kept message quotes is redacted as a captured prompt's is.
   Upgrading cleared the messages an older via kept, via's own included, as the
   two can't be told apart. What via deletes or clears in it is
-  overwritten (SQLite's `secure_delete`), not left in the file's free space.
+  overwritten (SQLite's `secure_delete`), not left in the file's free space,
+  and via empties `usage.db-wal` after each delete, so it isn't left there
+  either.
 - With [keeping failed turns' prompts](#captured-prompts) turned on (it is off
   until you do), `bodies.db` holds the request bodies of turns that failed or
   fell back, the conversation up to them, and what the upstreams answered,

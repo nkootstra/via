@@ -1,6 +1,7 @@
 import type { FailureCategory } from "@via/usage";
 import { Option, Schema } from "effect";
 import type { HttpClientError } from "effect/http";
+import { redactText } from "./redact.ts";
 
 /** What via knows of an upstream attempt that didn't serve. */
 export interface Failure {
@@ -98,7 +99,7 @@ const MESSAGE_LIMIT = 500;
 
 /**
  * The upstream's `message` as the usage history keeps it: only for a 401, 402, 403, 429
- * or 5xx, cut to 500 characters.
+ * or 5xx, its secrets redacted as a captured request's are, then cut to 500 characters.
  *
  * Those answers are about the account (its key refused, its budget or rate limit used up)
  * or the upstream itself (down, overloaded), which is what the words help diagnose, and
@@ -111,5 +112,5 @@ export const keptMessage = (status: Option.Option<number>, message: Option.Optio
     status,
     (code) => code === 401 || code === 402 || code === 403 || code === 429 || code >= 500,
   )
-    ? Option.map(message, (text) => text.slice(0, MESSAGE_LIMIT))
+    ? Option.map(message, (text) => redactText(text).slice(0, MESSAGE_LIMIT))
     : Option.none<string>();

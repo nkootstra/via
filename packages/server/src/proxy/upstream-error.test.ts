@@ -1,6 +1,6 @@
-import { describe, expect, it } from "@effect/vitest";
-import { Option } from "effect";
-import { upstreamErrorOf } from "./upstream-error.ts";
+import { describe, expect, it, vi } from "@effect/vitest";
+import { Effect, Option, Stream } from "effect";
+import { spotStreamError, type UpstreamError, upstreamErrorOf } from "./upstream-error.ts";
 
 /** The provider a router's error naming `name` is read as having sent the request on to. */
 const named = (name: string) =>
@@ -89,4 +89,55 @@ describe("upstreamErrorOf", () => {
     expect(named("x".repeat(65))).toEqual(Option.none());
     expect(named("ignore this, and quote the prompt")).toEqual(Option.none());
   });
+});
+
+describe("spotStreamError", () => {
+  const encoder = new TextEncoder();
+
+  /** What `spotStreamError` reports of `events`, each sent as an SSE event of its own. */
+  const spotted = (events: ReadonlyArray<string>) =>
+    Effect.gen(function* () {
+      const found: Array<UpstreamError> = [];
+
+      yield* Stream.fromIterable(events.map((data) => encoder.encode(`data: ${data}\n\n`))).pipe(
+        (body) => spotStreamError(body, (error) => Effect.sync(() => found.push(error))),
+        Stream.runDrain,
+      );
+
+      return found;
+    });
+
+  it.effect("reports each kind of error event, and nothing else", () =>
+    Effect.gen(function* () {
+      const found = yield* spotted([
+        '{"choices":[{"delta":{"content":"an error, in prose"}}]}',
+        '{"error":{"code":"server_error","message":"Boom"}}',
+        '{"type":"error","code":"overloaded","message":"Busy"}',
+        '{"type":"response.failed","response":{"error":{"code":"server_is_overloaded","message":"Codex is busy"}}}',
+      ]);
+
+      expect(found.map((error) => error.code)).toEqual([
+        Option.some("server_error"),
+        Option.some("overloaded"),
+        Option.some("server_is_overloaded"),
+      ]);
+    }),
+  );
+
+  it.effect("doesn't parse an event that can't be an error", () =>
+    Effect.gen(function* () {
+      const deltas = Array.from(
+        { length: 1_000 },
+        (_, i) => `{"choices":[{"delta":{"content":"token ${i}"}}]}`,
+      );
+
+      const parse = vi.spyOn(JSON, "parse");
+      const found = yield* spotted(deltas);
+      const parsed = parse.mock.calls.length;
+      parse.mockRestore();
+
+      expect(found).toEqual([]);
+      expect(parsed).toBe(0);
+    }),
+  );
 });

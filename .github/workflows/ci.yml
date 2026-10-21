@@ -92,7 +92,7 @@ jobs:
       - run: bun run smoke
       # Cross-compiles the binaries for every platform package.
       - run: bun run build
-      # Chromium for the admin UI's browser tests, cached per Playwright version.
+      # Chromium and WebKit for the admin UI's browser tests, cached per Playwright version.
       - id: playwright
         run: echo "version=$(jq -r .devDependencies.playwright apps/e2e/package.json)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -101,9 +101,9 @@ jobs:
           path: |
             ~/.cache/ms-playwright
             ~/Library/Caches/ms-playwright
-          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}
-      # Installs the system libraries Chromium needs even when the browser comes from the cache.
-      - run: bunx playwright install --with-deps chromium
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}-chromium-webkit
+      # Installs the system libraries the browsers need even when they come from the cache.
+      - run: bunx playwright install --with-deps chromium webkit
         working-directory: apps/e2e
       # Runs the whole end-to-end suite, the browser tests included, against this platform's
       # compiled binary. The test job leaves it to this step.

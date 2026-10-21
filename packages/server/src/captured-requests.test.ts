@@ -1,8 +1,9 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { type CodexRequest, reply } from "@via/codex-upstream/testing";
+import { type CodexRequest, reply, sse } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Effect, Option } from "effect";
+import { UsageHistory } from "@via/usage";
+import { Deferred, Effect, Fiber, Layer, Option } from "effect";
 import type { HttpClientResponse } from "effect/http";
 import { ok, type Via, withVia } from "./testing/harness.ts";
 
@@ -89,6 +90,42 @@ layer(BunFileSystem.layer)("captured requests", (it) => {
     ),
   );
 
+  it.effect("keeps what Codex said when it failed the response in its stream", () =>
+    withVia(
+      () =>
+        reply.sse(
+          sse([
+            { type: "response.created", response: { id: "resp_1", status: "in_progress" } },
+            {
+              type: "response.failed",
+              response: {
+                id: "resp_1",
+                status: "failed",
+                error: { code: "server_is_overloaded", message: "Codex is busy" },
+              },
+            },
+          ]),
+        ),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", { model: "gpt-x", input: "hi" });
+
+          expect(yield* capturedOf(via, response)).toMatchObject(
+            Option.some({
+              upstreamErrors: [
+                {
+                  seq: 0,
+                  status: 200,
+                  body: { error: { code: "server_is_overloaded", message: "Codex is busy" } },
+                },
+              ],
+            }),
+          );
+        }),
+      { keepFailedPrompts: true },
+    ),
+  );
+
   it.effect("keeps a turn that fell back to another model", () =>
     withVia(
       () => reply.error(429, "", { "retry-after": "120" }),
@@ -130,5 +167,92 @@ layer(BunFileSystem.layer)("captured requests", (it) => {
         }),
       { keepFailedPrompts: true },
     ),
+  );
+
+  it.effect("keeps each failed turn apart, even when its client repeats its x-request-id", () =>
+    withVia(
+      () => usageLimit,
+      (via) =>
+        Effect.gen(function* () {
+          const headers = { "x-request-id": "550e8400-e29b-41d4-a716-446655440000" };
+
+          for (const input of ["first", "second"]) {
+            const response = yield* via.post(
+              "/v1/responses",
+              { model: "gpt-x", input },
+              undefined,
+              headers,
+            );
+
+            yield* response.text;
+          }
+
+          // Both settle after their answers, the second once the first has.
+          yield* via.logged("Sent HTTP response", 2);
+
+          const page = yield* via.usage.requests({
+            from: 0,
+            to: Number.MAX_SAFE_INTEGER,
+            limit: 10,
+          });
+
+          const inputs = yield* Effect.forEach(page.requests, (request) =>
+            Effect.map(via.captured.get(request.requestId), (captured) =>
+              Option.map(captured, (found) => found.request),
+            ),
+          );
+
+          expect(
+            inputs.map((found) => JSON.stringify(Option.getOrThrow(found))).toSorted(),
+          ).toEqual(['{"model":"gpt-x","input":"first"}', '{"model":"gpt-x","input":"second"}']);
+        }),
+      { keepFailedPrompts: true },
+    ),
+  );
+
+  it.effect("answers a failed turn without waiting for its capture and history to be written", () =>
+    Effect.gen(function* () {
+      const release = yield* Deferred.make<void>();
+
+      // A history that holds every request it keeps until it is let go.
+      const history = Layer.effect(
+        UsageHistory,
+        Effect.map(UsageHistory, (usage) =>
+          UsageHistory.of({
+            ...usage,
+            keep: (entry, attempts) =>
+              Effect.andThen(Deferred.await(release), usage.keep(entry, attempts)),
+          }),
+        ),
+      ).pipe(Layer.provide(UsageHistory.layerMemory));
+
+      yield* withVia(
+        () => usageLimit,
+        (via) =>
+          Effect.gen(function* () {
+            const answered = yield* Effect.forkChild(
+              Effect.flatMap(via.post("/v1/chat/completions", chat), (response) =>
+                Effect.as(response.text, response),
+              ),
+            );
+
+            const response = yield* Fiber.join(answered);
+            expect(response.status).toBe(429);
+
+            // Answered while the history still holds the request back.
+            const kept = yield* via.usage.requests({
+              from: 0,
+              to: Number.MAX_SAFE_INTEGER,
+              limit: 1,
+            });
+
+            expect(kept.requests).toEqual([]);
+
+            yield* Deferred.succeed(release, undefined);
+            expect(Option.isSome(yield* capturedOf(via, response))).toBe(true);
+          }),
+        { keepFailedPrompts: true, history },
+      );
+    }),
   );
 });

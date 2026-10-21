@@ -25,6 +25,14 @@ const createOwnerOnly = Effect.fn("createOwnerOnly")(function* (filename: string
 export const ownerOnly = (filename: string) => Layer.effectDiscard(createOwnerOnly(filename));
 
 /**
+ * Moves the WAL into the database and empties it, after a delete: `secure_delete` overwrites
+ * a deleted row in the database, but the WAL still holds the pages written before it, the row
+ * in them, until SQLite reuses them.
+ */
+export const scrubWal = (sql: SqlClient.SqlClient) =>
+  Effect.asVoid(sql`PRAGMA wal_checkpoint(TRUNCATE)`);
+
+/**
  * `service`, given SQLite's `filename`, migrated by `loader` as needed; `:memory:` lasts only
  * as long as the layer. What it deletes, the migrations included, is overwritten, not left in
  * the file's free space: SQLite does that only with `secure_delete`, which is off by default on

@@ -31,6 +31,17 @@ const storeAt = <A, E>(
   body: (requests: CapturedRequests["Service"]) => Effect.Effect<A, E>,
 ) => Effect.andThen(TestClock.setTime(now), store(body));
 
+/** Whether any file beside `path`, the database's own, its WAL and the rest, holds `text`. */
+const leftAnywhere = (path: string, text: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = path.slice(0, path.lastIndexOf("/"));
+    const files = yield* fs.readDirectory(directory);
+    const contents = yield* Effect.forEach(files, (file) => fs.readFile(`${directory}/${file}`));
+
+    return contents.some((bytes) => new TextDecoder("latin1").decode(bytes).includes(text));
+  });
+
 describe("CapturedRequests", () => {
   it.effect("gives back a captured request as it was kept", () =>
     store((requests) =>
@@ -64,6 +75,17 @@ describe("CapturedRequests", () => {
 
         expect(yield* requests.which(["a", "b", "c"])).toEqual(["a", "c"]);
         expect(yield* requests.which([])).toEqual([]);
+      }),
+    ),
+  );
+
+  it.effect("says which of more requests than SQLite takes parameters it has", () =>
+    store((requests) =>
+      Effect.gen(function* () {
+        yield* requests.keep(captured({ requestId: "r-299999" }));
+        const ids = Array.from({ length: 300_000 }, (_, i) => `r-${i}`);
+
+        expect(yield* requests.which(ids)).toEqual(["r-299999"]);
       }),
     ),
   );
@@ -116,6 +138,21 @@ describe("CapturedRequests retention", () => {
     );
   });
 
+  it.effect("never gives back a request past its 7 days, even before the prune", () =>
+    Effect.gen(function* () {
+      const requests = yield* CapturedRequests;
+      yield* requests.keep(captured({ capturedAt: 0 }));
+      yield* TestClock.adjust(Duration.days(7));
+      expect(yield* requests.which(["r1"])).toEqual(["r1"]);
+      expect(Option.isSome(yield* requests.get("r1"))).toBe(true);
+
+      // Past its 7 days, though the hourly prune hasn't come round to it yet.
+      yield* TestClock.adjust(Duration.millis(1));
+      expect(yield* requests.which(["r1"])).toEqual([]);
+      expect(yield* requests.get("r1")).toEqual(Option.none());
+    }).pipe(Effect.provide(CapturedRequests.layerMemory)),
+  );
+
   it.effect("prunes every hour while it runs", () =>
     Effect.gen(function* () {
       const requests = yield* CapturedRequests;
@@ -147,6 +184,42 @@ layer(BunFileSystem.layer)("CapturedRequests file", (withFs) => {
       );
 
       expect(found).toEqual(Option.some(captured()));
+    }),
+  );
+
+  const prompt = "a prompt that must not outlive its delete";
+
+  withFs.effect("leaves no trace of what it cleared in any of its files, the WAL included", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/bodies.db`;
+
+      yield* Effect.gen(function* () {
+        const requests = yield* CapturedRequests;
+        yield* requests.keep(captured({ request: { input: prompt } }));
+        expect(yield* leftAnywhere(path, prompt)).toBe(true);
+
+        yield* requests.clear;
+        expect(yield* leftAnywhere(path, prompt)).toBe(false);
+      }).pipe(Effect.provide(CapturedRequests.layer(path)));
+    }),
+  );
+
+  withFs.effect("leaves no trace of what it pruned in any of its files, the WAL included", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/bodies.db`;
+
+      yield* Effect.gen(function* () {
+        const requests = yield* CapturedRequests;
+        yield* requests.keep(captured({ capturedAt: 0, request: { input: prompt } }));
+        yield* requests.keep(captured({ requestId: "r2", capturedAt: 8 * DAY }));
+        yield* TestClock.setTime(8 * DAY);
+
+        yield* requests.prune;
+        expect(yield* requests.which(["r1", "r2"])).toEqual(["r2"]);
+        expect(yield* leftAnywhere(path, prompt)).toBe(false);
+      }).pipe(Effect.provide(CapturedRequests.layer(path)));
     }),
   );
 });

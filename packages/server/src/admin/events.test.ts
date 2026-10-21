@@ -431,6 +431,9 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
           yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
         }
 
+        // Each is kept after its answer, so the burst ends once the last one is.
+        yield* via.logged('"http.url":"/v1/responses"', 3);
+
         // Held back a second for the rest of the burst, then sent once.
         yield* via.timer(HISTORY_COALESCE);
         expect(yield* Queue.size(histories)).toBe(0);

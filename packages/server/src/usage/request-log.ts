@@ -26,6 +26,7 @@ import type { Conversation } from "../proxy/session.ts";
 import { type AttemptAnswer, captureOf, worthCapturing } from "./capture.ts";
 import { categorize, keptMessage } from "./failure.ts";
 import { LiveTurns } from "./live-turns.ts";
+import { Settling } from "./settling.ts";
 import type { LiveAttempt, LiveTurn } from "./turn-events.ts";
 
 /**
@@ -132,25 +133,25 @@ const Code = Schema.String.check(Schema.isPattern(/^[A-Za-z0-9_.:-]{1,64}$/));
 /** `code`, if it is an identifier. */
 const asCode = Schema.decodeOption(Code);
 
-/** A textual UUID (any version), the shape a client's `x-request-id` must have to be kept. */
+/** A textual UUID (any version), the shape a client's `x-request-id` must have to be echoed. */
 const RequestIdHeader = Schema.String.pipe(Schema.check(Schema.isUUID()));
 
 /**
- * The request's correlation ID: the client's `x-request-id` header, lower-cased,
- * when it is a single valid UUID, else a fresh UUIDv4. A repeated header arrives
- * here already joined with ", " by `Headers`, which fails the UUID shape just
- * like any other malformed value, so it falls to a fresh ID without special-casing.
+ * The client's own `x-request-id`, lower-cased, when it is a single valid UUID. A repeated
+ * header arrives here already joined with ", " by `Headers`, which fails the UUID shape just
+ * like any other malformed value. It is only echoed and logged: a client can send the same
+ * one with many requests, so it never names a request in via.
  */
-const requestId = (headers: Record<string, string>) =>
-  Effect.gen(function* () {
-    const sent = Schema.decodeUnknownOption(RequestIdHeader)(headers["x-request-id"]);
+const clientRequestId = (headers: Record<string, string>) =>
+  Option.map(Schema.decodeUnknownOption(RequestIdHeader)(headers["x-request-id"]), (sent) =>
+    sent.toLowerCase(),
+  );
 
-    if (Option.isSome(sent)) return sent.value.toLowerCase();
-    const crypto = yield* Crypto.Crypto;
-
-    // A true infra fault (the platform's entropy source failing); no per-request fallback applies.
-    return yield* crypto.randomUUIDv4().pipe(Effect.orDie);
-  });
+/** The request's own id, a fresh UUIDv4, which names it in the history, its captures and logs. */
+const requestId = Effect.flatMap(Crypto.Crypto, (crypto) =>
+  // A true infra fault (the platform's entropy source failing); no per-request fallback applies.
+  crypto.randomUUIDv4().pipe(Effect.orDie),
+);
 
 /** The usage annotations for a request's log line — absent when none was reported. */
 const usageAnnotations = (usage: Option.Option<TokenUsage>) =>
@@ -450,9 +451,10 @@ const isUnexpected = <E>(cause: Cause.Cause<E>) =>
  * A request that asked for a model is also kept in the `UsageHistory`; one it
  * can't keep is only warned about, as the answer has already gone out.
  *
- * It also gives every request a correlation ID (see `requestId`), which
- * annotates every log made while handling it, so a cooldown warning ties back
- * to its request, and goes back as `x-request-id`. Both the header and the
+ * It also gives every request its own id (see `requestId`), which annotates
+ * every log made while handling it, so a cooldown warning ties back to its
+ * request, and goes back as `x-request-id`, unless the client sent its own,
+ * which goes back instead. Both the header and the
  * status are taken in a pre-response handler: that runs on the response
  * actually sent, including one the platform derives from a failure, such as
  * a 404 for no matching route or a 500 for a defect.
@@ -464,7 +466,9 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     const captures = yield* CapturedRequests;
     const captureSettings = yield* CaptureSettingsStore;
     const live = yield* LiveTurns;
-    const id = yield* requestId(request.headers);
+    const settling = yield* Settling;
+    const id = yield* requestId;
+    const clientId = clientRequestId(request.headers);
     const start = yield* Clock.currentTimeMillis;
     const client = clientOf(request.headers);
 
@@ -499,6 +503,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       Effect.log("Sent HTTP response").pipe(
         Effect.annotateLogs({
           request_id: id,
+          ...noted("client_request_id", clientId),
           "http.method": request.method,
           "http.url": request.url,
           "http.status": line.status,
@@ -593,8 +598,11 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         // A host's health checks would drown out the requests.
         const logged = line.logged && request.url !== "/healthz";
 
-        // Kept before the line is logged, so whoever sees the line finds the request kept.
-        return Effect.andThen(settle(line, logged), logged ? log(line) : Effect.void);
+        // Kept before the line is logged, so whoever sees the line finds the request kept, and
+        // apart from the request, so its answer doesn't wait for a capture to be redacted.
+        return settling.settle(
+          Effect.andThen(settle(line, logged), logged ? log(line) : Effect.void),
+        );
       }),
     );
 
@@ -750,7 +758,15 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
           retryAfter: Option.fromNullishOr(response.headers["retry-after"]),
           headersAt: now,
         }),
-      ).pipe(Effect.as(HttpServerResponse.setHeader(response, "x-request-id", id))),
+      ).pipe(
+        Effect.as(
+          HttpServerResponse.setHeader(
+            response,
+            "x-request-id",
+            Option.getOrElse(clientId, () => id),
+          ),
+        ),
+      ),
     );
 
     return yield* app.pipe(

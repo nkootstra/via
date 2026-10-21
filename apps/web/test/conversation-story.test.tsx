@@ -139,6 +139,30 @@ describe("ConversationStory", () => {
     expect(thread.closest("li")?.textContent).toContain("2 turns · 4.0 s · 0:01–0:05");
   });
 
+  it("names the turns a sub-agent's fold and failures hold, when others came between", () => {
+    const sub = (requestId: string, at: number, fields: Partial<UsageRequest> = {}) =>
+      turn(requestId, at, {
+        conversationId: Option.some("child"),
+        parentConversationId: Option.some("root"),
+        ...fields,
+      });
+
+    show([
+      turn("a", 0),
+      sub("s1", 10_000),
+      turn("b", 11_000),
+      sub("s2", 12_000),
+      sub("s3", 14_000),
+      sub("f1", 20_000, unreachable),
+      turn("c", 21_000),
+      sub("f2", 23_000, unreachable),
+    ]);
+
+    const thread = within(story()).getByRole("list", { name: "Sub-agent" });
+    expect(within(thread).getByRole("button", { name: /^Turns 2, 4–5 gpt/ })).toBeDefined();
+    expect(within(thread).getByRole("article", { name: /^Turns 6, 8,/ })).toBeDefined();
+  });
+
   it("names a sub-agent of no type plainly", () => {
     show([
       turn("a", 0),

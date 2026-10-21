@@ -1,6 +1,7 @@
 import { Option } from "effect";
 import { describe, expect, it } from "vitest";
-import { ancestry, joining } from "../src/lib/live-conversations.ts";
+import { ancestry, joining, unlisted, unresolved } from "../src/lib/live-conversations.ts";
+import { liveTurn, request } from "../src/testing/history.ts";
 
 /** A turn of `conversation`, started by `parent` when it's a sub-agent's. */
 const turn = (requestId: string, conversation?: string, parent?: string) => ({
@@ -62,5 +63,74 @@ describe("ancestry", () => {
 
   it("leaves out a turn of no conversation", () => {
     expect(ancestry([turn("z")]).has("z")).toBe(false);
+  });
+});
+
+/** A turn in flight of `conversation`, started by `parent`. */
+const flying = (requestId: string, conversation: string, parent?: string) =>
+  liveTurn({
+    requestId,
+    conversationId: Option.some(conversation),
+    parentConversationId: Option.fromNullishOr(parent),
+  });
+
+describe("unlisted", () => {
+  it("starts no row for a sub-agent's sub-agent whose parent it can't place", () => {
+    const { live, pending } = unlisted(new Set(["root"]), [], [flying("l1", "deep", "root:sub")]);
+
+    expect(pending).toEqual([]);
+    expect([...live]).toEqual(["deep", "root:sub"]);
+  });
+
+  it("marks the conversation it started from live, once the history places its parent", () => {
+    const { live, pending } = unlisted(
+      new Set(["root"]),
+      [],
+      [flying("l1", "deep", "root:sub")],
+      [
+        request({
+          requestId: "s1",
+          conversationId: Option.some("root:sub"),
+          parentConversationId: Option.some("root"),
+        }),
+      ],
+    );
+
+    expect(pending).toEqual([]);
+    expect(live.has("root")).toBe(true);
+  });
+
+  it("starts a row for a conversation whose first turn is in flight, its sub-agents' with it", () => {
+    const { pending } = unlisted(
+      new Set(["root"]),
+      [],
+      [flying("l1", "new"), flying("l2", "new:sub", "new"), flying("l3", "deep", "new:sub")],
+    );
+
+    expect(pending.map(({ id, turns }) => [id, turns])).toEqual([["new", 3]]);
+  });
+});
+
+describe("unresolved", () => {
+  it("names the conversations a turn in flight leads up to whose parents it can't place", () => {
+    expect(
+      unresolved(
+        new Set(["root"]),
+        [],
+        [
+          liveTurn({
+            requestId: "l1",
+            conversationId: Option.some("deep"),
+            parentConversationId: Option.some("root:sub"),
+          }),
+          liveTurn({
+            requestId: "l2",
+            conversationId: Option.some("root:other"),
+            parentConversationId: Option.some("root"),
+          }),
+          liveTurn({ requestId: "l3", conversationId: Option.some("new") }),
+        ],
+      ),
+    ).toEqual(["root:sub"]);
   });
 });

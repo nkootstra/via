@@ -12,7 +12,7 @@ import {
 } from "effect";
 import { Migrator, SqlClient } from "effect/sql";
 import type { SqlError } from "effect/sql/SqlError";
-import { inDatabase, ownerOnly } from "./database.ts";
+import { inDatabase, ownerOnly, scrubWal } from "./database.ts";
 import { CapturedRequest } from "./entry.ts";
 
 /** How long a captured request is kept: far less than the history, as it holds prompts. */
@@ -22,8 +22,8 @@ const RETENTION = Duration.days(7);
 const PRUNE_EVERY = Duration.hours(1);
 
 const migrations = Migrator.fromRecord({
-  // `request_id` names the request, as in the usage history, which a client's own
-  // x-request-id can repeat. `capture` is the whole `CapturedRequest`, as JSON.
+  // `request_id` names the request, as in the usage history; an older via took it from a
+  // client's own x-request-id, which can repeat. `capture` is the whole `CapturedRequest`, as JSON.
   "1_captured_requests": Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`
@@ -69,10 +69,18 @@ const make = Effect.gen(function* () {
     `;
   });
 
+  /** The oldest a captured request can be and still be given back: the prune may not have run yet. */
+  const keptSince = Effect.map(
+    Clock.currentTimeMillis,
+    (now) => now - Duration.toMillis(RETENTION),
+  );
+
   const get = Effect.fn("CapturedRequests.get")(function* (requestId: string) {
+    const since = yield* keptSince;
+
     const [row] = yield* sql`
       SELECT capture FROM captured_requests
-      WHERE request_id = ${requestId}
+      WHERE request_id = ${requestId} AND captured_at >= ${since}
       ORDER BY captured_at DESC, rowid DESC
       LIMIT 1
     `;
@@ -86,9 +94,14 @@ const make = Effect.gen(function* () {
   const which = Effect.fn("CapturedRequests.which")(function* (requestIds: ReadonlyArray<string>) {
     if (requestIds.length === 0) return [];
 
+    const since = yield* keptSince;
+
+    // As one JSON array, not a parameter each: a long conversation has more turns than SQLite
+    // takes parameters.
     const rows = yield* sql`
       SELECT DISTINCT request_id AS "requestId" FROM captured_requests
-      WHERE ${sql.in("request_id", requestIds)}
+      WHERE request_id IN (SELECT value FROM json_each(${JSON.stringify(requestIds)}))
+        AND captured_at >= ${since}
     `;
 
     // Rows only ever come from `keep`, so they always decode.
@@ -98,8 +111,8 @@ const make = Effect.gen(function* () {
   });
 
   const prune = Effect.gen(function* () {
-    const now = yield* Clock.currentTimeMillis;
-    yield* sql`DELETE FROM captured_requests WHERE captured_at < ${now - Duration.toMillis(RETENTION)}`;
+    yield* sql`DELETE FROM captured_requests WHERE captured_at < ${yield* keptSince}`;
+    yield* scrubWal(sql);
   }).pipe(Effect.withSpan("CapturedRequests.prune"));
 
   // At start and then every hour. A failed prune is only logged: the next one retries.
@@ -115,7 +128,11 @@ const make = Effect.gen(function* () {
 
     // A count of rows always decodes: SQLite answers COUNT(*) with a number.
     return (yield* decodeCount(counted).pipe(Effect.orDie)).n;
-  }).pipe(sql.withTransaction, Effect.withSpan("CapturedRequests.clear"));
+  }).pipe(
+    sql.withTransaction,
+    Effect.tap(() => scrubWal(sql)),
+    Effect.withSpan("CapturedRequests.clear"),
+  );
 
   const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
 
@@ -138,9 +155,9 @@ export class CapturedRequests extends Context.Service<
   {
     /** Keeps one captured request. */
     readonly keep: (captured: CapturedRequest) => Effect.Effect<void, SqlError>;
-    /** The latest request captured with id `requestId`, if any is. */
+    /** The latest request captured with id `requestId` in the last 7 days, if any is. */
     readonly get: (requestId: string) => Effect.Effect<Option.Option<CapturedRequest>, SqlError>;
-    /** Which of `requestIds` have a captured request, in their order. */
+    /** Which of `requestIds` have a request captured in the last 7 days, in their order. */
     readonly which: (
       requestIds: ReadonlyArray<string>,
     ) => Effect.Effect<ReadonlyArray<string>, SqlError>;

@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { type CodexRequest, reply } from "@via/codex-upstream/testing";
+import { type CodexRequest, reply, sse } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
 import { Effect, Option } from "effect";
 import { ok, outwait, type Via, withVia } from "./testing/harness.ts";
@@ -244,4 +244,30 @@ layer(BunFileSystem.layer)("request attempts", (it) => {
         }),
     ),
   );
+
+  const created = { type: "response.created", response: { id: "resp_1", status: "in_progress" } };
+
+  for (const [what, stream] of [
+    ["an event via can't read", `${sse([created])}event: response.completed\ndata: {not json\n\n`],
+    ["a retry asked for mid-answer", `${sse([created])}retry: 1000\n\n`],
+  ] as const) {
+    it.effect(`keeps a Codex stream that broke off with ${what} as broken off`, () =>
+      withVia(
+        () => reply.sse(stream),
+        (via) =>
+          Effect.gen(function* () {
+            yield* via.post("/v1/responses", { model: "gpt-6-astra", input: "hi" });
+
+            expect(yield* attempts(via)).toMatchObject([
+              {
+                status: Option.some(200),
+                outcome: "failed",
+                category: Option.some("network"),
+                upstreamCode: Option.some("upstream_incomplete"),
+              },
+            ]);
+          }),
+      ),
+    );
+  }
 });

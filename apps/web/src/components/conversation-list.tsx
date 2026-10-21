@@ -1,6 +1,6 @@
 /** The usage page's Conversations tab: one row per conversation, the latest active first. */
 import * as stylex from "@stylexjs/stylex";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueries } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   Badge,
@@ -16,12 +16,17 @@ import {
 } from "@via/ui";
 import { colors, fonts, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { Option } from "effect";
-import { historyConversationsQuery, type HistoryFilters, type HistorySpan } from "../api/admin.ts";
+import {
+  historyConversationQuery,
+  historyConversationsQuery,
+  type HistoryFilters,
+  type HistorySpan,
+} from "../api/admin.ts";
 import { useSignalledOptions } from "../api/live.ts";
 import { useEndedTurns, useLiveTurns } from "../api/turns.ts";
 import type { ConversationSummary } from "../api/types.ts";
 import { harnessName } from "../lib/harness.ts";
-import { unlisted } from "../lib/live-conversations.ts";
+import { unlisted, unresolved } from "../lib/live-conversations.ts";
 import { useMask } from "../lib/privacy.ts";
 import { ago, formatMoment, useNow } from "../lib/time.ts";
 import { useTimeFormat } from "../lib/time-format.ts";
@@ -126,13 +131,25 @@ export function ConversationList({
   readonly filtered: boolean;
   readonly onClear: () => void;
 }) {
+  const signalled = useSignalledOptions();
+
   const conversations = useInfiniteQuery({
     ...historyConversationsQuery(span, filters),
-    ...useSignalledOptions(),
+    ...signalled,
   });
 
   const ended = useEndedTurns();
   const inFlight = useLiveTurns();
+  const listed = conversations.data?.pages.flatMap((page) => page.conversations) ?? [];
+  const listedIds = new Set(listed.map(({ id }) => id));
+
+  // A sub-agent's sub-agent in flight names a parent the list doesn't: the history's
+  // turns of that parent say which conversation of the list it leads up to.
+  const placed = useQueries({
+    queries: (conversations.data === undefined ? [] : unresolved(listedIds, ended, inFlight)).map(
+      (id) => ({ ...historyConversationQuery(id), ...signalled, retry: false }),
+    ),
+  });
 
   if (conversations.isError) {
     return (
@@ -148,8 +165,13 @@ export function ConversationList({
     return <TableSkeleton rows={3} columns={columns} label="Loading conversations" />;
   }
 
-  const listed = conversations.data.pages.flatMap((page) => page.conversations);
-  const { live, pending } = unlisted(new Set(listed.map(({ id }) => id)), ended, inFlight);
+  const { live, pending } = unlisted(
+    listedIds,
+    ended,
+    inFlight,
+    placed.flatMap(({ data }) => data?.turns ?? []),
+  );
+
   // A conversation the history doesn't have yet leads the list; a filtered list can't say
   // whether it matches until then.
   const rows = [...(filtered ? [] : pending), ...listed];

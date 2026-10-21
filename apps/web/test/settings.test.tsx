@@ -1,4 +1,5 @@
 import { screen, waitFor, within } from "@testing-library/react";
+import { delay, http, HttpResponse } from "msw";
 import { Option } from "effect";
 import { afterEach, describe, expect, it } from "vitest";
 import { renderApp } from "./app.tsx";
@@ -170,6 +171,44 @@ describe("keeping the prompts of failed requests", () => {
 
     const keep = await screen.findByRole("switch", { name: "Keep prompts of failed requests" });
     await waitFor(() => expect(keep.getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("can't be switched until via says how it stands", async () => {
+    let puts = 0;
+
+    const { user } = renderApp("/settings", {}, [
+      http.get("*/admin/history/capture", () => delay("infinite")),
+      http.put("*/admin/history/capture", () => {
+        puts += 1;
+
+        return new HttpResponse(null, { status: 500 });
+      }),
+    ]);
+
+    const keep = await screen.findByRole("switch", { name: "Keep prompts of failed requests" });
+    expect(keep.getAttribute("aria-disabled")).toBe("true");
+    expect(keep.getAttribute("aria-busy")).toBe("true");
+
+    await user.click(keep);
+    expect(puts).toBe(0);
+  });
+
+  it("says when it couldn't tell how it stands, and asks again", async () => {
+    const { user } = renderApp("/settings", { capture: { keepFailedPrompts: true } }, [
+      http.get("*/admin/history/capture", () => new HttpResponse(null, { status: 500 }), {
+        once: true,
+      }),
+    ]);
+
+    const keep = await screen.findByRole("switch", { name: "Keep prompts of failed requests" });
+    expect(await screen.findByText(/Couldn't load whether it's on/)).toBeDefined();
+    expect(keep.getAttribute("aria-disabled")).toBe("true");
+
+    await user.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(keep.getAttribute("aria-checked")).toBe("true"));
+    expect(keep.hasAttribute("aria-disabled")).toBe(false);
+    expect(screen.queryByText(/Couldn't load whether it's on/)).toBeNull();
   });
 
   it("deletes the prompts via kept, after asking, and keeps the history", async () => {

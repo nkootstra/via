@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import type { UsageEntry } from "@via/usage";
 import { Option } from "effect";
+import { refusalOf } from "../proxy/upstream-error.ts";
 import { captureOf, worthCapturing } from "./capture.ts";
 
 const turn = (fields: Partial<UsageEntry>) =>
@@ -59,5 +60,24 @@ describe("captureOf", () => {
     expect(captured.truncated).toBe(true);
     expect(captured.sizeBytes).toBeLessThanOrEqual(4 * 1024 * 1024);
     expect(captured.request).toMatchObject({ messages: [{ role: "user" }] });
+  });
+
+  it("never keeps a private key an error body was cut off in the middle of", () => {
+    const key = "MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy0AHB7MhgHcTz6sE2I2yPB";
+
+    const answer = JSON.stringify({
+      error: {
+        message: `bad request: -----BEGIN RSA PRIVATE KEY-----\n${key.repeat(2_000)}\n-----END RSA PRIVATE KEY-----`,
+      },
+    });
+
+    // Cut to 64 KiB, as via keeps an error answer, which leaves the key with no END line.
+    const kept = refusalOf(answer).body ?? "";
+
+    const captured = captureOf("r1", 5, "responses", { input: "hi" }, [
+      { seq: 0, status: Option.some(400), body: kept },
+    ]);
+
+    expect(JSON.stringify(captured)).not.toContain(key.slice(0, 16));
   });
 });

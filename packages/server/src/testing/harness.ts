@@ -108,8 +108,11 @@ export type Via = {
    * OpenRouter's key is `sk-provider`, and OpenCode Go's are its accounts'.
    */
   readonly provider: FakeProvider;
-  /** Waits for the first line via logs whose message or annotations contain `text`. */
-  readonly logged: (text: string) => Effect.Effect<LogLine>;
+  /**
+   * Waits for the first line via logs whose message or annotations contain `text`,
+   * or, given `count`, for the `count`th such line.
+   */
+  readonly logged: (text: string, count?: number) => Effect.Effect<LogLine>;
   /** Every line via logged so far. */
   readonly logs: ReadonlyArray<LogLine>;
   /** The usage history via keeps its requests in. */
@@ -141,13 +144,15 @@ type LogLine = {
   readonly annotations: typeof References.CurrentLogAnnotations.Service;
 };
 
-/** A logger that keeps every line, and `logged(text)`, which waits for one containing `text`. */
+/** A logger that keeps every line, and `logged(text, count)`, which waits for the `count`th containing `text`. */
 const collectLogs = () => {
   const lines: Array<LogLine> = [];
-  const waiters: Array<{ text: string; line: Deferred.Deferred<LogLine> }> = [];
+  const waiters: Array<{ text: string; count: number; line: Deferred.Deferred<LogLine> }> = [];
 
   const matches = (line: LogLine, text: string) =>
     `${line.message} ${JSON.stringify(line.annotations)}`.includes(text);
+
+  const found = (text: string) => lines.filter((line) => matches(line, text));
 
   const logger = Logger.make(({ logLevel, message, fiber }) => {
     const line: LogLine = {
@@ -159,17 +164,19 @@ const collectLogs = () => {
 
     lines.push(line);
 
-    for (const waiter of waiters.filter(({ text }) => matches(line, text))) {
+    for (const waiter of waiters.filter(
+      ({ text, count }) => matches(line, text) && found(text).length === count,
+    )) {
       Deferred.doneUnsafe(waiter.line, Effect.succeed(line));
     }
   });
 
-  const logged = (text: string) =>
+  const logged = (text: string, count = 1) =>
     Effect.suspend(() => {
-      const line = lines.find((seen) => matches(seen, text));
+      const line = found(text)[count - 1];
 
       if (line !== undefined) return Effect.succeed(line);
-      const waiter = { text, line: Deferred.makeUnsafe<LogLine>() };
+      const waiter = { text, count, line: Deferred.makeUnsafe<LogLine>() };
       waiters.push(waiter);
 
       return Deferred.await(waiter.line);

@@ -113,7 +113,8 @@ export interface AdminState {
   historyRequests: Array<UsageRequest>;
   /**
    * The conversations `/admin/history/conversations` pages through, in the order
-   * given, filtered by model; `/admin/history/conversations/:id` answers one.
+   * given, filtered by model; `/admin/history/conversations/:id` answers one, or
+   * a sub-agent's of one, with its own turns.
    */
   conversations: Array<Conversation>;
   /**
@@ -188,6 +189,21 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
 }
 
 const at = (path: string) => `*/admin${path}`;
+
+/** The sub-agent `id` of one of `conversations`, as via answers it: with its own turns. */
+const subAgentOf = (
+  conversations: ReadonlyArray<Conversation>,
+  id: string,
+): Conversation | undefined =>
+  conversations.flatMap((conversation) => {
+    const own = conversation.turns.filter(({ conversationId }) =>
+      Option.contains(conversationId, id),
+    );
+
+    return own.length === 0
+      ? []
+      : [{ ...conversation, summary: { ...conversation.summary, id }, turns: own }];
+  })[0];
 
 const OllamaAddressBody = Schema.Struct({ address: Schema.String });
 
@@ -738,7 +754,9 @@ export function adminHandlers(state: AdminState) {
     http.get<{ id: string }>(
       at("/history/conversations/:id"),
       guarded(({ params }) => {
-        const found = state.conversations.find(({ summary }) => summary.id === params.id);
+        const found =
+          state.conversations.find(({ summary }) => summary.id === params.id) ??
+          subAgentOf(state.conversations, params.id);
 
         return found === undefined
           ? failure(

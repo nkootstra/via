@@ -311,11 +311,13 @@ export const clearHistory = () => run((admin) => admin.history.clear());
 
 /**
  * The body of a failed request via kept, or none when it kept none, or no longer
- * has it. It never changes once kept, so it is fetched once.
+ * has it. It never changes once kept, so it is fetched once: it is kept apart
+ * from the history's queries, which every change to the history fetches again,
+ * and only deleting the prompts or the history fetches it again.
  */
 export const capturedRequestQuery = (requestId: string) =>
   queryOptions({
-    queryKey: ["history", "body", requestId],
+    queryKey: ["captured", requestId],
     queryFn: () =>
       run((admin) =>
         admin.history.capturedRequest({ params: { requestId } }).pipe(
@@ -340,9 +342,13 @@ export const captureQuery = queryOptions({
 export const setCapture = (keepFailedPrompts: boolean) =>
   run((admin) => admin.history.setCaptureSettings({ payload: { keepFailedPrompts } }));
 
-/** Fetches the usage page's queries again, after the history changed under them. */
+/**
+ * Fetches the usage page's queries again, and the prompts kept, after the
+ * history or its prompts were deleted.
+ */
 export function refreshHistory(queryClient: QueryClient) {
   void queryClient.invalidateQueries({ queryKey: ["history"] });
+  void queryClient.invalidateQueries({ queryKey: ["captured"] });
 }
 
 /**

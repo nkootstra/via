@@ -147,10 +147,15 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
       )
       .handle("clear", () =>
         Effect.gen(function* () {
+          const captured = yield* CapturedRequests;
           // The captured bodies first: a turn they belong to is never gone while one stays.
-          yield* (yield* CapturedRequests).clear;
+          yield* captured.clear;
+          const deleted = yield* (yield* UsageHistory).clear;
+          // And again: a turn that settled meanwhile kept its capture before its history row,
+          // which the history's delete took, so the capture would be left with no turn.
+          yield* captured.clear;
 
-          return { deleted: yield* (yield* UsageHistory).clear };
+          return { deleted };
         }).pipe(readHistory),
       )
       .handle("capturedRequest", ({ params }) =>

@@ -11,6 +11,7 @@ import type {
   UsageRequest,
 } from "../api/types.ts";
 import { failed } from "./request-outcome.ts";
+import { byStart } from "./timeline.ts";
 
 /** What says which conversation a turn belongs to. */
 interface Member {
@@ -66,8 +67,9 @@ export interface Standing {
 
 /**
  * The conversation `id` as it stands now: the turns the history has of it,
- * `kept`, then those of `ended` it doesn't have yet, and of `live` those in
- * flight, each once, whichever conversation of it they belong to.
+ * `kept`, and those of `ended` it doesn't have yet, in the order they came,
+ * and of `live` those in flight, each once, whichever conversation of it they
+ * belong to.
  */
 export const standing = (
   id: string,
@@ -86,7 +88,7 @@ export const standing = (
   const sinceIds = new Set(since.map(({ requestId }) => requestId));
 
   return {
-    turns: [...kept.turns, ...since],
+    turns: byStart([...kept.turns, ...since]),
     attempts: [
       ...kept.attempts,
       ...ended
@@ -145,28 +147,47 @@ export const pendingSummary = (
 interface Unlisted {
   /** Every conversation a turn in flight belongs to, its parents' included. */
   readonly live: ReadonlySet<string>;
-  /** The conversations none of whose turns, nor parents, the list has, the latest active first. */
+  /**
+   * The conversations none of whose turns, nor parents, the list has, the latest
+   * active first: each one a turn says started no other.
+   */
   readonly pending: ReadonlyArray<ConversationSummary>;
 }
+
+/** The conversations one of `turns` says started no other: those of a turn with no parent. */
+const rootsOf = (turns: ReadonlyArray<Member>) =>
+  new Set(
+    turns.flatMap(({ conversationId, parentConversationId }) =>
+      Option.isNone(parentConversationId) ? Option.toArray(conversationId) : [],
+    ),
+  );
 
 /**
  * Of the turns in flight, `live`, and those that ended since, `ended`: which
  * conversations they keep live, and which they started that `listed` hasn't.
+ * The turns the history has of a sub-agent, `known`, say where it leads up to.
+ * A sub-agent whose parent none of them places starts no row of its own, as
+ * it may well belong to one the list has.
  */
 export const unlisted = (
   listed: ReadonlySet<string>,
   ended: ReadonlyArray<EndedTurn>,
   live: ReadonlyArray<LiveTurn>,
+  known: ReadonlyArray<Member> = [],
 ): Unlisted => {
   const entries = ended.map(({ entry }) => entry);
-  const chains = ancestry([...entries, ...live]);
+  const chains = ancestry([...entries, ...live, ...known]);
+  const roots = rootsOf([...entries, ...live, ...known]);
   const chainOf = (requestId: string) => chains.get(requestId) ?? [];
 
   // The conversation a turn started that the list hasn't, if it did.
   const unlistedRoot = ({ requestId }: { readonly requestId: string }) => {
     const chain = chainOf(requestId);
+    const head = chain.at(-1);
 
-    return chain.some((id) => listed.has(id)) ? undefined : chain.at(-1);
+    return chain.some((id) => listed.has(id)) || head === undefined || !roots.has(head)
+      ? undefined
+      : head;
   };
 
   const endedBy = Map.groupBy(entries, unlistedRoot);
@@ -182,6 +203,34 @@ export const unlisted = (
       )
       .toSorted((a, b) => b.lastAt - a.lastAt),
   };
+};
+
+/**
+ * The conversations the turns in flight lead up to, through those that ended
+ * since, that `listed` hasn't and whose parent none of them places: the
+ * history's turns of each say where it leads up to.
+ */
+export const unresolved = (
+  listed: ReadonlySet<string>,
+  ended: ReadonlyArray<EndedTurn>,
+  live: ReadonlyArray<LiveTurn>,
+): ReadonlyArray<string> => {
+  const turns = [...ended.map(({ entry }) => entry), ...live];
+  const chains = ancestry(turns);
+  const roots = rootsOf(turns);
+
+  return [
+    ...new Set(
+      live.flatMap(({ requestId }) => {
+        const chain = chains.get(requestId) ?? [];
+        const head = chain.at(-1);
+
+        return chain.some((id) => listed.has(id)) || head === undefined || roots.has(head)
+          ? []
+          : [head];
+      }),
+    ),
+  ];
 };
 
 /**

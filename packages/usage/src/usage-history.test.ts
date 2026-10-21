@@ -67,6 +67,17 @@ const historyAt = <A, E>(
   body: (history: UsageHistory["Service"]) => Effect.Effect<A, E>,
 ) => Effect.andThen(TestClock.setTime(now), history(body));
 
+/** Whether any file beside `path`, the database's own, its WAL and the rest, holds `text`. */
+const leftAnywhere = (path: string, text: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = path.slice(0, path.lastIndexOf("/"));
+    const files = yield* fs.readDirectory(directory);
+    const contents = yield* Effect.forEach(files, (file) => fs.readFile(`${directory}/${file}`));
+
+    return contents.some((bytes) => new TextDecoder("latin1").decode(bytes).includes(text));
+  });
+
 describe("UsageHistory", () => {
   it.effect("gives back a recorded request as it was recorded", () =>
     history((usage) =>
@@ -1007,6 +1018,70 @@ describe("UsageHistory.conversations", () => {
   );
 });
 
+describe("UsageHistory.conversations roots", () => {
+  const all = { from: 0, to: 2_000 * HOUR, limit: 10 };
+
+  it.effect("lists a sub-agent's conversation whose parent it has no turn of", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(turn("c1", HOUR, "child", "gone"));
+
+        const page = yield* usage.conversations(all);
+        expect(page.conversations).toMatchObject([{ id: "child", turns: 1, subagents: 0 }]);
+      }),
+    ),
+  );
+
+  it.effect("lists a conversation that names its parent on only some turns under it, once", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(turn("a1", HOUR, "root"));
+        yield* usage.record(turn("b1", 2 * HOUR, "child"));
+        yield* usage.record(turn("b2", 3 * HOUR, "child", "root"));
+
+        const page = yield* usage.conversations(all);
+        expect(page.conversations).toMatchObject([{ id: "root", turns: 3, subagents: 1 }]);
+      }),
+    ),
+  );
+});
+
+layer(UsageHistory.layerMemory)("UsageHistory.conversations properties", (shared) => {
+  const index = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 }));
+
+  shared.effect.prop(
+    "counts every turn of a conversation once, under one listed conversation",
+    {
+      turns: Arbitrary.array(
+        Arbitrary.schema(Schema.Struct({ id: index, parent: Schema.NullOr(index) })),
+        { maxLength: 20 },
+      ),
+    },
+    ({ turns }) =>
+      emptied((usage) =>
+        Effect.gen(function* () {
+          yield* Effect.forEach(
+            turns,
+            ({ id, parent }, i) =>
+              // A parent comes before its sub-agents, so no conversation is its own ancestor.
+              usage.record(
+                turn(
+                  `r${i}`,
+                  (i + 1) * HOUR,
+                  `c${id}`,
+                  parent !== null && parent < id ? `c${parent}` : undefined,
+                ),
+              ),
+            { discard: true },
+          );
+
+          const page = yield* usage.conversations({ from: 0, to: 2_000 * HOUR, limit: 100 });
+          expect(sum(page.conversations.map((c) => c.turns))).toBe(turns.length);
+        }),
+      ),
+  );
+});
+
 describe("UsageHistory.conversation", () => {
   it.effect("gives a conversation's turns and its sub-agents', in order, and its totals", () =>
     history((usage) =>
@@ -1138,6 +1213,27 @@ describe("UsageHistory attempts", () => {
         expect(Option.map(found, (c) => c.attempts.map((a) => a.requestId))).toEqual(
           Option.some(["new"]),
         );
+      }),
+    );
+  });
+  it.effect("forgets a pruned request's attempts, even one that started after the cutoff", () => {
+    const now = 200 * DAY;
+
+    return historyAt(now, (usage) =>
+      Effect.gen(function* () {
+        const at = now - 90 * DAY - 1;
+        // Its request came in just before the cutoff; its retry started just after.
+        yield* usage.keep(turn("old", at, "root"), [
+          attempt("old", 0, { startedAt: at }),
+          attempt("old", 1, { startedAt: at + 2 }),
+        ]);
+
+        yield* usage.prune;
+        // Under the same id, a request now would otherwise be handed the old one's attempts.
+        yield* usage.record(turn("old", now, "root"));
+
+        const found = yield* usage.conversation("root");
+        expect(Option.map(found, (c) => c.attempts)).toEqual(Option.some([]));
       }),
     );
   });
@@ -1367,6 +1463,31 @@ layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
       yield* Deferred.succeed(release, undefined);
       const page = yield* Fiber.join(opening);
       expect(page.requests).toEqual([entry()]);
+    }),
+  );
+
+  const message = "an upstream's words that must not outlive their delete";
+
+  withFs.effect("leaves no trace of what it cleared or pruned in any of its files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/usage.db`;
+      const now = 200 * DAY;
+      yield* TestClock.setTime(now);
+
+      yield* Effect.gen(function* () {
+        const usage = yield* UsageHistory;
+        const failed = { status: 429, errorMessage: Option.some(message) };
+
+        yield* usage.record(entry({ ...failed, requestId: "old", at: now - 91 * DAY }));
+        yield* usage.prune;
+        expect(yield* leftAnywhere(path, message)).toBe(false);
+
+        yield* usage.record(entry({ ...failed, requestId: "new", at: now }));
+        expect(yield* leftAnywhere(path, message)).toBe(true);
+        yield* usage.clear;
+        expect(yield* leftAnywhere(path, message)).toBe(false);
+      }).pipe(Effect.provide(UsageHistory.layer(path)));
     }),
   );
 });

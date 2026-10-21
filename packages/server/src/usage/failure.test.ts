@@ -1,6 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Arbitrary, Option, Schema } from "effect";
 import { categorize, type Failure, keptMessage } from "./failure.ts";
+import { redact } from "./redact.ts";
 
 /** A failure with `status` and nothing else said, unless `overrides` say it. */
 const failure = (status: number | undefined, overrides: Partial<Failure> = {}): Failure => ({
@@ -120,6 +121,18 @@ describe("keptMessage", () => {
     expect(keptMessage(Option.none(), Option.some(said))).toEqual(Option.none());
   });
 
+  it("keeps no secret the words quote", () => {
+    const key = "sk-proj-Ab3dEfGh1jKlMnOpQrStUvWxYz0123456789";
+    const pem = "-----BEGIN RSA PRIVATE KEY-----\nMIIEpAIBAAKCAQEAx7Lq0Zr4bW9vNnT3kJ5sQ1";
+
+    expect(keptMessage(Option.some(429), Option.some(`Rate limit reached for ${key}`))).toEqual(
+      Option.some("Rate limit reached for [redacted:openai-key]"),
+    );
+    expect(keptMessage(Option.some(503), Option.some(`Bad signing key: ${pem}`))).toEqual(
+      Option.some("Bad signing key: [redacted:private-key]"),
+    );
+  });
+
   it.prop(
     "keeps at most 500 characters, and only for a 401, 402, 403, 429 or 5xx",
     {
@@ -131,7 +144,9 @@ describe("keptMessage", () => {
       const may = [401, 402, 403, 429].includes(status) || status >= 500;
 
       return may
-        ? Option.isSome(kept) && kept.value.length <= 500 && message.startsWith(kept.value)
+        ? Option.isSome(kept) &&
+            kept.value.length <= 500 &&
+            String(redact(message).value).startsWith(kept.value)
         : Option.isNone(kept);
     },
   );

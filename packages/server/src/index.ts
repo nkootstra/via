@@ -8,6 +8,7 @@ import { ModelProtocols } from "./proxy/model-protocols.ts";
 import { models } from "./models/models.ts";
 import { LiveTurns } from "./usage/live-turns.ts";
 import { logRequest } from "./usage/request-log.ts";
+import { Settling } from "./usage/settling.ts";
 import { responses } from "./proxy/responses.ts";
 import { SessionBindings } from "./proxy/session-bindings.ts";
 import { systemOne } from "./proxy/system-one.ts";
@@ -59,5 +60,6 @@ export const ViaServer = {
       Layer.provide(SessionBindings.layer),
       Layer.provide(ModelProtocols.layer),
       Layer.provide(LiveTurns.layer),
+      Layer.provide(Settling.layer),
     ),
 };

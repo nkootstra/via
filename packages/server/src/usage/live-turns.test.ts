@@ -1,5 +1,5 @@
 import { expect, it } from "@effect/vitest";
-import { Arbitrary, Effect, Option, Queue, Schema, Stream } from "effect";
+import { Arbitrary, Deferred, Effect, Fiber, Option, Queue, Schema, Stream } from "effect";
 import { LiveTurns } from "./live-turns.ts";
 import type { LiveAttempt, LiveTurn, TurnEvent } from "./turn-events.ts";
 
@@ -255,5 +255,47 @@ it.effect("never waits on a listener that falls behind", () =>
     }
 
     expect(yield* Stream.runCollect(Stream.take(live.events, 1))).toHaveLength(1);
+  }).pipe(Effect.scoped, Effect.provide(LiveTurns.layer)),
+);
+
+it.live("ends a listener's events once it falls too far behind, rather than skip any", () =>
+  Effect.gen(function* () {
+    const live = yield* LiveTurns;
+    yield* live.start(turn("r0"));
+    const connected = yield* Deferred.make<void>();
+    const release = yield* Deferred.make<void>();
+
+    // A listener that takes the first event and then nothing until it is let go.
+    const listening = yield* live.events.pipe(
+      Stream.tap(() => Deferred.succeed(connected, undefined)),
+      Stream.mapEffect((event) => Effect.as(Deferred.await(release), event)),
+      Stream.runCollect,
+      Effect.forkScoped,
+    );
+
+    yield* Deferred.await(connected);
+
+    for (let request = 1; request <= 5_000; request++) {
+      yield* live.start(turn(`r${request}`));
+      yield* live.end(ended(`r${request}`));
+    }
+
+    yield* Deferred.succeed(release, undefined);
+    const received = yield* Fiber.join(listening).pipe(Effect.timeoutOption("2 seconds"));
+
+    // It ends, so the page connects again and starts afresh from the turns in flight then,
+    // and what it got before is every event in order, none skipped.
+    const events = Option.getOrThrow(received);
+
+    const expected = Array.from({ length: 5_000 }, (_, i) => [
+      { event: "turn.started", data: turn(`r${i + 1}`) },
+      { event: "turn.ended", data: ended(`r${i + 1}`) },
+    ]).flat();
+
+    expect(events.length).toBeLessThan(expected.length);
+    expect(events).toEqual([
+      { event: "turn.started", data: turn("r0") },
+      ...expected.slice(0, events.length - 1),
+    ]);
   }).pipe(Effect.scoped, Effect.provide(LiveTurns.layer)),
 );

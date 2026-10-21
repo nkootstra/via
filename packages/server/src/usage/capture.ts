@@ -2,7 +2,7 @@
 // on: its request body and every upstream's error answer, redacted, then cut to fit.
 import type { CapturedRequest, UsageEntry } from "@via/usage";
 import { Option, Schema } from "effect";
-import { capped, jsonSize, redact } from "./redact.ts";
+import { capped, redact } from "./redact.ts";
 
 /** The most a captured request takes as JSON; a longer one has its long strings cut. */
 const MAX_CAPTURED_BYTES = 4 * 1024 * 1024;
@@ -62,6 +62,6 @@ export const captureOf = (
     })),
     redactions,
     truncated: kept.truncated,
-    sizeBytes: jsonSize(kept.value),
+    sizeBytes: kept.sizeBytes,
   };
 };

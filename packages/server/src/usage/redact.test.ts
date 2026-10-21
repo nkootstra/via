@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { Arbitrary, Predicate, Schema } from "effect";
 import { capped, redact } from "./redact.ts";
 
@@ -202,6 +202,90 @@ describe("redact", () => {
     expect(redact(sent).value).toEqual(sent);
   });
 
+  it.each([
+    ["Basic dXNlcjpwYXNz", "Basic [redacted:authorization]"],
+    ["Token abcdefghijklmnop", "Token [redacted:authorization]"],
+    ["ApiKey abcdefghijklmnop", "ApiKey [redacted:authorization]"],
+    ["Bearer abc", "Bearer [redacted:authorization]"],
+    ["opaque credential", "[redacted:authorization]"],
+  ])("replaces the credential of an Authorization header in JSON: %s", (sent, kept) => {
+    expect(redact({ headers: { Authorization: sent } }).value).toEqual({
+      headers: { Authorization: kept },
+    });
+  });
+
+  it("replaces a cookie header's value in JSON", () => {
+    expect(
+      redact({ headers: { Cookie: "session=abc; theme=dark", "set-cookie": "id=x" } }).value,
+    ).toEqual({ headers: { Cookie: "[redacted:cookie]", "set-cookie": "[redacted:cookie]" } });
+  });
+
+  it("replaces the credential after a scheme under any secret-named key", () => {
+    expect(redact({ token: "Bearer abcdef" }).value).toEqual({
+      token: "Bearer [redacted:secret]",
+    });
+  });
+
+  it("replaces a credential under a camelCase secret-named key", () => {
+    const secret = "Zq8Lm2Xp9Wt4Yc7Vb3Nn";
+    const named = ["accessToken", "clientSecret", "refreshToken", "authToken", "githubToken"];
+
+    expect(redact(Object.fromEntries(named.map((name) => [name, secret]))).value).toEqual(
+      Object.fromEntries(named.map((name) => [name, "[redacted:secret]"])),
+    );
+  });
+
+  it("replaces secrets in an array under a secret-named key", () => {
+    expect(redact({ api_keys: ["Zq8Lm2Xp9Wt4Yc7Vb3Nn", "Hello"] }).value).toEqual({
+      api_keys: ["[redacted:secret]", "Hello"],
+    });
+  });
+
+  it.each([
+    ['"api_keys": ["Zq8Lm2Xp9Wt4Yc7Vb3Nn", "Hello"]', '"api_keys": ["[redacted:secret]", "Hello"]'],
+    [
+      '{\n  "tokens": [\n    "Zq8Lm2Xp9Wt4Yc7Vb3Nn",\n    "Hk4Rt7Ws2Qa9Ze5Xc1Vb"\n  ]\n}',
+      '{\n  "tokens": [\n    "[redacted:secret]",\n    "[redacted:secret]"\n  ]\n}',
+    ],
+    ["SECRETS=['Zq8Lm2Xp9Wt4Yc7Vb3Nn']", "SECRETS=['[redacted:secret]']"],
+  ])("replaces secrets in an array under a secret-named key, in text: %s", (sent, kept) => {
+    expect(redactedText(sent)).toBe(kept);
+  });
+
+  it.each([
+    ["Authorization: opaqueCred3ntial", "Authorization: [redacted:authorization]"],
+    ["Authorization: Custom abcdef123456", "Authorization: Custom [redacted:authorization]"],
+    ["Proxy-Authorization: Token abcdefgh", "Proxy-Authorization: Token [redacted:authorization]"],
+    ["Cookie: session=abc123; theme=dark", "Cookie: [redacted:cookie]"],
+    ["Set-Cookie: id=a3fWa; Max-Age=2592000", "Set-Cookie: [redacted:cookie]"],
+  ])("replaces a header's credential in text: %s", (sent, kept) => {
+    expect(redactedText(`> ${sent}\nnext line`)).toBe(`> ${kept}\nnext line`);
+  });
+
+  it("leaves Authorization and cookies in prose alone", () => {
+    expect(redactedText("Authorization: required for everything")).toBe(
+      "Authorization: required for everything",
+    );
+    expect(redactedText("cookie: chocolate chip")).toBe("cookie: chocolate chip");
+  });
+
+  it("replaces a PEM private key cut off before its end, to the end of the text", () => {
+    const head = [
+      "-----BEGIN OPENSSH PRIVATE KEY-----",
+      "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW",
+    ].join("\n");
+
+    expect(redactedText(`error: bad key\n${head}`)).toBe("error: bad key\n[redacted:private-key]");
+  });
+
+  it("redacts many unfinished PEM headers in linear time", () => {
+    const text = "-----BEGIN PRIVATE KEY-----\n".repeat(20_000);
+    const started = performance.now();
+
+    expect(redactedText(text)).toBe("[redacted:private-key]");
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   it("leaves text with no secret in it as it was", () => {
     const body = {
       model: "gpt-6",
@@ -233,6 +317,61 @@ describe("redact, as properties", () => {
       }),
   );
 
+  const names = Arbitrary.schema(
+    Schema.Literals([
+      "api_key",
+      "apiKey",
+      "API-KEY",
+      "x-api-key",
+      "accessToken",
+      "client_secret",
+      "clientSecret",
+      "refresh_token",
+      "GITHUB_TOKEN",
+      "password",
+      "Authorization",
+      "proxy-authorization",
+    ]),
+  );
+
+  const scheme = Arbitrary.schema(
+    Schema.Literals(["", "Basic ", "Bearer ", "Token ", "ApiKey ", "Digest "]),
+  );
+
+  it.prop(
+    "never keeps a random credential under a secret-named key, however it's nested",
+    { name: names, seed: seeds, scheme },
+    ({ name, seed, scheme: prefix }) => {
+      // Random enough to be a secret, whatever the seed.
+      const secret = `${pick(alnum, seed, 8)}Zq8Lm2Xp9Wt4Yc7V`;
+      const value = `${prefix}${secret}`;
+
+      const body = {
+        headers: { [name]: value },
+        [name]: [value, { [name]: value }],
+        text: `${name}: ${value}`,
+      };
+
+      expect(JSON.stringify(redact(body).value)).not.toContain(secret);
+    },
+  );
+
+  it.prop(
+    "never keeps a private key's body, finished or cut off",
+    {
+      seed: seeds,
+      cut: Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 40 }))),
+      before: prose,
+    },
+    ({ seed, cut, before }) => {
+      const key = `MIIE${pick(alnum, seed, 40)}`;
+      const pem = `-----BEGIN RSA PRIVATE KEY-----\n${key}\n-----END RSA PRIVATE KEY-----`;
+      const text = `${before}\n${pem.slice(0, pem.indexOf(key) + key.length + cut)}`;
+
+      expect(JSON.stringify(redact(text).value)).not.toContain(key);
+    },
+  );
+
   const json = Arbitrary.schema(Schema.Json);
 
   it.prop(
@@ -247,7 +386,13 @@ describe("redact, as properties", () => {
     "changes nothing more when run again",
     { json, seed: seeds, text: prose },
     ({ json: value, seed, text }) => {
-      const once = redact({ json: value, text: `${text} ${secrets(seed).join(" ")}` });
+      const once = redact({
+        json: value,
+        text: `${text} ${secrets(seed).join(" ")} Authorization: ${pick(alnum, seed, 20)}`,
+        headers: { Authorization: `Basic ${text}`, Cookie: `a=${text}` },
+        tokens: [text],
+      });
+
       const twice = redact(once.value);
 
       expect(twice).toEqual({ value: once.value, redactions: [] });
@@ -255,11 +400,56 @@ describe("redact, as properties", () => {
   );
 });
 
+/** `inner` with each string longer than `limit` cut to it, as `capped` cuts. */
+const cutEach = (inner: Schema.Json, limit: number): Schema.Json => {
+  if (Predicate.isString(inner)) {
+    if (inner.length <= limit) return inner;
+    const end = /[\uD800-\uDBFF]/.test(inner.charAt(limit - 1)) ? limit - 1 : limit;
+
+    return `${inner.slice(0, Math.max(0, end))}…[truncated ${inner.length - end} characters]`;
+  }
+
+  if (Array.isArray(inner)) return inner.map((item) => cutEach(item, limit));
+
+  if (isJsonObject(inner)) {
+    return Object.fromEntries(Object.entries(inner).map(([k, v]) => [k, cutEach(v, limit)]));
+  }
+
+  return inner;
+};
+
+const longestOf = (inner: Schema.Json): number =>
+  Predicate.isString(inner)
+    ? inner.length
+    : Array.isArray(inner)
+      ? Math.max(0, ...inner.map(longestOf))
+      : isJsonObject(inner)
+        ? Math.max(0, ...Object.values(inner).map(longestOf))
+        : 0;
+
+/** What `capped` did when it measured the JSON again for every length it tried. */
+const measuredEachTime = (value: Schema.Json, maxBytes: number) => {
+  if (size(value) <= maxBytes) return value;
+  let low = 0;
+  let high = longestOf(value);
+
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+
+    if (size(cutEach(value, middle)) <= maxBytes) low = middle;
+    else high = middle - 1;
+  }
+
+  const cut = cutEach(value, low);
+
+  return size(cut) <= maxBytes ? cut : `[truncated: ${size(value)}]`;
+};
+
 describe("capped", () => {
   it("leaves JSON that fits as it was", () => {
     const body = { messages: [{ content: "hello" }] };
 
-    expect(capped(body, 1_000)).toEqual({ value: body, truncated: false });
+    expect(capped(body, 1_000)).toEqual({ value: body, truncated: false, sizeBytes: size(body) });
   });
 
   it("cuts the longest strings until the JSON fits, and says so", () => {
@@ -269,6 +459,74 @@ describe("capped", () => {
     expect(truncated).toBe(true);
     expect(size(value)).toBeLessThanOrEqual(1_000);
     expect(value).toMatchObject({ short: "hello" });
+  });
+
+  /** Characters JSON escapes or UTF-8 takes more than a byte for, and plain ones. */
+  const tricky = [
+    '"',
+    "\\",
+    "\n",
+    "\t",
+    "\u0001",
+    "\u007f",
+    "é",
+    "€",
+    "😀",
+    "\uD800",
+    "\uDC00",
+    "a",
+    "b",
+    " ",
+  ];
+
+  const trickyJson = Arbitrary.schema(
+    Schema.Array(
+      Schema.Struct({
+        seed: Schema.Array(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1_000 }))),
+        length: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 3_000 })),
+      }),
+    ),
+  ).pipe(
+    Arbitrary.map((strings) => ({
+      messages: strings.map(({ seed, length }) => ({
+        content: pick(tricky.join(""), seed.length === 0 ? [1] : seed, length),
+      })),
+    })),
+  );
+
+  it.prop(
+    "cuts as it did when it measured the JSON again for every length it tried",
+    {
+      json: trickyJson,
+      limit: Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 64, maximum: 8_000 }))),
+    },
+    ({ json, limit }) => {
+      const kept = capped(json, limit);
+      const expected = measuredEachTime(json, limit);
+
+      // The note of a body too big to cut names its size as a person reads it.
+      if (Predicate.isString(expected) && expected.startsWith("[truncated:")) {
+        expect(kept.value).toMatch(/^\[truncated: /);
+      } else {
+        expect(kept.value).toEqual(expected);
+      }
+
+      expect(kept.sizeBytes).toBe(size(kept.value));
+    },
+  );
+
+  it("measures a big body as JSON a couple of times, not once for every length it tries", () => {
+    const body = {
+      messages: Array.from({ length: 200 }, (_, i) => ({ content: `${i}\n"`.repeat(5_000) })),
+    };
+
+    const stringify = vi.spyOn(JSON, "stringify");
+    const kept = capped(body, 100_000);
+    const calls = stringify.mock.calls.length;
+    stringify.mockRestore();
+
+    expect(kept.truncated).toBe(true);
+    expect(calls).toBeLessThanOrEqual(2);
   });
 
   it.prop(

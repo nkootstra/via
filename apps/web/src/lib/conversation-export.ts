@@ -17,6 +17,7 @@ import { harnessName } from "./harness.ts";
 import { withoutPrefix } from "./model-entries.ts";
 import { providerName } from "./provider-name.ts";
 import { outcomeKind, outcomeOf } from "./request-outcome.ts";
+import { byStart } from "./timeline.ts";
 import {
   formatCount,
   formatDuration,
@@ -75,18 +76,39 @@ export const conversationJson = (
     captured: Object.fromEntries(captured),
   });
 
-/** `text` on one line, its line breaks spaces. */
-const oneLine = (text: string) => text.replace(/\s*\n\s*/g, " ");
+/** `text` with its line breaks, `\r\n` or `\r` as some clients write them, as `\n`. */
+const unixLines = (text: string) => text.replace(/\r\n?/g, "\n");
 
-/** A cell of a Markdown table: one line, its pipes and backticks escaped. */
-export const tableCell = (text: string) => oneLine(text).replace(/([|`])/g, "\\$1");
+/** `text` on one line, its line breaks spaces. */
+const oneLine = (text: string) => unixLines(text).replace(/\s*\n\s*/g, " ");
+
+/** The longest run of backticks in `text`. */
+const longestTicks = (text: string) =>
+  Math.max(0, ...Array.from(text.matchAll(/`+/g), ([run]) => run.length));
+
+/**
+ * Text as Markdown reads it as text, on one line: what a client or an upstream
+ * wrote can't open a tag, a comment, a link or code, nor split a table's
+ * row. Its own backslashes are escaped too, so none escapes an escape.
+ */
+export const inlineText = (text: string) => oneLine(text).replace(/[\\`<>[\]|]/g, "\\$&");
+
+/** `text` in a code span, fenced with more backticks than any run in it. */
+export const codeSpan = (text: string) => {
+  const line = oneLine(text);
+  const bar = "`".repeat(longestTicks(line) + 1);
+  // A span that starts or ends with a backtick needs a space between it and its fence.
+  const pad = line.startsWith("`") || line.endsWith("`") ? " " : "";
+
+  return `${bar}${pad}${line}${pad}${bar}`;
+};
 
 /** `text` in a fenced code block, fenced with more backticks than any run in it. */
 export const fence = (text: string, language: string) => {
-  const longest = Math.max(0, ...Array.from(text.matchAll(/`+/g), ([run]) => run.length));
-  const bar = "`".repeat(Math.max(3, longest + 1));
+  const lines = unixLines(text);
+  const bar = "`".repeat(Math.max(3, longestTicks(lines) + 1));
 
-  return `${bar}${language}\n${text}\n${bar}`;
+  return `${bar}${language}\n${lines}\n${bar}`;
 };
 
 /** How much of a message's text a report keeps; past it, it says how long it was. */
@@ -119,8 +141,8 @@ const messageMarkdown = (message: PromptMessage, hide: (text: string) => string)
   const text = hide(message.parts.map(partText).join("\n"));
 
   return text.length > MESSAGE_CHARS
-    ? `**${message.role}**\n\n${fence(`${text.slice(0, MESSAGE_CHARS)}\n…`, "text")}\n\nTrimmed: ${formatCount(text.length)} characters in all.`
-    : `**${message.role}**\n\n${fence(text, "text")}`;
+    ? `**${inlineText(message.role)}**\n\n${fence(`${text.slice(0, MESSAGE_CHARS)}\n…`, "text")}\n\nTrimmed: ${formatCount(text.length)} characters in all.`
+    : `**${inlineText(message.role)}**\n\n${fence(text, "text")}`;
 };
 
 const errorBodyText = (body: CapturedRequest["upstreamErrors"][number]["body"]) =>
@@ -146,7 +168,7 @@ const capturedMarkdown = (
       ].join(", ");
 
       return [
-        `**Prompt** to \`/v1/${captured.endpoint}\`: ${note}.`,
+        `**Prompt** to ${codeSpan(`/v1/${captured.endpoint}`)}: ${note}.`,
         ...last.map((message) => messageMarkdown(message, hide)),
       ];
     },
@@ -156,7 +178,7 @@ const capturedMarkdown = (
     ...lines,
     ...(captured.redactions.length > 0
       ? [
-          `Redacted: ${captured.redactions.map(({ kind, count }) => `${formatCount(count)} × ${kind}`).join(", ")}.`,
+          `Redacted: ${captured.redactions.map(({ kind, count }) => `${formatCount(count)} × ${inlineText(kind)}`).join(", ")}.`,
         ]
       : []),
     ...(captured.truncated
@@ -177,20 +199,20 @@ const attemptLine = (attempt: TurnAttempt, hide: (text: string) => string) => {
   });
 
   const said = [
-    route,
-    ...Option.toArray(Option.map(attempt.accountLabel, hide)),
-    withoutPrefix(attempt.model) || "Unknown model",
+    inlineText(route),
+    ...Option.toArray(Option.map(attempt.accountLabel, (label) => inlineText(hide(label)))),
+    inlineText(withoutPrefix(attempt.model) || "Unknown model"),
     ...Option.toArray(Option.map(attempt.status, (status) => `HTTP ${status}`)),
     Option.match(attempt.category, {
       onNone: () => attemptOutcomeNames[attempt.outcome],
       onSome: (category) => categoryNames[category],
     }),
-    ...Option.toArray(Option.map(attempt.upstreamCode, (code) => `\`${tableCell(code)}\``)),
+    ...Option.toArray(Option.map(attempt.upstreamCode, codeSpan)),
   ].join(" · ");
 
   return `${attempt.seq + 1}. ${said}${Option.match(attempt.message, {
     onNone: () => "",
-    onSome: (message) => `: ${oneLine(hide(message))}`,
+    onSome: (message) => `: ${inlineText(hide(message))}`,
   })}`;
 };
 
@@ -217,8 +239,10 @@ export const conversationMarkdown = (
   captured: ReadonlyMap<string, CapturedRequest>,
   writing: { readonly time: (at: number) => string; readonly hide: (text: string) => string },
 ) => {
-  const { summary, turns, attempts } = conversation;
+  const { summary, attempts } = conversation;
   const { time, hide } = writing;
+  // Numbered in the order they came, as the page numbers them.
+  const turns = byStart(conversation.turns);
 
   const trouble = [
     ...(summary.subagents > 0
@@ -231,14 +255,14 @@ export const conversationMarkdown = (
   ];
 
   const head = [
-    `# ${harnessName(summary.client, summary.source)} · ${summary.id}`,
+    `# ${inlineText(harnessName(summary.client, summary.source))} · ${inlineText(summary.id)}`,
     "",
     `- Started: ${time(summary.firstAt)}, lasted ${formatDuration(summary.lastAt - summary.firstAt)}`,
     `- Turns: ${formatCount(summary.turns)}${trouble.length > 0 ? ` (${trouble.join(", ")})` : ""}`,
     `- Tokens: ${formatTokens(tokensOf(summary))} (${formatTokens(summary.inputTokens)} in, ${formatTokens(summary.outputTokens)} out, ${formatShare(summary.cachedTokens, summary.inputTokens)} cached)`,
     `- API-equivalent cost: ${formatUsd(summary.cost.apiEquivalentUsd)}`,
-    ...Option.toArray(Option.map(summary.keyName, (key) => `- Key: ${hide(key)}`)),
-    `- Models: ${summary.models.map(withoutPrefix).join(", ")}`,
+    ...Option.toArray(Option.map(summary.keyName, (key) => `- Key: ${inlineText(hide(key))}`)),
+    `- Models: ${summary.models.map((model) => inlineText(withoutPrefix(model))).join(", ")}`,
   ];
 
   const table = [
@@ -257,7 +281,8 @@ export const conversationMarkdown = (
         turnTokens(turn),
         outcomeOf(turn),
       ]
-        .map(tableCell)
+        // Its pipes escaped, a cell never adds a column.
+        .map(inlineText)
         .reduce((row, cell) => `${row} ${cell} |`, "|"),
     ),
   ];
@@ -272,12 +297,15 @@ export const conversationMarkdown = (
 
     const title = Option.match(turn.requestedModel, {
       onNone: () => `## Turn ${index + 1} · ${outcomeOf(turn)}`,
-      onSome: (asked) => `## Turn ${index + 1} · fell back from ${withoutPrefix(asked)}`,
+      onSome: (asked) =>
+        `## Turn ${index + 1} · fell back from ${inlineText(withoutPrefix(asked))}`,
     });
 
     const blocks = [
       title,
-      ...Option.toArray(Option.map(turn.errorMessage, (message) => `> ${oneLine(hide(message))}`)),
+      ...Option.toArray(
+        Option.map(turn.errorMessage, (message) => `> ${inlineText(hide(message))}`),
+      ),
       ...(own.length > 0
         ? [["**Attempts**", "", ...own.map((attempt) => attemptLine(attempt, hide))].join("\n")]
         : []),

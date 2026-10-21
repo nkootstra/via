@@ -16,7 +16,7 @@ import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { setMotion, useMotion } from "../../lib/motion.ts";
-import { setPrivacy, usePrivacy } from "../../lib/privacy.ts";
+import { setPrivacy, useMask, usePrivacy } from "../../lib/privacy.ts";
 import { setStartPage, useStartPage } from "../../lib/start-page.ts";
 import { formatTime } from "../../lib/time.ts";
 import { setTimeFormat, useTimeFormat, type TimeFormat } from "../../lib/time-format.ts";
@@ -62,7 +62,13 @@ const styles = stylex.create({
     lineHeight: 1.5,
     color: colors.mutedForeground,
   },
-  control: { maxWidth: "100%" },
+  control: {
+    display: "flex",
+    alignItems: "center",
+    gap: space.s2,
+    maxWidth: "100%",
+  },
+  failed: { color: colors.destructive },
 });
 
 /**
@@ -224,6 +230,7 @@ function CaptureSetting() {
   const toast = useToast();
   const queryClient = useQueryClient();
   const capture = useQuery(captureQuery);
+  const mask = useMask();
 
   const change = useMutation({
     mutationFn: setCapture,
@@ -237,6 +244,8 @@ function CaptureSetting() {
   });
 
   const on = change.isPending ? change.variables : (capture.data?.keepFailedPrompts ?? false);
+  // Until via says how it stands, "off" would be a guess: the switch waits.
+  const unknown = capture.data === undefined;
 
   return (
     <Setting
@@ -247,13 +256,25 @@ function CaptureSetting() {
           Off unless you turn it on. When a request fails or falls back, via keeps what the client
           sent and what the upstreams answered for 7 days, so you can see why. Secrets are redacted
           by their pattern first, which can miss some, and images are left out.
+          {capture.isError && unknown && (
+            <span role="alert" {...stylex.props(styles.failed)}>
+              {" "}
+              Couldn't load whether it's on. {mask.key(capture.error.message)}
+            </span>
+          )}
         </>
       }
     >
+      {capture.isError && unknown && (
+        <Button variant="secondary" size="compact" onClick={() => void capture.refetch()}>
+          Try again
+        </Button>
+      )}
       <Switch
         aria-label="Keep prompts of failed requests"
         aria-describedby={`${label}-about`}
-        aria-busy={change.isPending}
+        aria-busy={change.isPending || capture.isPending}
+        disabled={unknown}
         checked={on}
         onCheckedChange={(next) => change.mutate(next)}
       />

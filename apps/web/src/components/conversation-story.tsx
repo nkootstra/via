@@ -35,6 +35,7 @@ import {
   storyOf,
   storySummary,
   tookMs,
+  turnsLabel,
   unserved,
   waitedMs,
   type StoryItem,
@@ -995,7 +996,7 @@ function Run({ rows }: { readonly rows: ReadonlyArray<TimelineTurn> }) {
 
   if (first === undefined || last === undefined) return null;
 
-  const name = `Turns ${first.number}–${last.number}`;
+  const name = turnsLabel(rows.map(({ number }) => number));
   const total = rows.reduce((sum, row) => sum + tookMs(row, now), 0);
 
   return (
@@ -1242,7 +1243,7 @@ function FailuresCard({ rows }: { readonly rows: ReadonlyArray<TimelineTurn> }) 
 
   if (first === undefined || last === undefined) return null;
 
-  const name = `Turns ${first.number}–${last.number}`;
+  const name = turnsLabel(rows.map(({ number }) => number));
 
   return (
     <article

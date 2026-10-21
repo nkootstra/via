@@ -12,9 +12,12 @@ type Attempt = Extract<TurnEvent, { event: "turn.attempt" }>["data"];
 
 type Ended = Extract<TurnEvent, { event: "turn.ended" }>["data"];
 
+/** When the turns start: now, as a turn in flight is never older than any turn runs. */
+const T0 = Date.now();
+
 const turn = (requestId: string): Turn => ({
   requestId,
-  at: 1_000,
+  at: T0,
   model: "gpt-6-astra",
   conversationId: Option.some("ses_1"),
   parentConversationId: Option.none(),
@@ -134,14 +137,18 @@ describe("the turns in flight", () => {
     const { queryClient, source, held } = listening();
     let fetches = 0;
 
-    // A page's query of the history, which a `history` event fetches again.
+    // A page's list of requests, which a `history` event fetches again: r1 is in it once it ended.
     const observer = new QueryObserver(queryClient, {
       queryKey: ["history", "requests"],
-      queryFn: () => ++fetches,
+      queryFn: () => {
+        fetches += 1;
+
+        return { pages: [{ requests: fetches > 1 ? [{ requestId: "r1" }] : [] }] };
+      },
     });
 
     onTestFinished(observer.subscribe(() => {}));
-    await vi.waitFor(() => expect(observer.getCurrentResult().data).toBe(1));
+    await vi.waitFor(() => expect(observer.getCurrentResult().isSuccess).toBe(true));
 
     source.turn({ event: "turn.started", data: turn("r1") });
     source.turn(ended("r1"));
@@ -150,15 +157,117 @@ describe("the turns in flight", () => {
     source.history();
     expect(held()).toEqual(["r1"]);
     await vi.waitFor(() => expect(held()).toEqual([]));
-    expect(observer.getCurrentResult().data).toBe(2);
+    expect(fetches).toBe(2);
   });
 
-  it("lets go of the turns that ended when the stream drops", () => {
+  it("holds a turn that ended while the history fetched again lacks it", async () => {
+    const { queryClient, source, held } = listening();
+    let fetches = 0;
+
+    const observer = new QueryObserver(queryClient, {
+      queryKey: ["history", "requests"],
+      queryFn: () => {
+        fetches += 1;
+
+        return { pages: [{ requests: [{ requestId: "r0" }] }] };
+      },
+    });
+
+    onTestFinished(observer.subscribe(() => {}));
+    await vi.waitFor(() => expect(observer.getCurrentResult().isSuccess).toBe(true));
+
+    source.turn(ended("r1"));
+    source.history();
+    await vi.waitFor(() => expect(fetches).toBe(2));
+
+    expect(held()).toEqual(["r1"]);
+  });
+
+  it("holds a turn that ended when fetching the history again fails", async () => {
+    const { queryClient, source, held } = listening();
+    let fetches = 0;
+
+    const observer = new QueryObserver(queryClient, {
+      queryKey: ["history", "conversation", "ses_1"],
+      queryFn: () => {
+        fetches += 1;
+
+        return fetches > 1 ? Promise.reject(new Error("via is down")) : { turns: [] };
+      },
+      retry: false,
+    });
+
+    onTestFinished(observer.subscribe(() => {}));
+    await vi.waitFor(() => expect(observer.getCurrentResult().isSuccess).toBe(true));
+
+    source.turn(ended("r1"));
+    source.history();
+    await vi.waitFor(() => expect(observer.getCurrentResult().isError).toBe(true));
+
+    expect(held()).toEqual(["r1"]);
+  });
+
+  it("holds a turn that ended while a list read further holds still", async () => {
+    const { queryClient, source, held } = listening();
+
+    // A list of conversations with two pages loaded, which a `history` event leaves be.
+    queryClient.setQueryData(["history", "conversations"], {
+      pages: [{ conversations: [] }, { conversations: [] }],
+      pageParams: [undefined, 1],
+    });
+
+    source.turn(ended("r1"));
+    source.history();
+    await Promise.resolve();
+
+    expect(held()).toEqual(["r1"]);
+  });
+
+  it("lets go of a turn that ended once the list of conversations has its conversation", async () => {
+    const { queryClient, source, held } = listening();
+
+    source.turn(ended("r1"));
+    await queryClient.fetchQuery({
+      queryKey: ["history", "conversations"],
+      queryFn: () => ({ pages: [{ conversations: [{ id: "ses_1" }] }], pageParams: [undefined] }),
+    });
+
+    expect(held()).toEqual([]);
+  });
+
+  it("lets go of a turn in flight whose end it missed, once the history has it", async () => {
+    const { queryClient, source, turns } = listening();
+
+    source.turn({ event: "turn.started", data: turn("r1") });
+    source.turn({ event: "turn.started", data: turn("r2") });
+    await queryClient.fetchQuery({
+      queryKey: ["history", "conversation", "ses_1"],
+      queryFn: () => ({ turns: [{ requestId: "r1" }] }),
+    });
+
+    expect(turns()).toEqual([turn("r2")]);
+  });
+
+  it("lets go of a turn in flight that has gone on for longer than any turn runs", () => {
+    vi.useFakeTimers({ now: T0 });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const { source, turns } = listening();
+
+    source.turn({ event: "turn.started", data: turn("r1") });
+    vi.setSystemTime(T0 + 2 * 60 * 60_000);
+    source.turn({ event: "turn.started", data: { ...turn("r2"), at: Date.now() } });
+
+    expect(turns()).toEqual([{ ...turn("r2"), at: Date.now() }]);
+  });
+
+  it("holds the turns that ended when the stream drops, as the history may not have them yet", () => {
     const { source, held } = listening();
 
     source.turn(ended("r1"));
     source.fail();
 
-    expect(held()).toEqual([]);
+    expect(held()).toEqual(["r1"]);
   });
 });
