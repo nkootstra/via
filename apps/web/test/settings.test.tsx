@@ -148,3 +148,59 @@ describe("deleting the usage history", () => {
     expect(state.requests).not.toContain("DELETE /admin/history");
   });
 });
+
+describe("keeping the prompts of failed requests", () => {
+  it("is off until turned on, and says what it keeps and for how long", async () => {
+    const { state, user } = renderApp("/settings");
+
+    const keep = await screen.findByRole("switch", { name: "Keep prompts of failed requests" });
+    expect(keep.getAttribute("aria-checked")).toBe("false");
+    const about = document.getElementById(keep.getAttribute("aria-describedby") ?? "");
+    expect(about?.textContent).toContain("7 days");
+    expect(about?.textContent).toContain("can miss");
+
+    await user.click(keep);
+
+    await waitFor(() => expect(state.capture).toEqual({ keepFailedPrompts: true }));
+    expect(keep.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("shows it on when via keeps them", async () => {
+    renderApp("/settings", { capture: { keepFailedPrompts: true } });
+
+    const keep = await screen.findByRole("switch", { name: "Keep prompts of failed requests" });
+    await waitFor(() => expect(keep.getAttribute("aria-checked")).toBe("true"));
+  });
+
+  it("deletes the prompts via kept, after asking, and keeps the history", async () => {
+    const { state, user } = renderApp("/settings", {
+      captured: new Map([
+        [
+          "r1",
+          {
+            requestId: "r1",
+            capturedAt: 0,
+            endpoint: "responses" as const,
+            request: { input: "hi" },
+            upstreamErrors: [],
+            redactions: [],
+            truncated: false,
+            sizeBytes: 20,
+          },
+        ],
+      ]),
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Delete captured prompts…" }));
+
+    const dialog = await screen.findByRole("alertdialog", {
+      name: "Delete every captured prompt?",
+    });
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete prompts" }));
+
+    await waitFor(() => expect(state.captured.size).toBe(0));
+    expect(state.requests).not.toContain("DELETE /admin/history");
+    expect(await screen.findByText("Captured prompts deleted")).toBeDefined();
+  });
+});
