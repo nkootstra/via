@@ -1,6 +1,6 @@
 // Test-only: runs a real via server against fake Codex and auth.openai.com servers.
 import type { ModelPrice } from "@via/config";
-import { UsageHistory } from "@via/usage";
+import { CapturedRequests, CaptureSettingsStore, UsageHistory } from "@via/usage";
 import { BunFileSystem, BunHttpServer } from "@effect/platform-bun";
 import { AccountPool, UsageSnapshots } from "@via/account-pool";
 import { AccountStore, AccountTokens, CodexAuth } from "@via/codex-auth";
@@ -114,6 +114,8 @@ export type Via = {
   readonly logs: ReadonlyArray<LogLine>;
   /** The usage history via keeps its requests in. */
   readonly usage: UsageHistory["Service"];
+  /** The request bodies via captured of turns that failed or fell back. */
+  readonly captured: CapturedRequests["Service"];
   /**
    * Waits until via is waiting out a timer of `duration` on the test clock,
    * one it started and that hasn't run out yet.
@@ -256,7 +258,8 @@ const watchTimers = Effect.gen(function* () {
  * priced with `prices` over those via ships with. With `ollama`, the fake
  * provider also answers as `ollama`, a provider sent no key. With
  * `openrouterFromUi`, OpenRouter takes its key from the web UI. `fallbacks` are
- * the fallback rules set before via starts.
+ * the fallback rules set before via starts. With `keepFailedPrompts`, via keeps the
+ * request bodies of turns that fail or fall back from the start.
  */
 export const withVia = <A, E>(
   answer: (request: CodexRequest) => Reply,
@@ -285,6 +288,7 @@ export const withVia = <A, E>(
     ollama = false,
     openrouterFromUi = false,
     fallbacks = [],
+    keepFailedPrompts = false,
   }: Pick<FakeIssuerOptions, "refreshResponse" | "pendingPolls" | "interval"> & {
     aExpiresAt?: number;
     opencodeGoKeys?: ReadonlyArray<string>;
@@ -299,6 +303,7 @@ export const withVia = <A, E>(
     ollama?: boolean;
     openrouterFromUi?: boolean;
     fallbacks?: ReadonlyArray<FallbackRule>;
+    keepFailedPrompts?: boolean;
   } = {},
 ) =>
   Effect.gen(function* () {
@@ -313,6 +318,7 @@ export const withVia = <A, E>(
       OllamaAddress.layer(`${dir}/ollama.json`),
       OpenrouterSettings.layer(`${dir}/openrouter.json`),
       FallbackRuleStore.layer(`${dir}/fallbacks.json`),
+      CaptureSettingsStore.layer(`${dir}/capture.json`),
     ).pipe(Layer.provide(BunFileSystem.layer));
 
     const codex = yield* startFakeCodex;
@@ -364,6 +370,7 @@ export const withVia = <A, E>(
 
       const rules = yield* FallbackRuleStore;
       yield* Effect.forEach(fallbacks, rules.set, { discard: true });
+      yield* (yield* CaptureSettingsStore).set({ keepFailedPrompts });
     }).pipe(Effect.provide(built));
     const logs = collectLogs();
 
@@ -392,6 +399,7 @@ export const withVia = <A, E>(
             : Layer.succeed(MaxResponseBytes, maxResponseBytes),
         ),
         Layer.provideMerge(history),
+        Layer.provideMerge(CapturedRequests.layerMemory),
         Layer.provideMerge(BunHttpServer.layer({ port: 0 })),
         Layer.provideMerge(Layer.succeedContext(built)),
       ),
@@ -462,6 +470,7 @@ export const withVia = <A, E>(
         logged: logs.logged,
         logs: logs.lines,
         usage: yield* UsageHistory,
+        captured: yield* CapturedRequests,
         timer,
         noTimer,
       });

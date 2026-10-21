@@ -9,6 +9,8 @@ export interface UpstreamError {
   readonly code: Option.Option<string>;
   readonly message: Option.Option<string>;
   readonly downstreamProvider: Option.Option<string>;
+  /** The answer's body, as far as via read it, for a captured request; never logged. */
+  readonly body?: string;
 }
 
 /** The longest message passed on: enough for any real one, too short to carry much of a request. */
@@ -82,6 +84,18 @@ export const upstreamErrorOf = (body: string): UpstreamError => {
   };
 };
 
+/** The most of an error body kept for a captured request: a real one is far shorter. */
+const KEPT_BODY_LIMIT = 64 * 1024;
+
+/**
+ * Why an upstream refused a request, as `upstreamErrorOf` reads it, with the body it was
+ * read from, cut to 64 KiB, for a captured request.
+ */
+export const refusalOf = (body: string): UpstreamError => ({
+  ...upstreamErrorOf(body),
+  body: body.slice(0, KEPT_BODY_LIMIT),
+});
+
 /** The most of an error body read for its cause: a real one is far shorter. */
 const BODY_LIMIT = 16_384;
 
@@ -108,7 +122,7 @@ export const spotUpstreamError = <E>(
 
           return chunks;
         }),
-        Stream.onEnd(Effect.suspend(() => report(upstreamErrorOf(text.slice(0, BODY_LIMIT))))),
+        Stream.onEnd(Effect.suspend(() => report(refusalOf(text.slice(0, BODY_LIMIT))))),
       );
     }),
   );
@@ -141,7 +155,7 @@ export const spotStreamError = <E>(
           const payload =
             "response" in error ? error.response : "error" in error ? error : { error };
 
-          found.push(upstreamErrorOf(JSON.stringify(payload)));
+          found.push(refusalOf(JSON.stringify(payload)));
         }
       });
 
