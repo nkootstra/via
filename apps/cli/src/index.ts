@@ -55,6 +55,8 @@ const main = Effect.gen(function* () {
         configPath: paths.config,
         statePath: paths.state,
         usageDbPath: paths.usageDb,
+        bodiesDbPath: paths.bodiesDb,
+        capturePath: paths.capture,
         upstreamBaseUrl: codexBaseUrl,
         adminKey: Option.getOrUndefined(env.adminKey),
         ui,

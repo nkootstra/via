@@ -1,4 +1,4 @@
-import { UsageHistory } from "@via/usage";
+import { CapturedRequests, CaptureSettingsStore, UsageHistory } from "@via/usage";
 import { BunHttpServer } from "@effect/platform-bun";
 import { AccountPool, UsagePoll, UsageSnapshots } from "@via/account-pool";
 import { AccountTokens } from "@via/codex-auth";
@@ -102,7 +102,8 @@ const opencodeGoEnvironment = (
 
 /**
  * `via serve`, reading `configPath`, keeping cooldowns in `statePath` and the
- * usage history in the SQLite database at `usageDbPath`.
+ * usage history in the SQLite database at `usageDbPath`. While `capturePath` says to,
+ * the request bodies of turns that fail or fall back go in the one at `bodiesDbPath`.
  * `upstreamBaseUrl` replaces the Codex backend, which only tests do. With
  * `adminKey`, the admin API is served behind it, and `ui`, the admin UI, at `/ui`.
  */
@@ -110,6 +111,8 @@ export const serve = ({
   configPath,
   statePath,
   usageDbPath,
+  bodiesDbPath,
+  capturePath,
   upstreamBaseUrl,
   adminKey,
   ui,
@@ -117,6 +120,8 @@ export const serve = ({
   readonly configPath: string;
   readonly statePath: string;
   readonly usageDbPath: string;
+  readonly bodiesDbPath: string;
+  readonly capturePath: string;
   readonly upstreamBaseUrl: string | undefined;
   readonly adminKey: Redacted.Redacted<string> | undefined;
   readonly ui: EmbeddedUi;
@@ -165,6 +170,9 @@ export const serve = ({
           Layer.provide(UsageSnapshots.layer),
           Layer.provide(PoolStates.layerFile(statePath)),
           Layer.provide(UsageHistory.layer(usageDbPath)),
+          Layer.provide(CapturedRequests.layer(bodiesDbPath)),
+          // Whether to keep failed turns' bodies, as the web UI sets it.
+          Layer.provide(CaptureSettingsStore.layer(capturePath)),
           Layer.provide(AccountTokens.layer),
           Layer.provide(
             CodexUpstream.layer({
