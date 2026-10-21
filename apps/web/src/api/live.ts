@@ -11,14 +11,7 @@ import { Option, Predicate } from "effect";
 import { useEffect, useSyncExternalStore } from "react";
 import { builtVersion } from "../version.ts";
 import { applyState, parseState } from "./state.ts";
-import {
-  applyTurnEvent,
-  forgetTurns,
-  heldEnded,
-  holdTurns,
-  parseTurnEvent,
-  releaseEnded,
-} from "./turns.ts";
+import { applyTurnEvent, forgetLive, holdTurns, parseTurnEvent } from "./turns.ts";
 
 export type LiveUpdates = ReturnType<typeof createLiveUpdates>;
 
@@ -62,23 +55,19 @@ export function createLiveUpdates(queryClient: QueryClient) {
       // The usage history is too big to push, so via only says it changed. Its queries
       // fetch again, but not a list of requests or conversations with more pages loaded:
       // that fetches every page it holds, and a list read further holds still.
-      // The turns that ended before it are in the history then, so the page lets go of
-      // them once it has fetched it again.
+      // The page lets go of the turns that ended as the fetches that have them succeed.
       source.addEventListener("history", () => {
         setOpen(true);
-        const ended = heldEnded(queryClient);
 
-        void queryClient
-          .invalidateQueries({
-            queryKey: ["history"],
-            predicate: (query) =>
-              !(
-                Predicate.hasProperty(query.state.data, "pages") &&
-                Array.isArray(query.state.data.pages) &&
-                query.state.data.pages.length > 1
-              ),
-          })
-          .then(() => releaseEnded(queryClient, ended));
+        void queryClient.invalidateQueries({
+          queryKey: ["history"],
+          predicate: (query) =>
+            !(
+              Predicate.hasProperty(query.state.data, "pages") &&
+              Array.isArray(query.state.data.pages) &&
+              query.state.data.pages.length > 1
+            ),
+        });
       });
 
       // The turns in flight, which via pushes whole.
@@ -95,7 +84,7 @@ export function createLiveUpdates(queryClient: QueryClient) {
 
       source.addEventListener("error", () => {
         setOpen(false);
-        forgetTurns(queryClient);
+        forgetLive(queryClient);
       });
 
       return () => {
