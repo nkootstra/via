@@ -329,9 +329,14 @@ const lineCount = (value: string) => value.split("\n").length;
 
 const isLong = (value: string) => lineCount(value) > LONG_LINES || value.length > LONG_CHARS;
 
-/** `value`, its secrets and images as chips. */
+/**
+ * `value`, its secrets and images as chips, and in privacy mode its emails and
+ * key endings hidden, as the Markdown report hides them.
+ */
 function Marked({ value }: { readonly value: string }) {
-  return markersIn(value).map((run, index) =>
+  const mask = useMask();
+
+  return markersIn(mask.key(value)).map((run, index) =>
     run.kind === "text" ? (
       run.text
     ) : (
@@ -384,6 +389,8 @@ function Clamped({ value, code = false }: { readonly value: string; readonly cod
 }
 
 function Part({ part }: { readonly part: PromptPart }) {
+  const mask = useMask();
+
   switch (part.kind) {
     case "text":
       return <Clamped value={part.text} />;
@@ -409,9 +416,9 @@ function Part({ part }: { readonly part: PromptPart }) {
         <div {...stylex.props(styles.call)}>
           <span {...stylex.props(styles.callHead)}>
             <span aria-hidden="true">→</span>
-            Calls <code {...stylex.props(styles.callName)}>{part.name}</code>
+            Calls <code {...stylex.props(styles.callName)}>{mask.key(part.name)}</code>
             {Option.isSome(part.id) && (
-              <span {...stylex.props(styles.callId)}>{part.id.value}</span>
+              <span {...stylex.props(styles.callId)}>{mask.key(part.id.value)}</span>
             )}
           </span>
           {part.arguments !== "" && <Clamped value={part.arguments} code />}
@@ -426,7 +433,7 @@ function Part({ part }: { readonly part: PromptPart }) {
             {Option.isSome(part.id) && (
               <>
                 {" of "}
-                <span {...stylex.props(styles.callId)}>{part.id.value}</span>
+                <span {...stylex.props(styles.callId)}>{mask.key(part.id.value)}</span>
               </>
             )}
           </span>
@@ -453,7 +460,8 @@ function Message({ message }: { readonly message: PromptMessage }) {
   const setup = SETUP_ROLES.has(message.role);
   const [open, setOpen] = useState(!setup);
   const id = useId();
-  const name = roleName(message.role);
+  const mask = useMask();
+  const name = mask.key(roleName(message.role));
 
   return (
     <li aria-label={name} {...stylex.props(styles.message, roleStyle(message.role))}>
@@ -476,7 +484,7 @@ function Message({ message }: { readonly message: PromptMessage }) {
       )}
       {setup && !open && (
         <span aria-hidden="true" {...stylex.props(styles.answerHead, styles.preview)}>
-          {previewOf(message)}
+          {mask.key(previewOf(message))}
         </span>
       )}
       {open && (
@@ -501,7 +509,8 @@ const TOOLS_SHOWN = 12;
 
 function Tools({ tools }: { readonly tools: ReadonlyArray<string> }) {
   const [all, setAll] = useState(false);
-  const shown = all ? tools : tools.slice(0, TOOLS_SHOWN);
+  const mask = useMask();
+  const shown = (all ? tools : tools.slice(0, TOOLS_SHOWN)).map(mask.key);
 
   return (
     <ul aria-label="Tools" {...stylex.props(styles.chips)}>
@@ -550,6 +559,8 @@ function Section({
 }
 
 function PromptView({ prompt }: { readonly prompt: Prompt }) {
+  const mask = useMask();
+
   return (
     <>
       {prompt.parameters.length > 0 && (
@@ -558,8 +569,8 @@ function PromptView({ prompt }: { readonly prompt: Prompt }) {
             {prompt.parameters.map(([term, value]) => (
               <div key={term} {...stylex.props(styles.parameter)}>
                 <dt {...stylex.props(styles.term)}>{term}</dt>
-                <dd title={value} {...stylex.props(styles.value)}>
-                  {term === "Model" ? withoutPrefix(value) || value : value}
+                <dd title={mask.key(value)} {...stylex.props(styles.value)}>
+                  {mask.key(term === "Model" ? withoutPrefix(value) || value : value)}
                 </dd>
               </div>
             ))}
@@ -633,7 +644,7 @@ function UpstreamAnswer({
           </>
         )}
       </p>
-      <Clamped value={mask.text(pretty(answer.body))} code />
+      <Clamped value={pretty(answer.body)} code />
     </section>
   );
 }

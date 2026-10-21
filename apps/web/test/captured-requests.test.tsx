@@ -213,6 +213,65 @@ describe("a failed turn's captured request", () => {
   });
 });
 
+const email = "dev@corp.example";
+
+const leaky: CapturedRequest = {
+  ...kept,
+  request: {
+    model: "gpt-6-astra",
+    user: email,
+    messages: [
+      { role: "system", content: `Write to ${email} when stuck.` },
+      { role: "user", content: `Mail ${email} the report` },
+      {
+        role: "assistant",
+        content: null,
+        tool_calls: [{ id: "call_1", function: { name: "send", arguments: `{"to":"${email}"}` } }],
+      },
+      { role: "tool", tool_call_id: "call_1", content: `Sent to ${email}` },
+    ],
+  },
+  upstreamErrors: [{ seq: 0, status: 502, body: { error: { message: `No ${email}` } } }],
+};
+
+const openedPrivately = async (captured: CapturedRequest) => {
+  localStorage.setItem("via.privacy", "on");
+
+  const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", {
+    ...seed,
+    captured: new Map([["t2", captured]]),
+  });
+
+  await user.click(within(await rowOf(1)).getByRole("button", { name: "View request" }));
+  const sheet = await screen.findByRole("dialog", { name: "Request of turn 2" });
+  await within(sheet).findByRole("region", { name: /Attempt 1/ });
+
+  return sheet;
+};
+
+describe("a captured request, in privacy mode", () => {
+  afterEach(() => localStorage.clear());
+
+  it("hides the emails in its messages, tool calls and results, and a folded prompt's preview", async () => {
+    const sheet = await openedPrivately(leaky);
+
+    expect(sheet.textContent).toContain("Mail •••••@•••••.example the report");
+    expect(sheet.textContent).toContain("Sent to •••••@•••••.example");
+    expect(sheet.textContent).toContain("Write to •••••@•••••.example when stuck.");
+    expect(sheet.textContent).not.toContain(email);
+  });
+
+  it("hides them in a body it shows as JSON", async () => {
+    const sheet = await openedPrivately({
+      ...leaky,
+      request: { prompt: `complete this for ${email}` },
+    });
+
+    await waitFor(() => expect(sheet.textContent).toContain("for •••••@•••••.example"));
+    expect(sheet.textContent).not.toContain(email);
+  });
+});
+
 describe("the Conversations tab, while via keeps failed prompts", () => {
   it("says so, calmly, with a link to the setting", async () => {
     const { router, user } = renderApp("/usage?tab=conversations", {

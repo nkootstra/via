@@ -700,7 +700,8 @@ says when it would take a request for an effort it lacks at its default.
 page's preferences:
 
 - **Privacy mode**, for streaming or sharing your screen: it hides emails
-  (in labels and error messages too), key endings, the OpenRouter key, the
+  (in labels and error messages too, and in a captured prompt's sheet and
+  Markdown report), key endings, the OpenRouter key, the
   Ollama address and the ChatGPT plan, and shows a new API key or a sign-in
   code as dots until you choose **Show** (**Copy** copies it either way).
   Renaming an account whose label it hides starts from an empty field. It
@@ -790,8 +791,9 @@ then what each upstream attempt answered, with the attempt's provider, status
 and why it didn't serve. What via redacted (`[redacted:openai-key]`) and the
 images it left out (`[image: png, 412 KB]`) stand out as chips, and a note says
 how many of each it replaced, and when it cut long strings short. A body of a
-shape other than Chat Completions' or Responses' shows as JSON. **Copy JSON**
-copies the whole of it. While keeping failed prompts is on, the Conversations
+shape other than Chat Completions' or Responses' shows as JSON. Privacy mode
+hides the emails and key endings in all of it, as in the Markdown report.
+**Copy JSON** copies the whole of it, as kept. While keeping failed prompts is on, the Conversations
 tab says **Capturing failed prompts**, a link to the setting.
 
 **Export**, in a conversation's header, has **Download JSON**, a file named
