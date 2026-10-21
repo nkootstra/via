@@ -740,19 +740,23 @@ its client sent no id; the key, the models, when it started and was last
 active, its turns and sub-agents, how many failed or fell back, its tokens and
 its cost. **Load more** pages on, as the requests do. Open one, at
 `/ui/usage?tab=conversations&conversation=<id>`, for its totals and a timeline:
-each turn a bar on one time axis, from when it came in to when it ended, with a
-tick where its first token came, coloured by whether it answered, failed, fell
-back or its client left; a sub-agent's turns sit on rows nested under the
-conversation that started it, named for the sub-agent's type when its client
-says. Point at a bar, or move to it with Tab and the arrow keys, for the turn's
+each turn a bar on one time axis marked at round steps, from when it came in to
+when it ended, pale while it waited for its first token and solid while it
+streamed, coloured by whether it answered, failed, fell back or its client left,
+with how long it took beside it. A row names its model where it changes from
+the row above ("Unknown model" when the request named none). A sub-agent's turns
+sit on rows nested under the conversation that started it, on a band across the
+time it took, named for the sub-agent's type when its client says (else
+"Sub-agent"), with its turns and duration. A long conversation scrolls under
+its axis; in a narrow window each row's label sits above its bar. Point at a bar, or move to it with Tab and the arrow keys, for the turn's
 model, who served it, tokens, any billed cost, duration, time to first token and
-error. A turn with [upstream attempts](#upstream-attempts) has a toggle beside
-its number that opens them beneath it, on the same axis: each attempt's
+error. A turn with [upstream attempts](#upstream-attempts) opens them beneath it
+when you click its label, on the same axis: each attempt's
 provider (and the one a router such as OpenRouter sent it on to), account,
 model and status, why it didn't serve ("Budget exhausted", "Rate limited",
 "Downstream unavailable" and so on), the upstream's code, and its message when
-via kept one. A turn that took more than one attempt, or had one fail, shows
-their count on its toggle. A request kept before via kept attempts has none to
+via kept one. A turn that had attempts fail says how many ("1 failed"), and one
+that took more than one says how many it took ("2 attempts"). A request kept before via kept attempts has none to
 open. Under the timeline, the turns are listed oldest first. **All
 conversations** goes back to the list.
 
@@ -760,7 +764,8 @@ The tab is live while the page's [event stream](#admin-api) is open: a
 conversation with a turn in flight, its own or a sub-agent's, has a **Live**
 badge, and one whose first turn is in flight leads the list before the history
 has it (unless a filter is on, as via can't yet say whether it matches). On a
-conversation's timeline, a turn in flight is striped and runs to now, with its
+conversation's timeline, a turn in flight has stripes drifting along it (still
+when you ask for less motion, as below) and runs to now, with its
 attempts so far, the one under way growing with it, and the axis runs to now.
 The bars grow ten times a second, or once a second when you ask for less motion
 (your device's reduced motion setting, or **Motion** set to Reduced). When the
