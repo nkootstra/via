@@ -141,6 +141,12 @@ describe("timelineOf", () => {
     ]);
   });
 
+  it("leaves a sub-agent whose client sent an empty type without one", () => {
+    const timeline = timelineOf("root", [turn("a", 0), sub("s1", 2_000, "child", "root", " ")]);
+
+    expect(outline(timeline.items)).toEqual(["a", { agent: "child", type: null, items: ["s1"] }]);
+  });
+
   it("numbers the turns in the order they came, whichever row they sit on", () => {
     const timeline = timelineOf("root", [
       turn("a", 0),

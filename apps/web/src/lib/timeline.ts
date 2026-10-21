@@ -42,7 +42,7 @@ export type TimelineTurn = Place & {
     | { readonly live: true; readonly turn: LiveTurn }
   );
 
-/** A sub-agent's conversation: its id, its type when its client said, and its rows. */
+/** A sub-agent's conversation: its id, its type when its client named one, and its rows. */
 export interface TimelineAgent {
   readonly kind: "agent";
   readonly id: string;
@@ -197,7 +197,12 @@ export const timelineOf = (
     const agents = children.map((child): TimelineAgent => ({
       kind: "agent",
       id: child,
-      agentType: Option.firstSomeOf((own.get(child) ?? []).map((row) => row.turn.agentType)),
+      // A blank type says no more than none.
+      agentType: Option.firstSomeOf(
+        (own.get(child) ?? []).map((row) =>
+          Option.filter(row.turn.agentType, (type) => type.trim() !== ""),
+        ),
+      ),
       items: itemsOf(child),
     }));
 
