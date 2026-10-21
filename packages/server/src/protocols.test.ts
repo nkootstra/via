@@ -132,6 +132,7 @@ layer(BunFileSystem.layer)("OpenCode Go's protocols", (it) => {
         expect(answer.status).toBe(200);
         expect(answer.text).toContain('"content":"hi"');
         expect(answer.text).toContain("data: [DONE]");
+        yield* via.logged("Sent HTTP response");
 
         const page = yield* via.usage.requests({ from: 0, to: Number.MAX_SAFE_INTEGER, limit: 5 });
         expect(page.requests[0]).toMatchObject({
@@ -173,6 +174,7 @@ layer(BunFileSystem.layer)("OpenCode Go's protocols", (it) => {
         const sent = via.provider.requests.at(-1);
         expect(sent?.headers["anthropic-version"]).toBe("2023-06-01");
         expect(sent?.body).toMatchObject({ max_tokens: 32_000, messages: [{ role: "user" }] });
+        yield* via.logged("Sent HTTP response");
 
         const page = yield* via.usage.requests({ from: 0, to: Number.MAX_SAFE_INTEGER, limit: 5 });
         expect(page.requests[0]).toMatchObject({
@@ -213,6 +215,7 @@ layer(BunFileSystem.layer)("OpenCode Go's protocols", (it) => {
         expect(answer.status).toBe(200);
         expect(answer.text).toContain('"content":"hi"');
         expect(answer.text).toContain("data: [DONE]");
+        yield* via.logged("Sent HTTP response");
 
         const page = yield* via.usage.requests({ from: 0, to: Number.MAX_SAFE_INTEGER, limit: 5 });
         expect(page.requests[0]).toMatchObject({

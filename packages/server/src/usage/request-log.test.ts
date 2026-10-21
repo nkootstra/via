@@ -666,6 +666,9 @@ layer(BunFileSystem.layer)("request log", (it) => {
         // The client's own id goes back to it, for its own correlation.
         expect([yield* send, yield* send]).toEqual([sent, sent]);
 
+        // Both settle after their answers, the second once the first has.
+        yield* via.logged("Sent HTTP response", 2);
+
         const lines = via.logs.filter((line) => line.message === "Sent HTTP response");
         const page = yield* via.usage.requests({ from: 0, to: Number.MAX_SAFE_INTEGER, limit: 10 });
         const ids = page.requests.map((request) => request.requestId);

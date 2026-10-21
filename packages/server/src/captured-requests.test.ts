@@ -187,6 +187,9 @@ layer(BunFileSystem.layer)("captured requests", (it) => {
             yield* response.text;
           }
 
+          // Both settle after their answers, the second once the first has.
+          yield* via.logged("Sent HTTP response", 2);
+
           const page = yield* via.usage.requests({
             from: 0,
             to: Number.MAX_SAFE_INTEGER,
