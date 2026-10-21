@@ -11,7 +11,7 @@ import {
   Stream,
   SubscriptionRef,
 } from "effect";
-import { inDatabase, ownerOnly } from "./database.ts";
+import { inDatabase, ownerOnly, scrubWal } from "./database.ts";
 import { RequestAttempt, UsageEntry } from "./entry.ts";
 import { Migrator, SqlClient } from "effect/sql";
 import type { SqlError } from "effect/sql/SqlError";
@@ -1005,6 +1005,7 @@ const make = Effect.gen(function* () {
     yield* sql`DELETE FROM requests WHERE at < ${cutoff}`;
     // An attempt starts no sooner than its request, so it goes with it or a day after.
     yield* sql`DELETE FROM request_attempts WHERE started_at < ${cutoff}`;
+    yield* scrubWal(sql);
   }).pipe(Effect.withSpan("UsageHistory.prune"));
 
   // At start and then once a day. A failed prune is only logged: the next one retries.
@@ -1021,7 +1022,11 @@ const make = Effect.gen(function* () {
 
     // A count of rows always decodes: SQLite answers COUNT(*) with a number.
     return (yield* decodeCount(counted).pipe(Effect.orDie)).n;
-  }).pipe(sql.withTransaction, Effect.withSpan("UsageHistory.clear"));
+  }).pipe(
+    sql.withTransaction,
+    Effect.tap(() => scrubWal(sql)),
+    Effect.withSpan("UsageHistory.clear"),
+  );
 
   const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
 

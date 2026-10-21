@@ -67,6 +67,17 @@ const historyAt = <A, E>(
   body: (history: UsageHistory["Service"]) => Effect.Effect<A, E>,
 ) => Effect.andThen(TestClock.setTime(now), history(body));
 
+/** Whether any file beside `path`, the database's own, its WAL and the rest, holds `text`. */
+const leftAnywhere = (path: string, text: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = path.slice(0, path.lastIndexOf("/"));
+    const files = yield* fs.readDirectory(directory);
+    const contents = yield* Effect.forEach(files, (file) => fs.readFile(`${directory}/${file}`));
+
+    return contents.some((bytes) => new TextDecoder("latin1").decode(bytes).includes(text));
+  });
+
 describe("UsageHistory", () => {
   it.effect("gives back a recorded request as it was recorded", () =>
     history((usage) =>
@@ -1347,6 +1358,31 @@ layer(BunFileSystem.layer)("UsageHistory file", (withFs) => {
       yield* Deferred.succeed(release, undefined);
       const page = yield* Fiber.join(opening);
       expect(page.requests).toEqual([entry()]);
+    }),
+  );
+
+  const message = "an upstream's words that must not outlive their delete";
+
+  withFs.effect("leaves no trace of what it cleared or pruned in any of its files", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/usage.db`;
+      const now = 200 * DAY;
+      yield* TestClock.setTime(now);
+
+      yield* Effect.gen(function* () {
+        const usage = yield* UsageHistory;
+        const failed = { status: 429, errorMessage: Option.some(message) };
+
+        yield* usage.record(entry({ ...failed, requestId: "old", at: now - 91 * DAY }));
+        yield* usage.prune;
+        expect(yield* leftAnywhere(path, message)).toBe(false);
+
+        yield* usage.record(entry({ ...failed, requestId: "new", at: now }));
+        expect(yield* leftAnywhere(path, message)).toBe(true);
+        yield* usage.clear;
+        expect(yield* leftAnywhere(path, message)).toBe(false);
+      }).pipe(Effect.provide(UsageHistory.layer(path)));
     }),
   );
 });

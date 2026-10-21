@@ -31,6 +31,17 @@ const storeAt = <A, E>(
   body: (requests: CapturedRequests["Service"]) => Effect.Effect<A, E>,
 ) => Effect.andThen(TestClock.setTime(now), store(body));
 
+/** Whether any file beside `path`, the database's own, its WAL and the rest, holds `text`. */
+const leftAnywhere = (path: string, text: string) =>
+  Effect.gen(function* () {
+    const fs = yield* FileSystem.FileSystem;
+    const directory = path.slice(0, path.lastIndexOf("/"));
+    const files = yield* fs.readDirectory(directory);
+    const contents = yield* Effect.forEach(files, (file) => fs.readFile(`${directory}/${file}`));
+
+    return contents.some((bytes) => new TextDecoder("latin1").decode(bytes).includes(text));
+  });
+
 describe("CapturedRequests", () => {
   it.effect("gives back a captured request as it was kept", () =>
     store((requests) =>
@@ -147,6 +158,42 @@ layer(BunFileSystem.layer)("CapturedRequests file", (withFs) => {
       );
 
       expect(found).toEqual(Option.some(captured()));
+    }),
+  );
+
+  const prompt = "a prompt that must not outlive its delete";
+
+  withFs.effect("leaves no trace of what it cleared in any of its files, the WAL included", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/bodies.db`;
+
+      yield* Effect.gen(function* () {
+        const requests = yield* CapturedRequests;
+        yield* requests.keep(captured({ request: { input: prompt } }));
+        expect(yield* leftAnywhere(path, prompt)).toBe(true);
+
+        yield* requests.clear;
+        expect(yield* leftAnywhere(path, prompt)).toBe(false);
+      }).pipe(Effect.provide(CapturedRequests.layer(path)));
+    }),
+  );
+
+  withFs.effect("leaves no trace of what it pruned in any of its files, the WAL included", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = `${yield* fs.makeTempDirectoryScoped()}/bodies.db`;
+
+      yield* Effect.gen(function* () {
+        const requests = yield* CapturedRequests;
+        yield* requests.keep(captured({ capturedAt: 0, request: { input: prompt } }));
+        yield* requests.keep(captured({ requestId: "r2", capturedAt: 8 * DAY }));
+        yield* TestClock.setTime(8 * DAY);
+
+        yield* requests.prune;
+        expect(yield* requests.which(["r1", "r2"])).toEqual(["r2"]);
+        expect(yield* leftAnywhere(path, prompt)).toBe(false);
+      }).pipe(Effect.provide(CapturedRequests.layer(path)));
     }),
   );
 });

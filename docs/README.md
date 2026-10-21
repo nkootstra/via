@@ -1441,7 +1441,8 @@ deleting what is kept. A turn that goes well is never kept, nor one served by
 the next account after the first was rate limited, since no other model
 answered. The setting is kept in `capture.json`, and the prompts in
 `bodies.db`, a SQLite database of their own beside `usage.db`, readable only
-by you, overwriting what it deletes (`secure_delete`). A prompt is kept for 7
+by you, overwriting what it deletes (`secure_delete`) and emptying its
+`bodies.db-wal` after each delete, so a deleted prompt is left in neither. A prompt is kept for 7
 days: via deletes older ones at startup and every hour. **Delete captured
 prompts** in the web UI, or `DELETE /admin/history/bodies`, deletes them all
 and keeps the history; deleting the history deletes them too.
@@ -1626,7 +1627,9 @@ and keeps its label (see
   422 or any other, which could quote the request the upstream refused.
   Upgrading cleared the messages an older via kept, via's own included, as the
   two can't be told apart. What via deletes or clears in it is
-  overwritten (SQLite's `secure_delete`), not left in the file's free space.
+  overwritten (SQLite's `secure_delete`), not left in the file's free space,
+  and via empties `usage.db-wal` after each delete, so it isn't left there
+  either.
 - With [keeping failed turns' prompts](#captured-prompts) turned on (it is off
   until you do), `bodies.db` holds the request bodies of turns that failed or
   fell back, the conversation up to them, and what the upstreams answered,

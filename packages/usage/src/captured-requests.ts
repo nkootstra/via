@@ -12,7 +12,7 @@ import {
 } from "effect";
 import { Migrator, SqlClient } from "effect/sql";
 import type { SqlError } from "effect/sql/SqlError";
-import { inDatabase, ownerOnly } from "./database.ts";
+import { inDatabase, ownerOnly, scrubWal } from "./database.ts";
 import { CapturedRequest } from "./entry.ts";
 
 /** How long a captured request is kept: far less than the history, as it holds prompts. */
@@ -100,6 +100,7 @@ const make = Effect.gen(function* () {
   const prune = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     yield* sql`DELETE FROM captured_requests WHERE captured_at < ${now - Duration.toMillis(RETENTION)}`;
+    yield* scrubWal(sql);
   }).pipe(Effect.withSpan("CapturedRequests.prune"));
 
   // At start and then every hour. A failed prune is only logged: the next one retries.
@@ -115,7 +116,11 @@ const make = Effect.gen(function* () {
 
     // A count of rows always decodes: SQLite answers COUNT(*) with a number.
     return (yield* decodeCount(counted).pipe(Effect.orDie)).n;
-  }).pipe(sql.withTransaction, Effect.withSpan("CapturedRequests.clear"));
+  }).pipe(
+    sql.withTransaction,
+    Effect.tap(() => scrubWal(sql)),
+    Effect.withSpan("CapturedRequests.clear"),
+  );
 
   const changes = SubscriptionRef.changes(revision).pipe(Stream.map(() => undefined));
 
