@@ -64,6 +64,7 @@ const unavailableTo = (source: string, reason: "not_enabled" | "not_listed"): Fa
 const viaState = (fallbacks: ReadonlyArray<Fallback>, fallbacksError: string | null = null) =>
   ({
     fallbacksError,
+    capture: { keepFailedPrompts: false },
     session: true,
     version: "0.0.0",
     pool: { accounts: [], opencodeGo: [], providers: [] },

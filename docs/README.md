@@ -412,7 +412,11 @@ work on `/v1`.
 | `GET /admin/history/requests`             | The requests in a range, newest first, a page at a time.                                                |
 | `GET /admin/history/conversations`        | The conversations in a range, the latest active first, a page at a time.                                |
 | `GET /admin/history/conversations/:id`    | One conversation, every turn of it and its sub-agents', and their attempts; `404` if via kept none.     |
-| `DELETE /admin/history`                   | Delete the whole usage history; answers `{"deleted": <count>}`.                                         |
+| `GET /admin/history/requests/:id/body`    | A failed turn's [captured prompt](#captured-prompts), redacted; `404` if via kept none.                 |
+| `DELETE /admin/history/bodies`            | Delete every captured prompt; answers `{"deleted": <count>}`. The history stays.                        |
+| `GET /admin/history/capture`              | Whether via keeps failed turns' prompts: `{"keepFailedPrompts": false}` until you turn it on.           |
+| `PUT /admin/history/capture`              | Turn keeping failed turns' prompts on or off with `{"keepFailedPrompts": true}`.                        |
+| `DELETE /admin/history`                   | Delete the whole usage history and every captured prompt; answers `{"deleted": <requests>}`.            |
 | `GET /admin/pool`                         | Each account's and provider's state (see below).                                                        |
 | `GET /admin/models`                       | The models `/v1/models` lists.                                                                          |
 | `GET /admin/fallbacks`                    | The [fallback rules](#fallback-models), each with how its model and fallbacks stand and which answers.  |
@@ -492,7 +496,9 @@ minute however often the page refreshes. Each entry in `GET /admin/usage` says w
 that pushes the admin state instead of making you poll. Each event is named
 `state` and carries all of it as JSON: `pool` and `usage` as the routes above
 answer them, `accounts`, `opencodeGo` (keys masked) and `keys` as their lists
-do, `models`, `version` (the running via's) and `session: true`. The first
+do, `models`, `version` (the running via's), `capture` (whether via keeps
+[failed turns' prompts](#captured-prompts), as `GET /admin/history/capture`
+answers it) and `session: true`. The first
 comes as soon as you connect; after that, one comes whenever something in it
 changes: an account, OpenCode Go key or API key is added, changed or removed,
 an API key is used for the first time in a minute, a cooldown or lockout starts
@@ -509,7 +515,8 @@ on the hour as one that polls would be. A stream opened with the bearer key
 runs until you close it.
 
 The stream also says when the [usage history](#usage-history) changes, as when
-via keeps a request or the history is deleted, with an event named `history`
+via keeps a request, captures a prompt, or the history or the captured prompts
+are deleted, with an event named `history`
 and nothing more in it: the history is too big to send, so you fetch what you
 show from `/admin/history`. Changes within a second of each other arrive as one
 event.
@@ -955,17 +962,19 @@ send it to another model instead of answering `429` or `503`.
 
 via keeps everything in `~/.config/via`, or in `$VIA_HOME` if it's set and not empty.
 
-| File               | Contents                                            |
-| ------------------ | --------------------------------------------------- |
-| `config.yaml`      | Optional settings; you write it, via only reads it. |
-| `keys.json`        | Your API keys' SHA-256 hashes and last use.         |
-| `auth/<id>.json`   | One account's OAuth tokens.                         |
-| `state.json`       | Running cooldowns; safe to delete.                  |
-| `opencode-go.json` | Your OpenCode Go API keys, as accounts.             |
-| `ollama.json`      | The address of the Ollama added in the web UI.      |
-| `openrouter.json`  | Your OpenRouter API key and the models it enables.  |
-| `fallbacks.json`   | Your [fallback models](#fallback-models).           |
-| `usage.db`         | The [usage history](#usage-history), in SQLite.     |
+| File               | Contents                                                    |
+| ------------------ | ----------------------------------------------------------- |
+| `config.yaml`      | Optional settings; you write it, via only reads it.         |
+| `keys.json`        | Your API keys' SHA-256 hashes and last use.                 |
+| `auth/<id>.json`   | One account's OAuth tokens.                                 |
+| `state.json`       | Running cooldowns; safe to delete.                          |
+| `opencode-go.json` | Your OpenCode Go API keys, as accounts.                     |
+| `ollama.json`      | The address of the Ollama added in the web UI.              |
+| `openrouter.json`  | Your OpenRouter API key and the models it enables.          |
+| `fallbacks.json`   | Your [fallback models](#fallback-models).                   |
+| `usage.db`         | The [usage history](#usage-history), in SQLite.             |
+| `capture.json`     | Whether to keep [failed turns' prompts](#captured-prompts). |
+| `bodies.db`        | The [captured prompts](#captured-prompts), in SQLite.       |
 
 An `auth/<id>.json` via can't read is skipped with a warning naming it, so the
 other accounts keep working. Delete it and sign that account in again.
@@ -1234,7 +1243,9 @@ for a streamed answer, to send its first chunk. It also keeps which
 the client sent, the id of the conversation that started it for a sub-agent's,
 which header or body field the id came from, the sub-agent's type when the
 client says, and the client, as the first product of its `User-Agent` (such as
-`opencode/1.19.3`). It never keeps a prompt or an answer. It also keeps each
+`opencode/1.19.3`). It never keeps an answer, nor a prompt unless you turn on
+[keeping failed turns' prompts](#captured-prompts), which keeps those apart, in
+`bodies.db`. It also keeps each
 request's [upstream attempts](#upstream-attempts). Requests older
 than 90 days are deleted at startup and once a day after that, with their attempts. Starting two via
 processes together does not overwrite an existing usage database. A streamed answer
@@ -1355,9 +1366,11 @@ or `hash`), `guessed`, `client`, `keyName`, `models`, `firstAt`, `lastAt`,
 above. It takes the range, the filters and `limit` as `requests` does, and
 pages the same way: pass `next`'s `at` and `id` back as `afterAt` and
 `afterId`. `conversations/<id>` answers
-`{"summary": {...}, "turns": [...], "attempts": [...]}`: every request of the
-conversation and its sub-agents', oldest first, whenever they came in, and
-their [upstream attempts](#upstream-attempts).
+`{"summary": {...}, "turns": [...], "attempts": [...], "captured": [...]}`:
+every request of the conversation and its sub-agents', oldest first, whenever
+they came in, their [upstream attempts](#upstream-attempts), and the
+`requestId`s of the turns whose prompt via [captured](#captured-prompts), in
+the turns' order.
 
 ```sh
 curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
@@ -1366,6 +1379,65 @@ curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
 curl -H "Authorization: Bearer $VIA_ADMIN_KEY" \
   "http://127.0.0.1:8317/admin/history/conversations/ses_..."
 ```
+
+#### Captured prompts
+
+When a turn fails, the history says how, not what was asked. Turn on **keep
+prompts of failed requests** in the web UI, or
+`PUT /admin/history/capture` with `{"keepFailedPrompts": true}`, and via also
+keeps, for each turn that fails (an error status other than a client giving up,
+or a stream that broke off) or that a [fallback](#fallback-models) answered:
+
+- the request body the client sent to `/v1/chat/completions` or
+  `/v1/responses`. Chat and Responses clients send the whole conversation each
+  turn, so this is the conversation up to the turn that failed, system prompt
+  and tool results included;
+- what every upstream attempt that failed answered, its body as JSON or as
+  text: up to its first 64 KiB, or 16 KiB of one via passed on to the client
+  as it came.
+
+It is off until you turn it on, and turning it off stops keeping more without
+deleting what is kept. A turn that goes well is never kept, nor one served by
+the next account after the first was rate limited, since no other model
+answered. The setting is kept in `capture.json`, and the prompts in
+`bodies.db`, a SQLite database of their own beside `usage.db`, readable only
+by you, overwriting what it deletes (`secure_delete`). A prompt is kept for 7
+days: via deletes older ones at startup and every hour. **Delete captured
+prompts** in the web UI, or `DELETE /admin/history/bodies`, deletes them all
+and keeps the history; deleting the history deletes them too.
+
+Before anything is written, via redacts it:
+
+- Secrets it has a pattern for become a marker naming their kind: OpenAI
+  (`sk-…`, `sk-proj-…`, `[redacted:openai-key]`), Anthropic (`sk-ant-…`) and
+  OpenRouter (`sk-or-v1-…`) keys, GitHub tokens (`ghp_`, `gho_`, `ghs_`,
+  `ghu_`, `ghr_`, `github_pat_`), AWS access keys (`AKIA…`, `ASIA…`) and a
+  secret access key assigned by name, Google API keys (`AIza…`), Slack tokens
+  (`xox…`), JWTs, PEM private key blocks, the token after `Bearer` and the
+  credential of an `Authorization: Basic` header. A value assigned to a name
+  such as `API_KEY=`, `"secret": ` or `password:` is replaced too when it looks
+  random: 12 characters or more, letters and digits, no spaces.
+- Images and files sent inline, as a data URL anywhere, as base64 in
+  `image_url`, `file_data` or a Responses `input_image` or `input_file`, or as
+  any string of 1 KB or more of nothing but base64, become a note of what they
+  were, such as `[image: png, 412 KB]`. An image sent as a link is kept as its
+  link.
+- A request still over 4 MB has its longest strings cut until it fits, each
+  marked `…[truncated <n> characters]`.
+
+`GET /admin/history/requests/<requestId>/body` answers what was kept:
+`requestId`, `capturedAt` (epoch milliseconds), `endpoint`
+(`chat/completions` or `responses`), `request` (the redacted body),
+`upstreamErrors` (each attempt's `seq`, `status`, `null` when it never
+answered, and `body`), `redactions` (how many of each kind were replaced, such
+as `[{"kind": "openai-key", "count": 2}]`), `truncated`, and `sizeBytes`, the
+size of `request` as kept. It answers 404 for a turn via kept no prompt of.
+
+Redaction works by pattern, so it can't promise a prompt holds no secret: a
+password such as `hunter2`, a key of a kind it has no pattern for, or a secret
+written in a way it doesn't expect is kept as written. Treat `bodies.db` as
+you would the conversations themselves, and turn the setting on only while you
+need it.
 
 ### Tracing
 
@@ -1378,7 +1450,7 @@ each request it serves. The other standard variables work too:
 ## Upgrading
 
 [Back up](#backups) first. Until 1.0, a release may change commands and file
-formats. via upgrades `usage.db` itself when it starts, and leaves its other
+formats. via upgrades `usage.db` and `bodies.db` itself when it starts, and leaves its other
 files as they are; the release notes say when you need to change something,
 such as a `config.yaml` key. An older via may not read a newer via's files, so
 a backup is how you go back.
@@ -1415,6 +1487,8 @@ These files in via's [home](#configuration) are worth keeping:
 - `keys.json`: your API keys. Without it every client needs a new key.
 - `config.yaml`, if you wrote one, `ollama.json` and `fallbacks.json`.
 - `usage.db`: the usage history.
+- `bodies.db` holds [captured prompts](#captured-prompts), which are deleted
+  after 7 days anyway; leave it out to keep your backups free of prompts.
 
 `state.json` only holds running cooldowns, so it can go.
 
@@ -1507,6 +1581,13 @@ and keeps its label (see
   Upgrading cleared the messages an older via kept, via's own included, as the
   two can't be told apart. What via deletes or clears in it is
   overwritten (SQLite's `secure_delete`), not left in the file's free space.
+- With [keeping failed turns' prompts](#captured-prompts) turned on (it is off
+  until you do), `bodies.db` holds the request bodies of turns that failed or
+  fell back, the conversation up to them, and what the upstreams answered,
+  readable only by you, for 7 days. via redacts the secrets it has a pattern
+  for and the images and files sent inline before it writes anything, but a
+  secret it has no pattern for is kept as written. Delete them with **Delete
+  captured prompts** or `DELETE /admin/history/bodies`.
 - `state.json` holds account ids, when their cooldowns end and a reason code
   for each, never an upstream's message. The log, on standard output only,
   holds no prompt or answer (see [Logs](#logs)).

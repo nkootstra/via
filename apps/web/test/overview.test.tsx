@@ -544,6 +544,7 @@ const viaState = {
   openrouter: null,
   fallbacks: [],
   fallbacksError: null,
+  capture: { keepFailedPrompts: false },
 } as const;
 
 /** `viaState`, with "work" cooling down for a minute. */

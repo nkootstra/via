@@ -15,7 +15,7 @@ import { answered, Outcome, unavailable } from "./outcome.ts";
 import { type BrokenStreamError, brokenResponse, failedResponse } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
-import { upstreamErrorOf } from "./upstream-error.ts";
+import { refusalOf, upstreamErrorOf } from "./upstream-error.ts";
 import { causeOf } from "../usage/failure.ts";
 
 const namesModel = Schema.is(Schema.Struct({ model: Schema.String }));
@@ -247,7 +247,7 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
     }
 
     const rejected = sent.failure;
-    const refusal = upstreamErrorOf(rejected.body);
+    const refusal = refusalOf(rejected.body);
     // Read after the send, which can take minutes: a cooldown runs from Codex's answer.
     const verdict = classify(rejected.rejection, yield* Clock.currentTimeMillis);
 

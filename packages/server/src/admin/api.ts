@@ -19,7 +19,7 @@ import {
   OpenrouterUnavailableError,
 } from "@via/providers/errors";
 import { OpenrouterBudget, ProviderState } from "@via/providers/schemas";
-import { RequestAttempt, UsageEntry } from "@via/usage/entry";
+import { CapturedRequest, CaptureSettings, RequestAttempt, UsageEntry } from "@via/usage/entry";
 import { Schema } from "effect";
 import { TurnEvent } from "../usage/turn-events.ts";
 import {
@@ -277,6 +277,8 @@ export const AdminState = Schema.Struct({
   fallbacks: Schema.Array(AdminFallback),
   /** Why the fallback rules can't be read, when they can't; requests don't fall back until then. */
   fallbacksError: Schema.NullOr(Schema.String),
+  /** Whether via keeps the request bodies of turns that fail or fall back. */
+  capture: CaptureSettings,
 });
 
 /** The one event `GET /admin/events` sends: the whole admin state, as JSON. */
@@ -511,6 +513,11 @@ const Conversation = Schema.Struct({
   summary: ConversationSummary,
   turns: Schema.Array(UsageEntry),
   attempts: Schema.Array(RequestAttempt),
+  /**
+   * The turns, by `requestId`, whose request body via captured (see `CapturedRequest`), in
+   * the turns' order: none unless keeping failed prompts was on when they failed or fell back.
+   */
+  captured: Schema.Array(Schema.String),
 });
 
 /** The usage history has no request of this conversation; the admin API answers it as a 404. */
@@ -520,6 +527,16 @@ export class ConversationNotFoundError extends Schema.TaggedError<ConversationNo
 ) {
   override get message() {
     return "via kept no request of this conversation, or forgot them after 90 days.";
+  }
+}
+
+/** via captured no request body of this request; the admin API answers it as a 404. */
+export class CapturedRequestNotFoundError extends Schema.TaggedError<CapturedRequestNotFoundError>()(
+  "CapturedRequestNotFoundError",
+  { requestId: Schema.String },
+) {
+  override get message() {
+    return "via kept no prompt of this request: it went well, keeping failed prompts was off, or via forgot it after 7 days.";
   }
 }
 
@@ -759,7 +776,10 @@ class UsageGroup extends HttpApiGroup.make("usage")
   .middleware(AdminAuthorization)
   .prefix("/admin") {}
 
-/** Every request via kept in the last 90 days, totalled or one by one. */
+/**
+ * Every request via kept in the last 90 days, totalled or one by one, and, while keeping
+ * failed prompts is on, the request bodies of those that failed or fell back, for 7 days.
+ */
 class UsageHistoryGroup extends HttpApiGroup.make("history")
   .add(
     HttpApiEndpoint.get("series", "/history/series", {
@@ -815,9 +835,31 @@ class UsageHistoryGroup extends HttpApiGroup.make("history")
       error: ConversationNotFoundError.pipe(HttpApiSchema.status(404)),
     }),
   )
+  // Forgets every request, and the captured request bodies with them; `deleted` counts the requests.
   .add(
     HttpApiEndpoint.delete("clear", "/history", {
       success: Schema.Struct({ deleted: Schema.Finite }),
+    }),
+  )
+  // A turn's captured request body, redacted, kept for 7 days while keeping failed prompts is on.
+  .add(
+    HttpApiEndpoint.get("capturedRequest", "/history/requests/:requestId/body", {
+      params: { requestId: Schema.String },
+      success: CapturedRequest,
+      error: CapturedRequestNotFoundError.pipe(HttpApiSchema.status(404)),
+    }),
+  )
+  // Forgets every captured request body, and says how many there were; the history stays.
+  .add(
+    HttpApiEndpoint.delete("clearCaptured", "/history/bodies", {
+      success: Schema.Struct({ deleted: Schema.Finite }),
+    }),
+  )
+  .add(HttpApiEndpoint.get("captureSettings", "/history/capture", { success: CaptureSettings }))
+  .add(
+    HttpApiEndpoint.put("setCaptureSettings", "/history/capture", {
+      payload: CaptureSettings,
+      success: CaptureSettings,
     }),
   )
   .middleware(AdminAuthorization)

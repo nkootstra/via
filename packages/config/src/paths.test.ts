@@ -14,6 +14,8 @@ describe("resolvePaths", () => {
       openrouter: "/tmp/via-test/openrouter.json",
       fallbacks: "/tmp/via-test/fallbacks.json",
       usageDb: "/tmp/via-test/usage.db",
+      bodiesDb: "/tmp/via-test/bodies.db",
+      capture: "/tmp/via-test/capture.json",
     });
   });
 

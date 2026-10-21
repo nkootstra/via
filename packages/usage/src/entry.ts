@@ -121,3 +121,43 @@ export const RequestAttempt = Schema.Struct({
 });
 
 export type RequestAttempt = typeof RequestAttempt.Type;
+
+/** The API a captured request was sent to. */
+const CapturedEndpoint = Schema.Literals(["chat/completions", "responses"]);
+
+/**
+ * A turn that failed or fell back, kept with its request body, while the setting to keep
+ * them is on: secrets in it replaced by markers such as `[redacted:openai-key]`, images and
+ * files by a note of what they were, and long strings cut to keep it under 4 MB.
+ */
+export const CapturedRequest = Schema.Struct({
+  requestId: Schema.String,
+  /** When via kept it, in epoch milliseconds. */
+  capturedAt: Schema.Finite,
+  endpoint: CapturedEndpoint,
+  /** The body the client sent, redacted. A chat client sends the whole conversation each turn. */
+  request: Schema.Json,
+  /**
+   * What each upstream attempt that failed answered, by the attempt's `seq`, redacted: its
+   * body as JSON, or as its text when it isn't JSON. Only the first 64 KiB of one is read.
+   */
+  upstreamErrors: Schema.Array(
+    Schema.Struct({ seq: Schema.Finite, status: Schema.NullOr(Schema.Finite), body: Schema.Json }),
+  ),
+  /** What redacting replaced, by kind, such as `openai-key` or `image`. */
+  redactions: Schema.Array(Schema.Struct({ kind: Schema.String, count: Schema.Finite })),
+  /** Whether long strings of the request were cut to keep it under 4 MB. */
+  truncated: Schema.Boolean,
+  /** How many bytes the request, as kept, takes as JSON. */
+  sizeBytes: Schema.Finite,
+});
+
+export type CapturedRequest = typeof CapturedRequest.Type;
+
+/**
+ * What the usage history keeps beyond its counts: with `keepFailedPrompts`, the request
+ * body of a turn that failed or fell back, redacted, and what each upstream answered.
+ */
+export const CaptureSettings = Schema.Struct({ keepFailedPrompts: Schema.Boolean });
+
+export type CaptureSettings = typeof CaptureSettings.Type;

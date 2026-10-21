@@ -6,7 +6,7 @@ import { PoolStates } from "@via/pool";
 import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { Clock, Duration, Effect, FiberHandle, Queue, Schema, Stream } from "effect";
 import { Sse } from "effect/encoding";
-import { UsageHistory } from "@via/usage";
+import { CapturedRequests, CaptureSettingsStore, UsageHistory } from "@via/usage";
 import { type AdminState, StateEvent, TurnEvent } from "./api.ts";
 import { LiveTurns } from "../usage/live-turns.ts";
 import { adminState, type StateOptions } from "./state.ts";
@@ -38,6 +38,7 @@ const signals = Effect.gen(function* () {
     (yield* Providers).ollama.changes,
     (yield* Providers).openrouter.changes,
     (yield* FallbackRuleStore).changes,
+    (yield* CaptureSettingsStore).changes,
     Stream.tick(RESYNC),
   ];
 
@@ -107,19 +108,21 @@ const frame = (event: string, data: string) =>
   encoder.encode(Sse.encoder.write(Sse.Event.make({ event, id: undefined, data })));
 
 /**
- * A `history` event whenever the usage history changes, a burst of changes as
- * one, {@link HISTORY_COALESCE} after the first. Nothing is sent at once: the
+ * A `history` event whenever the usage history or the captured request bodies change, a
+ * burst of changes as one, {@link HISTORY_COALESCE} after the first. Nothing is sent at once: the
  * page fetched the history as it opened.
  */
 const historyEvents = Stream.unwrap(
   Effect.gen(function* () {
     const history = yield* UsageHistory;
+    const captured = yield* CapturedRequests;
     // Holds one signal at most: however many come in the meantime, one more event follows.
     const wake = yield* Queue.sliding<void>(1);
 
-    yield* Effect.forkScoped(
-      Stream.runForEach(Stream.drop(history.changes, 1), () => Queue.offer(wake, undefined)),
-    );
+    // Each signals at once, which the page doesn't need: it fetched the history as it opened.
+    const changes = Stream.merge(Stream.drop(history.changes, 1), Stream.drop(captured.changes, 1));
+
+    yield* Effect.forkScoped(Stream.runForEach(changes, () => Queue.offer(wake, undefined)));
 
     return Stream.fromEffectRepeat(
       Queue.take(wake).pipe(

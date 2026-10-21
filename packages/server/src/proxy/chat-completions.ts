@@ -38,7 +38,9 @@ export const chatCompletions = authenticated(
     const body = withSharedPrefix(json.value);
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const session = resolveSession(headers, body);
-    yield* (yield* RequestLog).conversation(resolveConversation(headers, body));
+    const log = yield* RequestLog;
+    yield* log.conversation(resolveConversation(headers, body));
+    yield* log.requestBody("chat/completions", json.value);
     const providers = yield* Providers;
 
     /** Asks for the model `request` names: its provider as it is, or Codex, translated. */

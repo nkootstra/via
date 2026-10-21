@@ -18,7 +18,7 @@ import { answered, Outcome, unavailable } from "./outcome.ts";
 import { brokenResponse, failedResponse, readBody, relayed } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
 import { SessionBindings } from "./session-bindings.ts";
-import { upstreamErrorOf } from "./upstream-error.ts";
+import { refusalOf } from "./upstream-error.ts";
 import { causeOf } from "../usage/failure.ts";
 
 /** The headers of a provider's answer a client may act on: when to try again, and its rate limits. */
@@ -124,7 +124,7 @@ const upToLimit = (upstream: HttpClientResponse.HttpClientResponse) =>
 const briefly = (upstream: HttpClientResponse.HttpClientResponse) =>
   upToLimit(upstream).pipe(
     Effect.timeoutOption(Duration.seconds(5)),
-    Effect.map((text) => upstreamErrorOf(Option.getOrElse(text, () => ""))),
+    Effect.map((text) => refusalOf(Option.getOrElse(text, () => ""))),
   );
 
 /**
@@ -134,7 +134,7 @@ const briefly = (upstream: HttpClientResponse.HttpClientResponse) =>
 const readWhole = (upstream: HttpClientResponse.HttpClientResponse) =>
   Effect.gen(function* () {
     const text = yield* upToLimit(upstream);
-    const refusal = upstreamErrorOf(text);
+    const refusal = refusalOf(text);
 
     yield* (yield* RequestLog).upstreamFailed(refusal);
 
@@ -318,7 +318,7 @@ const forwardPooled = Effect.fn("forwardPooled")(function* (
       // protocol. One whose body breaks off reads as empty, so it is passed on as a plain 400.
       const text = yield* upToLimit(upstream);
 
-      const refusal = upstreamErrorOf(text);
+      const refusal = refusalOf(text);
       const unsupported = Option.contains(refusal.code, PROTOCOL_UNSUPPORTED);
 
       // A protocol the model doesn't speak is no refusal of the request: the attempt failed.

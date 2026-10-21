@@ -11,18 +11,19 @@ import {
   Schema,
   Stream,
 } from "effect";
-import { UsageHistory } from "@via/usage";
+import { CapturedRequests, CaptureSettingsStore, UsageHistory } from "@via/usage";
 import {
   HttpEffect,
   HttpServerRequest,
   HttpServerRespondable,
   HttpServerResponse,
 } from "effect/http";
-import type { RequestAttempt, UsageEntry } from "@via/usage";
+import type { CapturedRequest, RequestAttempt, UsageEntry } from "@via/usage";
 import type { TokenUsage } from "./token-usage.ts";
 import type { UpstreamError } from "../proxy/upstream-error.ts";
 import { clientOf } from "../proxy/client.ts";
 import type { Conversation } from "../proxy/session.ts";
+import { type AttemptAnswer, captureOf, worthCapturing } from "./capture.ts";
 import { categorize, keptMessage } from "./failure.ts";
 import { LiveTurns } from "./live-turns.ts";
 import type { LiveAttempt, LiveTurn } from "./turn-events.ts";
@@ -81,6 +82,14 @@ export class RequestLog extends Context.Service<
     readonly attemptFailed: (failure: AttemptFailure) => Effect.Effect<void>;
     /** Records the conversation the request belongs to. */
     readonly conversation: (conversation: Conversation) => Effect.Effect<void>;
+    /**
+     * Records the body the client sent to `endpoint`, to capture should the turn fail or
+     * fall back while the setting to keep those is on. It is never logged.
+     */
+    readonly requestBody: (
+      endpoint: CapturedRequest["endpoint"],
+      body: Schema.JsonObject,
+    ) => Effect.Effect<void>;
     /** Records the token usage the upstream reported for the answer. */
     readonly usage: (usage: TokenUsage) => Effect.Effect<void>;
     /** Leaves the request out of the log, as a file a page fetches with it. */
@@ -312,6 +321,21 @@ const attemptsOf = (id: string, end: number, line: Noted): ReadonlyArray<Request
     ];
   });
 
+/** What each of `attempts` that didn't serve answered, when the upstream answered at all. */
+const answersOf = (
+  attempts: ReadonlyArray<RequestAttempt>,
+  line: Noted,
+): ReadonlyArray<AttemptAnswer> =>
+  attempts.flatMap((attempt) => {
+    const body = Option.flatMap(Option.fromUndefinedOr(line.attempts[attempt.seq]), (tried) =>
+      Option.flatMap(tried.error, (error) => Option.fromUndefinedOr(error.body)),
+    );
+
+    return attempt.outcome === "served" || Option.isNone(body)
+      ? []
+      : [{ seq: attempt.seq, status: attempt.status, body: body.value }];
+  });
+
 /**
  * How the latest attempt of request `id` stands, as `line` noted it, for the turns in
  * flight: still open, or ended as the usage history will keep it.
@@ -385,6 +409,11 @@ interface Noted {
   /** Why the model asked for couldn't serve. */
   readonly fallbackReason: Option.Option<string>;
   readonly conversation: Option.Option<Conversation>;
+  /** The body the client sent, and where, for a capture. */
+  readonly requestBody: Option.Option<{
+    readonly endpoint: CapturedRequest["endpoint"];
+    readonly body: Schema.JsonObject;
+  }>;
   /** Every upstream attempt, in order, fallbacks included. */
   readonly attempts: ReadonlyArray<Attempted>;
   readonly retryAfter: Option.Option<string>;
@@ -432,6 +461,8 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const history = yield* UsageHistory;
+    const captures = yield* CapturedRequests;
+    const captureSettings = yield* CaptureSettingsStore;
     const live = yield* LiveTurns;
     const id = yield* requestId(request.headers);
     const start = yield* Clock.currentTimeMillis;
@@ -450,6 +481,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       requestedModel: Option.none(),
       fallbackReason: Option.none(),
       conversation: Option.none(),
+      requestBody: Option.none(),
       attempts: [],
       retryAfter: Option.none(),
       status: 0,
@@ -501,6 +533,27 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
       );
 
     /**
+     * Captures the body of a turn that failed or fell back, with what each upstream attempt
+     * that failed answered, while the setting to keep them is on.
+     */
+    const capture = (entry: UsageEntry, attempts: ReadonlyArray<RequestAttempt>, line: Noted) =>
+      Option.match(line.requestBody, {
+        onNone: () => Effect.void,
+        onSome: ({ endpoint, body }) =>
+          Effect.gen(function* () {
+            if (!worthCapturing(entry)) return;
+
+            if (!(yield* captureSettings.get).keepFailedPrompts) return;
+            const now = yield* Clock.currentTimeMillis;
+            yield* captures.keep(captureOf(id, now, endpoint, body, answersOf(attempts, line)));
+          }).pipe(
+            // The answer has already gone out: a setting that can't be read, or a capture that
+            // can't be kept, keeps nothing, and only says so.
+            Effect.catchCause((cause) => Effect.logWarning("Could not capture the request", cause)),
+          ),
+      });
+
+    /**
      * Ends a request that asked for a model: kept in the usage history when `kept`, then
      * no longer in flight, so whoever sees it end finds it kept.
      */
@@ -514,6 +567,8 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
             const attempts = attemptsOf(id, end, line);
 
             if (kept) {
+              // Captured first, so whoever sees the turn kept finds its capture.
+              yield* capture(entry, attempts, line);
               yield* history
                 .keep(entry, attempts)
                 .pipe(
@@ -645,6 +700,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         ];
       }),
       conversation: (conversation) => note({ conversation: Option.some(conversation) }),
+      requestBody: (endpoint, body) => note({ requestBody: Option.some({ endpoint, body }) }),
       usage: (usage) => note({ usage: Option.some(usage) }),
       unlogged: note({ logged: false }),
       timed: (stream, around) =>

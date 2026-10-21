@@ -1,11 +1,9 @@
-import { SqliteClient, SqliteMigrator } from "@effect/sql-sqlite-bun";
 import {
   Clock,
   Context,
   DateTime,
   Duration,
   Effect,
-  FileSystem,
   Layer,
   Option,
   Schedule,
@@ -13,7 +11,7 @@ import {
   Stream,
   SubscriptionRef,
 } from "effect";
-import { dirname } from "node:path";
+import { inDatabase, ownerOnly } from "./database.ts";
 import { RequestAttempt, UsageEntry } from "./entry.ts";
 import { Migrator, SqlClient } from "effect/sql";
 import type { SqlError } from "effect/sql/SqlError";
@@ -1042,24 +1040,6 @@ const make = Effect.gen(function* () {
   };
 });
 
-/**
- * Creates the database file, owner-only, before SQLite opens it: SQLite would
- * create it with the umask's mode, and gives its WAL files the mode of the database.
- */
-const createOwnerOnly = Effect.fn("UsageHistory.createOwnerOnly")(function* (filename: string) {
-  const fs = yield* FileSystem.FileSystem;
-  yield* fs.makeDirectory(dirname(filename), { recursive: true, mode: 0o700 });
-
-  if (!(yield* fs.exists(filename))) {
-    yield* fs.writeFile(filename, new Uint8Array(), { flag: "wx", mode: 0o600 }).pipe(
-      // Another process may have created the database since the existence check.
-      Effect.catchReason("PlatformError", "AlreadyExists", () => Effect.void),
-    );
-  }
-
-  yield* fs.chmod(filename, 0o600);
-});
-
 /** Every request via has served, kept in SQLite so it outlives a restart. */
 export class UsageHistory extends Context.Service<
   UsageHistory,
@@ -1098,25 +1078,13 @@ export class UsageHistory extends Context.Service<
     readonly changes: Stream.Stream<void>;
   }
 >()("via/UsageHistory") {
-  /**
-   * The history in SQLite's `filename`, migrated as needed; `:memory:` lasts only as long as the
-   * layer. What it deletes or clears, the migrations included, is overwritten, not left in the
-   * file's free space: SQLite does that only with `secure_delete`, which is off by default on Linux.
-   */
+  /** The history in SQLite's `filename`, as `inDatabase` opens it. */
   private static readonly open = (filename: string) =>
-    Layer.effect(UsageHistory, make).pipe(
-      Layer.provide(SqliteMigrator.layer({ loader: migrations })),
-      Layer.provide(
-        Layer.effectDiscard(
-          Effect.flatMap(SqlClient.SqlClient, (sql) => sql`PRAGMA secure_delete = ON`),
-        ),
-      ),
-      Layer.provide(SqliteClient.layer({ filename })),
-    );
+    inDatabase(Layer.effect(UsageHistory, make), filename, migrations);
 
   /** The history in the SQLite database at `filename`, created owner-only as needed. */
   static readonly layer = (filename: string) =>
-    UsageHistory.open(filename).pipe(Layer.provide(Layer.effectDiscard(createOwnerOnly(filename))));
+    UsageHistory.open(filename).pipe(Layer.provide(ownerOnly(filename)));
 
   /** A history that lasts only as long as the layer, for tests. */
   static readonly layerMemory = UsageHistory.open(":memory:");

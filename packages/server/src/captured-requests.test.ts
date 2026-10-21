@@ -1,0 +1,134 @@
+import { BunFileSystem } from "@effect/platform-bun";
+import { expect, layer } from "@effect/vitest";
+import { type CodexRequest, reply } from "@via/codex-upstream/testing";
+import { providerReply } from "@via/providers/testing";
+import { Effect, Option } from "effect";
+import type { HttpClientResponse } from "effect/http";
+import { ok, type Via, withVia } from "./testing/harness.ts";
+
+const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
+
+/** A key a client pasted into its prompt, which via must never keep. */
+const KEY = "sk-proj-Ab3dEfGh1jKlMnOpQrStUvWxYz0123456789_-abcd";
+
+/** Codex's answer to an account whose usage limit is reached, quoting the client's key back. */
+const usageLimit = reply.error(429, {
+  error: { type: "usage_limit_reached", message: `The usage limit has been reached for ${KEY}` },
+});
+
+/** What via captured of the request `response` answered, once it has logged it. */
+const capturedOf = (via: Via, response: HttpClientResponse.HttpClientResponse) =>
+  Effect.gen(function* () {
+    yield* response.text;
+    yield* via.logged("Sent HTTP response");
+
+    return yield* via.captured.get(response.headers["x-request-id"] ?? "");
+  });
+
+const chat = {
+  model: "gpt-x",
+  messages: [
+    { role: "system", content: "You are helpful." },
+    { role: "user", content: `Why does ${KEY} fail?` },
+  ],
+};
+
+layer(BunFileSystem.layer)("captured requests", (it) => {
+  it.effect("keeps nothing of a failed turn until told to", () =>
+    withVia(
+      () => usageLimit,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/chat/completions", chat);
+
+          expect(response.status).toBe(429);
+          expect(yield* capturedOf(via, response)).toEqual(Option.none());
+        }),
+    ),
+  );
+
+  it.effect("keeps a failed turn's request and every upstream's answer, redacted", () =>
+    withVia(
+      () => usageLimit,
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/chat/completions", chat);
+          const captured = yield* capturedOf(via, response);
+
+          expect(captured).toEqual(
+            Option.some({
+              requestId: response.headers["x-request-id"],
+              capturedAt: expect.any(Number),
+              endpoint: "chat/completions",
+              request: {
+                model: "gpt-x",
+                messages: [
+                  { role: "system", content: "You are helpful." },
+                  { role: "user", content: "Why does [redacted:openai-key] fail?" },
+                ],
+              },
+              upstreamErrors: [0, 1].map((seq) => ({
+                seq,
+                status: 429,
+                body: {
+                  error: {
+                    type: "usage_limit_reached",
+                    message: "The usage limit has been reached for [redacted:openai-key]",
+                  },
+                },
+              })),
+              redactions: [{ kind: "openai-key", count: 3 }],
+              truncated: false,
+              sizeBytes: expect.any(Number),
+            }),
+          );
+
+          expect(JSON.stringify(captured)).not.toContain(KEY);
+        }),
+      { keepFailedPrompts: true },
+    ),
+  );
+
+  it.effect("keeps a turn that fell back to another model", () =>
+    withVia(
+      () => reply.error(429, "", { "retry-after": "120" }),
+      (via) =>
+        Effect.gen(function* () {
+          via.provider.respond(providerReply.json({ choices: [] }));
+
+          const response = yield* via.post("/v1/responses", { model: "gpt-x", input: "hi" });
+          const captured = yield* capturedOf(via, response);
+
+          expect(response.status).toBe(200);
+          expect(captured).toMatchObject(
+            Option.some({
+              endpoint: "responses",
+              request: { model: "gpt-x", input: "hi" },
+              upstreamErrors: [
+                { seq: 0, status: 429, body: "" },
+                { seq: 1, status: 429, body: "" },
+              ],
+            }),
+          );
+        }),
+      {
+        keepFailedPrompts: true,
+        fallbacks: [{ model: "gpt-x", fallbacks: ["openrouter/y"] }],
+      },
+    ),
+  );
+
+  it.effect("keeps nothing of a turn that went well, even when told to keep failed ones", () =>
+    withVia(
+      (request) => (accountOf(request) === "acc-a" ? usageLimit : ok()),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", { model: "gpt-x", input: "hi" });
+
+          expect(response.status).toBe(200);
+          expect(yield* capturedOf(via, response)).toEqual(Option.none());
+        }),
+      { keepFailedPrompts: true },
+    ),
+  );
+});

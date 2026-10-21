@@ -23,7 +23,9 @@ export const responses = authenticated(
     const body = decoded.value;
     const { headers } = yield* HttpServerRequest.HttpServerRequest;
     const session = resolveSession(headers, body);
-    yield* (yield* RequestLog).conversation(resolveConversation(headers, body));
+    const log = yield* RequestLog;
+    yield* log.conversation(resolveConversation(headers, body));
+    yield* log.requestBody("responses", body);
     const providers = yield* Providers;
 
     /** Asks for the model `request` names: its provider, or Codex. */

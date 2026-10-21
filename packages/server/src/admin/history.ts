@@ -10,11 +10,14 @@ import {
   type Percentiles,
   type PriceBook,
   priceBook,
+  CapturedRequests,
+  CaptureSettingsStore,
   UsageHistory,
 } from "@via/usage";
 import { Effect, Option } from "effect";
+import { adminCapture } from "./state.ts";
 import { HttpApiBuilder } from "effect/http-api";
-import { AdminApi, ConversationNotFoundError } from "./api.ts";
+import { AdminApi, CapturedRequestNotFoundError, ConversationNotFoundError } from "./api.ts";
 
 /** The history is via's own database; failing to use it is a defect, which answers 500. */
 const readHistory = <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.orDie(effect);
@@ -143,9 +146,38 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
         }),
       )
       .handle("clear", () =>
-        Effect.flatMap(UsageHistory, (usage) => usage.clear).pipe(
+        Effect.gen(function* () {
+          // The captured bodies first: a turn they belong to is never gone while one stays.
+          yield* (yield* CapturedRequests).clear;
+
+          return { deleted: yield* (yield* UsageHistory).clear };
+        }).pipe(readHistory),
+      )
+      .handle("capturedRequest", ({ params }) =>
+        Effect.gen(function* () {
+          const found = yield* readHistory(
+            Effect.flatMap(CapturedRequests, (captured) => captured.get(params.requestId)),
+          );
+
+          if (Option.isNone(found)) {
+            return yield* new CapturedRequestNotFoundError({ requestId: params.requestId });
+          }
+
+          return found.value;
+        }),
+      )
+      .handle("clearCaptured", () =>
+        Effect.flatMap(CapturedRequests, (captured) => captured.clear).pipe(
           Effect.map((deleted) => ({ deleted })),
           readHistory,
+        ),
+      )
+      .handle("captureSettings", () => adminCapture)
+      .handle("setCaptureSettings", ({ payload }) =>
+        Effect.flatMap(CaptureSettingsStore, (store) => store.set(payload)).pipe(
+          Effect.as(payload),
+          // The setting is via's own file; failing to write it is a defect, which answers 500.
+          Effect.orDie,
         ),
       )
       .handle("requests", ({ query }) =>
@@ -205,10 +237,17 @@ export const history = (prices: Readonly<Record<string, ModelPrice>>) =>
 
           if (Option.isNone(found)) return yield* new ConversationNotFoundError({ id: params.id });
 
+          const captured = yield* readHistory(
+            Effect.flatMap(CapturedRequests, (requests) =>
+              requests.which(found.value.turns.map((turn) => turn.requestId)),
+            ),
+          );
+
           return {
             summary: conversationSummary(found.value.summary, book),
             turns: found.value.turns,
             attempts: found.value.attempts,
+            captured,
           };
         }),
       ),
