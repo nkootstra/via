@@ -1002,8 +1002,13 @@ const make = Effect.gen(function* () {
   const prune = Effect.gen(function* () {
     const now = yield* Clock.currentTimeMillis;
     const cutoff = now - Duration.toMillis(RETENTION);
+    // A request's attempts go with it, by when it came in: a retry can start after the cutoff.
+    yield* sql`
+      DELETE FROM request_attempts
+      WHERE request_id IN (SELECT request_id FROM requests WHERE at < ${cutoff})
+    `;
     yield* sql`DELETE FROM requests WHERE at < ${cutoff}`;
-    // An attempt starts no sooner than its request, so it goes with it or a day after.
+    // An attempt starts no sooner than its request, so one older than the cutoff has none.
     yield* sql`DELETE FROM request_attempts WHERE started_at < ${cutoff}`;
     yield* scrubWal(sql);
   }).pipe(Effect.withSpan("UsageHistory.prune"));

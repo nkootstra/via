@@ -1132,6 +1132,27 @@ describe("UsageHistory attempts", () => {
       }),
     );
   });
+  it.effect("forgets a pruned request's attempts, even one that started after the cutoff", () => {
+    const now = 200 * DAY;
+
+    return historyAt(now, (usage) =>
+      Effect.gen(function* () {
+        const at = now - 90 * DAY - 1;
+        // Its request came in just before the cutoff; its retry started just after.
+        yield* usage.keep(turn("old", at, "root"), [
+          attempt("old", 0, { startedAt: at }),
+          attempt("old", 1, { startedAt: at + 2 }),
+        ]);
+
+        yield* usage.prune;
+        // Under the same id, a request now would otherwise be handed the old one's attempts.
+        yield* usage.record(turn("old", now, "root"));
+
+        const found = yield* usage.conversation("root");
+        expect(Option.map(found, (c) => c.attempts)).toEqual(Option.some([]));
+      }),
+    );
+  });
 });
 
 describe("UsageHistory.changes", () => {
