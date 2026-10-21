@@ -149,7 +149,9 @@ export const spotStreamError = <E>(
       let found: Array<UpstreamError> = [];
 
       const parser = Sse.makeParser((event) => {
-        if (Sse.Retry.is(event)) return;
+        // Every failure names an `error`, as a key or a type: most events, deltas, don't, and
+        // aren't worth parsing.
+        if (Sse.Retry.is(event) || !event.data.includes('"error"')) return;
 
         for (const error of Option.toArray(decodeStreamFailure(event.data))) {
           const payload =
