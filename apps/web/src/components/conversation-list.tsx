@@ -84,6 +84,8 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
   },
+  // A turn count's notes wrap between words, never inside one.
+  tally: { overflowWrap: "normal" },
   failed: { color: colors.destructive },
   loadMore: {
     display: "flex",
@@ -94,15 +96,16 @@ const styles = stylex.create({
 
 /**
  * The list's columns: the conversation (its harness over its time), key,
- * models, turns, tokens and cost. A phone keeps the conversation, turns and cost.
+ * models, turns, tokens and cost. A phone keeps the conversation, turns and
+ * cost: the last two as wide as "1 sub-agent" and a cost need, at any width.
  */
 const columns = [
   "auto",
   { width: "13%", secondary: true },
   { width: "18%", secondary: true },
-  "15%",
+  "6.75rem",
   { width: "11%", secondary: true },
-  "12%",
+  "5.25rem",
 ] as const;
 
 const plural = (count: number, one: string, many: string) =>
@@ -281,12 +284,14 @@ function ConversationRow({
       <TableCell>
         <span {...stylex.props(styles.number)}>{formatCount(conversation.turns)}</span>
         {conversation.subagents > 0 && (
-          <span {...stylex.props(styles.under)}>
+          <span {...stylex.props(styles.under, styles.tally)}>
             {plural(conversation.subagents, "sub-agent", "sub-agents")}
           </span>
         )}
         {trouble.length > 0 && (
-          <span {...stylex.props(styles.under, conversation.failed > 0 && styles.failed)}>
+          <span
+            {...stylex.props(styles.under, styles.tally, conversation.failed > 0 && styles.failed)}
+          >
             {trouble.join(" · ")}
           </span>
         )}
