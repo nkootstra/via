@@ -1453,10 +1453,16 @@ Before anything is written, via redacts it:
   OpenRouter (`sk-or-v1-…`) keys, GitHub tokens (`ghp_`, `gho_`, `ghs_`,
   `ghu_`, `ghr_`, `github_pat_`), AWS access keys (`AKIA…`, `ASIA…`) and a
   secret access key assigned by name, Google API keys (`AIza…`), Slack tokens
-  (`xox…`), JWTs, PEM private key blocks, the token after `Bearer` and the
-  credential of an `Authorization: Basic` header. A value assigned to a name
-  such as `API_KEY=`, `"secret": ` or `password:` is replaced too when it looks
-  random: 12 characters or more, letters and digits, no spaces.
+  (`xox…`), JWTs, PEM private keys (to their `END` line, or to the end of the
+  text when one was cut off before it), the token after `Bearer`, the
+  credential of an `Authorization` or `Proxy-Authorization` header (its scheme,
+  such as `Basic`, is kept) and the value of a `Cookie` or `Set-Cookie` header.
+  A JSON value under an `Authorization` or `Cookie` key, such as in a
+  `headers` object, is replaced whatever it looks like. A value assigned to a
+  name such as `API_KEY=`, `"secret": `, `password:` or `"accessToken":`
+  (snake_case or camelCase, and each item of an array under such a name) is
+  replaced too when it looks random: 12 characters or more, letters and
+  digits, no spaces; after a scheme such as `Basic` or `Token`, it always is.
 - Images and files sent inline, as a data URL anywhere, as base64 in
   `image_url`, `file_data` or a Responses `input_image` or `input_file`, or as
   any string of 1 KB or more of nothing but base64, become a note of what they

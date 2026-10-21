@@ -202,6 +202,79 @@ describe("redact", () => {
     expect(redact(sent).value).toEqual(sent);
   });
 
+  it.each([
+    ["Basic dXNlcjpwYXNz", "Basic [redacted:authorization]"],
+    ["Token abcdefghijklmnop", "Token [redacted:authorization]"],
+    ["ApiKey abcdefghijklmnop", "ApiKey [redacted:authorization]"],
+    ["Bearer abc", "Bearer [redacted:authorization]"],
+    ["opaque credential", "[redacted:authorization]"],
+  ])("replaces the credential of an Authorization header in JSON: %s", (sent, kept) => {
+    expect(redact({ headers: { Authorization: sent } }).value).toEqual({
+      headers: { Authorization: kept },
+    });
+  });
+
+  it("replaces a cookie header's value in JSON", () => {
+    expect(
+      redact({ headers: { Cookie: "session=abc; theme=dark", "set-cookie": "id=x" } }).value,
+    ).toEqual({ headers: { Cookie: "[redacted:cookie]", "set-cookie": "[redacted:cookie]" } });
+  });
+
+  it("replaces the credential after a scheme under any secret-named key", () => {
+    expect(redact({ token: "Bearer abcdef" }).value).toEqual({
+      token: "Bearer [redacted:secret]",
+    });
+  });
+
+  it("replaces a credential under a camelCase secret-named key", () => {
+    const secret = "Zq8Lm2Xp9Wt4Yc7Vb3Nn";
+    const named = ["accessToken", "clientSecret", "refreshToken", "authToken", "githubToken"];
+
+    expect(redact(Object.fromEntries(named.map((name) => [name, secret]))).value).toEqual(
+      Object.fromEntries(named.map((name) => [name, "[redacted:secret]"])),
+    );
+  });
+
+  it("replaces secrets in an array under a secret-named key", () => {
+    expect(redact({ api_keys: ["Zq8Lm2Xp9Wt4Yc7Vb3Nn", "Hello"] }).value).toEqual({
+      api_keys: ["[redacted:secret]", "Hello"],
+    });
+  });
+
+  it.each([
+    ["Authorization: opaqueCred3ntial", "Authorization: [redacted:authorization]"],
+    ["Authorization: Custom abcdef123456", "Authorization: Custom [redacted:authorization]"],
+    ["Proxy-Authorization: Token abcdefgh", "Proxy-Authorization: Token [redacted:authorization]"],
+    ["Cookie: session=abc123; theme=dark", "Cookie: [redacted:cookie]"],
+    ["Set-Cookie: id=a3fWa; Max-Age=2592000", "Set-Cookie: [redacted:cookie]"],
+  ])("replaces a header's credential in text: %s", (sent, kept) => {
+    expect(redactedText(`> ${sent}\nnext line`)).toBe(`> ${kept}\nnext line`);
+  });
+
+  it("leaves Authorization and cookies in prose alone", () => {
+    expect(redactedText("Authorization: required for everything")).toBe(
+      "Authorization: required for everything",
+    );
+    expect(redactedText("cookie: chocolate chip")).toBe("cookie: chocolate chip");
+  });
+
+  it("replaces a PEM private key cut off before its end, to the end of the text", () => {
+    const head = [
+      "-----BEGIN OPENSSH PRIVATE KEY-----",
+      "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW",
+    ].join("\n");
+
+    expect(redactedText(`error: bad key\n${head}`)).toBe("error: bad key\n[redacted:private-key]");
+  });
+
+  it("redacts many unfinished PEM headers in linear time", () => {
+    const text = "-----BEGIN PRIVATE KEY-----\n".repeat(20_000);
+    const started = performance.now();
+
+    expect(redactedText(text)).toBe("[redacted:private-key]");
+    expect(performance.now() - started).toBeLessThan(1_000);
+  });
+
   it("leaves text with no secret in it as it was", () => {
     const body = {
       model: "gpt-6",
@@ -233,6 +306,61 @@ describe("redact, as properties", () => {
       }),
   );
 
+  const names = Arbitrary.schema(
+    Schema.Literals([
+      "api_key",
+      "apiKey",
+      "API-KEY",
+      "x-api-key",
+      "accessToken",
+      "client_secret",
+      "clientSecret",
+      "refresh_token",
+      "GITHUB_TOKEN",
+      "password",
+      "Authorization",
+      "proxy-authorization",
+    ]),
+  );
+
+  const scheme = Arbitrary.schema(
+    Schema.Literals(["", "Basic ", "Bearer ", "Token ", "ApiKey ", "Digest "]),
+  );
+
+  it.prop(
+    "never keeps a random credential under a secret-named key, however it's nested",
+    { name: names, seed: seeds, scheme },
+    ({ name, seed, scheme: prefix }) => {
+      // Random enough to be a secret, whatever the seed.
+      const secret = `${pick(alnum, seed, 8)}Zq8Lm2Xp9Wt4Yc7V`;
+      const value = `${prefix}${secret}`;
+
+      const body = {
+        headers: { [name]: value },
+        [name]: [value, { [name]: value }],
+        text: `${name}: ${value}`,
+      };
+
+      expect(JSON.stringify(redact(body).value)).not.toContain(secret);
+    },
+  );
+
+  it.prop(
+    "never keeps a private key's body, finished or cut off",
+    {
+      seed: seeds,
+      cut: Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 40 }))),
+      before: prose,
+    },
+    ({ seed, cut, before }) => {
+      const key = `MIIE${pick(alnum, seed, 40)}`;
+      const pem = `-----BEGIN RSA PRIVATE KEY-----\n${key}\n-----END RSA PRIVATE KEY-----`;
+      const text = `${before}\n${pem.slice(0, pem.indexOf(key) + key.length + cut)}`;
+
+      expect(JSON.stringify(redact(text).value)).not.toContain(key);
+    },
+  );
+
   const json = Arbitrary.schema(Schema.Json);
 
   it.prop(
@@ -247,7 +375,13 @@ describe("redact, as properties", () => {
     "changes nothing more when run again",
     { json, seed: seeds, text: prose },
     ({ json: value, seed, text }) => {
-      const once = redact({ json: value, text: `${text} ${secrets(seed).join(" ")}` });
+      const once = redact({
+        json: value,
+        text: `${text} ${secrets(seed).join(" ")} Authorization: ${pick(alnum, seed, 20)}`,
+        headers: { Authorization: `Basic ${text}`, Cookie: `a=${text}` },
+        tokens: [text],
+      });
+
       const twice = redact(once.value);
 
       expect(twice).toEqual({ value: once.value, redactions: [] });

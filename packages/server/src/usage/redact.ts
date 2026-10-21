@@ -61,8 +61,9 @@ interface Pattern {
 const patterns: ReadonlyArray<Pattern> = [
   {
     kind: "private-key",
+    // To its END line or, when it has none, such as a key cut off, to the end of the text.
     pattern:
-      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----/g,
+      /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----(?:[\s\S]*?-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|[\s\S]*)/g,
   },
   { kind: "jwt", pattern: /\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}/g },
   { kind: "anthropic-key", pattern: /\bsk-ant-[A-Za-z0-9_-]{20,}/g },
@@ -82,7 +83,21 @@ const patterns: ReadonlyArray<Pattern> = [
   {
     kind: "authorization",
     pattern:
-      /(\bauthorization["']?\s*[:=]\s*["']?(?:basic|digest|token)\s+)([A-Za-z0-9._~+/=-]{8,})/gi,
+      /(\bauthorization["']?\s*[:=]\s*["']?(?:basic|digest|token|apikey|api-key|ssws|negotiate|ntlm|dpop)[ \t]+)([A-Za-z0-9._~+/=-]{8,})/gi,
+    keep: true,
+  },
+  {
+    // An Authorization header with no scheme or one via doesn't know; Bearer is the next pattern's.
+    kind: "authorization",
+    pattern:
+      /(\bauthorization["']?\s*[:=]\s*["']?(?!bearer[ \t])(?:[A-Za-z][\w-]*[ \t]+)?)([^\s"'`,;<>]{8,})/gi,
+    keep: true,
+    secret: (value) => credentialLike(value),
+  },
+  {
+    // A Cookie or Set-Cookie header's value: `name=value`, and whatever follows on its line.
+    kind: "cookie",
+    pattern: /(\bcookie["']?\s*[:=][ \t]*["']?)([^\s=;"'`]+=[^\r\n"'`]*)/gi,
     keep: true,
   },
   {
@@ -95,15 +110,42 @@ const patterns: ReadonlyArray<Pattern> = [
   {
     kind: "secret",
     pattern:
-      /(\b[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|secret|token|password|passwd|credential|access[_-]?key|private[_-]?key)[A-Za-z0-9_]{0,40}["']?\s*[:=]\s*["']?)([^\s"'`,;<>]{12,})/gi,
+      /(\b[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|secret|token|password|passwd|credential|access[_-]?key|private[_-]?key)[A-Za-z0-9_]{0,40}["']?\s*[:=]\s*["']?(?:(?:basic|digest|token|apikey)[ \t]+)?)([^\s"'`,;<>]{12,})/gi,
     keep: true,
     secret: looksSecret,
   },
 ];
 
+/**
+ * Whether `value`, after an Authorization header with no scheme via knows, is a credential
+ * rather than a word: it has digits, symbols or capitals inside it, or is long.
+ */
+const credentialLike = (value: string) =>
+  /[\d._~+/=-]/.test(value) || /[A-Z]/.test(value.slice(1)) || value.length >= 20;
+
+/** A JSON key whose value is a header's credential, kept as a marker whatever it looks like. */
+const credentialKeys: ReadonlyArray<readonly [kind: string, key: RegExp]> = [
+  ["authorization", /(?:^|[_-])authorization$/i],
+  ["cookie", /(?:^|[_-])cookie$/i],
+];
+
 /** A JSON key whose value, when it looks like one, is a secret. */
 const secretKey =
-  /(?:^|[_-])(?:api[_-]?key|apikey|secret|token|password|passwd|credential|access[_-]?key|private[_-]?key|auth|authorization)$/i;
+  /(?:^|[_-])(?:api[_-]?keys?|apikeys?|secrets?|secret[_-]?keys?|tokens?|passwords?|passwd|credentials?|access[_-]?keys?|private[_-]?keys?|auth)$/i;
+
+/** What a JSON key's value is a secret of, if it is one: camelCase names as snake_case ones. */
+const keyKind = (key: string) => {
+  const name = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2");
+
+  return (
+    credentialKeys.find(([, pattern]) => pattern.test(name))?.[0] ??
+    (secretKey.test(name) ? "secret" : undefined)
+  );
+};
+
+/** A credential's scheme, as in `Basic dXNlcjpwYXNz`, and the credential after it. */
+const SCHEMED =
+  /^((?:basic|digest|bearer|token|apikey|api-key|ssws|negotiate|ntlm|dpop)[ \t]+)(\S[\s\S]*)$/i;
 
 /** `bytes` as a person reads a size: `768 B`, `412 KB`, `1.2 MB`. */
 const sizeOf = (bytes: number) => {
@@ -187,7 +229,7 @@ const redactor = () => {
         const parts = rest.slice(0, -2).filter(Predicate.isString);
         const value = keep === true ? (parts.at(-1) ?? match) : match;
 
-        if (secret !== undefined && !secret(value)) return match;
+        if (value.startsWith(MARKER) || (secret !== undefined && !secret(value))) return match;
         count(kind);
 
         return keep === true ? `${parts.slice(0, -1).join("")}${marker(kind)}` : marker(kind);
@@ -197,10 +239,19 @@ const redactor = () => {
 
   const json = (value: Schema.Json, key?: string, siblings?: Schema.JsonObject): Schema.Json => {
     if (Predicate.isString(value)) {
-      if (key !== undefined && secretKey.test(key) && looksSecret(value)) {
-        count("secret");
+      const named = key === undefined ? undefined : keyKind(key);
 
-        return marker("secret");
+      if (named !== undefined) {
+        // A scheme, such as `Basic `, is kept; the credential after it never is.
+        const schemed = SCHEMED.exec(value);
+        const credential = schemed?.[2] ?? value;
+        const always = schemed !== null || (named !== "secret" && value.trim() !== "");
+
+        if (!credential.startsWith(MARKER) && (always || looksSecret(value))) {
+          count(named);
+
+          return `${schemed?.[1] ?? ""}${marker(named)}`;
+        }
       }
 
       if (key !== undefined && fileKeys.has(key) && isBase64Blob(value, 64)) {
@@ -214,7 +265,8 @@ const redactor = () => {
       return text(value);
     }
 
-    if (Array.isArray(value)) return value.map((item) => json(item));
+    // An array's items are its key's: each of `"api_keys": [...]` is a key.
+    if (Array.isArray(value)) return value.map((item) => json(item, key, siblings));
 
     if (isJsonObject(value)) {
       return Object.fromEntries(
