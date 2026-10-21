@@ -1,9 +1,10 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CapturedRequest, Conversation } from "../src/api/types.ts";
 import { attempt, conversation, request } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
+import { openSource } from "./event-source.ts";
 
 const now = new Date("2026-09-27T12:30:00.000Z");
 
@@ -199,6 +200,25 @@ describe("a failed turn's captured request", () => {
     const sheet = await screen.findByRole("dialog", { name: "Request of turn 2" });
 
     await waitFor(() => expect(sheet.textContent).toContain('"prompt": "complete this"'));
+  });
+
+  it("isn't fetched again when via says the history changed, as it never changes", async () => {
+    const { state, user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+    await user.click(within(await rowOf(1)).getByRole("button", { name: "View request" }));
+    const sheet = await screen.findByRole("dialog", { name: "Request of turn 2" });
+    await within(sheet).findByRole("region", { name: /Attempt 1/ });
+
+    const bodies = () =>
+      state.requests.filter((asked) => asked === "GET /admin/history/requests/t2/body").length;
+
+    const conversations = () =>
+      state.requests.filter((asked) => asked === "GET /admin/history/conversations/ses_1").length;
+
+    const before = conversations();
+    act(() => openSource().history());
+
+    await waitFor(() => expect(conversations()).toBeGreaterThan(before));
+    expect(bodies()).toBe(1);
   });
 
   it("says so when via no longer has the prompt", async () => {

@@ -1,6 +1,7 @@
-import { Predicate } from "effect";
+import { QueryClient } from "@tanstack/react-query";
+import { Option, Predicate } from "effect";
 import { describe, expect, it } from "vitest";
-import { historyRequestsQuery } from "../src/api/admin.ts";
+import { capturedRequestQuery, historyRequestsQuery, refreshHistory } from "../src/api/admin.ts";
 
 /** How often the request list asks again while it holds `pages` pages. */
 const intervalWith = (pages: number) => {
@@ -18,5 +19,17 @@ describe("the request list's refresh", () => {
 
   it("holds still once more is loaded, rather than fetching every page again", () => {
     expect(intervalWith(2)).toBe(false);
+  });
+});
+
+describe("a captured prompt", () => {
+  it("is fetched again once the history or its prompts are deleted", () => {
+    const queryClient = new QueryClient();
+    const { queryKey } = capturedRequestQuery("t2");
+    queryClient.setQueryData(queryKey, Option.none());
+
+    refreshHistory(queryClient);
+
+    expect(queryClient.getQueryState(queryKey)?.isInvalidated).toBe(true);
   });
 });
