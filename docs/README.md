@@ -714,7 +714,10 @@ page's preferences:
 
 It also deletes the whole
 [usage history](#usage-history), after asking; that one isn't a preference of
-the browser, so it's gone for every viewer. Automatic writes times as the browser's
+the browser, so it's gone for every viewer. So are the two settings beside it:
+**Keep prompts of failed requests**, off until you turn it on, keeps a failed
+turn's [prompt](#captured-prompts), redacted, for 7 days, and **Delete captured
+prompts…** deletes every one kept, after asking, while the history stays. Automatic writes times as the browser's
 language does. Each choice applies at once, to every open tab, and is kept in
 that browser's local storage, not in via, so another browser starts from the
 defaults.
@@ -766,6 +769,33 @@ via kept one. A turn that had attempts fail says how many ("1 failed"), and one
 that took more than one says how many it took ("2 attempts"). A request kept before via kept attempts has none to
 open. Under the timeline, the turns are listed oldest first. **All
 conversations** goes back to the list.
+
+A turn whose [prompt](#captured-prompts) via kept has a page glyph beside its
+label on the timeline, and **View request** under its attempts and under its
+outcome in the turns list. It opens the request in a sheet beside the
+conversation (Escape closes it): its parameters (model, max tokens, reasoning
+effort, temperature and so on) and the tools it offered, then its messages by
+role, as a conversation reads, the system or developer prompt folded away and a
+long message, tool call or tool result cut short until you choose **Show all**,
+then what each upstream attempt answered, with the attempt's provider, status
+and why it didn't serve. What via redacted (`[redacted:openai-key]`) and the
+images it left out (`[image: png, 412 KB]`) stand out as chips, and a note says
+how many of each it replaced, and when it cut long strings short. A body of a
+shape other than Chat Completions' or Responses' shows as JSON. **Copy JSON**
+copies the whole of it. While keeping failed prompts is on, the Conversations
+tab says **Capturing failed prompts**, a link to the setting.
+
+**Export**, in a conversation's header, has **Download JSON**, a file named
+`via-conversation-<id>-<yyyymmdd-hhmm>.json` holding the conversation as the
+admin API answers it (`summary`, `turns`, `attempts`) with `version`,
+`exportedAt`, `via.version` and its captured prompts under `captured`, by
+request id; and **Copy as Markdown**, a report to paste into an issue: its
+totals, a table of its turns, and for each turn that failed or fell back its
+attempts and, when via kept its prompt, the prompt's last five messages (the
+system prompt left out, a long one trimmed) and what the upstreams answered.
+Privacy mode hides emails and key endings in the report, not in the file. The
+menu says when an export holds captured prompts, as redacting by pattern can
+miss a secret.
 
 The tab is live while the page's [event stream](#admin-api) is open: a
 conversation with a turn in flight, its own or a sub-agent's, has a **Live**
