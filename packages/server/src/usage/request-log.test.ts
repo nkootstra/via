@@ -2,7 +2,8 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Deferred, Effect, Exit, FileSystem, Option, Stream } from "effect";
+import { UsageHistory } from "@via/usage";
+import { Deferred, Effect, Exit, Fiber, FileSystem, Layer, Option, Stream } from "effect";
 import { ok, withVia } from "../testing/harness.ts";
 
 const cachedTokens = () =>
@@ -80,6 +81,56 @@ layer(BunFileSystem.layer)("request log", (it) => {
         });
       }),
     ),
+  );
+
+  it.effect("answers without waiting for the request to be kept in the history", () =>
+    Effect.gen(function* () {
+      const release = yield* Deferred.make<void>();
+
+      // A history that holds every request it keeps until it is let go.
+      const history = Layer.effect(
+        UsageHistory,
+        Effect.map(UsageHistory, (usage) =>
+          UsageHistory.of({
+            ...usage,
+            keep: (entry, attempts) =>
+              Effect.andThen(Deferred.await(release), usage.keep(entry, attempts)),
+          }),
+        ),
+      ).pipe(Layer.provide(UsageHistory.layerMemory));
+
+      yield* withVia(
+        ok,
+        (via) =>
+          Effect.gen(function* () {
+            via.provider.respond(providerReply.json({ choices: [] }));
+
+            const answered = yield* Effect.forkChild(
+              Effect.flatMap(
+                via.post("/v1/chat/completions", { model: "opencode-go/kimi-k3", messages: [] }),
+                (response) => Effect.as(response.text, response.status),
+              ),
+            );
+
+            expect(yield* Fiber.join(answered)).toBe(200);
+            yield* Deferred.succeed(release, undefined);
+
+            // The line is logged once the request is kept.
+            expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
+              model: "opencode-go/kimi-k3",
+            });
+
+            const kept = yield* via.usage.requests({
+              from: 0,
+              to: Number.MAX_SAFE_INTEGER,
+              limit: 1,
+            });
+
+            expect(kept.requests).toHaveLength(1);
+          }),
+        { history },
+      );
+    }),
   );
 
   it.effect("logs a provider's answer the client didn't ask to stream without stream timings", () =>

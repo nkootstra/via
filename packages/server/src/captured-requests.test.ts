@@ -2,7 +2,8 @@ import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, reply } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
-import { Effect, Option } from "effect";
+import { UsageHistory } from "@via/usage";
+import { Deferred, Effect, Fiber, Layer, Option } from "effect";
 import type { HttpClientResponse } from "effect/http";
 import { ok, type Via, withVia } from "./testing/harness.ts";
 
@@ -168,5 +169,51 @@ layer(BunFileSystem.layer)("captured requests", (it) => {
         }),
       { keepFailedPrompts: true },
     ),
+  );
+
+  it.effect("answers a failed turn without waiting for its capture and history to be written", () =>
+    Effect.gen(function* () {
+      const release = yield* Deferred.make<void>();
+
+      // A history that holds every request it keeps until it is let go.
+      const history = Layer.effect(
+        UsageHistory,
+        Effect.map(UsageHistory, (usage) =>
+          UsageHistory.of({
+            ...usage,
+            keep: (entry, attempts) =>
+              Effect.andThen(Deferred.await(release), usage.keep(entry, attempts)),
+          }),
+        ),
+      ).pipe(Layer.provide(UsageHistory.layerMemory));
+
+      yield* withVia(
+        () => usageLimit,
+        (via) =>
+          Effect.gen(function* () {
+            const answered = yield* Effect.forkChild(
+              Effect.flatMap(via.post("/v1/chat/completions", chat), (response) =>
+                Effect.as(response.text, response),
+              ),
+            );
+
+            const response = yield* Fiber.join(answered);
+            expect(response.status).toBe(429);
+
+            // Answered while the history still holds the request back.
+            const kept = yield* via.usage.requests({
+              from: 0,
+              to: Number.MAX_SAFE_INTEGER,
+              limit: 1,
+            });
+
+            expect(kept.requests).toEqual([]);
+
+            yield* Deferred.succeed(release, undefined);
+            expect(Option.isSome(yield* capturedOf(via, response))).toBe(true);
+          }),
+        { keepFailedPrompts: true, history },
+      );
+    }),
   );
 });

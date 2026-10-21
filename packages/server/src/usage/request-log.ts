@@ -26,6 +26,7 @@ import type { Conversation } from "../proxy/session.ts";
 import { type AttemptAnswer, captureOf, worthCapturing } from "./capture.ts";
 import { categorize, keptMessage } from "./failure.ts";
 import { LiveTurns } from "./live-turns.ts";
+import { Settling } from "./settling.ts";
 import type { LiveAttempt, LiveTurn } from "./turn-events.ts";
 
 /**
@@ -465,6 +466,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
     const captures = yield* CapturedRequests;
     const captureSettings = yield* CaptureSettingsStore;
     const live = yield* LiveTurns;
+    const settling = yield* Settling;
     const id = yield* requestId;
     const clientId = clientRequestId(request.headers);
     const start = yield* Clock.currentTimeMillis;
@@ -596,8 +598,11 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         // A host's health checks would drown out the requests.
         const logged = line.logged && request.url !== "/healthz";
 
-        // Kept before the line is logged, so whoever sees the line finds the request kept.
-        return Effect.andThen(settle(line, logged), logged ? log(line) : Effect.void);
+        // Kept before the line is logged, so whoever sees the line finds the request kept, and
+        // apart from the request, so its answer doesn't wait for a capture to be redacted.
+        return settling.settle(
+          Effect.andThen(settle(line, logged), logged ? log(line) : Effect.void),
+        );
       }),
     );
 
