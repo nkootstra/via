@@ -48,7 +48,7 @@ export type StoryItem =
     };
 
 /** The turns of `items`, down into each sub-agent's. */
-export const turnsOf = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<TimelineTurn> =>
+const turnsOf = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<TimelineTurn> =>
   items.flatMap((item) => (item.kind === "turn" ? [item] : turnsOf(item.items)));
 
 /** How long a turn took, or, in flight, has taken until `now`. */
@@ -73,11 +73,11 @@ export const waitedMs = (row: TimelineTurn): Option.Option<number> =>
     : row.turn.firstChunkMs;
 
 /** The model a turn's client asked for: the one via fell back from, when it did. */
-export const askedModel = (row: TimelineTurn) =>
+const askedModel = (row: TimelineTurn) =>
   row.live ? row.turn.model : Option.getOrElse(row.turn.requestedModel, () => row.turn.model);
 
 /** Whether a turn ended failed: an error, or a stream that broke off. */
-export const turnFailed = (row: TimelineTurn) => !row.live && failed(row.turn);
+const turnFailed = (row: TimelineTurn) => !row.live && failed(row.turn);
 
 /** Attempts of a turn that ended and didn't serve. */
 export const unserved = (row: TimelineTurn): ReadonlyArray<TurnAttempt> =>

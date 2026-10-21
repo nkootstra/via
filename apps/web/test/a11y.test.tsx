@@ -332,7 +332,7 @@ describe("accessibility", { timeout: 15_000 }, () => {
     expect(await violations()).toEqual([]);
   });
 
-  it("a conversation's timeline and turns, a turn's attempts open", async () => {
+  it("a conversation's story and turns, a turn's attempts open", async () => {
     const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", { conversations });
     await screen.findByRole("list", { name: "Timeline" });
     await screen.findByRole("table", { name: "Turns" });

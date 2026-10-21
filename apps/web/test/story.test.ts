@@ -324,6 +324,10 @@ const values = Arbitrary.schema(Conversation);
 const asked = (row: TimelineTurn) =>
   row.live ? row.turn.model : Option.getOrElse(row.turn.requestedModel, () => row.turn.model);
 
+/** A kept turn's status; none for one in flight. */
+const statusOf = (row: TimelineTurn | undefined) =>
+  row === undefined || row.live ? undefined : row.turn.status;
+
 const succeeded = (row: TimelineTurn) =>
   !row.live && row.turn.status < 400 && Option.isNone(row.turn.requestedModel);
 
@@ -376,7 +380,7 @@ describe("storyOf, for any conversation", () => {
                   row.turn.status >= 400 &&
                   row.turn.status !== 499 &&
                   row.turn.model === item.turns[0]?.turn.model &&
-                  row.turn.status === item.turns[0]?.turn.status,
+                  row.turn.status === statusOf(item.turns[0]),
               )),
         ),
       ),
