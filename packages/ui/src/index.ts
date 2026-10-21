@@ -18,6 +18,8 @@ export {
 
 export { AlertDialog, AlertDialogContent, AlertDialogTrigger } from "./alert-dialog.tsx";
 
+export { Sheet, SheetContent, type SheetContentProps } from "./sheet.tsx";
+
 export {
   Table,
   TableBody,

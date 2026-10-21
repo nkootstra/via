@@ -36,6 +36,8 @@ import {
   Skeleton,
   Switch,
   SegmentedControl,
+  Sheet,
+  SheetContent,
   SegmentedItem,
   SearchSelect,
   TabItem,
@@ -388,7 +390,7 @@ function Gallery() {
         </Table>
       </Section>
 
-      <Section title="Menu, Dialog, AlertDialog">
+      <Section title="Menu, Dialog, AlertDialog, Sheet">
         <div {...stylex.props(styles.row)}>
           <Menu>
             <MenuTrigger render={<Button variant="tertiary">Account actions</Button>} />
@@ -431,6 +433,13 @@ function Gallery() {
               </DialogFooter>
             </AlertDialogContent>
           </AlertDialog>
+
+          <Sheet>
+            <DialogTrigger render={<Button variant="tertiary">View request</Button>} />
+            <SheetContent title="Request of turn 3" description="As via kept it, redacted.">
+              <p>A sheet slides in from the right and scrolls on its own.</p>
+            </SheetContent>
+          </Sheet>
         </div>
       </Section>
 
