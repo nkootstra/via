@@ -298,31 +298,108 @@ export const redact = (value: Schema.Json): Redacted => {
 };
 
 /** How many bytes `value` takes as JSON. */
-export const jsonSize = (value: Schema.Json) =>
-  new TextEncoder().encode(JSON.stringify(value)).length;
+const jsonSize = (value: Schema.Json) => new TextEncoder().encode(JSON.stringify(value)).length;
 
-/** The longest string in `value`, in characters. */
-const longest = (value: Schema.Json): number => {
-  if (Predicate.isString(value)) return value.length;
+const isHigh = (code: number) => code >= 0xd800 && code <= 0xdbff;
 
-  if (Array.isArray(value))
-    return value.reduce((most: number, item) => Math.max(most, longest(item)), 0);
+const isLow = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 
-  if (isJsonObject(value)) {
-    return Object.values(value).reduce((most: number, item) => Math.max(most, longest(item)), 0);
+/**
+ * How many bytes `text`'s UTF-16 unit at `index` takes in JSON, as UTF-8: an escaped quote,
+ * backslash or control character, or one to three bytes. A surrogate pair takes four, all
+ * counted on its first half; a lone surrogate is escaped.
+ */
+const unitBytes = (text: string, index: number) => {
+  const code = text.charCodeAt(index);
+
+  if (code < 0x80) {
+    if (code === 0x22 || code === 0x5c) return 2;
+
+    if (code >= 0x20) return 1;
+
+    // \b, \t, \n, \f and \r; any other control character is \u00XX.
+    return code === 0x08 || code === 0x09 || code === 0x0a || code === 0x0c || code === 0x0d
+      ? 2
+      : 6;
   }
 
-  return 0;
+  if (code < 0x800) return 2;
+
+  if (isHigh(code)) return isLow(text.charCodeAt(index + 1)) ? 4 : 6;
+
+  if (isLow(code)) return isHigh(text.charCodeAt(index - 1)) ? 0 : 6;
+
+  return 3;
+};
+
+/** How many units a block of {@link Measured.blocks} spans. */
+const BLOCK = 1024;
+
+/** A string, measured once, so how much of it any cut leaves takes no second look at it all. */
+interface Measured {
+  readonly text: string;
+  /** Its bytes as JSON, quotes included. */
+  readonly bytes: number;
+  /** The bytes, as JSON, of the text before each block of {@link BLOCK} units. */
+  readonly blocks: Uint32Array;
+}
+
+const measure = (text: string): Measured => {
+  const blocks = new Uint32Array(Math.floor(text.length / BLOCK) + 1);
+  let bytes = 0;
+
+  for (let index = 0; index < text.length; index++) {
+    if (index % BLOCK === 0) blocks[index / BLOCK] = bytes;
+    bytes += unitBytes(text, index);
+  }
+
+  return { text, bytes: bytes + 2, blocks };
+};
+
+/** The bytes, as JSON, of `measured`'s first `end` units. */
+const prefixBytes = (measured: Measured, end: number) => {
+  const block = Math.floor(end / BLOCK);
+  let bytes = measured.blocks[block] ?? 0;
+
+  for (let index = block * BLOCK; index < end; index++) bytes += unitBytes(measured.text, index);
+
+  return bytes;
+};
+
+/** Where a string cut to `limit` units ends: not in the middle of a character that takes two. */
+const cutEnd = (text: string, limit: number) =>
+  Math.max(0, /[\uD800-\uDBFF]/.test(text.charAt(limit - 1)) ? limit - 1 : limit);
+
+/** What follows a cut string: how much went. */
+const cutNote = (text: string, end: number) => `…[truncated ${text.length - end} characters]`;
+
+/** The bytes, as JSON, of `measured` cut to `limit` units, its note included. */
+const cutBytes = (measured: Measured, limit: number) => {
+  if (measured.text.length <= limit) return measured.bytes;
+  const end = cutEnd(measured.text, limit);
+
+  // The note is ASCII but for its ellipsis, which takes three bytes.
+  return 2 + prefixBytes(measured, end) + cutNote(measured.text, end).length + 2;
+};
+
+/** Every string in `value`, its keys' aside. */
+const stringsOf = (value: Schema.Json): ReadonlyArray<string> => {
+  if (Predicate.isString(value)) return [value];
+
+  if (Array.isArray(value)) return value.flatMap(stringsOf);
+
+  if (isJsonObject(value)) return Object.values(value).flatMap(stringsOf);
+
+  return [];
 };
 
 /** `value` with each string longer than `limit` characters cut to it, and a note of how much went. */
 const cutTo = (value: Schema.Json, limit: number): Schema.Json => {
   if (Predicate.isString(value)) {
     if (value.length <= limit) return value;
-    // Not in the middle of a character that takes two.
-    const end = /[\uD800-\uDBFF]/.test(value.charAt(limit - 1)) ? limit - 1 : limit;
+    const end = cutEnd(value, limit);
 
-    return `${value.slice(0, Math.max(0, end))}…[truncated ${value.length - end} characters]`;
+    return `${value.slice(0, end)}${cutNote(value, end)}`;
   }
 
   if (Array.isArray(value)) return value.map((item) => cutTo(item, limit));
@@ -336,36 +413,48 @@ const cutTo = (value: Schema.Json, limit: number): Schema.Json => {
   return value;
 };
 
-/** JSON cut to fit, and whether it had to be. */
+/** JSON cut to fit, whether it had to be, and its size as JSON. */
 export interface Capped {
   readonly value: Schema.Json;
   readonly truncated: boolean;
+  readonly sizeBytes: number;
 }
 
 /**
- * `value` cut to at most `maxBytes` as JSON, and whether it had to be: its long strings
- * cut, the longest first, as little as needed. JSON too big even with every string cut
- * becomes only a note of its size.
+ * `value` cut to at most `maxBytes` as JSON, whether it had to be, and its size: its long
+ * strings cut, the longest first, as little as needed. JSON too big even with every string
+ * cut becomes only a note of its size. Each string is measured once, not again for every
+ * length tried, as a failed turn's body can be megabytes.
  */
 export const capped = (value: Schema.Json, maxBytes: number): Capped => {
   const size = jsonSize(value);
 
-  if (size <= maxBytes) return { value, truncated: false };
+  if (size <= maxBytes) return { value, truncated: false, sizeBytes: size };
+
+  const strings = stringsOf(value).map(measure);
+  // What isn't a string: keys, punctuation, numbers and the like, which no cut changes.
+  const rest = strings.reduce((bytes, measured) => bytes - measured.bytes, size);
+
+  const sizeAt = (limit: number) =>
+    strings.reduce((bytes, measured) => bytes + cutBytes(measured, limit), rest);
 
   // The longest every string can be and the JSON still fit, found by halving.
   let low = 0;
-  let high = longest(value);
+  let high = strings.reduce((most, measured) => Math.max(most, measured.text.length), 0);
 
   while (low < high) {
     const middle = Math.ceil((low + high) / 2);
 
-    if (jsonSize(cutTo(value, middle)) <= maxBytes) low = middle;
+    if (sizeAt(middle) <= maxBytes) low = middle;
     else high = middle - 1;
   }
 
   const cut = cutTo(value, low);
+  const cutSize = jsonSize(cut);
 
-  return jsonSize(cut) <= maxBytes
-    ? { value: cut, truncated: true }
-    : { value: `[truncated: ${sizeOf(size)}]`, truncated: true };
+  if (cutSize <= maxBytes) return { value: cut, truncated: true, sizeBytes: cutSize };
+
+  const note = `[truncated: ${sizeOf(size)}]`;
+
+  return { value: note, truncated: true, sizeBytes: note.length + 2 };
 };

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "@effect/vitest";
+import { describe, expect, it, vi } from "@effect/vitest";
 import { Arbitrary, Predicate, Schema } from "effect";
 import { capped, redact } from "./redact.ts";
 
@@ -389,11 +389,56 @@ describe("redact, as properties", () => {
   );
 });
 
+/** `inner` with each string longer than `limit` cut to it, as `capped` cuts. */
+const cutEach = (inner: Schema.Json, limit: number): Schema.Json => {
+  if (Predicate.isString(inner)) {
+    if (inner.length <= limit) return inner;
+    const end = /[\uD800-\uDBFF]/.test(inner.charAt(limit - 1)) ? limit - 1 : limit;
+
+    return `${inner.slice(0, Math.max(0, end))}…[truncated ${inner.length - end} characters]`;
+  }
+
+  if (Array.isArray(inner)) return inner.map((item) => cutEach(item, limit));
+
+  if (isJsonObject(inner)) {
+    return Object.fromEntries(Object.entries(inner).map(([k, v]) => [k, cutEach(v, limit)]));
+  }
+
+  return inner;
+};
+
+const longestOf = (inner: Schema.Json): number =>
+  Predicate.isString(inner)
+    ? inner.length
+    : Array.isArray(inner)
+      ? Math.max(0, ...inner.map(longestOf))
+      : isJsonObject(inner)
+        ? Math.max(0, ...Object.values(inner).map(longestOf))
+        : 0;
+
+/** What `capped` did when it measured the JSON again for every length it tried. */
+const measuredEachTime = (value: Schema.Json, maxBytes: number) => {
+  if (size(value) <= maxBytes) return value;
+  let low = 0;
+  let high = longestOf(value);
+
+  while (low < high) {
+    const middle = Math.ceil((low + high) / 2);
+
+    if (size(cutEach(value, middle)) <= maxBytes) low = middle;
+    else high = middle - 1;
+  }
+
+  const cut = cutEach(value, low);
+
+  return size(cut) <= maxBytes ? cut : `[truncated: ${size(value)}]`;
+};
+
 describe("capped", () => {
   it("leaves JSON that fits as it was", () => {
     const body = { messages: [{ content: "hello" }] };
 
-    expect(capped(body, 1_000)).toEqual({ value: body, truncated: false });
+    expect(capped(body, 1_000)).toEqual({ value: body, truncated: false, sizeBytes: size(body) });
   });
 
   it("cuts the longest strings until the JSON fits, and says so", () => {
@@ -403,6 +448,74 @@ describe("capped", () => {
     expect(truncated).toBe(true);
     expect(size(value)).toBeLessThanOrEqual(1_000);
     expect(value).toMatchObject({ short: "hello" });
+  });
+
+  /** Characters JSON escapes or UTF-8 takes more than a byte for, and plain ones. */
+  const tricky = [
+    '"',
+    "\\",
+    "\n",
+    "\t",
+    "\u0001",
+    "\u007f",
+    "é",
+    "€",
+    "😀",
+    "\uD800",
+    "\uDC00",
+    "a",
+    "b",
+    " ",
+  ];
+
+  const trickyJson = Arbitrary.schema(
+    Schema.Array(
+      Schema.Struct({
+        seed: Schema.Array(Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 1_000 }))),
+        length: Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 3_000 })),
+      }),
+    ),
+  ).pipe(
+    Arbitrary.map((strings) => ({
+      messages: strings.map(({ seed, length }) => ({
+        content: pick(tricky.join(""), seed.length === 0 ? [1] : seed, length),
+      })),
+    })),
+  );
+
+  it.prop(
+    "cuts as it did when it measured the JSON again for every length it tried",
+    {
+      json: trickyJson,
+      limit: Arbitrary.schema(Schema.Int.check(Schema.isBetween({ minimum: 64, maximum: 8_000 }))),
+    },
+    ({ json, limit }) => {
+      const kept = capped(json, limit);
+      const expected = measuredEachTime(json, limit);
+
+      // The note of a body too big to cut names its size as a person reads it.
+      if (Predicate.isString(expected) && expected.startsWith("[truncated:")) {
+        expect(kept.value).toMatch(/^\[truncated: /);
+      } else {
+        expect(kept.value).toEqual(expected);
+      }
+
+      expect(kept.sizeBytes).toBe(size(kept.value));
+    },
+  );
+
+  it("measures a big body as JSON a couple of times, not once for every length it tries", () => {
+    const body = {
+      messages: Array.from({ length: 200 }, (_, i) => ({ content: `${i}\n"`.repeat(5_000) })),
+    };
+
+    const stringify = vi.spyOn(JSON, "stringify");
+    const kept = capped(body, 100_000);
+    const calls = stringify.mock.calls.length;
+    stringify.mockRestore();
+
+    expect(kept.truncated).toBe(true);
+    expect(calls).toBeLessThanOrEqual(2);
   });
 
   it.prop(
