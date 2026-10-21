@@ -177,13 +177,12 @@ describe("a failed turn's captured request", () => {
     expect(copied).toContain("Together is down for maintenance");
   });
 
-  it("opens from the timeline too, under a turn's attempts", async () => {
+  it("opens from the failed turn's card on the timeline too", async () => {
     const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
     const timeline = await screen.findByRole("list", { name: "Timeline" });
+    const card = within(timeline).getByRole("article", { name: /^Turn 2,/ });
 
-    await user.click(within(timeline).getByRole("button", { name: /^Attempts of turn 2\b/ }));
-
-    await user.click(within(timeline).getByRole("button", { name: "View request" }));
+    await user.click(within(card).getByRole("button", { name: "View request" }));
 
     expect(await screen.findByRole("dialog", { name: "Request of turn 2" })).toBeDefined();
   });

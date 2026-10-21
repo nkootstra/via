@@ -1,7 +1,8 @@
 /**
  * One conversation, open on the usage page's Conversations tab: what it came
- * from and what it cost, its turns on a waterfall, and its turns as a table.
- * A failed turn whose request via kept opens it in a sheet, from either.
+ * from and what it cost, its turns told as a story down a time spine, and its
+ * turns as a table. A failed turn whose request via kept opens it in a sheet,
+ * from either.
  */
 import * as stylex from "@stylexjs/stylex";
 import { useQuery } from "@tanstack/react-query";
@@ -45,6 +46,7 @@ import {
   tokensOf,
 } from "../lib/usage-format.ts";
 import { changed } from "../lib/usage-search.ts";
+import { ConversationStory } from "./conversation-story.tsx";
 import { ExportMenu } from "./export-menu.tsx";
 import { GuessedBadge } from "./guessed-badge.tsx";
 import { DocumentIcon, UsageIcon } from "./icons.tsx";
@@ -52,7 +54,6 @@ import { ModelName } from "./model-name.tsx";
 import { Panel, Section } from "./page.tsx";
 import { QueryError } from "./query-error.tsx";
 import { RequestSheet, type ViewedTurn } from "./request-sheet.tsx";
-import { Waterfall } from "./waterfall.tsx";
 
 const styles = stylex.create({
   root: {
@@ -228,7 +229,7 @@ export function ConversationDetail({ id }: { readonly id: string }) {
 }
 
 /**
- * How often the clock ticks while a turn is in flight, so its bar grows: often
+ * How often the clock ticks while a turn is in flight, so its card counts up: often
  * enough to glide, or once a second for a viewer who asks for less motion.
  * With none in flight, nothing grows, and once a minute is plenty.
  */
@@ -334,8 +335,9 @@ function Opened({
       </StatList>
       <Section title="Timeline">
         <Panel>
-          <Waterfall
+          <ConversationStory
             timeline={timelineOf(summary.id, turns, { attempts, live, now })}
+            now={now}
             captured={captured}
             onViewRequest={view}
           />
@@ -360,14 +362,15 @@ function Opened({
 
 /**
  * The turns table's columns: the turn (its model over its time and agent),
- * served by, tokens, duration and outcome. A phone keeps the turn, tokens and outcome.
+ * served by, tokens, duration and outcome. A phone keeps the turn, tokens and
+ * outcome, the last two as wide as a token count and an error's code need.
  */
 const columns = [
   "auto",
   { width: "20%", secondary: true },
-  "14%",
+  "4.5rem",
   { width: "14%", secondary: true },
-  "24%",
+  "8rem",
 ] as const;
 
 /** Whose turn it was: the sub-agent's type, a plain sub-agent's, or none for the conversation's own. */
