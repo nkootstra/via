@@ -1,12 +1,13 @@
-import { Option } from "effect";
+import { Arbitrary, Effect, Option, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 import type { CapturedRequest, Conversation } from "../src/api/types.ts";
 import {
+  codeSpan,
   conversationJson,
   conversationMarkdown,
   exportFileName,
   fence,
-  tableCell,
+  inlineText,
 } from "../src/lib/conversation-export.ts";
 import { attempt, conversation, request } from "../src/testing/history.ts";
 
@@ -176,6 +177,102 @@ describe("Markdown's pieces", () => {
   });
 
   it("keeps a table cell on one line, its pipes and backticks escaped", () => {
-    expect(tableCell("a | b `c`\nd")).toBe("a \\| b \\`c\\` d");
+    expect(inlineText("a | b `c`\nd")).toBe("a \\| b \\`c\\` d");
+  });
+});
+
+describe("Markdown's escaping", () => {
+  it("keeps a backslash before a pipe in its cell", () => {
+    expect(inlineText("team\\|backup")).toBe("team\\\\\\|backup");
+  });
+
+  it("keeps a cell on one line whatever its line breaks", () => {
+    expect(inlineText("a\r\nb\rc")).toBe("a b c");
+  });
+
+  it("writes inline text as text, never as a link, tag or comment", () => {
+    expect(inlineText("<!-- [x](y) --> <b>")).toBe("\\<!-- \\[x\\](y) --\\> \\<b\\>");
+  });
+
+  it("puts a code in a span fenced with more backticks than it holds", () => {
+    expect(codeSpan("rate_limit")).toBe("`rate_limit`");
+    expect(codeSpan("a`b")).toBe("``a`b``");
+    expect(codeSpan("`x")).toBe("`` `x ``");
+  });
+
+  it("escapes what the client and the upstreams wrote", () => {
+    const sly = "<!-- hidden --> [click](http://x)";
+
+    const markdown = conversationMarkdown(
+      {
+        ...opened,
+        summary: { ...opened.summary, id: "ses_<!--1-->" },
+        turns: [opened.turns[0] ?? failedTurn, { ...failedTurn, errorMessage: Option.some(sly) }],
+        attempts: opened.attempts.map((tried) => ({
+          ...tried,
+          message: Option.some(sly),
+          upstreamCode: Option.some("a`b"),
+        })),
+      },
+      new Map([
+        [
+          "t2",
+          {
+            ...captured,
+            request: { messages: [{ role: "<!--user-->", content: "hi" }] },
+          },
+        ],
+      ]),
+      { time, hide: shown },
+    );
+
+    expect(markdown).not.toMatch(/(^|[^\\])<!--/m);
+    expect(markdown).not.toMatch(/(^|[^\\])\[click/m);
+    expect(markdown).toContain("``a`b``");
+  });
+});
+
+/** Checks `property` over generated values, failing with the shrunk counterexample. */
+const holds = <A>(values: Arbitrary.Arbitrary<A>, property: (value: A) => boolean) => {
+  const result = Effect.runSync(Arbitrary.checkEffect(values, property));
+
+  expect(Arbitrary.formatCheckFailure(result)).toBeUndefined();
+};
+
+/** Text of what Markdown reads as more than text. */
+const tricky = Arbitrary.schema(
+  Schema.Array(
+    Schema.Literals(["a", " ", "|", "\\", "`", "<", ">", "!", "-", "[", "]", "(", ")", "\r", "\n"]),
+  ),
+);
+
+/** Of `text`, the characters Markdown reads as they are: those no backslash escapes. */
+const unescaped = (text: string) => {
+  const raw: Array<string> = [];
+
+  for (let index = 0; index < text.length; index += 1) {
+    if (text[index] === "\\") index += 1;
+    else raw.push(text[index] ?? "");
+  }
+
+  return raw;
+};
+
+describe("Markdown's escaping, for any text", () => {
+  it("makes a cell that never adds a column, nor a line", () => {
+    holds(tricky, (chars) => {
+      const cell = inlineText(chars.join(""));
+
+      // GitHub splits a row on each pipe no backslash escapes.
+      return !unescaped(cell).includes("|") && !/[\r\n]/.test(cell);
+    });
+  });
+
+  it("leaves no tag nor comment open in inline text, nor a link", () => {
+    holds(tricky, (chars) => {
+      const raw = unescaped(inlineText(chars.join("")));
+
+      return !raw.includes("<") && !raw.includes("[") && !/[\r\n]/.test(raw.join(""));
+    });
   });
 });
