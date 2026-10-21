@@ -111,12 +111,12 @@ describe("timelineOf", () => {
     expect(timeline.to).toBe(T0 + 10_000);
   });
 
-  it("places each turn and its first chunk as shares of the span", () => {
-    const [first, second] = timelineOf("root", [turn("a", 0), turn("b", 9_000)]).items;
+  it("lists the turns oldest first, numbered in the order they came", () => {
+    const [first, second] = timelineOf("root", [turn("b", 9_000), turn("a", 0)]).items;
 
-    expect(first).toMatchObject({ kind: "turn", number: 1, start: 0, end: 0.1 });
-    expect(first?.kind === "turn" && first.firstChunk).toEqual(Option.some(0.025));
-    expect(second).toMatchObject({ kind: "turn", number: 2, start: 0.9, end: 1 });
+    expect(first).toMatchObject({ kind: "turn", number: 1, live: false });
+    expect(first?.kind === "turn" && first.turn.requestId).toBe("a");
+    expect(second).toMatchObject({ kind: "turn", number: 2 });
   });
 
   it("nests a sub-agent's turns under its parent, where they started", () => {
@@ -177,14 +177,13 @@ describe("timelineOf", () => {
     ]);
   });
 
-  it("gives a conversation of one instant a span to draw it in", () => {
+  it("spans a conversation of one instant as no time at all", () => {
     const timeline = timelineOf("root", [turn("a", 0, "root", { durationMs: 0 })]);
 
-    expect(timeline.items[0]).toMatchObject({ start: 0, end: 0 });
-    expect(timeline.to).toBeGreaterThan(timeline.from);
+    expect(timeline.to).toBe(timeline.from);
   });
 
-  it("places each turn's upstream attempts on the same axis, in order", () => {
+  it("gives each turn its upstream attempts, in order", () => {
     const [first, second] = timelineOf("root", [turn("a", 0), turn("b", 9_000)], {
       attempts: [
         attempt("b", 0, 9_000, 500, { outcome: "served" }),
@@ -193,16 +192,15 @@ describe("timelineOf", () => {
       ],
     }).items;
 
-    expect(first?.kind === "turn" && first.attempts).toEqual([
-      expect.objectContaining({ open: false, start: 0, end: 0.04, firstChunk: Option.none() }),
-      expect.objectContaining({
-        open: false,
-        start: 0.04,
-        end: 0.1,
-        firstChunk: Option.some(0.05),
-      }),
+    expect(
+      first?.kind === "turn" && first.attempts.map((placed) => [placed.open, placed.attempt.seq]),
+    ).toEqual([
+      [false, 0],
+      [false, 1],
     ]);
-    expect(second?.kind === "turn" && second.attempts.map(({ start }) => start)).toEqual([0.9]);
+    expect(
+      second?.kind === "turn" && second.attempts.map((placed) => placed.attempt.requestId),
+    ).toEqual(["b"]);
   });
 
   it("gives a turn kept before attempts were no attempts", () => {
@@ -211,7 +209,7 @@ describe("timelineOf", () => {
     expect(first?.kind === "turn" && first.attempts).toEqual([]);
   });
 
-  it("draws a turn in flight up to now, its open attempt with it, and stretches the axis to now", () => {
+  it("holds a turn in flight with its attempts, the open one too, and runs the span to now", () => {
     const timeline = timelineOf("root", [turn("a", 0)], {
       live: [
         live("l", 2_000, "root", [
@@ -226,11 +224,10 @@ describe("timelineOf", () => {
 
     const [, row] = timeline.items;
 
-    expect(row).toMatchObject({ kind: "turn", live: true, number: 2, start: 0.2, end: 1 });
-    expect(row?.kind === "turn" && row.firstChunk).toEqual(Option.some(0.4));
-    expect(row?.kind === "turn" && row.attempts).toEqual([
-      expect.objectContaining({ open: false, start: 0.2, end: 0.3 }),
-      expect.objectContaining({ open: true, start: 0.3, end: 1, firstChunk: Option.some(0.4) }),
+    expect(row).toMatchObject({ kind: "turn", live: true, number: 2 });
+    expect(row?.kind === "turn" && row.attempts.map((placed) => placed.open)).toEqual([
+      false,
+      true,
     ]);
   });
 

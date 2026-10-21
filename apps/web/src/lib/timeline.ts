@@ -1,9 +1,8 @@
 /**
- * A conversation laid out on one time axis, for its waterfall: each turn as
- * the share of the span from its start to its end, its upstream attempts
- * likewise, and each sub-agent's turns nested under the conversation that
- * started it, where its first turn came. A turn still in flight runs to now,
- * as does the axis while one is.
+ * A conversation's turns in the order they came, numbered, each with its
+ * upstream attempts, and each sub-agent's turns nested under the conversation
+ * that started it, where its first turn came; and the span they take, from the
+ * first turn's start to the last's end, or to now while a turn is in flight.
  */
 import { Option } from "effect";
 import type {
@@ -14,35 +13,26 @@ import type {
   UsageRequest,
 } from "../api/types.ts";
 
-/** Where a bar lies, as shares of the span (0–1), and where its first chunk came. */
-interface Place {
-  readonly start: number;
-  readonly end: number;
-  readonly firstChunk: Option.Option<number>;
-}
-
-/** An upstream attempt's bar: one that ended, as kept, or one still under way. */
-export type TimelineAttempt = Place &
-  (
-    | { readonly open: false; readonly attempt: TurnAttempt }
-    | { readonly open: true; readonly attempt: OpenAttempt }
-  );
+/** An upstream attempt: one that ended, as kept, or one still under way. */
+export type TimelineAttempt =
+  | { readonly open: false; readonly attempt: TurnAttempt }
+  | { readonly open: true; readonly attempt: OpenAttempt };
 
 /**
- * A turn's row: its request, as the history keeps it, or, `live`, as it stands
- * while in flight; its number in the order turns came; where its bar lies; and
- * its upstream attempts, none for a turn kept before via kept them.
+ * A turn: its request, as the history keeps it, or, `live`, as it stands
+ * while in flight; its number in the order turns came; and its upstream
+ * attempts, none for a turn kept before via kept them.
  */
-export type TimelineTurn = Place & {
+export type TimelineTurn = {
   readonly kind: "turn";
   readonly number: number;
   readonly attempts: ReadonlyArray<TimelineAttempt>;
 } & (
-    | { readonly live: false; readonly turn: UsageRequest }
-    | { readonly live: true; readonly turn: LiveTurn }
-  );
+  | { readonly live: false; readonly turn: UsageRequest }
+  | { readonly live: true; readonly turn: LiveTurn }
+);
 
-/** A sub-agent's conversation: its id, its type when its client named one, and its rows. */
+/** A sub-agent's conversation: its id, its type when its client named one, and its items. */
 export interface TimelineAgent {
   readonly kind: "agent";
   readonly id: string;
@@ -52,14 +42,14 @@ export interface TimelineAgent {
 
 export type TimelineItem = TimelineTurn | TimelineAgent;
 
-/** The span the turns take, in epoch milliseconds, and their rows. */
+/** The span the turns take, in epoch milliseconds, and the turns. */
 export interface Timeline {
   readonly from: number;
   readonly to: number;
   readonly items: ReadonlyArray<TimelineItem>;
 }
 
-/** What else goes on the axis: the turns' attempts, the turns in flight, and the time now. */
+/** What else the timeline holds: the turns' attempts, the turns in flight, and the time now. */
 interface Extra {
   readonly attempts?: ReadonlyArray<TurnAttempt>;
   readonly live?: ReadonlyArray<LiveTurn>;
@@ -73,14 +63,13 @@ type Entry =
 
 /** Where an item starts, to order it among its siblings. */
 const startOf = (item: TimelineItem): number =>
-  item.kind === "turn" ? item.start : Math.min(...item.items.map(startOf));
+  item.kind === "turn" ? item.turn.at : Math.min(...item.items.map(startOf));
 
 const isOpen = (attempt: LiveAttempt): attempt is OpenAttempt => attempt.state === "open";
 
 /**
  * The conversation `rootId`'s turns, its sub-agents' among them, oldest first,
- * on one axis, with their `attempts`, and the turns in flight that belong to it
- * running to `now`.
+ * with their `attempts`, and the turns in flight that belong to it running to `now`.
  */
 export const timelineOf = (
   rootId: string,
@@ -98,61 +87,29 @@ export const timelineOf = (
     ...entries.map((entry) => (entry.live ? now : entry.turn.at + entry.turn.durationMs)),
   );
 
-  // A conversation of one instant still needs a span to draw its turn in.
-  const to = Math.max(end, from + 1);
-  const share = (at: number) => (at - from) / (to - from);
-
+  const to = Math.max(end, from);
   const kept = Map.groupBy(attempts, ({ requestId }) => requestId);
 
-  const placeKept = (attempt: TurnAttempt): TimelineAttempt => ({
-    open: false,
-    attempt,
-    start: share(attempt.startedAt),
-    end: share(attempt.startedAt + attempt.durationMs),
-    firstChunk: Option.map(attempt.firstChunkMs, (ms) => share(attempt.startedAt + ms)),
-  });
-
-  const placeLive = (attempt: LiveAttempt): TimelineAttempt =>
-    isOpen(attempt)
+  const rowOf = (entry: Entry, number: number): TimelineTurn =>
+    entry.live
       ? {
-          open: true,
-          attempt,
-          start: share(attempt.startedAt),
-          end: 1,
-          firstChunk: Option.map(attempt.firstChunkMs, (ms) => share(attempt.startedAt + ms)),
+          kind: "turn",
+          live: true,
+          turn: entry.turn,
+          number,
+          attempts: entry.turn.attempts.map((attempt) =>
+            isOpen(attempt) ? { open: true as const, attempt } : { open: false as const, attempt },
+          ),
         }
-      : placeKept(attempt);
-
-  const rowOf = (entry: Entry, number: number): TimelineTurn => {
-    if (!entry.live) {
-      const { turn } = entry;
-
-      return {
-        kind: "turn",
-        live: false,
-        turn,
-        number,
-        start: share(turn.at),
-        end: share(turn.at + turn.durationMs),
-        firstChunk: Option.map(turn.firstChunkMs, (ms) => share(turn.at + ms)),
-        attempts: (kept.get(turn.requestId) ?? []).toSorted((a, b) => a.seq - b.seq).map(placeKept),
-      };
-    }
-
-    const placed = entry.turn.attempts.map(placeLive);
-
-    return {
-      kind: "turn",
-      live: true,
-      turn: entry.turn,
-      number,
-      start: share(entry.turn.at),
-      end: 1,
-      // The first chunk the turn had: the one the attempt still under way sent.
-      firstChunk: Option.firstSomeOf(placed.toReversed().map(({ firstChunk }) => firstChunk)),
-      attempts: placed,
-    };
-  };
+      : {
+          kind: "turn",
+          live: false,
+          turn: entry.turn,
+          number,
+          attempts: (kept.get(entry.turn.requestId) ?? [])
+            .toSorted((a, b) => a.seq - b.seq)
+            .map((attempt) => ({ open: false as const, attempt })),
+        };
 
   // Each conversation's turns, and the conversation each was started by.
   const own = new Map<string, Array<TimelineTurn>>();
