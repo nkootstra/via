@@ -1399,7 +1399,9 @@ same for every turn, and the conversation is marked `guessed`. An id longer than
 belong to no conversation.
 
 `conversations` lists the conversations no other started, the latest active
-first, that have turns in the range the filters keep. Each counts those turns,
+first, that have turns in the range the filters keep. A conversation is a
+sub-agent's once any of its turns names its parent, and is listed on its own
+when via kept no turn of that parent. Each counts those turns,
 its sub-agents' included, with its `id`, `source` (the header, `body.<field>`
 or `hash`), `guessed`, `client`, `keyName`, `models`, `firstAt`, `lastAt`,
 `turns`, `subagents`, its tokens, `failed`, `fellBack` and `cost`, priced as

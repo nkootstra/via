@@ -832,20 +832,26 @@ const make = Effect.gen(function* () {
 
   /**
    * `tree`: each conversation `roots` picks, as `root`, with itself and every
-   * conversation under it, at any depth, as `id`. `UNION` keeps each pair once,
-   * so a client that names a conversation its own ancestor ends the recursion.
+   * conversation under it, at any depth, as `id`. `roots` picks from `parents`: each
+   * conversation as `id`, once, and the conversation that started it as `parent`, when
+   * any of its turns names one other than itself, so one that names it on only some
+   * turns is still a sub-agent's. `UNION` keeps each pair once, so a client that names
+   * a conversation its own ancestor ends the recursion.
    */
   const conversationTree = (roots: Statement.Fragment) => sql`
     WITH RECURSIVE
-      links(id, parent) AS (
-        SELECT DISTINCT conversation_id, parent_conversation_id FROM requests
-        WHERE parent_conversation_id IS NOT NULL
+      parents(id, parent) AS (
+        SELECT
+          conversation_id,
+          MAX(CASE WHEN parent_conversation_id <> conversation_id THEN parent_conversation_id END)
+        FROM requests
+        WHERE conversation_id IS NOT NULL
+        GROUP BY conversation_id
       ),
       tree(root, id) AS (
-        SELECT DISTINCT conversation_id, conversation_id FROM requests
-        WHERE conversation_id IS NOT NULL AND ${roots}
+        SELECT id, id FROM parents WHERE ${roots}
         UNION
-        SELECT tree.root, links.id FROM links JOIN tree ON links.parent = tree.id
+        SELECT tree.root, parents.id FROM parents JOIN tree ON parents.parent = tree.id
       )
   `;
 
@@ -856,7 +862,7 @@ const make = Effect.gen(function* () {
   ) {
     if (ids.length === 0) return [];
 
-    const tree = conversationTree(sql.in("conversation_id", ids));
+    const tree = conversationTree(sql.in("id", ids));
 
     // Rows only ever come from these queries, so they always decode.
     const totals = yield* sql`
@@ -928,7 +934,10 @@ const make = Effect.gen(function* () {
 
     // One more than a page, to tell whether another page follows.
     const rows = yield* sql`
-      ${conversationTree(sql`parent_conversation_id IS NULL`)}
+      ${conversationTree(
+        // One no other started, or whose parent via has no turn of, so it isn't lost.
+        sql`parent IS NULL OR parent NOT IN (SELECT id FROM parents)`,
+      )}
       SELECT tree.root AS id
       FROM requests JOIN tree ON requests.conversation_id = tree.id
       WHERE ${matching(query)}
@@ -967,7 +976,7 @@ const make = Effect.gen(function* () {
     if (summary === undefined) return Option.none<ConversationTurns>();
 
     const rows = yield* sql`
-      ${conversationTree(sql`conversation_id = ${id}`)}
+      ${conversationTree(sql`id = ${id}`)}
       SELECT ${columns} FROM requests
       WHERE conversation_id IN (SELECT id FROM tree)
       ORDER BY at, request_id
@@ -977,7 +986,7 @@ const make = Effect.gen(function* () {
     const turns = yield* decodeEntries(rows).pipe(Effect.orDie);
 
     const attemptRows = yield* sql`
-      ${conversationTree(sql`conversation_id = ${id}`)},
+      ${conversationTree(sql`id = ${id}`)},
       turns AS (
         SELECT request_id, MIN(at) AS at FROM requests
         WHERE conversation_id IN (SELECT id FROM tree)

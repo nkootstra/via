@@ -998,6 +998,70 @@ describe("UsageHistory.conversations", () => {
   );
 });
 
+describe("UsageHistory.conversations roots", () => {
+  const all = { from: 0, to: 2_000 * HOUR, limit: 10 };
+
+  it.effect("lists a sub-agent's conversation whose parent it has no turn of", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(turn("c1", HOUR, "child", "gone"));
+
+        const page = yield* usage.conversations(all);
+        expect(page.conversations).toMatchObject([{ id: "child", turns: 1, subagents: 0 }]);
+      }),
+    ),
+  );
+
+  it.effect("lists a conversation that names its parent on only some turns under it, once", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        yield* usage.record(turn("a1", HOUR, "root"));
+        yield* usage.record(turn("b1", 2 * HOUR, "child"));
+        yield* usage.record(turn("b2", 3 * HOUR, "child", "root"));
+
+        const page = yield* usage.conversations(all);
+        expect(page.conversations).toMatchObject([{ id: "root", turns: 3, subagents: 1 }]);
+      }),
+    ),
+  );
+});
+
+layer(UsageHistory.layerMemory)("UsageHistory.conversations properties", (shared) => {
+  const index = Schema.Int.check(Schema.isBetween({ minimum: 0, maximum: 5 }));
+
+  shared.effect.prop(
+    "counts every turn of a conversation once, under one listed conversation",
+    {
+      turns: Arbitrary.array(
+        Arbitrary.schema(Schema.Struct({ id: index, parent: Schema.NullOr(index) })),
+        { maxLength: 20 },
+      ),
+    },
+    ({ turns }) =>
+      emptied((usage) =>
+        Effect.gen(function* () {
+          yield* Effect.forEach(
+            turns,
+            ({ id, parent }, i) =>
+              // A parent comes before its sub-agents, so no conversation is its own ancestor.
+              usage.record(
+                turn(
+                  `r${i}`,
+                  (i + 1) * HOUR,
+                  `c${id}`,
+                  parent !== null && parent < id ? `c${parent}` : undefined,
+                ),
+              ),
+            { discard: true },
+          );
+
+          const page = yield* usage.conversations({ from: 0, to: 2_000 * HOUR, limit: 100 });
+          expect(sum(page.conversations.map((c) => c.turns))).toBe(turns.length);
+        }),
+      ),
+  );
+});
+
 describe("UsageHistory.conversation", () => {
   it.effect("gives a conversation's turns and its sub-agents', in order, and its totals", () =>
     history((usage) =>
