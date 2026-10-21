@@ -17,6 +17,8 @@ const styles = stylex.create({
   root: {
     display: "inline-flex",
     alignItems: "center",
+    // The dot variant's border sits inside the height, so every badge is 24px.
+    boxSizing: "border-box",
     height: "24px",
     maxWidth: "100%",
     paddingInline: space.s2_5,

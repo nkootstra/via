@@ -4,6 +4,9 @@ import type {
   ConversationSummary,
   HistoryBreakdown,
   HistoryGroup,
+  LiveTurn,
+  OpenAttempt,
+  TurnAttempt,
   UsageRequest,
 } from "../api/types.ts";
 
@@ -108,5 +111,55 @@ export const conversation = (
   failed: 0,
   fellBack: 0,
   cost: cost(0.12),
+  ...fields,
+});
+
+/** A turn in flight, as `/admin/events` sends it: OpenCode's, of the usage tests' clock. */
+export const liveTurn = (fields: Partial<LiveTurn> & Pick<LiveTurn, "requestId">): LiveTurn => ({
+  at: Date.parse("2026-09-27T12:29:55.000Z"),
+  model: "gpt-6-astra",
+  conversationId: Option.some("ses_1"),
+  parentConversationId: Option.none(),
+  agentType: Option.none(),
+  client: Option.some("opencode/1.19.3"),
+  keyName: Option.some("laptop"),
+  attempts: [],
+  ...fields,
+});
+
+/** An upstream attempt of a turn in flight, still under way. */
+export const openAttempt = (
+  fields: Partial<OpenAttempt> & Pick<OpenAttempt, "requestId">,
+): OpenAttempt => ({
+  state: "open",
+  seq: 0,
+  startedAt: Date.parse("2026-09-27T12:29:55.000Z"),
+  provider: "codex",
+  model: "gpt-6-astra",
+  accountId: Option.none(),
+  accountLabel: Option.none(),
+  status: Option.none(),
+  firstChunkMs: Option.none(),
+  ...fields,
+});
+
+/** An upstream attempt of `requestId` that served, as the usage history keeps one. */
+export const attempt = (
+  fields: Partial<TurnAttempt> & Pick<TurnAttempt, "requestId">,
+): TurnAttempt => ({
+  seq: 0,
+  startedAt: Date.parse("2026-09-27T11:30:00.000Z"),
+  durationMs: 2_000,
+  firstChunkMs: Option.none(),
+  provider: "codex",
+  model: "gpt-6-astra",
+  accountId: Option.none(),
+  accountLabel: Option.none(),
+  status: Option.some(200),
+  outcome: "served",
+  category: Option.none(),
+  upstreamCode: Option.none(),
+  downstreamProvider: Option.none(),
+  message: Option.none(),
   ...fields,
 });

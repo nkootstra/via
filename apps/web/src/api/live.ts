@@ -11,7 +11,14 @@ import { Option, Predicate } from "effect";
 import { useEffect, useSyncExternalStore } from "react";
 import { builtVersion } from "../version.ts";
 import { applyState, parseState } from "./state.ts";
-import { applyTurnEvent, forgetTurns, parseTurnEvent } from "./turns.ts";
+import {
+  applyTurnEvent,
+  forgetTurns,
+  heldEnded,
+  holdTurns,
+  parseTurnEvent,
+  releaseEnded,
+} from "./turns.ts";
 
 export type LiveUpdates = ReturnType<typeof createLiveUpdates>;
 
@@ -19,6 +26,7 @@ export function createLiveUpdates(queryClient: QueryClient) {
   let open = false;
   let updated = false;
   const listeners = new Set<() => void>();
+  holdTurns(queryClient);
 
   const notify = () => {
     for (const listener of listeners) listener();
@@ -54,21 +62,26 @@ export function createLiveUpdates(queryClient: QueryClient) {
       // The usage history is too big to push, so via only says it changed. Its queries
       // fetch again, but not a list of requests or conversations with more pages loaded:
       // that fetches every page it holds, and a list read further holds still.
+      // The turns that ended before it are in the history then, so the page lets go of
+      // them once it has fetched it again.
       source.addEventListener("history", () => {
         setOpen(true);
+        const ended = heldEnded(queryClient);
 
-        void queryClient.invalidateQueries({
-          queryKey: ["history"],
-          predicate: (query) =>
-            !(
-              Predicate.hasProperty(query.state.data, "pages") &&
-              Array.isArray(query.state.data.pages) &&
-              query.state.data.pages.length > 1
-            ),
-        });
+        void queryClient
+          .invalidateQueries({
+            queryKey: ["history"],
+            predicate: (query) =>
+              !(
+                Predicate.hasProperty(query.state.data, "pages") &&
+                Array.isArray(query.state.data.pages) &&
+                query.state.data.pages.length > 1
+              ),
+          })
+          .then(() => releaseEnded(queryClient, ended));
       });
 
-      // The turns in flight, which via pushes whole: no page renders them yet.
+      // The turns in flight, which via pushes whole.
       for (const name of ["turn.started", "turn.attempt", "turn.ended"]) {
         source.addEventListener(name, (event) => {
           if (!Predicate.hasProperty(event, "data") || !Predicate.isString(event.data)) return;

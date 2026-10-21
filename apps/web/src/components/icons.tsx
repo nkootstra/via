@@ -111,6 +111,13 @@ export const ArrowDownIcon = (props: IconProps) => (
   </Glyph>
 );
 
+/** Opens what sits beneath something, pointing right while it's closed. */
+export const ChevronRightIcon = (props: IconProps) => (
+  <Glyph {...props}>
+    <path d="M8.71967 18.2803C8.42678 17.9874 8.42678 17.5126 8.71967 17.2197L13.9393 12L8.71967 6.78033C8.42678 6.48744 8.42678 6.01256 8.71967 5.71967C9.01256 5.42678 9.48744 5.42678 9.78033 5.71967L15.5303 11.4697C15.8232 11.7626 15.8232 12.2374 15.5303 12.5303L9.78033 18.2803C9.48744 18.5732 9.01256 18.5732 8.71967 18.2803Z" />
+  </Glyph>
+);
+
 /** Takes something out of a list. */
 export const CloseIcon = (props: IconProps) => (
   <Glyph {...props}>
