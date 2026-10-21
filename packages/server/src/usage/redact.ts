@@ -306,7 +306,7 @@ const redactor = () => {
       .map(([kind, n]) => ({ kind, count: n }))
       .toSorted((a, b) => (a.kind < b.kind ? -1 : 1));
 
-  return { json, redactions };
+  return { text, json, redactions };
 };
 
 /**
@@ -320,6 +320,9 @@ export const redact = (value: Schema.Json): Redacted => {
 
   return { value: run.json(value), redactions: run.redactions() };
 };
+
+/** `text` with every secret via has a pattern for replaced by a marker, as `redact` does. */
+export const redactText = (text: string): string => redactor().text(text);
 
 /** How many bytes `value` takes as JSON. */
 const jsonSize = (value: Schema.Json) => new TextEncoder().encode(JSON.stringify(value)).length;

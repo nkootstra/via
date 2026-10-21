@@ -31,9 +31,10 @@ Examples of what's in scope:
   admin's own address locked out of signing in.
 - Files in `~/.config/via` (or `$VIA_HOME`) created with permissions wider than
   owner-only.
-- A prompt, an answer, a secret, or an upstream's error message other than one
-  answered with a 401, 402, 403, 429 or 5xx, ending up in the usage history
-  (`usage.db`) or the turns in flight `/admin/events` sends, which carry only
+- A prompt, an answer, a secret (a kept upstream's error message included, of a
+  kind the README says redaction replaces), or an upstream's error message other
+  than one answered with a 401, 402, 403, 429 or 5xx, ending up in the usage
+  history (`usage.db`) or the turns in flight `/admin/events` sends, which carry only
   what the README lists.
 - A prompt or an upstream's error answer kept in `bodies.db` while keeping
   failed turns' prompts is off (it is off until turned on), kept for a turn that

@@ -1387,7 +1387,9 @@ gave up). One that didn't serve also has:
   they don't quote the request, and their words are what tells you why: "the
   provider says the budget ran out". A 400, 413 or 422, or any other status,
   judges the request itself and can quote the prompt back, so its message is
-  never kept, as the request's own `error` never keeps one.
+  never kept, as the request's own `error` never keeps one. A secret the kept
+  message quotes, such as a key or a private key, is replaced first, as in a
+  [captured prompt](#captured-prompts).
 
 `conversations/<id>` gives every turn's attempts as `attempts`, in the order of
 the turns and then by `seq`, each naming its turn by `requestId`. Requests kept
@@ -1639,7 +1641,8 @@ and keeps its label (see
   to. It keeps the message only for an attempt the upstream answered 401, 402,
   403, 429 or 5xx (see [Upstream attempts](#upstream-attempts)), as those are
   about the account or the upstream, not the request; never for a 400, 413,
-  422 or any other, which could quote the request the upstream refused.
+  422 or any other, which could quote the request the upstream refused. A
+  secret a kept message quotes is redacted as a captured prompt's is.
   Upgrading cleared the messages an older via kept, via's own included, as the
   two can't be told apart. What via deletes or clears in it is
   overwritten (SQLite's `secure_delete`), not left in the file's free space,
