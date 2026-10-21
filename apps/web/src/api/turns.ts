@@ -2,7 +2,9 @@
  * The turns via is handling now, as `/admin/events` sends them: each from its
  * `turn.started` to its `turn.ended`, with its upstream attempts as they stand.
  * They live in the query cache, under {@link liveTurnsKey}, in the order they
- * started; no query fetches them, as via pushes every change.
+ * started; no query fetches them, as via pushes every change. Should its end
+ * go missing, a turn goes once the history has it, or once it has run longer
+ * than any turn does.
  *
  * A turn that ended is held a little longer, under {@link endedTurnsKey}, as
  * via sent it, until a fetch of the history has it: a page shows it in their
@@ -20,6 +22,9 @@ export const endedTurnsKey = ["ended-turns"] as const;
 
 /** At most this many ended turns are held, should the history never be fetched again. */
 const ENDED_HELD = 100;
+
+/** A turn in flight longer than this has ended unseen: no turn runs so long. */
+const LIVE_MAX_MS = 60 * 60_000;
 
 const decodeTurnEvent = Schema.decodeUnknownOption(TurnEvent);
 
@@ -70,10 +75,23 @@ const decodeFetched = Schema.decodeUnknownOption(Schema.Union([Paged, Listing]))
 
 const isPaged = Schema.is(Paged);
 
+/** Lets go of the turns in flight that began longer ago than any turn runs. */
+const dropStale = (queryClient: QueryClient) => {
+  const since = Date.now() - LIVE_MAX_MS;
+  const turns = queryClient.getQueryData<ReadonlyArray<LiveTurn>>(liveTurnsKey) ?? [];
+
+  if (turns.some(({ at }) => at < since)) {
+    queryClient.setQueryData<ReadonlyArray<LiveTurn>>(
+      liveTurnsKey,
+      turns.filter(({ at }) => at >= since),
+    );
+  }
+};
+
 /**
  * What a fetch of the history, `fetched`, says of the turns: those it has, by
- * request id, are held once ended no more; nor are the ended turns of a
- * conversation it lists, as the list then has them.
+ * request id, are in flight no more, nor held once ended; nor are the ended
+ * turns of a conversation it lists, as the list then has them.
  */
 const settle = (queryClient: QueryClient, fetched: typeof Listing.Type | typeof Paged.Type) => {
   const pages = isPaged(fetched) ? fetched.pages : [fetched];
@@ -95,12 +113,21 @@ const settle = (queryClient: QueryClient, fetched: typeof Listing.Type | typeof 
   const had = ({ requestId }: { readonly requestId: string }) =>
     kept.has(requestId) || (chains.get(requestId) ?? []).some((id) => listed.has(id));
 
+  if (live.some(({ requestId }) => kept.has(requestId))) {
+    queryClient.setQueryData<ReadonlyArray<LiveTurn>>(
+      liveTurnsKey,
+      live.filter(({ requestId }) => !kept.has(requestId)),
+    );
+  }
+
   if (ended.some(({ entry }) => had(entry))) {
     queryClient.setQueryData<ReadonlyArray<EndedTurn>>(
       endedTurnsKey,
       ended.filter(({ entry }) => !had(entry)),
     );
   }
+
+  dropStale(queryClient);
 };
 
 /**
@@ -133,6 +160,7 @@ export function applyTurnEvent(queryClient: QueryClient, event: TurnEvent) {
   queryClient.setQueryData<ReadonlyArray<LiveTurn>>(liveTurnsKey, (turns = []) =>
     applied(turns, event),
   );
+  dropStale(queryClient);
 
   if (event.event === "turn.ended") {
     const id = event.data.entry.requestId;

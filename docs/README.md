@@ -820,7 +820,8 @@ under way counting up. The time counts up ten times a second, or once a second
 when you ask for less motion (your device's reduced motion setting, or
 **Motion** set to Reduced). When the turn ends, it takes its place in the story
 at once, on a line or a card as it went, and the history's turn takes its place
-without a gap.
+without a gap. Should the page miss a turn's end, the turn stops showing as in
+flight once the history has it, or after an hour at most.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute

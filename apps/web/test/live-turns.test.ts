@@ -235,6 +235,33 @@ describe("the turns in flight", () => {
     expect(held()).toEqual([]);
   });
 
+  it("lets go of a turn in flight whose end it missed, once the history has it", async () => {
+    const { queryClient, source, turns } = listening();
+
+    source.turn({ event: "turn.started", data: turn("r1") });
+    source.turn({ event: "turn.started", data: turn("r2") });
+    await queryClient.fetchQuery({
+      queryKey: ["history", "conversation", "ses_1"],
+      queryFn: () => ({ turns: [{ requestId: "r1" }] }),
+    });
+
+    expect(turns()).toEqual([turn("r2")]);
+  });
+
+  it("lets go of a turn in flight that has gone on for longer than any turn runs", () => {
+    vi.useFakeTimers({ now: T0 });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
+    const { source, turns } = listening();
+
+    source.turn({ event: "turn.started", data: turn("r1") });
+    vi.setSystemTime(T0 + 2 * 60 * 60_000);
+    source.turn({ event: "turn.started", data: { ...turn("r2"), at: Date.now() } });
+
+    expect(turns()).toEqual([{ ...turn("r2"), at: Date.now() }]);
+  });
+
   it("holds the turns that ended when the stream drops, as the history may not have them yet", () => {
     const { source, held } = listening();
 
