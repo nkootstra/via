@@ -462,7 +462,7 @@ describe("a conversation", () => {
     expect(toggle(1)?.getAttribute("aria-label")).toBe("Attempts of turn 1");
     expect(toggle(3)?.getAttribute("aria-label")).toBe("Attempts of turn 3: 1, 1 failed");
     expect(toggle(4)?.getAttribute("aria-label")).toBe("Attempts of turn 4: 2, 1 failed");
-    expect(toggle(4)?.textContent).toContain("2");
+    expect(toggle(4)?.textContent).toContain("1 failed");
     // Kept before via kept attempts: there are none to show.
     expect(toggle(5)).toBeNull();
   });
