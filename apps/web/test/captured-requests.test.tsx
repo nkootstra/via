@@ -210,3 +210,32 @@ describe("a failed turn's captured request", () => {
     expect(await within(sheet).findByRole("heading", { name: "No prompt kept" })).toBeDefined();
   });
 });
+
+describe("the Conversations tab, while via keeps failed prompts", () => {
+  it("says so, calmly, with a link to the setting", async () => {
+    const { router, user } = renderApp("/usage?tab=conversations", {
+      ...seed,
+      capture: { keepFailedPrompts: true },
+    });
+
+    const link = await screen.findByRole("link", { name: /Capturing failed prompts/ });
+    await user.click(link);
+
+    await waitFor(() => expect(router.state.location.pathname).toBe("/settings"));
+    expect(router.state.location.hash).toBe("keep-failed-prompts");
+  });
+
+  it("says nothing while it's off", async () => {
+    renderApp("/usage?tab=conversations", seed);
+    await screen.findByRole("table", { name: "Conversations" });
+
+    expect(screen.queryByRole("link", { name: /Capturing failed prompts/ })).toBeNull();
+  });
+
+  it("says nothing on the Requests tab", async () => {
+    renderApp("/usage", { ...seed, capture: { keepFailedPrompts: true } });
+    await screen.findByRole("tab", { name: "Requests" });
+
+    expect(screen.queryByRole("link", { name: /Capturing failed prompts/ })).toBeNull();
+  });
+});

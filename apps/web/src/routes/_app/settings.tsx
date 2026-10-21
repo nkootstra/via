@@ -11,6 +11,7 @@ import {
   refreshHistory,
   setCapture,
 } from "../../api/admin.ts";
+import { CAPTURE_SETTING } from "../../components/capture-indicator.tsx";
 import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
 import { TrashIcon } from "../../components/icons.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -218,7 +219,8 @@ function Settings() {
  * if via refuses.
  */
 function CaptureSetting() {
-  const label = useId();
+  // The anchor the Conversations tab links to, and the label the switch is named by.
+  const label = CAPTURE_SETTING;
   const toast = useToast();
   const queryClient = useQueryClient();
   const capture = useQuery(captureQuery);
