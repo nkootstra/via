@@ -153,3 +153,11 @@ export const CapturedRequest = Schema.Struct({
 });
 
 export type CapturedRequest = typeof CapturedRequest.Type;
+
+/**
+ * What the usage history keeps beyond its counts: with `keepFailedPrompts`, the request
+ * body of a turn that failed or fell back, redacted, and what each upstream answered.
+ */
+export const CaptureSettings = Schema.Struct({ keepFailedPrompts: Schema.Boolean });
+
+export type CaptureSettings = typeof CaptureSettings.Type;

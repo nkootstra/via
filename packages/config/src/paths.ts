@@ -11,6 +11,8 @@ type Paths = {
   openrouter: string;
   fallbacks: string;
   usageDb: string;
+  bodiesDb: string;
+  capture: string;
 };
 
 /**
@@ -36,5 +38,7 @@ export function resolvePaths(
     openrouter: join(home, "openrouter.json"),
     fallbacks: join(home, "fallbacks.json"),
     usageDb: join(home, "usage.db"),
+    bodiesDb: join(home, "bodies.db"),
+    capture: join(home, "capture.json"),
   };
 }
