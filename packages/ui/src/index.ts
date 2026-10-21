@@ -114,4 +114,4 @@ export { SearchSelect } from "./search-select.tsx";
 
 export { Tooltip, type TooltipProps } from "./tooltip.tsx";
 
-export { CopyIcon } from "./icons.tsx";
+export { ChevronDownIcon, CopyIcon } from "./icons.tsx";

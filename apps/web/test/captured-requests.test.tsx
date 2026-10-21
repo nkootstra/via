@@ -90,7 +90,10 @@ beforeEach(() => {
   vi.useFakeTimers({ now, toFake: ["Date"] });
 });
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
 
 const turnsTable = () => screen.findByRole("table", { name: "Turns" });
 
@@ -237,5 +240,70 @@ describe("the Conversations tab, while via keeps failed prompts", () => {
     await screen.findByRole("tab", { name: "Requests" });
 
     expect(screen.queryByRole("link", { name: /Capturing failed prompts/ })).toBeNull();
+  });
+});
+
+describe("exporting a conversation", () => {
+  it("copies it as a Markdown report, its captured prompt included", async () => {
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+
+    await user.click(await screen.findByRole("button", { name: "Export" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy as Markdown" }));
+
+    expect(await screen.findByText("Markdown copied")).toBeDefined();
+    const copied = await navigator.clipboard.readText();
+    expect(copied).toMatch(/^# OpenCode 1\.19\.3 · ses_1/);
+    expect(copied).toContain("| # | Time | Model |");
+    expect(copied).toContain("My key is [redacted:openai-key]");
+    expect(copied).toContain("Together is down for maintenance");
+  });
+
+  it("downloads it as JSON, named for the conversation, its captured prompts by request", async () => {
+    const made: Array<Blob> = [];
+    const names: Array<string> = [];
+
+    vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => {
+      if (blob instanceof Blob) made.push(blob);
+
+      return "blob:via-export";
+    });
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+    vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (
+      this: HTMLAnchorElement,
+    ) {
+      names.push(this.download);
+    });
+
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+
+    await user.click(await screen.findByRole("button", { name: "Export" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Download JSON" }));
+
+    await waitFor(() => expect(names).toHaveLength(1));
+    expect(names[0]).toMatch(/^via-conversation-ses_1-\d{8}-\d{4}\.json$/);
+    const file = await made[0]?.text();
+    expect(file).toContain('"version": 1');
+    expect(file).toContain('"t2": {');
+    expect(file).toContain("Together is down for maintenance");
+  });
+
+  it("warns, in the menu, when the export holds captured prompts", async () => {
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+
+    await user.click(await screen.findByRole("button", { name: "Export" }));
+    const menu = await screen.findByRole("menu");
+
+    expect(menu.textContent).toContain("1 captured prompt");
+  });
+
+  it("warns of nothing when it holds none", async () => {
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", {
+      conversations: [opened],
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Export" }));
+    const menu = await screen.findByRole("menu");
+
+    expect(menu.textContent).not.toContain("captured prompt");
   });
 });

@@ -381,6 +381,34 @@ describe("accessibility", { timeout: 15_000 }, () => {
     expect(await violations(sheet)).toEqual([]);
   });
 
+  it("a conversation's export menu, warning of its captured prompts", async () => {
+    const captured = new Map([
+      [
+        "s1",
+        {
+          requestId: "s1",
+          capturedAt: 0,
+          endpoint: "responses" as const,
+          request: { input: "hi" },
+          upstreamErrors: [],
+          redactions: [],
+          truncated: false,
+          sizeBytes: 20,
+        },
+      ],
+    ]);
+
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", {
+      conversations,
+      captured,
+    });
+
+    await user.click(await screen.findByRole("button", { name: "Export" }));
+    const menu = await screen.findByRole("menu");
+
+    expect(await violations(menu)).toEqual([]);
+  });
+
   it("the revoke-key confirmation", async () => {
     const { user } = renderApp("/keys", populated);
     const row = within(await screen.findByRole("row", { name: /^laptop/ }));

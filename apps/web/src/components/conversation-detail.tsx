@@ -25,7 +25,7 @@ import { useState } from "react";
 import { historyConversationQuery } from "../api/admin.ts";
 import { useSignalledOptions } from "../api/live.ts";
 import { useEndedTurns, useLiveTurns } from "../api/turns.ts";
-import type { ConversationSummary, UsageRequest } from "../api/types.ts";
+import type { Conversation, ConversationSummary, UsageRequest } from "../api/types.ts";
 import { harnessName } from "../lib/harness.ts";
 import { pendingSummary, type Standing, standing } from "../lib/live-conversations.ts";
 import { withoutPrefix } from "../lib/model-entries.ts";
@@ -45,6 +45,7 @@ import {
   tokensOf,
 } from "../lib/usage-format.ts";
 import { changed } from "../lib/usage-search.ts";
+import { ExportMenu } from "./export-menu.tsx";
 import { GuessedBadge } from "./guessed-badge.tsx";
 import { DocumentIcon, UsageIcon } from "./icons.tsx";
 import { ModelName } from "./model-name.tsx";
@@ -69,7 +70,15 @@ const styles = stylex.create({
     borderRadius: radii.item,
     outlineOffset: "2px",
   },
+  // Its name and id, and beside them, while they fit, exporting it.
   header: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: space.s3,
+  },
+  heading: {
     display: "flex",
     flexDirection: "column",
     gap: space.s1,
@@ -187,6 +196,7 @@ export function ConversationDetail({ id }: { readonly id: string }) {
           summary={conversation.data.summary}
           standing={now}
           captured={new Set(conversation.data.captured)}
+          kept={conversation.data}
         />
       ) : // A conversation whose first turn is in flight, or just ended: the history has none of it yet.
       pending && isNotFound(conversation.error) ? (
@@ -228,11 +238,14 @@ function Opened({
   summary,
   standing: { turns, attempts, live },
   captured,
+  kept,
 }: {
   readonly summary: ConversationSummary;
   readonly standing: Standing;
   /** The turns, by request id, whose request via kept. */
   readonly captured: ReadonlySet<string>;
+  /** What the history kept of it, to export; none while it has none of it yet. */
+  readonly kept?: Conversation;
 }) {
   const format = useTimeFormat();
   const mask = useMask();
@@ -266,18 +279,21 @@ function Opened({
   return (
     <>
       <div {...stylex.props(styles.header)}>
-        <h2 {...stylex.props(styles.title)}>
-          {harnessName(summary.client, summary.source)}
-          {summary.guessed && <GuessedBadge />}
-        </h2>
-        <p {...stylex.props(styles.id)}>
-          {summary.id}
-          {Option.match(summary.keyName, {
-            onNone: () => "",
-            onSome: (key) => ` · ${mask.key(key)}`,
-          })}
-          {` · ${formatMoment(summary.firstAt, format)}`}
-        </p>
+        <div {...stylex.props(styles.heading)}>
+          <h2 {...stylex.props(styles.title)}>
+            {harnessName(summary.client, summary.source)}
+            {summary.guessed && <GuessedBadge />}
+          </h2>
+          <p {...stylex.props(styles.id)}>
+            {summary.id}
+            {Option.match(summary.keyName, {
+              onNone: () => "",
+              onSome: (key) => ` · ${mask.key(key)}`,
+            })}
+            {` · ${formatMoment(summary.firstAt, format)}`}
+          </p>
+        </div>
+        {kept !== undefined && <ExportMenu conversation={kept} />}
       </div>
       <StatList>
         <Stat
