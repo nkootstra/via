@@ -718,7 +718,8 @@ It also deletes the whole
 [usage history](#usage-history), after asking; that one isn't a preference of
 the browser, so it's gone for every viewer. So are the two settings beside it:
 **Keep prompts of failed requests**, off until you turn it on, keeps a failed
-turn's [prompt](#captured-prompts), redacted, for 7 days, and **Delete captured
+turn's [prompt](#captured-prompts), redacted, for 7 days (its switch can't be
+used until via says how it stands, and offers **Try again** if it couldn't), and **Delete captured
 prompts…** deletes every one kept, after asking, while the history stays. Automatic writes times as the browser's
 language does. Each choice applies at once, to every open tab, and is kept in
 that browser's local storage, not in via, so another browser starts from the
