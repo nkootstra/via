@@ -500,7 +500,7 @@ const migrations = Migrator.fromRecord({
     yield* sql`CREATE INDEX requests_parent ON requests (parent_conversation_id, conversation_id)`;
   }),
   // Older requests kept none of their attempts. `request_id` names the request, as in
-  // `requests`, which a client's own x-request-id can repeat.
+  // `requests`, which an older via took from a client's own x-request-id, which can repeat.
   "7_request_attempts": Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`

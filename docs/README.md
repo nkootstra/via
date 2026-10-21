@@ -1214,11 +1214,15 @@ timestamp=2026-09-25T16:32:34.464Z level=INFO fiber=#27 message="Sent HTTP respo
 timestamp=2026-09-25T16:32:37.464Z level=INFO fiber=#28 message="Sent HTTP response" request_id=2a374005-22ec-40ed-a5e5-1dfa5aa6a807 http.span=5ms http.method=POST http.url=/v1/chat/completions http.status=429 key=laptop model=gpt-6-astra error=rate_limit_exceeded retry_after=120
 ```
 
-- `request_id` correlates the line to the request: the client's `x-request-id`
-  header, kept when it's a valid UUID (lower-cased), else one via generates.
-  via echoes it back as `x-request-id` on every response, and stamps it on any
-  warning logged while handling the request (a cooldown, say), even across a
-  retry onto another account.
+- `request_id` is the request's own id, a UUID via generates for every
+  request: the `requestId` the usage history, the turns in flight and a
+  captured prompt name it by. via stamps it on any warning logged while
+  handling the request (a cooldown, say), even across a retry onto another
+  account, and sends it back as `x-request-id`.
+- `client_request_id` is the client's own `x-request-id` header, when it sent
+  a valid UUID (lower-cased). via echoes that one back as `x-request-id` in
+  place of its own, so the client can correlate its answer, but never names a
+  request by it: a client can send the same one with many requests.
 - `http.span` is the whole time via took, a stream included.
 - `key` is the name of the API key the client used, `model` the model asked
   for, and `served_by` the provider, or the Codex or OpenCode Go account, that

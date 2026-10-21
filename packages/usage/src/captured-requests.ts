@@ -22,8 +22,8 @@ const RETENTION = Duration.days(7);
 const PRUNE_EVERY = Duration.hours(1);
 
 const migrations = Migrator.fromRecord({
-  // `request_id` names the request, as in the usage history, which a client's own
-  // x-request-id can repeat. `capture` is the whole `CapturedRequest`, as JSON.
+  // `request_id` names the request, as in the usage history; an older via took it from a
+  // client's own x-request-id, which can repeat. `capture` is the whole `CapturedRequest`, as JSON.
   "1_captured_requests": Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     yield* sql`

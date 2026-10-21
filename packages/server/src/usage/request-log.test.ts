@@ -575,7 +575,7 @@ layer(BunFileSystem.layer)("request log", (it) => {
     ),
   );
 
-  it.effect("keeps a client-sent request ID, lower-cased, and echoes it on the response", () =>
+  it.effect("echoes a client-sent request ID, lower-cased, and logs it beside its own", () =>
     withVia(ok, (via) =>
       Effect.gen(function* () {
         const response = yield* via.post(
@@ -587,8 +587,44 @@ layer(BunFileSystem.layer)("request log", (it) => {
 
         expect(response.headers["x-request-id"]).toBe("550e8400-e29b-41d4-a716-446655440000");
         expect((yield* via.logged("Sent HTTP response")).annotations).toMatchObject({
-          request_id: "550e8400-e29b-41d4-a716-446655440000",
+          request_id: expect.not.stringMatching("550e8400-e29b-41d4-a716-446655440000"),
+          client_request_id: "550e8400-e29b-41d4-a716-446655440000",
         });
+      }),
+    ),
+  );
+
+  it.effect("gives each request its own id, even when clients repeat their x-request-id", () =>
+    withVia(ok, (via) =>
+      Effect.gen(function* () {
+        const sent = "550e8400-e29b-41d4-a716-446655440000";
+
+        const send = Effect.gen(function* () {
+          const response = yield* via.post(
+            "/v1/responses",
+            { model: "gpt-6-astra", input: "hi" },
+            undefined,
+            { "x-request-id": sent },
+          );
+
+          yield* response.text;
+
+          return response.headers["x-request-id"];
+        });
+
+        // The client's own id goes back to it, for its own correlation.
+        expect([yield* send, yield* send]).toEqual([sent, sent]);
+
+        const lines = via.logs.filter((line) => line.message === "Sent HTTP response");
+        const page = yield* via.usage.requests({ from: 0, to: Number.MAX_SAFE_INTEGER, limit: 10 });
+        const ids = page.requests.map((request) => request.requestId);
+
+        expect(new Set(ids).size).toBe(2);
+        expect(ids).not.toContain(sent);
+        expect(lines.map((line) => line.annotations["request_id"]).toSorted()).toEqual(
+          ids.toSorted(),
+        );
+        expect(lines.map((line) => line.annotations["client_request_id"])).toEqual([sent, sent]);
       }),
     ),
   );

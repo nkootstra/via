@@ -131,4 +131,42 @@ layer(BunFileSystem.layer)("captured requests", (it) => {
       { keepFailedPrompts: true },
     ),
   );
+
+  it.effect("keeps each failed turn apart, even when its client repeats its x-request-id", () =>
+    withVia(
+      () => usageLimit,
+      (via) =>
+        Effect.gen(function* () {
+          const headers = { "x-request-id": "550e8400-e29b-41d4-a716-446655440000" };
+
+          for (const input of ["first", "second"]) {
+            const response = yield* via.post(
+              "/v1/responses",
+              { model: "gpt-x", input },
+              undefined,
+              headers,
+            );
+
+            yield* response.text;
+          }
+
+          const page = yield* via.usage.requests({
+            from: 0,
+            to: Number.MAX_SAFE_INTEGER,
+            limit: 10,
+          });
+
+          const inputs = yield* Effect.forEach(page.requests, (request) =>
+            Effect.map(via.captured.get(request.requestId), (captured) =>
+              Option.map(captured, (found) => found.request),
+            ),
+          );
+
+          expect(
+            inputs.map((found) => JSON.stringify(Option.getOrThrow(found))).toSorted(),
+          ).toEqual(['{"model":"gpt-x","input":"first"}', '{"model":"gpt-x","input":"second"}']);
+        }),
+      { keepFailedPrompts: true },
+    ),
+  );
 });
