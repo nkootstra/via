@@ -109,3 +109,5 @@ export {
 export { FilterSelect, type FilterOption, type FilterSelectProps } from "./filter-select.tsx";
 
 export { SearchSelect } from "./search-select.tsx";
+
+export { Tooltip, type TooltipProps } from "./tooltip.tsx";

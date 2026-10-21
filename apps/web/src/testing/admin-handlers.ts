@@ -5,7 +5,12 @@
  * drift from what via sends. Tests script errors by overriding a handler with
  * `server.use(...)` and `failure(...)`.
  */
-import { AdminApi, LoginNotFoundError, Unauthorized } from "@via/server/admin-api";
+import {
+  AdminApi,
+  ConversationNotFoundError,
+  LoginNotFoundError,
+  Unauthorized,
+} from "@via/server/admin-api";
 import { AccountNotFoundError } from "@via/codex-auth/errors";
 import { DuplicateKeyNameError, KeyNotFoundError } from "@via/keys/errors";
 import {
@@ -26,6 +31,7 @@ import {
 import { Effect, Option, Schema } from "effect";
 import type {
   Account,
+  Conversation,
   Fallback,
   Key,
   LoginStatus,
@@ -103,6 +109,11 @@ export interface AdminState {
   historyBreakdown: ReadonlyMap<string, HistoryBreakdown>;
   /** The requests `/admin/history/requests` pages through, newest first, filtered by model. */
   historyRequests: Array<UsageRequest>;
+  /**
+   * The conversations `/admin/history/conversations` pages through, in the order
+   * given, filtered by model; `/admin/history/conversations/:id` answers one.
+   */
+  conversations: Array<Conversation>;
   /** The query of every history request the fake received, in order. */
   readonly historyQueries: Array<URLSearchParams>;
   /** Where Ollama is, if via knows one. */
@@ -153,6 +164,7 @@ export function createAdminState(seed: Partial<AdminState> = {}): AdminState {
     historySeries: { points: [] },
     historyBreakdown: new Map(),
     historyRequests: [],
+    conversations: [],
     historyQueries: [],
     ollama: null,
     ollamaAt: new Map(),
@@ -684,6 +696,46 @@ export function adminHandlers(state: AdminState) {
               ? Option.some({ at: last.at, requestId: last.requestId })
               : Option.none(),
         });
+      }),
+    ),
+    http.get(
+      at("/history/conversations"),
+      guarded(({ request }) => {
+        const query = new URL(request.url).searchParams;
+        state.historyQueries.push(query);
+        const model = query.get("model");
+        const limit = Number(query.get("limit") ?? "50");
+        const after = query.get("afterId");
+
+        const matching = state.conversations
+          .map(({ summary }) => summary)
+          .filter((summary) => model === null || summary.models.includes(model));
+
+        const start = after === null ? 0 : matching.findIndex((c) => c.id === after) + 1;
+        const page = matching.slice(start, start + limit);
+        const last = page.at(-1);
+
+        return ok(history.endpoints.conversations, {
+          conversations: page,
+          next:
+            start + limit < matching.length && last !== undefined
+              ? Option.some({ at: last.lastAt, id: last.id })
+              : Option.none(),
+        });
+      }),
+    ),
+    http.get<{ id: string }>(
+      at("/history/conversations/:id"),
+      guarded(({ params }) => {
+        const found = state.conversations.find(({ summary }) => summary.id === params.id);
+
+        return found === undefined
+          ? failure(
+              ConversationNotFoundError,
+              new ConversationNotFoundError({ id: params.id }),
+              404,
+            )
+          : ok(history.endpoints.conversation, found);
       }),
     ),
   ];

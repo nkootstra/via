@@ -8,7 +8,7 @@ import { infiniteQueryOptions, type QueryClient, queryOptions } from "@tanstack/
 import { DateTime, Effect, Option, Redacted } from "effect";
 import { historyRange } from "../lib/history-range.ts";
 import { run } from "./client.ts";
-import type { LoginStatus, RequestPage } from "./types.ts";
+import type { ConversationPage, LoginStatus, RequestPage } from "./types.ts";
 
 /** Whether the browser has a session: true, or false on a 401. */
 export const sessionQuery = queryOptions({
@@ -254,6 +254,56 @@ export const historyRequestsQuery = (span: HistorySpan, filter: HistoryFilters) 
     // the list keeps up only while it shows its first page; loaded further, it holds still.
     refetchInterval: (query) =>
       (query.state.data?.pages.length ?? 0) > 1 ? false : HISTORY_REFRESH_MS,
+  });
+
+/** Where a page of conversations starts: after the last conversation of the page before. */
+type ConversationCursor = Option.Option.Value<ConversationPage["next"]>;
+
+/** A page of conversations after the first: the first page's range, and the one it starts after. */
+interface LaterConversations {
+  readonly range: HistoryRange;
+  readonly after: ConversationCursor;
+}
+
+const latest: Option.Option<LaterConversations> = Option.none();
+
+/**
+ * The conversations with turns in the span, the latest active first, a page at
+ * a time. Like the requests, the pages after the first keep the first's range.
+ */
+export const historyConversationsQuery = (span: HistorySpan, filter: HistoryFilters) =>
+  infiniteQueryOptions({
+    queryKey: ["history", "conversations", span, filter],
+    queryFn: ({ pageParam }) => {
+      const range = pageParam?.range ?? historyRange(span.days, span.bucket, Date.now());
+
+      return run((admin) =>
+        admin.history
+          .conversations({
+            query: {
+              ...range,
+              ...filter,
+              ...(pageParam === undefined
+                ? {}
+                : { afterAt: pageParam.after.at, afterId: pageParam.after.id }),
+            },
+          })
+          .pipe(Effect.map((page) => ({ ...page, range }))),
+      );
+    },
+    initialPageParam: Option.getOrUndefined(latest),
+    getNextPageParam: (page): LaterConversations | undefined =>
+      Option.getOrUndefined(Option.map(page.next, (after) => ({ range: page.range, after }))),
+    refetchInterval: (query) =>
+      (query.state.data?.pages.length ?? 0) > 1 ? false : HISTORY_REFRESH_MS,
+  });
+
+/** One conversation, and every turn of it and its sub-agents'. */
+export const historyConversationQuery = (id: string) =>
+  queryOptions({
+    queryKey: ["history", "conversation", id],
+    queryFn: () => run((admin) => admin.history.conversation({ params: { id } })),
+    refetchInterval: HISTORY_REFRESH_MS,
   });
 
 /** Deletes every request the usage history kept. */

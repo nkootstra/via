@@ -613,7 +613,7 @@ page.
 </details>
 
 <details>
-<summary><b>Usage</b>: requests, tokens, cache hit rate, cost and time to first token, charted and broken down by model, account or key.</summary>
+<summary><b>Usage</b>: requests, tokens, cache hit rate, cost and time to first token, charted and broken down by model, account or key; and the conversations coding agents had, each turn on a timeline.</summary>
 
 ![Usage page](assets/screenshots/usage.png)
 
@@ -730,6 +730,24 @@ grouping and filters are in the page's address, as in
 them and a link shares them. A request shows up within about a second: the
 page fetches its usage again when via says the history changed, and asks every
 15 seconds only while that stream is down.
+
+The Usage page's **Conversations** tab (`/ui/usage?tab=conversations`) lists
+the [conversations](#conversations) with turns in the range, the latest active
+first, under the same filters: the harness that had each, such as
+"OpenCode 1.19.3" or "Claude Code" (from its `User-Agent`, or else from the
+id it sent), with a **Guessed** badge when via guessed the conversation because
+its client sent no id; the key, the models, when it started and was last
+active, its turns and sub-agents, how many failed or fell back, its tokens and
+its cost. **Load more** pages on, as the requests do. Open one, at
+`/ui/usage?tab=conversations&conversation=<id>`, for its totals and a timeline:
+each turn a bar on one time axis, from when it came in to when it ended, with a
+tick where its first token came, coloured by whether it answered, failed, fell
+back or its client left; a sub-agent's turns sit on rows nested under the
+conversation that started it, named for the sub-agent's type when its client
+says. Point at a bar, or move to it with Tab and the arrow keys, for the turn's
+model, who served it, tokens, any billed cost, duration, time to first token and
+error. Under the timeline, the turns are listed oldest first. **All
+conversations** goes back to the list.
 
 The overview shows each account's usage as via last fetched
 it in the background (see [the admin API](#admin-api)), at most about a minute

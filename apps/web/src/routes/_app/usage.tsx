@@ -19,6 +19,10 @@ import {
   TableHeader,
   TableRow,
   TableSkeleton,
+  TabItem,
+  TabPanel,
+  Tabs,
+  TabsList,
 } from "@via/ui";
 import { colors, fonts, radii, space, text, fontWeights, weights } from "@via/ui/tokens.stylex";
 import { Option, Schema } from "effect";
@@ -32,12 +36,10 @@ import {
   type HistoryRange,
   type HistorySpan,
 } from "../../api/admin.ts";
-import type {
-  HistoryBreakdown,
-  HistoryGroup,
-  HistorySeries,
-  UsageRequest,
-} from "../../api/types.ts";
+import type { HistoryBreakdown, HistoryGroup, HistorySeries } from "../../api/types.ts";
+import { ConversationDetail } from "../../components/conversation-detail.tsx";
+import { ConversationList } from "../../components/conversation-list.tsx";
+import { CostAmount } from "../../components/cost.tsx";
 import { UsageIcon } from "../../components/icons.tsx";
 import { ModelName } from "../../components/model-name.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
@@ -57,53 +59,14 @@ import {
   tokensOf,
 } from "../../lib/usage-format.ts";
 import { historyBuckets, historyRange } from "../../lib/history-range.ts";
-
-/**
- * An id a search param carries. TanStack Router reads a value that looks like a
- * number, as in `?key=123`, as one, so an id may arrive as either.
- */
-const SearchId = Schema.Union([Schema.String, Schema.Finite]);
-
-/**
- * The page's state, kept in the URL so it survives a reload and can be shared:
- * the range, what the usage is grouped by, and the filters. A default is left
- * out, so the plain page has a plain URL.
- */
-const UsageSearch = Schema.Struct({
-  range: Schema.optionalKey(Schema.Literals(["24h", "7d", "30d", "90d"])),
-  by: Schema.optionalKey(Schema.Literals(["model", "account", "key"])),
-  model: Schema.optionalKey(SearchId),
-  account: Schema.optionalKey(SearchId),
-  key: Schema.optionalKey(SearchId),
-  failed: Schema.optionalKey(Schema.Boolean),
-  fellBack: Schema.optionalKey(Schema.Boolean),
-});
-
-type UsageSearch = typeof UsageSearch.Type;
-
-/** A change to the search: a field set to undefined is taken out. */
-type SearchChange = { readonly [K in keyof UsageSearch]?: UsageSearch[K] | undefined };
+import { failed, outcomeDetail, outcomeOf } from "../../lib/request-outcome.ts";
+import { changed, type SearchChange, UsageSearch } from "../../lib/usage-search.ts";
 
 export const Route = createFileRoute("/_app/usage")({
   head: () => ({ meta: [{ title: "Usage · via" }] }),
   validateSearch: Schema.toStandardSchemaV1(UsageSearch),
   component: Usage,
 });
-
-/** The search with `change` made, and with its defaults and empty fields left out. */
-const changed = (search: UsageSearch, change: SearchChange): UsageSearch => {
-  const next = { ...search, ...change };
-
-  return {
-    ...(next.range !== undefined && next.range !== "24h" && { range: next.range }),
-    ...(next.by !== undefined && next.by !== "model" && { by: next.by }),
-    ...(next.model !== undefined && { model: next.model }),
-    ...(next.account !== undefined && { account: next.account }),
-    ...(next.key !== undefined && { key: next.key }),
-    ...(next.failed === true && { failed: true }),
-    ...(next.fellBack === true && { fellBack: true }),
-  };
-};
 
 /** The search param that filters by a group of `groupBy`. */
 const FACETS = { model: "model", account: "account", key: "key" } as const;
@@ -232,6 +195,8 @@ const styles = stylex.create({
     overflowWrap: "anywhere",
     color: colors.foreground,
   },
+  // As wide as its tabs, as the range's control is.
+  tabs: { alignSelf: "flex-start" },
   header: {
     display: "flex",
     flexDirection: "column",
@@ -379,17 +344,23 @@ function Usage() {
     });
 
   const live = useSignalledOptions();
+  const tab = search.tab ?? "requests";
+  const opened = search.conversation === undefined ? undefined : String(search.conversation);
+  // The totals and the chart are the Requests tab's; the Conversations tab asks for neither.
+  const onRequests = tab === "requests";
 
   const breakdown = useQuery({
     ...historyBreakdownQuery(range, groupBy, filters),
     ...live,
     placeholderData: keepPreviousData,
+    enabled: onRequests,
   });
 
   const series = useQuery({
     ...historySeriesQuery(range, bucket, groupBy, filters),
     ...live,
     placeholderData: keepPreviousData,
+    enabled: onRequests,
   });
 
   const controls = (
@@ -403,15 +374,17 @@ function Usage() {
           <SegmentedItem key={key} value={key} label={label} />
         ))}
       </SegmentedControl>
-      <SegmentedControl
-        aria-label="Group by"
-        value={groupBy}
-        onValueChange={(value) => isGrouping(value) && change({ by: value })}
-      >
-        {Object.entries(GROUPINGS).map(([key, label]) => (
-          <SegmentedItem key={key} value={key} label={label} />
-        ))}
-      </SegmentedControl>
+      {onRequests && (
+        <SegmentedControl
+          aria-label="Group by"
+          value={groupBy}
+          onValueChange={(value) => isGrouping(value) && change({ by: value })}
+        >
+          {Object.entries(GROUPINGS).map(([key, label]) => (
+            <SegmentedItem key={key} value={key} label={label} />
+          ))}
+        </SegmentedControl>
+      )}
     </div>
   );
 
@@ -420,86 +393,122 @@ function Usage() {
       title="Usage"
       description="Every request via served in the last 90 days: who sent it, which account answered, and the tokens it took."
     >
-      <div {...stylex.props(styles.content)}>
-        <div {...stylex.props(styles.header)}>
-          {controls}
-          <FilterBar
-            range={range}
-            search={search}
-            filters={filters}
-            change={change}
-            clear={clear}
-          />
-        </div>
-        {breakdown.isError ? (
-          <QueryError
-            what="usage"
-            error={breakdown.error}
-            onRetry={() => void breakdown.refetch()}
-          />
-        ) : breakdown.data === undefined ? (
-          <UsageLoading />
-        ) : breakdown.data.totals.requests === 0 ? (
-          hasFilters(search) ? (
-            <EmptyState
-              icon={<UsageIcon size={18} />}
-              title="No requests match these filters"
-              description={`None in the last ${RANGES[rangeKey].label.toLowerCase()}. Try a longer range, or clear the filters.`}
-              action={
-                <Button variant="secondary" onClick={clear}>
-                  Clear filters
-                </Button>
-              }
-              headingLevel={2}
-            />
-          ) : (
-            <EmptyState
-              icon={<UsageIcon size={18} />}
-              title={`No requests in the last ${RANGES[rangeKey].label.toLowerCase()}`}
-              description="Requests your clients send through via show up here, with their tokens and what they would cost."
-              headingLevel={2}
-            />
-          )
-        ) : (
-          <>
-            <Totals breakdown={breakdown.data} />
-            <Panel>
-              {series.isError ? (
-                <QueryError
-                  what="the chart"
-                  error={series.error}
-                  onRetry={() => void series.refetch()}
+      <Tabs
+        value={tab}
+        onValueChange={(value) =>
+          change({
+            tab: value === "conversations" ? "conversations" : undefined,
+            conversation: undefined,
+          })
+        }
+      >
+        <div {...stylex.props(styles.content)}>
+          <div {...stylex.props(styles.header)}>
+            <div {...stylex.props(styles.tabs)}>
+              <TabsList aria-label="View">
+                <TabItem value="requests" label="Requests" />
+                <TabItem value="conversations" label="Conversations" />
+              </TabsList>
+            </div>
+            {/* An open conversation is the whole of it, whatever the range and filters. */}
+            {opened === undefined && (
+              <>
+                {controls}
+                <FilterBar
+                  range={range}
+                  search={search}
+                  filters={filters}
+                  change={change}
+                  clear={clear}
                 />
-              ) : series.data === undefined ? (
-                <Skeleton height="240px" />
-              ) : (
-                <BarChart
-                  label={bucket === "hour" ? "Tokens per hour" : "Tokens per day"}
-                  points={pointsOf(
-                    series.data,
-                    seriesOf(groupBy, breakdown.data.groups, mask.key),
-                    range,
-                    bucket,
-                  )}
-                  series={seriesOf(groupBy, breakdown.data.groups, mask.key)}
-                  formatX={(x) => (bucket === "hour" ? formatHour(x, format) : formatDay(x))}
-                  formatValue={formatTokens}
-                />
-              )}
-            </Panel>
-            <Section title={`By ${GROUPINGS[groupBy].toLowerCase()}`}>
-              <Breakdown
-                breakdown={breakdown.data}
-                groupBy={groupBy}
-                onPick={(group) => change({ [FACETS[groupBy]]: group.group })}
+              </>
+            )}
+          </div>
+          <TabPanel value="requests" {...stylex.props(styles.content)}>
+            {breakdown.isError ? (
+              <QueryError
+                what="usage"
+                error={breakdown.error}
+                onRetry={() => void breakdown.refetch()}
               />
-            </Section>
-            <Section title="Requests">
-              <Requests span={RANGES[rangeKey]} filters={filters} format={format} />
-            </Section>
-          </>
-        )}
-      </div>
+            ) : breakdown.data === undefined ? (
+              <UsageLoading />
+            ) : breakdown.data.totals.requests === 0 ? (
+              hasFilters(search) ? (
+                <EmptyState
+                  icon={<UsageIcon size={18} />}
+                  title="No requests match these filters"
+                  description={`None in the last ${RANGES[rangeKey].label.toLowerCase()}. Try a longer range, or clear the filters.`}
+                  action={
+                    <Button variant="secondary" onClick={clear}>
+                      Clear filters
+                    </Button>
+                  }
+                  headingLevel={2}
+                />
+              ) : (
+                <EmptyState
+                  icon={<UsageIcon size={18} />}
+                  title={`No requests in the last ${RANGES[rangeKey].label.toLowerCase()}`}
+                  description="Requests your clients send through via show up here, with their tokens and what they would cost."
+                  headingLevel={2}
+                />
+              )
+            ) : (
+              <>
+                <Totals breakdown={breakdown.data} />
+                <Panel>
+                  {series.isError ? (
+                    <QueryError
+                      what="the chart"
+                      error={series.error}
+                      onRetry={() => void series.refetch()}
+                    />
+                  ) : series.data === undefined ? (
+                    <Skeleton height="240px" />
+                  ) : (
+                    <BarChart
+                      label={bucket === "hour" ? "Tokens per hour" : "Tokens per day"}
+                      points={pointsOf(
+                        series.data,
+                        seriesOf(groupBy, breakdown.data.groups, mask.key),
+                        range,
+                        bucket,
+                      )}
+                      series={seriesOf(groupBy, breakdown.data.groups, mask.key)}
+                      formatX={(x) => (bucket === "hour" ? formatHour(x, format) : formatDay(x))}
+                      formatValue={formatTokens}
+                    />
+                  )}
+                </Panel>
+                <Section title={`By ${GROUPINGS[groupBy].toLowerCase()}`}>
+                  <Breakdown
+                    breakdown={breakdown.data}
+                    groupBy={groupBy}
+                    onPick={(group) => change({ [FACETS[groupBy]]: group.group })}
+                  />
+                </Section>
+                <Section title="Requests">
+                  <Requests span={RANGES[rangeKey]} filters={filters} format={format} />
+                </Section>
+              </>
+            )}
+          </TabPanel>
+          <TabPanel value="conversations">
+            {opened === undefined ? (
+              <ConversationList
+                span={RANGES[rangeKey]}
+                filters={filters}
+                rangeLabel={RANGES[rangeKey].label.toLowerCase()}
+                filtered={hasFilters(search)}
+                onClear={clear}
+              />
+            ) : (
+              <ConversationDetail id={opened} />
+            )}
+          </TabPanel>
+        </div>
+      </Tabs>
     </Page>
   );
 }
@@ -545,8 +554,8 @@ function FilterBar({
   readonly clear: () => void;
 }) {
   const mask = useMask();
-  const failed = useId();
-  const fellBack = useId();
+  const failedOnly = useId();
+  const fellBackOnly = useId();
 
   const live = useSignalledOptions();
 
@@ -585,17 +594,17 @@ function FilterBar({
           onValueChange={(value) => change({ key: value ?? undefined })}
         />
         {/* A label, so its words toggle the switch as well. */}
-        <label htmlFor={failed} {...stylex.props(styles.toggle)}>
+        <label htmlFor={failedOnly} {...stylex.props(styles.toggle)}>
           <Switch
-            id={failed}
+            id={failedOnly}
             checked={search.failed === true}
             onCheckedChange={(checked) => change({ failed: checked || undefined })}
           />
           Failed only
         </label>
-        <label htmlFor={fellBack} {...stylex.props(styles.toggle)}>
+        <label htmlFor={fellBackOnly} {...stylex.props(styles.toggle)}>
           <Switch
-            id={fellBack}
+            id={fellBackOnly}
             checked={search.fellBack === true}
             onCheckedChange={(checked) => change({ fellBack: checked || undefined })}
           />
@@ -760,19 +769,7 @@ function Breakdown({
                   </span>
                 </TableCell>
                 <TableCell>
-                  {/* As the Overview has it: a model without a price costs an unknown amount, not nothing. */}
-                  {group.cost.unpriced.length > 0 ? (
-                    <span
-                      title={`No price known for ${group.cost.unpriced.join(", ")}`}
-                      {...stylex.props(styles.number)}
-                    >
-                      Unknown
-                    </span>
-                  ) : (
-                    <span {...stylex.props(styles.number)}>
-                      {formatUsd(group.cost.apiEquivalentUsd + group.cost.billedUsd)}
-                    </span>
-                  )}
+                  <CostAmount cost={group.cost} />
                 </TableCell>
                 <TableCell secondary>
                   <span {...stylex.props(styles.number, group.errors > 0 && styles.failed)}>
@@ -787,41 +784,6 @@ function Breakdown({
     </Panel>
   );
 }
-
-/** The errors via answers itself, in a word or two; the code itself is the cell's title. */
-const errorNames = new Map([
-  ["rate_limit_exceeded", "Rate limited"],
-  ["no_accounts", "No account"],
-  ["upstream_unavailable", "Unreachable"],
-  ["upstream_timeout", "Timed out"],
-  ["upstream_too_large", "Too large"],
-  ["invalid_request", "Bad request"],
-  ["invalid_api_key", "Wrong key"],
-  ["model_not_found", "Model not enabled"],
-  ["upstream_unreadable", "Unreadable"],
-  ["upstream_incomplete", "Broke off"],
-]);
-
-/** How a request ended, in a word or two. */
-const outcomeOf = (request: UsageRequest) =>
-  Option.match(request.error, {
-    onSome: (code) => errorNames.get(code) ?? code,
-    onNone: () =>
-      Option.contains(request.streamEnd, "failed")
-        ? "Broke off"
-        : request.status === 499
-          ? "Client left"
-          : request.status >= 400
-            ? `Error ${request.status}`
-            : "OK",
-  });
-
-/** The outcome's code or status, for its title. */
-const outcomeDetail = (request: UsageRequest) =>
-  Option.getOrElse(request.error, () => `HTTP ${request.status}`);
-
-const failed = (request: UsageRequest) =>
-  (request.status >= 400 && request.status !== 499) || Option.contains(request.streamEnd, "failed");
 
 /**
  * The request list's columns: the request (its model over its time), key,
