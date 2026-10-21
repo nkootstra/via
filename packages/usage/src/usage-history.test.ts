@@ -707,9 +707,29 @@ const zones = Arbitrary.schema(
   ]),
 );
 
+/**
+ * One formatter per zone and pattern. Making an `Intl.DateTimeFormat` costs far
+ * more than formatting with one, and the bucket property formats thousands of
+ * times a run: building each anew took it past five seconds on CI's macOS runner.
+ */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+const formatter = (name: string, locale: string, options: Intl.DateTimeFormatOptions) => {
+  const id = `${name} ${options.timeZone}`;
+  const known = formatters.get(id);
+
+  if (known !== undefined) return known;
+
+  const made = new Intl.DateTimeFormat(locale, options);
+
+  formatters.set(id, made);
+
+  return made;
+};
+
 /** The local hour, with its offset to tell a repeated hour apart, or the local day, of `at` in `zone`. */
 const localBucket = (at: number, bucket: "hour" | "day", zone: string) =>
-  new Intl.DateTimeFormat("en-CA", {
+  formatter(bucket, "en-CA", {
     timeZone: zone,
     year: "numeric",
     month: "2-digit",
@@ -719,7 +739,7 @@ const localBucket = (at: number, bucket: "hour" | "day", zone: string) =>
 
 /** The local time of day of `at` in `zone`, as `HH:mm`. */
 const localTime = (at: number, zone: string) =>
-  new Intl.DateTimeFormat("en-GB", {
+  formatter("time", "en-GB", {
     timeZone: zone,
     hour: "2-digit",
     minute: "2-digit",
@@ -728,7 +748,7 @@ const localTime = (at: number, zone: string) =>
 
 /** How far `zone` is off UTC at `at`, as `GMT+10:30`. */
 const localOffset = (at: number, zone: string) =>
-  new Intl.DateTimeFormat("en-GB", { timeZone: zone, timeZoneName: "longOffset" }).format(at);
+  formatter("offset", "en-GB", { timeZone: zone, timeZoneName: "longOffset" }).format(at);
 
 const sum = (values: ReadonlyArray<number>) => values.reduce((a, b) => a + b, 0);
 
