@@ -809,8 +809,8 @@ menu says when an export holds captured prompts, as redacting by pattern can
 miss a secret.
 
 The tab is live while the page's [event stream](#admin-api) is open: a
-conversation with a turn in flight, its own or a sub-agent's, has a **Live**
-badge, and one whose first turn is in flight leads the list before the history
+conversation with a turn in flight, its own or a sub-agent's at any depth, has
+a **Live** badge, and one whose first turn is in flight leads the list before the history
 has it (unless a filter is on, as via can't yet say whether it matches). On a
 conversation's timeline, a turn in flight has a card of its own: a dot that
 breathes, how long it has taken so far, a bar of its wait and its streaming

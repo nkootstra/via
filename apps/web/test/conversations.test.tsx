@@ -283,6 +283,29 @@ describe("the usage page's conversations", () => {
     expect(rowsOf(table)).toHaveLength(2);
   });
 
+  it("marks the conversation live when a sub-agent of its sub-agent has a turn in flight", async () => {
+    renderApp("/usage?tab=conversations", seed);
+    const table = await screen.findByRole("table", { name: "Conversations" });
+
+    // The reviewer the history has under ses_1 started a sub-agent of its own.
+    act(() =>
+      openSource().turn({
+        event: "turn.started",
+        data: liveTurn({
+          requestId: "l1",
+          conversationId: Option.some("ses_1:review:deep"),
+          parentConversationId: Option.some("ses_1:review"),
+        }),
+      }),
+    );
+
+    await waitFor(() =>
+      expect(within(rowsOf(table)[0] ?? table).queryByText("Live")).not.toBeNull(),
+    );
+    expect(rowsOf(table)).toHaveLength(2);
+    expect(rowsOf(table)[0]?.textContent).toContain("OpenCode");
+  });
+
   it("puts a conversation whose first turn is in flight at the top, until the history has it", async () => {
     const { state } = renderApp("/usage?tab=conversations", seed);
     const table = await screen.findByRole("table", { name: "Conversations" });
