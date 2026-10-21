@@ -20,6 +20,24 @@ describe("clientOf", () => {
     );
   });
 
+  it("finds the version among a product's other segments", () => {
+    expect(
+      clientOf({
+        "user-agent": "opencode/latest/2.0.32/cli",
+        "x-opencode-client": "cli",
+        "x-opencode-project": "global",
+      }),
+    ).toEqual(Option.some("opencode/2.0.32"));
+
+    expect(clientOf({ "user-agent": "opencode/beta/2.1.0-beta.3/cli" })).toEqual(
+      Option.some("opencode/2.1.0-beta.3"),
+    );
+
+    expect(clientOf({ "user-agent": "opencode/latest/cli" })).toEqual(
+      Option.some("opencode/latest"),
+    );
+  });
+
   it("takes the harness's own header over an OpenAI SDK's User-Agent", () => {
     expect(clientOf({ "user-agent": "OpenAI/JS 5.10.1", "x-title": "Roo Code" })).toEqual(
       Option.some("Roo Code"),
@@ -47,5 +65,15 @@ describe("clientOf", () => {
         onSome: (name) => name.length > 0 && name.length <= 64 && /^[\x20-\x7e]+$/.test(name),
       });
     },
+  );
+
+  it.prop(
+    "names a User-Agent's product by at most its name and one version",
+    { userAgent: Schema.String },
+    ({ userAgent }) =>
+      Option.match(clientOf({ "user-agent": userAgent }), {
+        onNone: () => true,
+        onSome: (name) => name.split("/").length <= 2,
+      }),
   );
 });

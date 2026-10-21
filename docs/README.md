@@ -1292,8 +1292,9 @@ for a streamed answer, to send its first chunk. It also keeps which
 [conversation](#conversations) the request belongs to: the session or thread id
 the client sent, the id of the conversation that started it for a sub-agent's,
 which header or body field the id came from, the sub-agent's type when the
-client says, and the client, as the first product of its `User-Agent` (such as
-`opencode/1.19.3`). It never keeps an answer, nor a prompt unless you turn on
+client says, and the client, as the first product of its `User-Agent` and the
+version among its segments (such as `opencode/1.19.3`, or `opencode/2.0.32`
+from `opencode/latest/2.0.32/cli`). It never keeps an answer, nor a prompt unless you turn on
 [keeping failed turns' prompts](#captured-prompts), which keeps those apart, in
 `bodies.db`. It also keeps each
 request's [upstream attempts](#upstream-attempts). Requests older
