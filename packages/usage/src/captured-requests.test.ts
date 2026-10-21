@@ -79,6 +79,17 @@ describe("CapturedRequests", () => {
     ),
   );
 
+  it.effect("says which of more requests than SQLite takes parameters it has", () =>
+    store((requests) =>
+      Effect.gen(function* () {
+        yield* requests.keep(captured({ requestId: "r-299999" }));
+        const ids = Array.from({ length: 300_000 }, (_, i) => `r-${i}`);
+
+        expect(yield* requests.which(ids)).toEqual(["r-299999"]);
+      }),
+    ),
+  );
+
   it.effect("forgets every request it cleared, and says how many", () =>
     store((requests) =>
       Effect.gen(function* () {

@@ -77,6 +77,7 @@ const make = Effect.gen(function* () {
 
   const get = Effect.fn("CapturedRequests.get")(function* (requestId: string) {
     const since = yield* keptSince;
+
     const [row] = yield* sql`
       SELECT capture FROM captured_requests
       WHERE request_id = ${requestId} AND captured_at >= ${since}
@@ -94,9 +95,13 @@ const make = Effect.gen(function* () {
     if (requestIds.length === 0) return [];
 
     const since = yield* keptSince;
+
+    // As one JSON array, not a parameter each: a long conversation has more turns than SQLite
+    // takes parameters.
     const rows = yield* sql`
       SELECT DISTINCT request_id AS "requestId" FROM captured_requests
-      WHERE ${sql.in("request_id", requestIds)} AND captured_at >= ${since}
+      WHERE request_id IN (SELECT value FROM json_each(${JSON.stringify(requestIds)}))
+        AND captured_at >= ${since}
     `;
 
     // Rows only ever come from `keep`, so they always decode.
