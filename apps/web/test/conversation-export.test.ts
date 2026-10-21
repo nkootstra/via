@@ -146,6 +146,18 @@ describe("a conversation as Markdown", () => {
     expect(markdown).not.toContain("## Turn 1");
   });
 
+  it("numbers the turns in the order they came, as the page does", () => {
+    const later = conversationMarkdown(
+      { ...opened, turns: [failedTurn, request({ requestId: "t1", at: T0 })] },
+      new Map(),
+      { time, hide: shown },
+    );
+
+    expect(later).toContain("| 1 | 11:30:00 |");
+    expect(later).toContain("| 2 | 11:30:20 |");
+    expect(later).toContain("## Turn 2 · Unreachable");
+  });
+
   it("hides what privacy mode hides", () => {
     const hidden = conversationMarkdown(opened, new Map(), {
       time,

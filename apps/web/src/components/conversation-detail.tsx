@@ -35,7 +35,7 @@ import { providerName } from "../lib/provider-name.ts";
 import { failed, outcomeDetail, outcomeOf } from "../lib/request-outcome.ts";
 import { formatMoment, useNow } from "../lib/time.ts";
 import { useTimeFormat } from "../lib/time-format.ts";
-import { timelineOf } from "../lib/timeline.ts";
+import { timelineOf, turnNumbers } from "../lib/timeline.ts";
 import {
   formatCount,
   formatDuration,
@@ -345,7 +345,13 @@ function Opened({
       </Section>
       {turns.length > 0 && (
         <Section title="Turns">
-          <Turns rootId={summary.id} turns={turns} captured={captured} onView={view} />
+          <Turns
+            rootId={summary.id}
+            turns={turns}
+            numbers={turnNumbers([...turns, ...live])}
+            captured={captured}
+            onView={view}
+          />
         </Section>
       )}
       {viewing !== undefined && (
@@ -384,11 +390,14 @@ const agentOf = (turn: UsageRequest, rootId: string) =>
 function Turns({
   rootId,
   turns,
+  numbers,
   captured,
   onView,
 }: {
   readonly rootId: string;
   readonly turns: ReadonlyArray<UsageRequest>;
+  /** Each turn's number, by request id, as the story numbers it. */
+  readonly numbers: ReadonlyMap<string, number>;
   readonly captured: ReadonlySet<string>;
   readonly onView: (requestId: string, number: number) => void;
 }) {
@@ -422,7 +431,7 @@ function Turns({
                     </span>
                   )}
                   <span {...stylex.props(styles.under)}>
-                    Turn {index + 1} · {formatMoment(turn.at, format)}
+                    Turn {numbers.get(turn.requestId)} · {formatMoment(turn.at, format)}
                     {Option.match(agentOf(turn, rootId), {
                       onNone: () => "",
                       onSome: (agent) => ` · ${agent}`,
@@ -464,7 +473,7 @@ function Turns({
                   {captured.has(turn.requestId) && (
                     <button
                       type="button"
-                      onClick={() => onView(turn.requestId, index + 1)}
+                      onClick={() => onView(turn.requestId, numbers.get(turn.requestId) ?? 0)}
                       {...stylex.props(styles.view)}
                     >
                       <DocumentIcon size={13} />

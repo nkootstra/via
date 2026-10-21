@@ -573,6 +573,48 @@ describe("a conversation, while a turn is in flight", () => {
     expect(open?.textContent).toContain("In flight");
   });
 
+  it("numbers the turns as the story does, a sub-agent's in flight among them", async () => {
+    renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+    const story = await screen.findByRole("list", { name: "Timeline" });
+    const table = await screen.findByRole("table", { name: "Turns" });
+
+    // A sub-agent that started before the reviewer's first turn, still running.
+    act(() =>
+      openSource().turn({
+        event: "turn.started",
+        data: liveTurn({
+          requestId: "l0",
+          at: T0 + 5_000,
+          conversationId: Option.some("ses_1:explore"),
+          parentConversationId: Option.some("ses_1"),
+        }),
+      }),
+    );
+
+    expect(
+      await within(story).findByRole("article", { name: /^Turn 2,.*in flight/ }),
+    ).toBeDefined();
+    expect(rowsOf(table)[1]?.textContent).toContain("Turn 3 ·");
+    expect(rowsOf(table)[4]?.textContent).toContain("Turn 6 ·");
+  });
+
+  it("numbers the turns that ended in the order they came, not the order they ended", async () => {
+    renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+    const story = await screen.findByRole("list", { name: "Timeline" });
+    const source = openSource();
+    const first = turn("e1", now.getTime() - 9_000 - T0, { durationMs: 8_000 });
+    const second = turn("e2", now.getTime() - 5_000 - T0, { durationMs: 1_000 });
+
+    act(() => source.turn({ event: "turn.ended", data: { entry: second, attempts: [] } }));
+    act(() => source.turn({ event: "turn.ended", data: { entry: first, attempts: [] } }));
+
+    await waitFor(() => expect(entryOf(story, 7)).not.toBeNull());
+    const rows = rowsOf(await screen.findByRole("table", { name: "Turns" }));
+    expect(rows[5]?.textContent).toContain("Turn 6 ·");
+    expect(rows[5]?.textContent).toContain("8.0 s");
+    expect(rows[6]?.textContent).toContain("Turn 7 ·");
+  });
+
   it("puts the kept turn in its place as it ends, before the history is fetched again", async () => {
     const { state } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
     const story = await screen.findByRole("list", { name: "Timeline" });

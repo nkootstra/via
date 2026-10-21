@@ -61,6 +61,19 @@ type Entry =
   | { readonly live: false; readonly turn: UsageRequest }
   | { readonly live: true; readonly turn: LiveTurn };
 
+/** `turns` in the order they came: by when each started, two at once as given. */
+export const byStart = <T extends { readonly at: number }>(turns: ReadonlyArray<T>) =>
+  turns.toSorted((a, b) => a.at - b.at);
+
+/**
+ * Each turn's number, by request id, in the order they came: the one number
+ * the story, the turns list, a request's sheet and an export all give it.
+ */
+export const turnNumbers = (
+  turns: ReadonlyArray<{ readonly requestId: string; readonly at: number }>,
+): ReadonlyMap<string, number> =>
+  new Map(byStart(turns).map(({ requestId }, index) => [requestId, index + 1]));
+
 /** Where an item starts, to order it among its siblings. */
 const startOf = (item: TimelineItem): number =>
   item.kind === "turn" ? item.turn.at : Math.min(...item.items.map(startOf));
@@ -80,6 +93,8 @@ export const timelineOf = (
     ...turns.map((turn) => ({ live: false as const, turn })),
     ...live.map((turn) => ({ live: true as const, turn })),
   ].toSorted((a, b) => a.turn.at - b.turn.at);
+
+  const numbers = turnNumbers(entries.map(({ turn }) => turn));
 
   const from = Math.min(...entries.map(({ turn }) => turn.at));
 
@@ -115,16 +130,16 @@ export const timelineOf = (
   const own = new Map<string, Array<TimelineTurn>>();
   const parents = new Map<string, string>();
 
-  entries.forEach((entry, index) => {
+  for (const entry of entries) {
     const { turn } = entry;
     const id = Option.getOrElse(turn.conversationId, () => rootId);
 
-    own.set(id, [...(own.get(id) ?? []), rowOf(entry, index + 1)]);
+    own.set(id, [...(own.get(id) ?? []), rowOf(entry, numbers.get(turn.requestId) ?? 0)]);
 
     if (Option.isSome(turn.parentConversationId) && !parents.has(id)) {
       parents.set(id, turn.parentConversationId.value);
     }
-  });
+  }
 
   // A sub-agent whose parent left no turns here, or whose parents lead round in a
   // circle, sits under the conversation itself.

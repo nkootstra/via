@@ -17,6 +17,7 @@ import { harnessName } from "./harness.ts";
 import { withoutPrefix } from "./model-entries.ts";
 import { providerName } from "./provider-name.ts";
 import { outcomeKind, outcomeOf } from "./request-outcome.ts";
+import { byStart } from "./timeline.ts";
 import {
   formatCount,
   formatDuration,
@@ -217,8 +218,10 @@ export const conversationMarkdown = (
   captured: ReadonlyMap<string, CapturedRequest>,
   writing: { readonly time: (at: number) => string; readonly hide: (text: string) => string },
 ) => {
-  const { summary, turns, attempts } = conversation;
+  const { summary, attempts } = conversation;
   const { time, hide } = writing;
+  // Numbered in the order they came, as the page numbers them.
+  const turns = byStart(conversation.turns);
 
   const trouble = [
     ...(summary.subagents > 0

@@ -11,6 +11,7 @@ import type {
   UsageRequest,
 } from "../api/types.ts";
 import { failed } from "./request-outcome.ts";
+import { byStart } from "./timeline.ts";
 
 /** What says which conversation a turn belongs to. */
 interface Member {
@@ -66,8 +67,9 @@ export interface Standing {
 
 /**
  * The conversation `id` as it stands now: the turns the history has of it,
- * `kept`, then those of `ended` it doesn't have yet, and of `live` those in
- * flight, each once, whichever conversation of it they belong to.
+ * `kept`, and those of `ended` it doesn't have yet, in the order they came,
+ * and of `live` those in flight, each once, whichever conversation of it they
+ * belong to.
  */
 export const standing = (
   id: string,
@@ -86,7 +88,7 @@ export const standing = (
   const sinceIds = new Set(since.map(({ requestId }) => requestId));
 
   return {
-    turns: [...kept.turns, ...since],
+    turns: byStart([...kept.turns, ...since]),
     attempts: [
       ...kept.attempts,
       ...ended
