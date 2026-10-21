@@ -75,11 +75,12 @@ hashes of the shell's inline scripts. `bun run build`, `bun run test` and
 `bun run smoke` build it first; run it yourself before `bun apps/cli/src/index.ts`
 or `bun --bun vitest` in `apps/web`, `apps/cli` or `apps/e2e` straight.
 
-The browser tests in `apps/e2e` drive Chromium through Playwright, against a
-compiled binary only:
+The browser tests in `apps/e2e` drive Chromium through Playwright, and WebKit
+where Safari behaves differently (copying to the clipboard), against a compiled
+binary only:
 
 ```sh
-(cd apps/e2e && bunx playwright install chromium)   # once: e2e's version
+(cd apps/e2e && bunx playwright install chromium webkit)   # once: e2e's version
 bun run build
 VIA_E2E_BIN=$PWD/npm/via-darwin-arm64/bin/via bun run --filter @via/e2e test
 ```

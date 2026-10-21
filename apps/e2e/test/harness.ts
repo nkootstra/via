@@ -16,7 +16,7 @@ import {
 } from "@via/codex-upstream/testing";
 import { Effect, Exit, Predicate, Schema } from "effect";
 import OpenAI from "openai";
-import { type BrowserContextOptions, chromium, type Page } from "playwright";
+import { type BrowserContextOptions, type BrowserType, chromium, type Page } from "playwright";
 
 export { freePort, realTime, runVia, tempHome } from "@via/cli/testing";
 
@@ -109,12 +109,17 @@ export const responsesOf = (codex: Codex): ReadonlyArray<CodexRequest> =>
  * error and console error it logs, a CSP violation among them. A 401 is left
  * out: the app asks for its session to learn whether it's signed in, and
  * Chromium logs the answer when it's no. The page records a trace, kept as
- * `test-results/<name>.zip` when the test fails.
+ * `test-results/<name>.zip` when the test fails. `engine` is Chromium unless a
+ * test names another, such as WebKit for what Safari does differently.
  */
-export const openPage = (name: string, options: BrowserContextOptions = {}) =>
+export const openPage = (
+  name: string,
+  options: BrowserContextOptions = {},
+  engine: BrowserType = chromium,
+) =>
   Effect.gen(function* () {
     const browser = yield* Effect.acquireRelease(
-      Effect.promise(() => chromium.launch()),
+      Effect.promise(() => engine.launch()),
       (opened) => Effect.promise(() => opened.close()),
     );
 

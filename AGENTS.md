@@ -92,7 +92,8 @@ contract.
   router expects one. Every other rule still applies. Its tests use plain
   `vitest` with happy-dom, Testing Library and MSW standing in for `/admin`.
 - `apps/e2e`: end-to-end tests against a compiled binary, browser tests
-  included (Playwright + Chromium); see `CONTRIBUTING.md`.
+  included (Playwright + Chromium, and WebKit for Safari's differences); see
+  `CONTRIBUTING.md`.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
   `codex-upstream`, `account-pool`, `providers`, `translate`, `usage`,
   `server`).
