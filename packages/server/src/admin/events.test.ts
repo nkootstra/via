@@ -1,10 +1,22 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
 import { type CodexRequest, type Reply, reply } from "@via/codex-upstream/testing";
-import { Clock, Effect, Exit, Fiber, FileSystem, Option, Queue, Scope, Stream } from "effect";
+import { providerReply } from "@via/providers/testing";
+import {
+  Clock,
+  Deferred,
+  Effect,
+  Exit,
+  Fiber,
+  FileSystem,
+  Option,
+  Queue,
+  Scope,
+  Stream,
+} from "effect";
 import { TestClock } from "effect/testing";
 import { Sse } from "effect/encoding";
-import { type AdminState, AdminEvent } from "./api.ts";
+import { type AdminState, AdminEvent, type TurnEvent } from "./api.ts";
 import { ok, type Via, withVia } from "../testing/harness.ts";
 
 const adminKey = "admin-key-that-is-long-enough-000";
@@ -26,19 +38,25 @@ const listen = (via: Via, headers: Record<string, string> = {}) =>
 
     const states = yield* Queue.unbounded<State>();
     const histories = yield* Queue.unbounded<void>();
+    const turns = yield* Queue.unbounded<TurnEvent>();
 
     const ended = yield* response.stream.pipe(
       Stream.decodeText(),
       Stream.pipeThroughChannel(Sse.decodeSchema(AdminEvent)),
-      Stream.runForEach((event) =>
-        event.event === "state"
-          ? Queue.offer(states, event.data)
-          : Queue.offer(histories, undefined),
-      ),
+      Stream.runForEach((event) => {
+        switch (event.event) {
+          case "state":
+            return Queue.offer(states, event.data);
+          case "history":
+            return Queue.offer(histories, undefined);
+          default:
+            return Queue.offer(turns, event);
+        }
+      }),
       Effect.forkScoped,
     );
 
-    return { response, states, histories, ended: Fiber.join(ended) };
+    return { response, states, histories, turns, ended: Fiber.join(ended) };
   });
 
 /** Signs in with the admin key, and answers the `Cookie` header that sends its session back. */
@@ -105,6 +123,41 @@ const withAdmin = <A, E>(
   body: (via: Via) => Effect.Effect<A, E, Scope.Scope>,
   options: { readonly openrouterFromUi?: boolean } = {},
 ) => withVia(answer, (via) => Effect.scoped(body(via)), { adminKey, ...options });
+
+const accountOf = (request: CodexRequest) => request.headers["chatgpt-account-id"];
+
+/** Codex's answer to an account whose usage limit is reached. */
+const usageLimit = reply.error(429, {
+  error: { type: "usage_limit_reached", message: "The usage limit has been reached" },
+});
+
+/** A turn of OpenCode's conversation `ses_live`, asking Codex for its answer as a stream or not. */
+const postTurn = (via: Via, stream: boolean) =>
+  via.post("/v1/responses", { model: "gpt-6-astra", input: "hi", stream }, undefined, {
+    "x-opencode-session-id": "ses_live",
+    "user-agent": "opencode/1.19.3",
+  });
+
+/** The turn events `turns` gets, up to and including the first that `last` matches. */
+const turnsUntil = (turns: Queue.Queue<TurnEvent>, last: (event: TurnEvent) => boolean) =>
+  Effect.gen(function* () {
+    const sent: Array<TurnEvent> = [];
+
+    for (;;) {
+      const event = yield* Queue.take(turns);
+      sent.push(event);
+
+      if (last(event)) return sent;
+    }
+  });
+
+/** The request a turn event is about. */
+const requestIdOf = (event: TurnEvent | undefined) =>
+  event === undefined
+    ? undefined
+    : event.event === "turn.ended"
+      ? event.data.entry.requestId
+      : event.data.requestId;
 
 /** The id of account `name` in `state`. */
 const idOf = (state: State, name: string) =>
@@ -449,6 +502,196 @@ layer(BunFileSystem.layer)("GET /admin/events", (it) => {
         yield* via.noTimer("15 seconds");
         yield* TestClock.adjust("5 minutes");
         expect(usageLookups(via)).toBe(after);
+      }),
+    ),
+  );
+
+  it.effect("sends a turn as it starts, each attempt as it goes, and the turn as it ends", () => {
+    const gate = Deferred.makeUnsafe<void>();
+
+    return withAdmin(
+      (request) => (accountOf(request) === "acc-a" ? usageLimit : reply.held(gate, ok())),
+      (via) =>
+        Effect.gen(function* () {
+          const { states, turns } = yield* listen(via);
+          yield* Queue.take(states);
+
+          const answer = yield* Effect.forkScoped(
+            Effect.flatMap(postTurn(via, true), (response) => response.text),
+          );
+
+          const sent = yield* turnsUntil(
+            turns,
+            (event) => event.event === "turn.attempt" && event.data.seq === 1,
+          );
+
+          expect(sent).toMatchObject([
+            {
+              event: "turn.started",
+              data: {
+                model: "gpt-6-astra",
+                conversationId: Option.some("ses_live"),
+                parentConversationId: Option.none(),
+                client: Option.some("opencode/1.19.3"),
+                keyName: Option.some("test"),
+                attempts: [],
+              },
+            },
+            {
+              event: "turn.attempt",
+              data: {
+                state: "open",
+                seq: 0,
+                accountLabel: Option.some("a@example.com"),
+                status: Option.none(),
+              },
+            },
+            {
+              event: "turn.attempt",
+              data: {
+                state: "ended",
+                seq: 0,
+                status: Option.some(429),
+                outcome: "failed",
+                category: Option.some("budget_exhausted"),
+              },
+            },
+            {
+              event: "turn.attempt",
+              data: { state: "open", seq: 1, accountLabel: Option.some("b@example.com") },
+            },
+          ]);
+          const id = requestIdOf(sent[0]);
+          expect(sent.map(requestIdOf)).toEqual(sent.map(() => id));
+
+          yield* Deferred.succeed(gate, undefined);
+          const rest = yield* turnsUntil(turns, (event) => event.event === "turn.ended");
+          expect(rest).toMatchObject([
+            { event: "turn.attempt", data: { state: "open", seq: 1, status: Option.some(200) } },
+            {
+              event: "turn.attempt",
+              data: { state: "open", seq: 1, firstChunkMs: Option.some(expect.any(Number)) },
+            },
+            {
+              event: "turn.ended",
+              data: {
+                entry: { status: 200, conversationId: Option.some("ses_live") },
+                attempts: [
+                  { seq: 0, outcome: "failed" },
+                  { seq: 1, outcome: "served" },
+                ],
+              },
+            },
+          ]);
+          yield* Fiber.join(answer);
+        }),
+    );
+  });
+
+  it.effect(
+    "sends a page that connects mid-turn the turn in flight, with its attempts so far",
+    () => {
+      const gate = Deferred.makeUnsafe<void>();
+
+      return withAdmin(
+        () => reply.held(gate, ok()),
+        (via) =>
+          Effect.gen(function* () {
+            const answer = yield* Effect.forkScoped(postTurn(via, false));
+            yield* via.upstreamReceived(1);
+
+            const { turns } = yield* listen(via);
+            expect(yield* Queue.take(turns)).toMatchObject({
+              event: "turn.started",
+              data: {
+                conversationId: Option.some("ses_live"),
+                attempts: [{ state: "open", seq: 0, accountLabel: Option.some("a@example.com") }],
+              },
+            });
+
+            yield* Deferred.succeed(gate, undefined);
+            yield* Fiber.join(answer);
+            yield* turnsUntil(turns, (event) => event.event === "turn.ended");
+
+            // Once it ended, a page that connects finds nothing in flight.
+            const { states, turns: later } = yield* listen(via);
+            yield* Queue.take(states);
+            expect(yield* Queue.size(later)).toBe(0);
+          }),
+      );
+    },
+  );
+
+  it.effect("ends a turn whose client gave up before via answered", () => {
+    const gate = Deferred.makeUnsafe<void>();
+
+    return withAdmin(
+      () => reply.held(gate, ok()),
+      (via) =>
+        Effect.gen(function* () {
+          const { states, turns } = yield* listen(via);
+          yield* Queue.take(states);
+
+          // The client goes away while via waits for Codex, which interrupts the request.
+          const abort = new AbortController();
+
+          const sent = fetch(`${via.baseUrl}/v1/responses`, {
+            method: "POST",
+            headers: { authorization: `Bearer ${via.key}`, "content-type": "application/json" },
+            body: JSON.stringify({ model: "gpt-6-astra", input: "hi" }),
+            signal: abort.signal,
+          }).catch(() => undefined);
+
+          expect(yield* Queue.take(turns)).toMatchObject({ event: "turn.started" });
+          yield* via.upstreamReceived(1);
+          abort.abort();
+          yield* Effect.promise(() => sent);
+
+          const ended = yield* turnsUntil(turns, (event) => event.event === "turn.ended");
+          expect(ended.at(-1)).toMatchObject({
+            event: "turn.ended",
+            data: { entry: { status: 499 } },
+          });
+
+          const { states: laterStates, turns: later } = yield* listen(via);
+          yield* Queue.take(laterStates);
+          expect(yield* Queue.size(later)).toBe(0);
+        }),
+    );
+  });
+
+  it.effect("ends a turn whose client went away mid-answer", () =>
+    withAdmin(ok, (via) =>
+      Effect.gen(function* () {
+        via.provider.respond(
+          providerReply.sseThenHang('data: {"choices":[{"delta":{"content":"hi"}}]}\n\n'),
+        );
+        const { states, turns } = yield* listen(via);
+        yield* Queue.take(states);
+
+        const reading = yield* Effect.forkScoped(
+          Effect.flatMap(
+            via.post(
+              "/v1/chat/completions",
+              { model: "opencode-go/kimi-k3", stream: true, messages: [] },
+              undefined,
+              { "x-opencode-session-id": "ses_live" },
+            ),
+            (response) => Stream.runDrain(response.stream),
+          ),
+        );
+
+        yield* turnsUntil(
+          turns,
+          (event) => event.event === "turn.attempt" && Option.isSome(event.data.firstChunkMs),
+        );
+        yield* Fiber.interrupt(reading);
+
+        const sent = yield* turnsUntil(turns, (event) => event.event === "turn.ended");
+        expect(sent.at(-1)).toMatchObject({
+          event: "turn.ended",
+          data: { entry: { streamEnd: Option.some("client_aborted") } },
+        });
       }),
     ),
   );

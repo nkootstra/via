@@ -418,7 +418,7 @@ work on `/v1`.
 | `GET /admin/fallbacks`                    | The [fallback rules](#fallback-models), each with how its model and fallbacks stand and which answers.  |
 | `PUT /admin/fallbacks`                    | Set `{"model": "...", "fallbacks": [...]}`, in place of the model's rule; `400` and why if it can't.    |
 | `DELETE /admin/fallbacks?model=<id>`      | Remove a model's fallbacks; `404` if it has none.                                                       |
-| `GET /admin/events`                       | The admin state as server-sent events, as it changes, and when the usage history changes.               |
+| `GET /admin/events`                       | The admin state as it changes, history changes and the turns in flight, as server-sent events.          |
 | `GET /admin/keys`                         | List API keys and when each was last used, not the keys.                                                |
 | `POST /admin/keys`                        | Create a key from `{"name": "..."}`. It is returned once.                                               |
 | `PATCH /admin/keys/<id-or-name>`          | Rename a key from `{"name": "..."}`; the key stays the same.                                            |
@@ -513,6 +513,36 @@ via keeps a request or the history is deleted, with an event named `history`
 and nothing more in it: the history is too big to send, so you fetch what you
 show from `/admin/history`. Changes within a second of each other arrive as one
 event.
+
+It also shows the turns in flight, so a [conversation](#conversations) is live
+while a coding agent talks: a request is in flight from when it names its
+model until its answer ends, however it ends (served, refused, broken off, or
+its client gone). Each event's `data` is JSON, with the same fields, and the
+same rules for what is kept of an upstream's message, as the
+[usage history](#upstream-attempts):
+
+- `turn.started`: a request started. `{"requestId", "at", "model",
+  "conversationId", "parentConversationId", "agentType", "client", "keyName",
+  "attempts"}`, `null` for what it doesn't have. As you connect, one comes for
+  every turn already in flight, with its `attempts` so far, so a page opened
+  mid-turn shows it.
+- `turn.attempt`: an upstream attempt started, was answered, sent its first
+  chunk, or failed, as it stands now; the attempt with the same `requestId` and
+  `seq` it replaces. One still under way has `"state": "open"`, with
+  `requestId`, `seq`, `startedAt`, `provider`, `model`, `accountId`,
+  `accountLabel`, `status` (`null` until the upstream answers) and
+  `firstChunkMs` (`null` until the first chunk), and no duration or outcome
+  yet. One via moved on from has `"state": "ended"` and every field of an
+  attempt the history keeps, `outcome` and `durationMs` included.
+- `turn.ended`: the request ended. `{"entry", "attempts"}`, the request and its
+  attempts as the usage history keeps them, which has them by the time this
+  comes (unless via couldn't write them).
+
+The turns in flight are kept in memory only, never on disk, and at most 1,000
+at once: a request past that isn't shown until it ends and the history has it.
+A stream that falls more than about a thousand events behind loses the oldest;
+via never waits for it to serve a request. A page that reconnects gets every
+turn in flight again, so it should drop what it held when the stream broke.
 
 #### Signing in from a browser
 

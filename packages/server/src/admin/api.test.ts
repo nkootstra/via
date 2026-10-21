@@ -53,6 +53,7 @@ describe("admin API contract", () => {
         "providers/src/errors.ts",
         "providers/src/schemas.ts",
         "server/src/admin/api.ts",
+        "server/src/usage/turn-events.ts",
         "usage/src/entry.ts",
       ]);
     }),

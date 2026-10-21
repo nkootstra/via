@@ -24,6 +24,8 @@ import type { UpstreamError } from "../proxy/upstream-error.ts";
 import { clientOf } from "../proxy/client.ts";
 import type { Conversation } from "../proxy/session.ts";
 import { categorize, keptMessage } from "./failure.ts";
+import { LiveTurns } from "./live-turns.ts";
+import type { LiveAttempt, LiveTurn } from "./turn-events.ts";
 
 /**
  * Notes, for the one line via logs about each request, what the request is
@@ -310,6 +312,57 @@ const attemptsOf = (id: string, end: number, line: Noted): ReadonlyArray<Request
     ];
   });
 
+/**
+ * How the latest attempt of request `id` stands, as `line` noted it, for the turns in
+ * flight: still open, or ended as the usage history will keep it.
+ */
+const liveAttemptOf = (id: string, line: Noted): Option.Option<LiveAttempt> => {
+  const seq = line.attempts.length - 1;
+  const attempt = line.attempts[seq];
+
+  if (attempt === undefined || Option.isNone(attempt.model)) return Option.none();
+
+  if (Option.isSome(attempt.failedAt)) {
+    const ended = attemptsOf(id, attempt.failedAt.value, line).find((kept) => kept.seq === seq);
+
+    return Option.map(Option.fromUndefinedOr(ended), (kept) => ({ state: "ended", ...kept }));
+  }
+
+  return Option.some({
+    state: "open",
+    requestId: id,
+    seq,
+    startedAt: attempt.startedAt,
+    provider: providerOf(attempt.model.value),
+    model: attempt.model.value,
+    accountId: Option.map(attempt.account, (account) => account.id),
+    accountLabel: Option.map(attempt.account, (account) => account.label),
+    status: attempt.status,
+    firstChunkMs: streamedAnswer(line)
+      ? Option.map(line.firstChunkAt, (at) => at - attempt.startedAt)
+      : Option.none(),
+  });
+};
+
+/** Request `id`, which came in at `start` from `client` and asks for `model`, as a turn in flight. */
+const liveTurnOf = (
+  id: string,
+  start: number,
+  model: string,
+  client: Option.Option<string>,
+  line: Noted,
+): LiveTurn => ({
+  requestId: id,
+  at: start,
+  model,
+  conversationId: Option.map(line.conversation, (found) => found.conversationId),
+  parentConversationId: Option.flatMap(line.conversation, (found) => found.parentConversationId),
+  agentType: Option.flatMap(line.conversation, (found) => found.agentType),
+  client,
+  keyName: Option.map(line.key, (key) => key.name),
+  attempts: [],
+});
+
 /** What a request's log line says, noted while the request is handled. */
 interface Noted {
   readonly key: Option.Option<ClientKey>;
@@ -379,8 +432,10 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
   Effect.gen(function* () {
     const request = yield* HttpServerRequest.HttpServerRequest;
     const history = yield* UsageHistory;
+    const live = yield* LiveTurns;
     const id = yield* requestId(request.headers);
     const start = yield* Clock.currentTimeMillis;
+    const client = clientOf(request.headers);
 
     const noting = yield* Ref.make<Noted>({
       key: Option.none(),
@@ -445,21 +500,31 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
         Effect.provideService(References.CurrentLogSpans, [["http.span", start]]),
       );
 
-    // Kept before the line is logged, so whoever sees the line finds the request kept.
-    const keep = (line: Noted) =>
+    /**
+     * Ends a request that asked for a model: kept in the usage history when `kept`, then
+     * no longer in flight, so whoever sees it end finds it kept.
+     */
+    const settle = (line: Noted, kept: boolean) =>
       Option.match(line.model, {
         onNone: () => Effect.void,
         onSome: (model) =>
-          Effect.flatMap(Clock.currentTimeMillis, (end) =>
-            history.keep(
-              entryOf(id, start, end, model, clientOf(request.headers), line),
-              attemptsOf(id, end, line),
-            ),
-          ).pipe(
-            Effect.catchCause((cause) =>
-              Effect.logWarning("Could not keep the request in the usage history", cause),
-            ),
-          ),
+          Effect.gen(function* () {
+            const end = yield* Clock.currentTimeMillis;
+            const entry = entryOf(id, start, end, model, client, line);
+            const attempts = attemptsOf(id, end, line);
+
+            if (kept) {
+              yield* history
+                .keep(entry, attempts)
+                .pipe(
+                  Effect.catchCause((cause) =>
+                    Effect.logWarning("Could not keep the request in the usage history", cause),
+                  ),
+                );
+            }
+
+            yield* live.end({ entry, attempts });
+          }),
       });
 
     const finish = Ref.modify(noting, (sofar): [Noted, Noted] => {
@@ -467,12 +532,20 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
 
       return [line, line];
     }).pipe(
-      // A host's health checks would drown out the requests.
-      Effect.flatMap((line) =>
-        line.pending === 0 && line.logged && request.url !== "/healthz"
-          ? Effect.andThen(keep(line), log(line))
-          : Effect.void,
-      ),
+      Effect.flatMap((line) => {
+        if (line.pending !== 0) return Effect.void;
+
+        // A host's health checks would drown out the requests.
+        const logged = line.logged && request.url !== "/healthz";
+
+        // Kept before the line is logged, so whoever sees the line finds the request kept.
+        return Effect.andThen(settle(line, logged), logged ? log(line) : Effect.void);
+      }),
+    );
+
+    /** Shows how the latest attempt stands now, while the request is in flight. */
+    const showAttempt = Effect.flatMap(Ref.get(noting), (line) =>
+      Option.match(liveAttemptOf(id, line), { onNone: () => Effect.void, onSome: live.attempt }),
     );
 
     /** Updates the current attempt, while it is open. */
@@ -487,8 +560,20 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
 
     const service = RequestLog.of({
       key: (key) => note({ key: Option.some(key) }),
+      // The first model asked starts the turn; its key and conversation are known by then.
       asked: (model, stream) =>
-        note({ model: Option.some(model), streamAsked: Option.some(stream) }),
+        Ref.modify(noting, (sofar): [Option.Option<Noted>, Noted] => {
+          const line = { ...sofar, model: Option.some(model), streamAsked: Option.some(stream) };
+
+          return [Option.isNone(sofar.model) ? Option.some(line) : Option.none(), line];
+        }).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.void,
+              onSome: (line) => live.start(liveTurnOf(id, start, model, client, line)),
+            }),
+          ),
+        ),
       served: (by, accountId) =>
         note({ servedBy: Option.some(by), accountId: Option.fromUndefinedOr(accountId) }),
       refused: (code, message) =>
@@ -515,9 +600,11 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
               },
             ],
           })),
-        ),
+        ).pipe(Effect.andThen(showAttempt)),
       upstreamAnswered: (status) =>
-        noteAttempt((attempt) => ({ ...attempt, status: Option.some(status) })),
+        noteAttempt((attempt) => ({ ...attempt, status: Option.some(status) })).pipe(
+          Effect.andThen(showAttempt),
+        ),
       attemptFailed: (failure) =>
         Effect.flatMap(Clock.currentTimeMillis, (now) =>
           noteAttempt((attempt) => ({
@@ -527,7 +614,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
             cause: Option.fromUndefinedOr(failure.cause),
             failedAt: Option.some(now),
           })),
-        ),
+        ).pipe(Effect.andThen(showAttempt)),
       fellBack: (requested, reason) =>
         note({ requestedModel: Option.some(requested), fallbackReason: Option.some(reason) }),
       setAside: Ref.modify(noting, (sofar): [Effect.Effect<void>, Noted] => {
@@ -588,7 +675,7 @@ export const logRequest = <E, R>(app: Effect.Effect<HttpServerResponse.HttpServe
               Stream.onFirst(stream, () =>
                 Effect.flatMap(Clock.currentTimeMillis, (now) =>
                   note({ firstChunkAt: Option.some(now) }),
-                ),
+                ).pipe(Effect.andThen(showAttempt)),
               ),
             ),
           ),
