@@ -16,7 +16,7 @@ import {
   useToast,
 } from "@via/ui";
 import { colors, space, text } from "@via/ui/tokens.stylex";
-import { Option } from "effect";
+import { Option, Predicate } from "effect";
 import { capturedRequestQuery } from "../api/admin.ts";
 import type { CapturedRequest, Conversation } from "../api/types.ts";
 import {
@@ -45,7 +45,10 @@ const styles = stylex.create({
   },
 });
 
-type Kind = "json" | "markdown";
+/** An export asked for: a download, or a copy already under way. */
+type Job =
+  | { readonly kind: "json" }
+  | { readonly kind: "markdown"; readonly copied: Promise<void> };
 
 /** Saves `contents` as a file named `name`, as the browser saves a download. */
 const download = (name: string, contents: string) => {
@@ -75,11 +78,38 @@ export function ExportMenu({ conversation }: { readonly conversation: Conversati
       ),
     ).then((found) => new Map(found.flatMap(Option.toArray)));
 
+  const markdown = () =>
+    bodies().then((captured) =>
+      conversationMarkdown(conversation, captured, {
+        time: (at) => formatMoment(at, format),
+        hide: mask.key,
+      }),
+    );
+
+  /**
+   * Copies the report, asking for the clipboard at once, while the click that
+   * asked is still being handled: Safari refuses a write that comes after the
+   * prompts are fetched. A clipboard item takes the report as it comes; a
+   * browser without one is handed it as text once it has it.
+   */
+  const copy = () => {
+    const report = markdown();
+
+    return Predicate.isFunction(globalThis.ClipboardItem)
+      ? navigator.clipboard.write([
+          new ClipboardItem({
+            "text/plain": report.then((written) => new Blob([written], { type: "text/plain" })),
+          }),
+        ])
+      : report.then((written) => navigator.clipboard.writeText(written));
+  };
+
   const exporting = useMutation({
-    mutationFn: (kind: Kind) =>
-      bodies().then((captured) =>
-        kind === "json"
-          ? download(
+    mutationFn: (job: Job) =>
+      job.kind === "markdown"
+        ? job.copied
+        : bodies().then((captured) =>
+            download(
               exportFileName(conversation.summary.id, new Date()),
               JSON.stringify(
                 conversationJson(conversation, captured, {
@@ -89,15 +119,9 @@ export function ExportMenu({ conversation }: { readonly conversation: Conversati
                 null,
                 2,
               ),
-            )
-          : navigator.clipboard.writeText(
-              conversationMarkdown(conversation, captured, {
-                time: (at) => formatMoment(at, format),
-                hide: mask.key,
-              }),
             ),
-      ),
-    onSuccess: (_, kind) =>
+          ),
+    onSuccess: (_, { kind }) =>
       toast.add(
         kind === "json"
           ? { title: "Conversation downloaded" }
@@ -135,12 +159,12 @@ export function ExportMenu({ conversation }: { readonly conversation: Conversati
         <MenuItem
           label="Download JSON"
           icon={<DownloadIcon size={15} />}
-          onClick={() => exporting.mutate("json")}
+          onClick={() => exporting.mutate({ kind: "json" })}
         />
         <MenuItem
           label="Copy as Markdown"
           icon={<DocumentIcon size={15} />}
-          onClick={() => exporting.mutate("markdown")}
+          onClick={() => exporting.mutate({ kind: "markdown", copied: copy() })}
         />
         {count > 0 && (
           <p {...stylex.props(styles.note)}>

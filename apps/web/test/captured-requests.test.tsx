@@ -1,6 +1,7 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import { Option } from "effect";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { delay, http } from "msw";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import type { CapturedRequest, Conversation } from "../src/api/types.ts";
 import { attempt, conversation, request } from "../src/testing/history.ts";
 import { renderApp } from "./app.tsx";
@@ -334,6 +335,38 @@ describe("exporting a conversation", () => {
     expect(copied).toContain("| # | Time | Model |");
     expect(copied).toContain("My key is [redacted:openai-key]");
     expect(copied).toContain("Together is down for maintenance");
+  });
+
+  it("asks for the clipboard as it's picked, before the prompts it holds arrive", async () => {
+    const write = vi.spyOn(navigator.clipboard, "write");
+    const writeText = vi.spyOn(navigator.clipboard, "writeText");
+
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed, [
+      http.get("*/admin/history/requests/:requestId/body", () => delay("infinite")),
+    ]);
+
+    await user.click(await screen.findByRole("button", { name: "Export" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy as Markdown" }));
+
+    // Safari lets a page write to the clipboard only while the click that asked is handled.
+    expect(write).toHaveBeenCalledOnce();
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("copies it as text where the browser can't take a clipboard item", async () => {
+    const original = globalThis.ClipboardItem;
+    vi.stubGlobal("ClipboardItem", undefined);
+    onTestFinished(() => {
+      vi.stubGlobal("ClipboardItem", original);
+    });
+
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", seed);
+
+    await user.click(await screen.findByRole("button", { name: "Export" }));
+    await user.click(await screen.findByRole("menuitem", { name: "Copy as Markdown" }));
+
+    expect(await screen.findByText("Markdown copied")).toBeDefined();
+    expect(await navigator.clipboard.readText()).toContain("Together is down for maintenance");
   });
 
   it("downloads it as JSON, named for the conversation, its captured prompts by request", async () => {
