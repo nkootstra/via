@@ -35,6 +35,16 @@ Examples of what's in scope:
   answered with a 401, 402, 403, 429 or 5xx, ending up in the usage history
   (`usage.db`) or the turns in flight `/admin/events` sends, which carry only
   what the README lists.
+- A prompt or an upstream's error answer kept in `bodies.db` while keeping
+  failed turns' prompts is off (it is off until turned on), kept for a turn that
+  neither failed nor fell back, kept past its 7 days or a delete, or a secret of
+  a kind the README says redaction replaces kept unredacted there. With the
+  setting on, via keeps those turns' request bodies, redacted, for 7 days,
+  owner-only, in `~/.config/via/bodies.db` (or `$VIA_HOME/bodies.db`), and
+  `DELETE /admin/history/bodies` or deleting the history deletes them.
+  Redaction works by pattern: a secret of a kind it has no pattern for, such as
+  a plain password, is kept as written, and that is a known limit, not a
+  vulnerability.
 - A prompt, an answer or an upstream's error message ending up in via's log
   or in `state.json`.
 - A client request that makes via send headers or requests to an upstream
