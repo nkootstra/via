@@ -138,8 +138,8 @@ const encodeTurn = Schema.encodeEffect(TurnEvent);
 
 /**
  * The turns in flight: a `turn.started` for each as the page connects, then each
- * turn's events as they come. A page that falls behind loses the oldest; requests
- * never wait for it (see {@link LiveTurns}).
+ * turn's events as they come, until the page falls behind; requests never wait for
+ * it (see {@link LiveTurns}).
  */
 const turnEvents = Stream.unwrap(Effect.map(LiveTurns, (live) => live.events)).pipe(
   // via builds the events itself, so failing to encode one is a bug.
@@ -154,4 +154,8 @@ const turnEvents = Stream.unwrap(Effect.map(LiveTurns, (live) => live.events)).p
  * {@link turnEvents}).
  */
 export const adminEvents = (options: StateOptions) =>
-  stateEvents(options).pipe(Stream.merge(historyEvents), Stream.merge(turnEvents));
+  stateEvents(options).pipe(
+    Stream.merge(historyEvents),
+    // The turns end for a page that fell behind, which then connects again for a fresh start.
+    Stream.merge(turnEvents, { haltStrategy: "either" }),
+  );

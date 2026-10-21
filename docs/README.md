@@ -547,9 +547,10 @@ same rules for what is kept of an upstream's message, as the
 
 The turns in flight are kept in memory only, never on disk, and at most 1,000
 at once: a request past that isn't shown until it ends and the history has it.
-A stream that falls more than about a thousand events behind loses the oldest;
-via never waits for it to serve a request. A page that reconnects gets every
-turn in flight again, so it should drop what it held when the stream broke.
+A stream that falls more than about a thousand events behind is ended rather
+than left to miss one, and via never waits for it to serve a request. A page
+that reconnects gets every turn in flight again, so it should drop what it held
+when the stream broke.
 
 #### Signing in from a browser
 
