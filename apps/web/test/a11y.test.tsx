@@ -342,6 +342,45 @@ describe("accessibility", { timeout: 15_000 }, () => {
     expect(await violations()).toEqual([]);
   });
 
+  it("a failed turn's kept request, open in its sheet", async () => {
+    const captured = new Map([
+      [
+        "s1",
+        {
+          requestId: "s1",
+          capturedAt: Date.parse("2026-09-27T11:30:06.000Z"),
+          endpoint: "responses" as const,
+          request: {
+            model: "gpt-6-astra",
+            instructions: "Review the diff.",
+            tools: [{ type: "function", name: "shell" }],
+            input: [
+              { role: "user", content: "Key [redacted:openai-key] and [image: png, 4 KB]" },
+              { type: "function_call", call_id: "c1", name: "shell", arguments: "ls" },
+              { type: "function_call_output", call_id: "c1", output: "a.ts" },
+            ],
+          },
+          upstreamErrors: [{ seq: 0, status: 429, body: "Too many requests" }],
+          redactions: [{ kind: "openai-key", count: 1 }],
+          truncated: false,
+          sizeBytes: 2_048,
+        },
+      ],
+    ]);
+
+    const { user } = renderApp("/usage?tab=conversations&conversation=ses_1", {
+      conversations,
+      captured,
+    });
+
+    const table = await screen.findByRole("table", { name: "Turns" });
+    await user.click(within(table).getByRole("button", { name: "View request" }));
+    const sheet = await screen.findByRole("dialog", { name: "Request of turn 2" });
+    await within(sheet).findByRole("list", { name: "Messages" });
+
+    expect(await violations(sheet)).toEqual([]);
+  });
+
   it("the revoke-key confirmation", async () => {
     const { user } = renderApp("/keys", populated);
     const row = within(await screen.findByRole("row", { name: /^laptop/ }));

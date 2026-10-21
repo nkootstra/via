@@ -78,4 +78,4 @@ export type Fallback = SuccessOf<Groups["fallbacks"]["endpoints"]["list"]>[numbe
 export type Availability = Fallback["status"]["source"];
 
 /** The body of a failed request via kept, redacted, with each upstream's error. */
-export type CapturedRequest = SuccessOf<Groups["history"]["endpoints"]["body"]>;
+export type CapturedRequest = SuccessOf<Groups["history"]["endpoints"]["capturedRequest"]>;
