@@ -1,6 +1,6 @@
 import { BunFileSystem } from "@effect/platform-bun";
 import { expect, layer } from "@effect/vitest";
-import { type CodexRequest, reply } from "@via/codex-upstream/testing";
+import { type CodexRequest, reply, sse } from "@via/codex-upstream/testing";
 import { providerReply } from "@via/providers/testing";
 import { UsageHistory } from "@via/usage";
 import { Deferred, Effect, Fiber, Layer, Option } from "effect";
@@ -85,6 +85,42 @@ layer(BunFileSystem.layer)("captured requests", (it) => {
           );
 
           expect(JSON.stringify(captured)).not.toContain(KEY);
+        }),
+      { keepFailedPrompts: true },
+    ),
+  );
+
+  it.effect("keeps what Codex said when it failed the response in its stream", () =>
+    withVia(
+      () =>
+        reply.sse(
+          sse([
+            { type: "response.created", response: { id: "resp_1", status: "in_progress" } },
+            {
+              type: "response.failed",
+              response: {
+                id: "resp_1",
+                status: "failed",
+                error: { code: "server_is_overloaded", message: "Codex is busy" },
+              },
+            },
+          ]),
+        ),
+      (via) =>
+        Effect.gen(function* () {
+          const response = yield* via.post("/v1/responses", { model: "gpt-x", input: "hi" });
+
+          expect(yield* capturedOf(via, response)).toMatchObject(
+            Option.some({
+              upstreamErrors: [
+                {
+                  seq: 0,
+                  status: 200,
+                  body: { error: { code: "server_is_overloaded", message: "Codex is busy" } },
+                },
+              ],
+            }),
+          );
         }),
       { keepFailedPrompts: true },
     ),

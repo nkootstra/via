@@ -227,12 +227,11 @@ export const dispatch = Effect.fn("dispatch")(function* <R>(
 
       if (Result.isSuccess(reply)) return reply.success;
 
+      // Read as an answer's body would be, so a captured turn keeps what Codex said.
       yield* log.attemptFailed({
-        error: {
-          code: Option.some(reply.failure.code),
-          message: Option.some(reply.failure.reason),
-          downstreamProvider: Option.none(),
-        },
+        error: refusalOf(
+          JSON.stringify({ error: { code: reply.failure.code, message: reply.failure.reason } }),
+        ),
       });
 
       if (yield* coolDownFor(reply.failure)) continue;

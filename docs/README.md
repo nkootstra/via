@@ -1367,8 +1367,9 @@ gave up). One that didn't serve also has:
   `auth` (a 401 or 403), `downstream_unavailable` (a 502, 503 or 504, an
   overloaded upstream, or an error a router such as OpenRouter says came from
   the provider it sent the request on to), `context_too_long`,
-  `content_filtered`, `bad_request` (any other 4xx), `timeout`, `network` or
-  `unknown`. A code via knows outranks the status, so a 429 that says the quota
+  `content_filtered`, `bad_request` (any other 4xx), `timeout`, `network` (the
+  connection failed, or the answer broke off, as with an event via can't read,
+  whose `upstreamCode` is then `upstream_incomplete`) or `unknown`. A code via knows outranks the status, so a 429 that says the quota
   ran out is `budget_exhausted`.
 - `upstreamCode`, the upstream's own error code or type, when it is an
   identifier.

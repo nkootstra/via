@@ -73,6 +73,19 @@ export const brokenResponse = (error: BrokenStreamError) =>
   openAiError(502, streamIncomplete.code, error.message);
 
 /**
+ * Notes that the current attempt's stream broke off in a way via can't read on from, as
+ * one cut off does, saying so in its code.
+ */
+const brokenOff = attemptFailed({
+  cause: "network",
+  error: {
+    code: Option.some(streamIncomplete.code),
+    message: Option.none(),
+    downstreamProvider: Option.none(),
+  },
+});
+
+/**
  * Fails with what happened to Codex's answer, with the `cause` logged as a
  * warning: the client needs only what happened, the log why.
  */
@@ -143,12 +156,17 @@ export const collected = (
               : error.message,
           ),
         ),
-      SseError: (error) => broken("Codex sent an event via can't read", error.message),
-      SchemaError: (error) => broken("Codex sent an event via can't read", error.message),
+      SseError: (error) =>
+        Effect.andThen(brokenOff, broken("Codex sent an event via can't read", error.message)),
+      SchemaError: (error) =>
+        Effect.andThen(brokenOff, broken("Codex sent an event via can't read", error.message)),
       Retry: (retry) =>
-        broken(
-          "Codex asked to be retried in the middle of its answer",
-          `in ${Duration.format(retry.duration)}`,
+        Effect.andThen(
+          brokenOff,
+          broken(
+            "Codex asked to be retried in the middle of its answer",
+            `in ${Duration.format(retry.duration)}`,
+          ),
         ),
     }),
   );
