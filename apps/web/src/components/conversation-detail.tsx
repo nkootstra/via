@@ -362,14 +362,15 @@ function Opened({
 
 /**
  * The turns table's columns: the turn (its model over its time and agent),
- * served by, tokens, duration and outcome. A phone keeps the turn, tokens and outcome.
+ * served by, tokens, duration and outcome. A phone keeps the turn, tokens and
+ * outcome, the last two as wide as a token count and an error's code need.
  */
 const columns = [
   "auto",
   { width: "20%", secondary: true },
-  "14%",
+  "4.5rem",
   { width: "14%", secondary: true },
-  "24%",
+  "8rem",
 ] as const;
 
 /** Whose turn it was: the sub-agent's type, a plain sub-agent's, or none for the conversation's own. */

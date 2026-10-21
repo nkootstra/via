@@ -113,6 +113,10 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
   },
+  timeNested: {
+    overflow: "hidden",
+    paddingInlineEnd: { default: space.s1, "@container (max-width: 520px)": 0 },
+  },
   spine: {
     position: "relative",
     alignSelf: "stretch",
@@ -185,12 +189,16 @@ const styles = stylex.create({
   cardLive: {
     boxShadow: `inset 0 0 0 1px color-mix(in oklab, ${colors.chart1} 45%, transparent)`,
   },
+  // Its number, model and how long: the time goes to a line of its own when the model is long.
   head: {
     display: "flex",
+    flexWrap: "wrap",
     alignItems: "baseline",
     gap: space.s2,
     minWidth: 0,
   },
+  // A folded turn's clock time, which a phone leaves out for its model's sake.
+  foldedClock: { display: { default: null, "@container (max-width: 520px)": "none" } },
   turnNumber: {
     flexShrink: 0,
     fontSize: text.caption,
@@ -413,11 +421,15 @@ const styles = stylex.create({
     outline: "none",
     boxShadow: { default: null, ":focus-visible": `inset 0 0 0 2px ${colors.focusRing}` },
   },
+  // What a fold holds: on a phone the model goes under its count, cut short.
   foldText: {
+    display: "flex",
+    flexWrap: "wrap",
+    alignItems: "baseline",
+    columnGap: space.s1_5,
     minWidth: 0,
     paddingBlock: space.s1,
     lineHeight: 1.4,
-    textWrap: "pretty",
   },
   foldCount: {
     color: colors.foreground,
@@ -425,7 +437,19 @@ const styles = stylex.create({
     fontWeight: fontWeights.medium,
     whiteSpace: "nowrap",
   },
-  foldModel: { fontFamily: fonts.mono, fontSize: "11.5px", overflowWrap: "anywhere" },
+  // On a phone the model goes under the count, which "all OK" then follows.
+  foldDot: { display: { default: null, "@container (max-width: 520px)": "none" } },
+  foldModel: {
+    order: { default: null, "@container (max-width: 520px)": 1 },
+    flexBasis: { default: null, "@container (max-width: 520px)": "100%" },
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    fontFamily: fonts.mono,
+    fontSize: "11.5px",
+  },
+  nowrap: { whiteSpace: "nowrap" },
   rhythm: {
     display: "flex",
     flexShrink: 0,
@@ -451,9 +475,10 @@ const styles = stylex.create({
     listStyle: "none",
   },
   // A failure in a row of them: when it came, how long, and what to open.
+  // When it came and how long it took, then what to open under them.
   failure: {
-    display: "flex",
-    flexWrap: "wrap",
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
     alignItems: "center",
     columnGap: space.s2,
     rowGap: 0,
@@ -462,8 +487,8 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   failureWhen: { minWidth: 0 },
+  failureActions: { gridColumn: "1 / -1" },
   failureTook: {
-    marginInlineStart: "auto",
     color: colors.foreground,
     whiteSpace: "nowrap",
   },
@@ -512,7 +537,7 @@ const styles = stylex.create({
     flexDirection: "column",
     gap: space.s2,
     paddingBlock: space.s1,
-    paddingInlineStart: space.s3,
+    paddingInlineStart: { default: space.s3, "@container (max-width: 520px)": space.s2 },
     borderInlineStart: `2px solid color-mix(in oklab, ${colors.chart6} 55%, transparent)`,
   },
   threadHead: {
@@ -600,6 +625,12 @@ const nodes = stylex.create({
 
 const dynamic = stylex.create({
   columns: (clock: string) => ({ gridTemplateColumns: `${clock} 20px minmax(0, 1fr)` }),
+  nestedColumns: (clock: string) => ({
+    gridTemplateColumns: {
+      default: `${clock} 20px minmax(0, 1fr)`,
+      "@container (max-width: 520px)": "0 14px minmax(0, 1fr)",
+    },
+  }),
   width: (width: string) => ({ width }),
   grow: (grow: number) => ({ flexGrow: grow, flexBasis: 0 }),
   top: (top: string) => ({ top }),
@@ -619,7 +650,7 @@ const kindOf = (row: TimelineTurn): Kind => (row.live ? "live" : outcomeKind(row
 
 const turnsWord = (count: number) => `${formatCount(count)} ${count === 1 ? "turn" : "turns"}`;
 
-/** Who answered a turn, or is answering it: the provider, and the account of a pool. */
+/** Who answered a turn, or is answering it: the account of a pool, else the provider. */
 const servedBy = (row: TimelineTurn, hide: (name: string) => string) => {
   const answerer = row.live ? row.attempts.at(-1)?.attempt : row.turn;
 
@@ -627,7 +658,7 @@ const servedBy = (row: TimelineTurn, hide: (name: string) => string) => {
 
   return Option.match(answerer.accountLabel, {
     onNone: () => providerName(answerer.provider),
-    onSome: (label) => `${providerName(answerer.provider)} · ${hide(label)}`,
+    onSome: hide,
   });
 };
 
@@ -656,6 +687,9 @@ const inFlightWords = ({ live, streaming }: StorySummary) => {
 
   return streaming === 1 ? ", one still streaming" : ", one still waiting for its first token";
 };
+
+/** Whether the entries are a sub-agent's: on a phone they leave their clock to its header. */
+const NestedContext = createContext(false);
 
 export function ConversationStory({
   timeline,
@@ -753,13 +787,19 @@ function Row({
   readonly children: ReactNode;
 }) {
   const { from, clock } = use(SettingContext);
+  const nested = use(NestedContext);
   const nodeTop = NODE_TOP[at];
   const timeTop = TIME_TOP[at];
   const alone = first && last;
 
   return (
-    <li {...stylex.props(styles.entry, dynamic.columns(clock))}>
-      <span {...stylex.props(styles.time, dynamic.timeTop(timeTop))}>
+    <li
+      {...stylex.props(
+        styles.entry,
+        nested ? dynamic.nestedColumns(clock) : dynamic.columns(clock),
+      )}
+    >
+      <span {...stylex.props(styles.time, nested && styles.timeNested, dynamic.timeTop(timeTop))}>
         {time === undefined ? "" : clockOffset(time - from)}
       </span>
       <span
@@ -856,10 +896,12 @@ function Thread({ item }: { readonly item: Extract<StoryItem, { kind: "agent" }>
           {clockOffset(item.from - from)}–{clockOffset(item.to - from)}
         </span>
       </span>
-      <Entries
-        items={item.items}
-        label={Option.isSome(item.agent.agentType) ? `Sub-agent: ${name}` : "Sub-agent"}
-      />
+      <NestedContext value>
+        <Entries
+          items={item.items}
+          label={Option.isSome(item.agent.agentType) ? `Sub-agent: ${name}` : "Sub-agent"}
+        />
+      </NestedContext>
     </div>
   );
 }
@@ -929,13 +971,17 @@ function TurnLine({
         <VisuallyHidden>Turn </VisuallyHidden>
         {row.number}
       </span>
-      {clock && <span {...stylex.props(styles.turnNumber)}>{clockOffset(row.turn.at - from)}</span>}
+      {clock && (
+        <span {...stylex.props(styles.turnNumber, styles.foldedClock)}>
+          {clockOffset(row.turn.at - from)}
+        </span>
+      )}
       <span title={row.turn.model} {...stylex.props(styles.lineModel, unknown && styles.unknown)}>
         {modelName(row.turn.model)}
       </span>
       <span {...stylex.props(styles.served)}>{servedBy(row, mask.key)}</span>
       <Bar row={row} xstyle={styles.lineMeter} />
-      <span {...stylex.props(styles.lineTook)}>{formatMs(tookMs(row, now))}</span>
+      <span {...stylex.props(styles.lineTook)}>{formatDuration(tookMs(row, now))}</span>
     </span>
   );
 }
@@ -964,9 +1010,11 @@ function Run({ rows }: { readonly rows: ReadonlyArray<TimelineTurn> }) {
         <Chevron open={open} />
         <span {...stylex.props(styles.foldText)}>
           <span {...stylex.props(styles.foldCount)}>{name}</span>
-          {" · "}
+          <span aria-hidden="true" {...stylex.props(styles.foldDot)}>
+            ·
+          </span>
           <span {...stylex.props(styles.foldModel)}>{modelName(first.turn.model)}</span>
-          {" · all OK"}
+          <span {...stylex.props(styles.nowrap)}>· all OK</span>
         </span>
         <span aria-hidden="true" {...stylex.props(styles.rhythm)}>
           {rows.map((row) => {
@@ -1127,7 +1175,7 @@ function TurnCard({ row }: { readonly row: TimelineTurn }) {
 
   return (
     <article
-      aria-label={`Turn ${row.number}, ${modelName(row.turn.model)}, ${state}, ${formatMs(took)}`}
+      aria-label={`Turn ${row.number}, ${modelName(row.turn.model)}, ${state}, ${formatDuration(took)}`}
       {...stylex.props(
         styles.card,
         kind === "failed" && styles.cardFailed,
@@ -1141,7 +1189,7 @@ function TurnCard({ row }: { readonly row: TimelineTurn }) {
         </span>
         <span {...stylex.props(styles.took, row.live && styles.tookLive)}>
           {row.live && <LiveDot />}
-          {formatMs(took)}
+          {formatDuration(took)}
           {row.live && " so far"}
         </span>
       </div>
@@ -1172,7 +1220,6 @@ function TurnCard({ row }: { readonly row: TimelineTurn }) {
 
 /** How a turn in flight is going: waiting for its first token, or streaming since. */
 function LiveFacts({ row }: { readonly row: TimelineTurn }) {
-  const mask = useMask();
   const waited = waitedMs(row);
 
   return (
@@ -1185,7 +1232,6 @@ function LiveFacts({ row }: { readonly row: TimelineTurn }) {
       ) : (
         "Waiting for its first token"
       )}
-      {servedBy(row, mask.key) !== "" && <span> · {servedBy(row, mask.key)}</span>}
     </p>
   );
 }
@@ -1229,18 +1275,20 @@ function FailureRow({ row }: { readonly row: TimelineTurn }) {
 
   return (
     <li>
-      <span {...stylex.props(styles.failure)}>
+      <div {...stylex.props(styles.failure)}>
         <span {...stylex.props(styles.failureWhen)}>
           Turn {row.number} · {clockOffset(row.turn.at - from)}
         </span>
-        <Actions
-          row={row}
-          open={open}
-          onToggle={() => setOpen((was) => !was)}
-          attemptsId={attemptsId}
-        />
-        <span {...stylex.props(styles.failureTook)}>{formatMs(tookMs(row, now))}</span>
-      </span>
+        <span {...stylex.props(styles.failureTook)}>{formatDuration(tookMs(row, now))}</span>
+        <div {...stylex.props(styles.failureActions)}>
+          <Actions
+            row={row}
+            open={open}
+            onToggle={() => setOpen((was) => !was)}
+            attemptsId={attemptsId}
+          />
+        </div>
+      </div>
       {open && <Attempts row={row} id={attemptsId} />}
     </li>
   );
@@ -1316,7 +1364,9 @@ function Attempt({ placed }: { readonly placed: TimelineAttempt }) {
         )}
       </span>
       <span {...stylex.props(styles.attemptMs)}>
-        {formatMs(placed.open ? Math.max(now - attempt.startedAt, 0) : placed.attempt.durationMs)}
+        {formatDuration(
+          placed.open ? Math.max(now - attempt.startedAt, 0) : placed.attempt.durationMs,
+        )}
       </span>
     </li>
   );
