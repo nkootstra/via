@@ -8,6 +8,7 @@ import {
   storyOf,
   storySummary,
   type StoryItem,
+  turnsLabel,
 } from "../src/lib/story.ts";
 import { type TimelineItem, type TimelineTurn, timelineOf } from "../src/lib/timeline.ts";
 import { attempt, liveTurn, openAttempt, request } from "../src/testing/history.ts";
@@ -416,5 +417,16 @@ describe("storyOf, for any conversation", () => {
         }),
       ),
     );
+  });
+});
+
+describe("turnsLabel", () => {
+  it("names turns that came one after another as a range", () => {
+    expect(turnsLabel([3, 4, 5])).toBe("Turns 3–5");
+  });
+
+  it("names each run of them when others came between", () => {
+    expect(turnsLabel([3, 7, 12])).toBe("Turns 3, 7, 12");
+    expect(turnsLabel([2, 4, 5, 6, 9])).toBe("Turns 2, 4–6, 9");
   });
 });

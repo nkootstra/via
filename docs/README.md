@@ -756,7 +756,8 @@ timeline, told as a story. A sentence sums it up ("14 turns over 1.6 min, one
 still streaming", then the model time, how many models and how many failed),
 and the turns run down a line, each at its time from the start (`0:00`,
 `1:26`) with how long it took on the right. Turns in a row that went fine on
-one model fold into one line ("Turns 8–10 · deepseek-v4.1-flash · all OK"), with
+one model fold into one line ("Turns 8–10 · deepseek-v4.1-flash · all OK", or
+"Turns 2, 4–5" in a sub-agent's thread when other turns came between), with
 a small bar per turn, pale while it waited for its first token and solid while
 it streamed; click it for each turn's model, who served it and how long it
 took. Two turns on their own keep a line each. A turn that failed, fell back,

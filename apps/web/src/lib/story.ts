@@ -47,6 +47,24 @@ export type StoryItem =
       readonly items: ReadonlyArray<StoryItem>;
     };
 
+/**
+ * What turns, by `numbers` in the order they came, are called: "Turns 3–5"
+ * when one came after another, else each run of them, "Turns 2, 4–6, 9", as
+ * a sub-agent's turns may have others between them.
+ */
+export const turnsLabel = (numbers: ReadonlyArray<number>) => {
+  const runs: Array<[number, number]> = [];
+
+  for (const number of numbers) {
+    const last = runs.at(-1);
+
+    if (last !== undefined && number === last[1] + 1) last[1] = number;
+    else runs.push([number, number]);
+  }
+
+  return `Turns ${runs.map(([first, last]) => (first === last ? `${first}` : `${first}–${last}`)).join(", ")}`;
+};
+
 /** The turns of `items`, down into each sub-agent's. */
 const turnsOf = (items: ReadonlyArray<TimelineItem>): ReadonlyArray<TimelineTurn> =>
   items.flatMap((item) => (item.kind === "turn" ? [item] : turnsOf(item.items)));
