@@ -436,7 +436,7 @@ function Usage() {
               </>
             )}
           </div>
-          <TabPanel value="requests" {...stylex.props(styles.content)}>
+          <TabPanel value="requests" xstyle={styles.content}>
             {breakdown.isError ? (
               <QueryError
                 what="usage"
