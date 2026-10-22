@@ -274,7 +274,11 @@ const filesOf = (home: string) =>
         if (info.type !== "File") return [];
 
         return [[path, new TextDecoder().decode(yield* fs.readFile(`${home}/${path}`))] as const];
-      }),
+      }).pipe(
+        // SQLite deletes a `-journal` between the listing and the read: a file that went is
+        // one that holds nothing.
+        Effect.catchReason("PlatformError", "NotFound", () => Effect.succeed([])),
+      ),
     );
 
     return files.flat();
