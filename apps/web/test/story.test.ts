@@ -53,6 +53,8 @@ const glance = (items: ReadonlyArray<StoryItem>): ReadonlyArray<string> =>
     switch (item.kind) {
       case "idle":
         return `idle ${item.ms}`;
+      case "day":
+        return `day ${new Date(item.at).getDate()}`;
       case "switch":
         return `switch ${item.to}`;
       case "turn":
@@ -136,6 +138,42 @@ describe("storyOf", () => {
     ]);
 
     expect(glance(items)).toEqual(["line a", "line b", `idle ${IDLE_MS + 4_700}`, "line c"]);
+  });
+
+  it("marks where a new day starts on the viewer's clock, and doesn't fold across it", () => {
+    // Midnight after T0 on the machine's clock, wherever the tests run.
+    const midnight = new Date(2026, 8, 28).getTime() - T0;
+
+    const items = story([
+      turn("a", midnight - 3_000),
+      turn("b", midnight - 1_500),
+      turn("c", midnight + 100),
+      turn("d", midnight + 1_500),
+      turn("e", midnight + 3_000),
+    ]);
+
+    expect(glance(items)).toEqual(["line a", "line b", "day 28", "run c,d,e"]);
+  });
+
+  it("marks a new day after the idle stretch that crossed into it", () => {
+    const midnight = new Date(2026, 8, 28).getTime() - T0;
+
+    const items = story([turn("a", midnight - 60_000), turn("b", midnight + 60_000)]);
+
+    expect(glance(items)).toEqual(["line a", "idle 119000", "day 28", "line b"]);
+  });
+
+  it("marks a new day in a sub-agent's thread, and not again after it", () => {
+    const midnight = new Date(2026, 8, 28).getTime() - T0;
+
+    const items = story([
+      turn("a", midnight - 2_000),
+      sub("s1", midnight - 1_500),
+      sub("s2", midnight + 100),
+      turn("b", midnight + 1_500),
+    ]);
+
+    expect(glance(items)).toEqual(["line a", "agent [line s1; day 28; line s2]", "line b"]);
   });
 
   it("keeps failures apart across a stretch of idle time", () => {

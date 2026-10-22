@@ -20,6 +20,8 @@ export const FOLD_MIN = 3;
 /** A turn, more than one in a row, or a sub-agent's thread: what a story tells, with its markers. */
 export type StoryItem =
   | { readonly kind: "idle"; readonly key: string; readonly ms: number }
+  /** Where a new day starts on the viewer's clock, at the first time on it. */
+  | { readonly kind: "day"; readonly key: string; readonly at: number }
   | { readonly kind: "switch"; readonly key: string; readonly from: string; readonly to: string }
   /** A turn: on a card when it has something to say, else on a line. */
   | {
@@ -157,6 +159,11 @@ const routine = (row: TimelineTurn) =>
 
 const startOf = (item: TimelineItem) => Math.min(...turnsOf([item]).map((row) => row.turn.at));
 
+const lastStartOf = (item: TimelineItem) => Math.max(...turnsOf([item]).map((row) => row.turn.at));
+
+/** The day a time falls on, on the viewer's clock. */
+const dayOf = (at: number) => new Date(at).toDateString();
+
 const endOf = (item: TimelineItem, now: number) =>
   Math.max(...turnsOf([item]).map((row) => row.turn.at + tookMs(row, now)));
 
@@ -169,6 +176,7 @@ export const storyOf = (
   let run: Array<TimelineTurn> = [];
   let reach = -Infinity;
   let model: string | undefined;
+  let day: string | undefined;
 
   const flush = () => {
     const [first] = run;
@@ -199,6 +207,14 @@ export const storyOf = (
     }
 
     reach = Math.max(reach, endOf(item, now));
+
+    if (day !== undefined && day !== dayOf(start)) {
+      flush();
+      told.push({ kind: "day", key: `day-${key}`, at: start });
+    }
+
+    // A sub-agent's thread marks the days it runs into; after it, the day is its last.
+    day = dayOf(lastStartOf(item));
 
     if (item.kind === "agent") {
       flush();

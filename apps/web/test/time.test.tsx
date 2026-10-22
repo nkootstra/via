@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   ago,
   countdown,
+  formatClock,
+  formatInstant,
+  formatLongDay,
   formatTime,
   formatTimestamp,
   providerWindowName,
@@ -109,6 +112,40 @@ describe("formatTimestamp", () => {
   it("writes the hour as the time format asks, to the second", () => {
     expect(formatTimestamp(afternoon, "24h")).toContain("15:05:09");
     expect(formatTimestamp(afternoon, "12h")).toContain("3:05:09");
+  });
+});
+
+describe("formatClock", () => {
+  it("writes a time of day to the second, the hour as the time format asks", () => {
+    const at = Date.parse(afternoon);
+
+    expect(formatClock(at, "24h")).toBe("15:05:09");
+    expect(formatClock(at, "12h")).toContain("3:05:09");
+    expect(formatClock(at, "12h")).not.toContain("15:05");
+  });
+});
+
+describe("formatInstant", () => {
+  it("writes the day, the time to the second and the time zone in force then", () => {
+    const at = Date.parse(afternoon);
+
+    const zone = new Intl.DateTimeFormat(undefined, { timeZoneName: "short" })
+      .formatToParts(at)
+      .find((part) => part.type === "timeZoneName")?.value;
+
+    expect(formatInstant(at, "24h")).toContain("2026");
+    expect(formatInstant(at, "24h")).toContain("15:05:09");
+    expect(formatInstant(at, "24h")).toContain(zone);
+  });
+});
+
+describe("formatLongDay", () => {
+  it("writes a day with its weekday and month, as the viewer's locale does", () => {
+    const at = Date.parse(afternoon);
+    const locale = new Intl.DateTimeFormat(undefined, { weekday: "long" });
+
+    expect(formatLongDay(at)).toContain(locale.format(at));
+    expect(formatLongDay(at)).toContain("27");
   });
 });
 

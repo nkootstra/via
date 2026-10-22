@@ -1,13 +1,14 @@
 /**
  * A conversation told as a story: a sentence that sums it up, then its turns
- * down a time spine, each at its clock time from the start and with how long
- * it took on the right. Turns that went fine one after another fold into one
+ * down a time spine, each at the viewer's time of day (the full date, and how
+ * far in, on hover) and with how long it took on the right. Turns that went fine one after another fold into one
  * line that opens on them; a turn with something to say (it failed, fell back,
  * was left, took retries or is in flight) gets a card, and failures in a row
  * that failed the same way share one. A stretch with nothing running and a
  * switch of model get a marker; a sub-agent's turns run as a thread of their
  * own. A card opens on its upstream attempts, and a turn whose request via
- * kept offers it. A turn in flight grows as the caller's clock ticks.
+ * kept offers it. A new day on the viewer's clock gets a marker of its own.
+ * A turn in flight grows as the caller's clock ticks.
  */
 import * as stylex from "@stylexjs/stylex";
 import { VisuallyHidden } from "@via/ui";
@@ -41,6 +42,8 @@ import {
   type StoryItem,
   type StorySummary,
 } from "../lib/story.ts";
+import { formatClock, formatInstant, formatLongDay } from "../lib/time.ts";
+import { useTimeFormat, type TimeFormat } from "../lib/time-format.ts";
 import type { Timeline, TimelineAttempt, TimelineTurn } from "../lib/timeline.ts";
 import {
   formatCount,
@@ -168,6 +171,7 @@ const styles = stylex.create({
     borderColor: colors.chart4,
   },
   nodeAgent: { borderColor: colors.chart6 },
+  nodeDay: { backgroundColor: colors.mutedForeground, borderColor: colors.mutedForeground },
   body: {
     minWidth: 0,
     paddingInlineStart: space.s2,
@@ -512,6 +516,7 @@ const styles = stylex.create({
     fontVariantNumeric: "tabular-nums",
   },
   idle: { letterSpacing: "0.02em" },
+  day: { fontWeight: fontWeights.medium, color: colors.foreground },
   switch: {
     display: "inline-flex",
     alignItems: "center",
@@ -667,6 +672,7 @@ const servedBy = (row: TimelineTurn, hide: (name: string) => string) => {
 interface Setting {
   readonly from: number;
   readonly now: number;
+  readonly format: TimeFormat;
   readonly clock: string;
   readonly captured: ReadonlySet<string>;
   readonly view: (requestId: string, number: number) => void;
@@ -675,6 +681,7 @@ interface Setting {
 const SettingContext = createContext<Setting>({
   from: 0,
   now: 0,
+  format: "auto",
   clock: "3ch",
   captured: new Set(),
   view: () => {},
@@ -707,14 +714,15 @@ export function ConversationStory({
   readonly onViewRequest?: (requestId: string, number: number) => void;
 }) {
   const summary = storySummary(timeline, now);
+  const format = useTimeFormat();
 
   if (summary.turns === 0) {
     return <p {...stylex.props(styles.empty)}>via kept none of this conversation's turns.</p>;
   }
 
   const items = storyOf(timeline.items, now);
-  // The clock's column fits its longest time, which is the last.
-  const longest = clockOffset(timeline.to - timeline.from).length;
+  // The clock's column fits the widest time of day the format can write.
+  const longest = formatClock(new Date(2026, 0, 1, 22, 22, 22).getTime(), format).length;
 
   return (
     <div {...stylex.props(styles.root)}>
@@ -738,6 +746,7 @@ export function ConversationStory({
         value={{
           from: timeline.from,
           now,
+          format,
           clock: `${longest + 1}ch`,
           captured,
           view: onViewRequest,
@@ -787,7 +796,7 @@ function Row({
   readonly last: boolean;
   readonly children: ReactNode;
 }) {
-  const { from, clock } = use(SettingContext);
+  const { clock } = use(SettingContext);
   const nested = use(NestedContext);
   const nodeTop = NODE_TOP[at];
   const timeTop = TIME_TOP[at];
@@ -801,7 +810,7 @@ function Row({
       )}
     >
       <span {...stylex.props(styles.time, nested && styles.timeNested, dynamic.timeTop(timeTop))}>
-        {time === undefined ? "" : clockOffset(time - from)}
+        {time !== undefined && <Clock at={time} />}
       </span>
       <span
         aria-hidden="true"
@@ -817,6 +826,31 @@ function Row({
       </span>
       <div {...stylex.props(styles.body)}>{children}</div>
     </li>
+  );
+}
+
+/** The day a time falls on, on the viewer's clock, as `<time>` writes a date: 2026-09-28. */
+const localDate = (at: number) => {
+  const date = new Date(at);
+
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
+};
+
+/** A time of day, in the viewer's time format; its full date, and how far into the conversation, on hover. */
+function Clock({ at }: { readonly at: number }) {
+  const { from, format } = use(SettingContext);
+
+  return (
+    <time
+      dateTime={new Date(at).toISOString()}
+      title={`${formatInstant(at, format)} · ${clockOffset(at - from)} in`}
+    >
+      {formatClock(at, format)}
+    </time>
   );
 }
 
@@ -840,6 +874,14 @@ function Entry({
             <span>{formatDuration(item.ms)} idle</span>
             <span aria-hidden="true">·</span>
           </span>
+        </Row>
+      );
+    case "day":
+      return (
+        <Row at="marker" node={styles.nodeDay} {...ends}>
+          <time dateTime={localDate(item.at)} {...stylex.props(styles.marker, styles.day)}>
+            {formatLongDay(item.at)}
+          </time>
         </Row>
       );
     case "switch":
@@ -885,7 +927,6 @@ function Entry({
 }
 
 function Thread({ item }: { readonly item: Extract<StoryItem, { kind: "agent" }> }) {
-  const { from } = use(SettingContext);
   const name = Option.getOrElse(item.agent.agentType, () => "Sub-agent");
 
   return (
@@ -893,8 +934,8 @@ function Thread({ item }: { readonly item: Extract<StoryItem, { kind: "agent" }>
       <span title={item.agent.id} {...stylex.props(styles.threadHead)}>
         <span {...stylex.props(styles.threadName)}>{name}</span>
         <span>
-          {turnsWord(item.turns)} · {formatDuration(item.to - item.from)} ·{" "}
-          {clockOffset(item.from - from)}–{clockOffset(item.to - from)}
+          {turnsWord(item.turns)} · {formatDuration(item.to - item.from)} · <Clock at={item.from} />
+          –<Clock at={item.to} />
         </span>
       </span>
       <NestedContext value>
@@ -962,7 +1003,7 @@ function TurnLine({
   readonly row: TimelineTurn;
   readonly clock?: boolean;
 }) {
-  const { from, now } = use(SettingContext);
+  const { now } = use(SettingContext);
   const mask = useMask();
   const unknown = withoutPrefix(row.turn.model) === "";
 
@@ -974,7 +1015,7 @@ function TurnLine({
       </span>
       {clock && (
         <span {...stylex.props(styles.turnNumber, styles.foldedClock)}>
-          {clockOffset(row.turn.at - from)}
+          <Clock at={row.turn.at} />
         </span>
       )}
       <span title={row.turn.model} {...stylex.props(styles.lineModel, unknown && styles.unknown)}>
@@ -1270,7 +1311,7 @@ function FailuresCard({ rows }: { readonly rows: ReadonlyArray<TimelineTurn> }) 
 }
 
 function FailureRow({ row }: { readonly row: TimelineTurn }) {
-  const { from, now } = use(SettingContext);
+  const { now } = use(SettingContext);
   const [open, setOpen] = useState(false);
   const attemptsId = useId();
 
@@ -1278,7 +1319,7 @@ function FailureRow({ row }: { readonly row: TimelineTurn }) {
     <li>
       <div {...stylex.props(styles.failure)}>
         <span {...stylex.props(styles.failureWhen)}>
-          Turn {row.number} · {clockOffset(row.turn.at - from)}
+          Turn {row.number} · <Clock at={row.turn.at} />
         </span>
         <span {...stylex.props(styles.failureTook)}>{formatDuration(tookMs(row, now))}</span>
         <div {...stylex.props(styles.failureActions)}>
