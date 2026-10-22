@@ -195,3 +195,26 @@ export const formatDay = (at: number) => dayFormat.format(at);
 
 /** When a request came in, "Sep 27, 14:05:09", the hour as `format` asks. */
 export const formatMoment = (at: number, format: TimeFormat) => momentFormat(format).format(at);
+
+const clockFormat = formatter({ hour: "numeric", minute: "2-digit", second: "2-digit" });
+
+const instantFormat = formatter({ dateStyle: "full", timeStyle: "long" });
+
+/** A time of day to the second, "14:05:09" or "2:05:09 PM", the hour as `format` asks. */
+export const formatClock = (at: number, format: TimeFormat) => clockFormat(format).format(at);
+
+/**
+ * A moment in full, with the time zone in force then, "Sunday, September 27,
+ * 2026 at 14:05:09 CEST": the zone tells the two runs of the hour apart that
+ * the clocks going back repeat.
+ */
+export const formatInstant = (at: number, format: TimeFormat) => instantFormat(format).format(at);
+
+const longDayFormat = new Intl.DateTimeFormat(undefined, {
+  weekday: "long",
+  month: "long",
+  day: "numeric",
+});
+
+/** A day with its weekday, "Monday, September 28", as the viewer's locale writes it. */
+export const formatLongDay = (at: number) => longDayFormat.format(at);

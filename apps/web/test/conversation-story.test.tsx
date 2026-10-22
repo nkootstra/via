@@ -4,6 +4,7 @@ import { Option } from "effect";
 import { describe, expect, it, vi } from "vitest";
 import type { LiveTurn, TurnAttempt, UsageRequest } from "../src/api/types.ts";
 import { ConversationStory } from "../src/components/conversation-story.tsx";
+import { formatClock, formatInstant, formatLongDay } from "../src/lib/time.ts";
 import { timelineOf } from "../src/lib/timeline.ts";
 import { attempt, liveTurn, openAttempt, request } from "../src/testing/history.ts";
 
@@ -77,6 +78,27 @@ describe("ConversationStory", () => {
     expect(headline?.textContent).toContain("6.0 s of model time · 2 models · 1 failed");
   });
 
+  it("sets each entry at the viewer's time of day, the full date and time on hover", () => {
+    show([turn("a", 0), turn("b", 147_000)]);
+
+    const time = within(story()).getByText(formatClock(T0 + 147_000, "auto"));
+    expect(time.closest("time")?.getAttribute("dateTime")).toBe(
+      new Date(T0 + 147_000).toISOString(),
+    );
+    expect(time.closest("time")?.getAttribute("title")).toBe(
+      `${formatInstant(T0 + 147_000, "auto")} · 2:27 in`,
+    );
+  });
+
+  it("marks where a new day starts", () => {
+    const midnight = new Date(2026, 8, 28).getTime() - T0;
+
+    show([turn("a", midnight - 2_500), turn("b", midnight + 500)], { now: T0 + midnight + 5_000 });
+
+    const day = within(story()).getByText(formatLongDay(T0 + midnight + 500));
+    expect(day.closest("time")?.getAttribute("dateTime")).toBe("2026-09-28");
+  });
+
   it("folds turns that went fine on one model into a line that opens on them", async () => {
     const user = userEvent.setup();
 
@@ -107,7 +129,7 @@ describe("ConversationStory", () => {
     expect(card.textContent).toContain("503 · Unreachable");
     expect(card.textContent).toContain("Endpoint is unavailable");
     expect(card.textContent).toContain("Turn 2");
-    expect(card.textContent).toContain("0:02");
+    expect(card.textContent).toContain(formatClock(T0 + 2_000, "auto"));
     expect(card.textContent).toContain("1.3 s");
   });
 
@@ -136,7 +158,9 @@ describe("ConversationStory", () => {
 
     const thread = within(story()).getByRole("list", { name: "Sub-agent: review" });
     expect(within(thread).getAllByRole("listitem")).toHaveLength(2);
-    expect(thread.closest("li")?.textContent).toContain("2 turns · 4.0 s · 0:01–0:05");
+    expect(thread.closest("li")?.textContent).toContain(
+      `2 turns · 4.0 s · ${formatClock(T0 + 1_000, "auto")}–${formatClock(T0 + 5_000, "auto")}`,
+    );
   });
 
   it("names the turns a sub-agent's fold and failures hold, when others came between", () => {

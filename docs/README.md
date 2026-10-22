@@ -755,8 +755,10 @@ its cost. **Load more** pages on, as the requests do. Open one, at
 `/ui/usage?tab=conversations&conversation=<id>`, for its totals and its
 timeline, told as a story. A sentence sums it up ("14 turns over 1.6 min, one
 still streaming", then the model time, how many models and how many failed),
-and the turns run down a line, each at its time from the start (`0:00`,
-`1:26`) with how long it took on the right. Turns in a row that went fine on
+and the turns run down a line, each at its time of day on your clock and in
+your time format (`14:05:09`), with how long it took on the right; hover a
+time for its full date, time zone and how far into the conversation it came
+(`2:27 in`). Turns in a row that went fine on
 one model fold into one line ("Turns 8–10 · deepseek-v4.1-flash · all OK", or
 "Turns 2, 4–5" in a sub-agent's thread when other turns came between), with
 a small bar per turn, pale while it waited for its first token and solid while
@@ -768,7 +770,8 @@ how long it waited and streamed, its tokens, who served it and any billed cost,
 upstream's code and message. Failures in a row that failed the same way, on the
 same model, share one card ("2 failed in a row") listing each turn's time and
 duration. A stretch longer than 3 seconds with nothing running shows as
-"· 4.7 s idle ·", and a change of the model the client asked for as
+"· 4.7 s idle ·", the first turn on a new day on your clock is headed by
+the day ("Monday, September 28"), and a change of the model the client asked for as
 "Switched to <model>" (a fallback isn't a switch). A sub-agent's turns run as a
 thread of their own, named for its type when its client says (else
 "Sub-agent"), with its turns, duration and the time it ran. A card's

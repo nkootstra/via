@@ -1,7 +1,10 @@
+import * as stylex from "@stylexjs/stylex";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { TabItem, TabPanel, Tabs, TabsList } from "./index.ts";
+
+const extra = stylex.create({ spaced: { gap: "24px" } });
 
 function Pages({ onValueChange }: { readonly onValueChange?: (value: string) => void }) {
   return (
@@ -59,5 +62,24 @@ describe("Tabs", () => {
     await user.click(screen.getByRole("tab", { name: "Usage" }));
 
     expect(screen.getByRole("tabpanel", { name: "Usage" }).textContent).toBe("Usage chart");
+  });
+
+  it("lays a panel out as its caller styles it, on top of its own", () => {
+    render(
+      <Tabs defaultValue="accounts">
+        <TabsList aria-label="Pages">
+          <TabItem value="accounts" label="Accounts" />
+        </TabsList>
+        <TabPanel value="accounts" xstyle={extra.spaced}>
+          Account list
+        </TabPanel>
+      </Tabs>,
+    );
+
+    const panel = screen.getByRole("tabpanel", { name: "Accounts" });
+
+    for (const name of stylex.props(extra.spaced).className?.split(" ") ?? []) {
+      expect(panel.classList.contains(name)).toBe(true);
+    }
   });
 });

@@ -73,8 +73,14 @@ export function TabItem({ value, label, disabled = false }: TabItemProps) {
   );
 }
 
-export type TabPanelProps = Omit<ComponentProps<typeof BaseTabs.Panel>, "className" | "style">;
+export interface TabPanelProps extends Omit<
+  ComponentProps<typeof BaseTabs.Panel>,
+  "className" | "style"
+> {
+  /** How the caller lays the panel out, on top of its own styles. */
+  readonly xstyle?: stylex.StyleXStyles;
+}
 
-export function TabPanel(props: TabPanelProps) {
-  return <BaseTabs.Panel {...props} {...stylex.props(styles.panel)} />;
+export function TabPanel({ xstyle, ...props }: TabPanelProps) {
+  return <BaseTabs.Panel {...props} {...stylex.props(styles.panel, xstyle)} />;
 }
