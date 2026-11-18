@@ -378,7 +378,8 @@ const make = (
         session,
         { apiKey: accountKey, headers = Headers.empty } = {},
       ) {
-        // `route` comes from `route`, so its provider is configured.
+        // `route` comes from `route`, so its provider was configured then; one the web UI
+        // removed since, Ollama or OpenRouter, is a defect here.
         const provider = providers.get(route.provider);
 
         if (provider === undefined) return yield* Effect.die(`unrouted provider ${route.provider}`);
