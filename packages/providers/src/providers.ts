@@ -36,7 +36,6 @@ import type { OpenrouterBudget, ProviderUsage } from "./schemas.ts";
 import {
   ANTHROPIC_VERSION,
   keyed,
-  LOOKUP_TIMEOUT,
   modelsOf,
   passedOn,
   POOLED,
@@ -222,31 +221,16 @@ const make = (
         }),
       },
       usage: (apiKey) => usageOf(pooled, pooled.usagePath ?? "/usage", apiKey),
-      verify: Effect.fn("Providers.verify")(function* (apiKey) {
-        const { status } = yield* keyed(pooled.client, apiKey)
-          .get(pooled.usagePath ?? "/usage")
-          .pipe(
-            Effect.catchTag("HttpClientError", () =>
-              Effect.fail(new OpencodeGoUnavailableError({ reason: "it could not be reached" })),
-            ),
-            Effect.timeoutOrElse({
-              duration: LOOKUP_TIMEOUT,
-              orElse: () =>
-                Effect.fail(
-                  new OpencodeGoUnavailableError({
-                    reason: `it gave ${unansweredWithin(LOOKUP_TIMEOUT)}`,
-                  }),
-                ),
-            }),
-          );
-
-        if (status === 401 || status === 403) {
-          return yield* new OpencodeGoKeyRejectedError({ status });
-        }
-
-        if (status !== 200)
-          return yield* new OpencodeGoUnavailableError({ reason: `it answered HTTP ${status}` });
-      }),
+      verify: (apiKey) =>
+        probe({ ...pooled, apiKey }, pooled.usagePath ?? "/usage").pipe(
+          Effect.catchTags({
+            ProviderKeyRefusedError: ({ status }) =>
+              Effect.fail(new OpencodeGoKeyRejectedError({ status })),
+            ProviderUnreachableError: ({ reason }) =>
+              Effect.fail(new OpencodeGoUnavailableError({ reason })),
+          }),
+          Effect.withSpan("Providers.verify"),
+        ),
       check: (name) =>
         Effect.suspend(() => {
           const provider = providers.get(name);
