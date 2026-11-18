@@ -95,8 +95,8 @@ contract.
   included (Playwright + Chromium, and WebKit for Safari's differences); see
   `CONTRIBUTING.md`.
 - `packages/*`: libraries (`config`, `keys`, `codex-auth`, `pool`,
-  `codex-upstream`, `account-pool`, `providers`, `translate`, `usage`,
-  `server`).
+  `codex-upstream`, `account-pool`, `providers`, `fallbacks`, `translate`,
+  `usage`, `server`).
   Create a package only when the first test needs it.
 - `packages/ui`: the UI components, a React design system (Base UI + StyleX)
   ported from Fluid Functionalism. No network or API code; screens and data
