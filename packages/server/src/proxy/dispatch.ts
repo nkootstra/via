@@ -51,7 +51,7 @@ export const noAccountLeft = (waitMs: Option.Option<number>, kind = "account") =
 const failedRequest = (status: number) => `Codex failed the request (HTTP ${status})`;
 
 /**
- * The answer to a Codex outage: 503 when Codex is overloaded, else 502, with
+ * The answer to a Codex outage: 503 when Codex answered 503 or is overloaded, else 502, with
  * its Retry-After. Every account would meet the same outage, so none is tried.
  * The client gets Codex's message; the log line only via's words.
  */

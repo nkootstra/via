@@ -442,7 +442,7 @@ const make = (
 export class Providers extends Context.Service<
   Providers,
   {
-    /** Every provider with its own API key, in config.yaml's order, then an Ollama added later. */
+    /** Every provider but the pooled one, in config.yaml's order, then an Ollama added later. */
     readonly names: Effect.Effect<ReadonlyArray<string>>;
     /** Every provider sent no key, such as Ollama, taken to run on your own hardware. */
     readonly local: Effect.Effect<ReadonlyArray<string>>;
