@@ -10,7 +10,7 @@ import { Clock, type Data, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/http";
 import { AccountPool } from "@via/account-pool";
 import { ModelCatalog } from "../models/catalog.ts";
-import { openAiError } from "./openai-error.ts";
+import { openAiError, openAiErrorBody } from "./openai-error.ts";
 import { answered, Outcome, unavailable } from "./outcome.ts";
 import { type BrokenStreamError, brokenResponse, failedResponse } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
@@ -51,7 +51,7 @@ export const noAccountLeft = (waitMs: Option.Option<number>, kind = "account") =
 const failedRequest = (status: number) => `Codex failed the request (HTTP ${status})`;
 
 /**
- * The answer to a Codex outage: 503 when Codex is overloaded, else 502, with
+ * The answer to a Codex outage: 503 when Codex answered 503 or is overloaded, else 502, with
  * its Retry-After. Every account would meet the same outage, so none is tried.
  * The client gets Codex's message; the log line only via's words.
  */
@@ -98,13 +98,11 @@ export const asOpenAiError = ({ status, contentType, body }: Refusal) => {
     : upstreamErrorOf(body);
 
   return HttpServerResponse.jsonUnsafe(
-    {
-      error: {
-        message: Option.getOrElse(message, () => `Codex refused the request (HTTP ${status})`),
-        type: status >= 500 ? "server_error" : "invalid_request_error",
-        code: Option.getOrNull(code),
-      },
-    },
+    openAiErrorBody(
+      status,
+      Option.getOrNull(code),
+      Option.getOrElse(message, () => `Codex refused the request (HTTP ${status})`),
+    ),
     { status },
   );
 };

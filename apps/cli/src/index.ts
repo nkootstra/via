@@ -17,7 +17,10 @@ import { providers } from "./providers.ts";
 import { serve } from "./serve.ts";
 import { version } from "./version.ts";
 
-/** Everything via reads from its environment, read here and nowhere else. */
+/**
+ * What via reads from its environment, read here; only the OpenTelemetry variables
+ * (`serve`) and the variables naming providers' API keys (`apiKeys`) are read where used.
+ */
 const Environment = Config.all({
   home: Config.option(Config.String("VIA_HOME")),
   // Points serve and accounts status at a fake Codex backend in tests.

@@ -7,6 +7,7 @@ import {
 } from "@via/codex-upstream";
 import { Schema, Stream } from "effect";
 import { Sse } from "effect/encoding";
+import { chunk as chatChunk, DONE, envelope, failure, usageChunk } from "./chat-chunks.ts";
 import { chatUsage, finishReason, toolCall, Usage } from "./chat-response.ts";
 
 const Created = Schema.Struct({
@@ -125,11 +126,6 @@ type State = {
   readonly ended: boolean;
 };
 
-// Every chunk shares the envelope, so it is serialized once per response
-// rather than spread into and stringified with each chunk.
-const envelope = (id: string, created: number, model: string) =>
-  JSON.stringify({ id, object: "chat.completion.chunk", created, model }).slice(0, -1);
-
 const initial = (): State => ({
   envelope: envelope("", 0, ""),
   toolIndex: new Map(),
@@ -137,15 +133,8 @@ const initial = (): State => ({
   ended: false,
 });
 
-const data = (payload: Schema.Json) => `data: ${JSON.stringify(payload)}\n\n`;
-
 const chunk = (state: State, delta: Schema.JsonObject, reason: string | null = null) =>
-  `data: ${state.envelope},"choices":[{"index":0,"delta":${JSON.stringify(delta)},"finish_reason":${JSON.stringify(reason)}}]}\n\n`;
-
-// Chat Completions has no failure event; clients such as the openai SDK raise
-// an `error` payload sent in place of a chunk.
-const failure = (code: string, message: string) =>
-  data({ error: { message, type: "server_error", code } });
+  chatChunk(state.envelope, delta, reason);
 
 const incomplete = failure(streamIncomplete.code, streamIncomplete.message);
 
@@ -232,9 +221,9 @@ export const toChatStream = <E>(
   const finish = (state: State, reason: string, usage: typeof Usage.Type | null | undefined) => [
     chunk(state, {}, reason),
     ...(options.includeUsage && usage != null
-      ? [`data: ${state.envelope},"choices":[],"usage":${JSON.stringify(chatUsage(usage))}}\n\n`]
+      ? [usageChunk(state.envelope, chatUsage(usage))]
       : []),
-    "data: [DONE]\n\n",
+    DONE,
   ];
 
   return body.pipe(

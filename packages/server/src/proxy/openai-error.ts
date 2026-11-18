@@ -16,14 +16,13 @@ export const openAiError = (
   Effect.gen(function* () {
     yield* (yield* RequestLog).refused(code, noted);
 
-    return HttpServerResponse.jsonUnsafe(
-      {
-        error: {
-          message,
-          type: status >= 500 ? "server_error" : "invalid_request_error",
-          code,
-        },
-      },
-      { status, headers },
-    );
+    return HttpServerResponse.jsonUnsafe(openAiErrorBody(status, code, message), {
+      status,
+      headers,
+    });
   });
+
+/** The body of an error in the shape OpenAI clients expect, a server's or the request's. */
+export const openAiErrorBody = (status: number, code: string | null, message: string) => ({
+  error: { message, type: status >= 500 ? "server_error" : "invalid_request_error", code },
+});

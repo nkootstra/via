@@ -228,7 +228,7 @@ const Model = Schema.StructWithRest(Schema.Struct({ id: Schema.String }), [Schem
  * enabled (`not_enabled`), or is a model via doesn't know (`not_listed`).
  * Outages aren't known until a request meets them.
  */
-const FallbackAvailability = Schema.Union([
+export const FallbackAvailability = Schema.Union([
   Schema.Struct({ status: Schema.Literal("available") }),
   Schema.Struct({ status: Schema.Literal("cooling"), until: Schema.String, reason: Schema.String }),
   Schema.Struct({

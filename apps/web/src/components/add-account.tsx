@@ -352,7 +352,7 @@ function OpencodeGoStep({ onClose }: { readonly onClose: () => void }) {
 /**
  * Adding an account, in place on whichever page asks: `open` asks which kind,
  * then starts a device-code login for a ChatGPT one, or takes an OpenCode Go
- * key, in the dialog `dialog` renders. Once a ChatGPT account is added, the
+ * key, in the dialog `dialog` renders. Once an account of either kind is added, the
  * pool, its usage, the accounts and their models are fetched again.
  */
 export function useAddAccount() {

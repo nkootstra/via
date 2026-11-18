@@ -115,8 +115,8 @@ export const runVia = (
 /**
  * Starts `via serve` in a subprocess that lives as long as the test's scope, and
  * succeeds with the URL it announces once it listens; `output`, which waits up
- * to `PROCESS_LIMIT` for a line of its stdout containing `text`; and `stop`, which stops it and
- * succeeds with everything it wrote to stderr.
+ * to `PROCESS_LIMIT` for a line of its stdout containing `text`; `logged`, its stdout so far,
+ * where it logs; and `stop`, which stops it and succeeds with everything it wrote to stderr.
  */
 export const startVia = (
   home: string,
@@ -212,7 +212,7 @@ export const startVia = (
 
     const stop = Effect.andThen(kill(proc), stderr);
 
-    return { url, output, stop };
+    return { url, output, logged: Effect.sync(() => stdout), stop };
   });
 
 /** `startVia`, for a test that needs only the URL. */

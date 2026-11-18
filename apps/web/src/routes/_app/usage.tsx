@@ -276,6 +276,25 @@ const nameOf = (groupBy: HistoryGroupBy, group: HistoryGroup, hide: (name: strin
 };
 
 /**
+ * Each group's name, as `nameOf` gives it; a model's also names its provider where
+ * another of `groups` has the same name.
+ */
+const labelsOf = (
+  groupBy: HistoryGroupBy,
+  groups: ReadonlyArray<HistoryGroup>,
+  hide: (name: string) => string,
+) => {
+  const names = groups.map((group) => nameOf(groupBy, group, hide));
+
+  return groups.map((group, index) => {
+    const name = names[index] ?? group.label;
+    const shared = groupBy === "model" && names.filter((other) => other === name).length > 1;
+
+    return shared ? `${name} · ${providerName(ownerOf(group.group))}` : name;
+  });
+};
+
+/**
  * The chart's series: the groups that spent the most tokens, then the rest
  * as one grey Other. Models are named without their prefix, and with their
  * provider where two shown would otherwise share a name.
@@ -287,17 +306,8 @@ const seriesOf = (
 ): ReadonlyArray<ChartSeries> => {
   const ranked = groups.toSorted((a, b) => tokensOf(b) - tokensOf(a));
   const top = ranked.slice(0, CHART_SERIES);
-  const names = top.map((g) => nameOf(groupBy, g, hide));
-
-  const shown = top.map((g, index) => {
-    const name = names[index] ?? g.label;
-    const shared = names.filter((other) => other === name).length > 1;
-
-    return {
-      id: g.group,
-      label: shared && groupBy === "model" ? `${name} · ${providerName(ownerOf(g.group))}` : name,
-    };
-  });
+  const labels = labelsOf(groupBy, top, hide);
+  const shown = top.map((g, index) => ({ id: g.group, label: labels[index] ?? g.label }));
 
   return ranked.length > CHART_SERIES
     ? [...shown, { id: "other", label: "Other", other: true }]
@@ -534,18 +544,13 @@ const optionsOf = (
   groups: ReadonlyArray<HistoryGroup>,
   hide: (name: string) => string,
 ): ReadonlyArray<FilterOption> => {
-  const names = groups.map((group) => nameOf(facet, group, hide));
+  const labels = labelsOf(facet, groups, hide);
 
-  return groups.map((group, index) => {
-    const name = names[index] ?? group.label;
-    const shared = facet === "model" && names.filter((other) => other === name).length > 1;
-
-    return {
-      value: group.group,
-      label: shared ? `${name} · ${providerName(ownerOf(group.group))}` : name,
-      detail: formatCount(group.requests),
-    };
-  });
+  return groups.map((group, index) => ({
+    value: group.group,
+    label: labels[index] ?? group.label,
+    detail: formatCount(group.requests),
+  }));
 };
 
 /**

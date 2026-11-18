@@ -14,7 +14,7 @@ export interface UpstreamError {
 }
 
 /** The longest message passed on: enough for any real one, too short to carry much of a request. */
-const MESSAGE_LIMIT = 500;
+export const MESSAGE_LIMIT = 500;
 
 const Text = Schema.NonEmptyString;
 

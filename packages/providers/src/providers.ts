@@ -1,4 +1,4 @@
-import type { ProviderConfig } from "@via/config";
+import { FILE_FAILURES, type ProviderConfig } from "@via/config";
 import {
   Context,
   Effect,
@@ -36,7 +36,6 @@ import type { OpenrouterBudget, ProviderUsage } from "./schemas.ts";
 import {
   ANTHROPIC_VERSION,
   keyed,
-  LOOKUP_TIMEOUT,
   modelsOf,
   passedOn,
   POOLED,
@@ -222,31 +221,16 @@ const make = (
         }),
       },
       usage: (apiKey) => usageOf(pooled, pooled.usagePath ?? "/usage", apiKey),
-      verify: Effect.fn("Providers.verify")(function* (apiKey) {
-        const { status } = yield* keyed(pooled.client, apiKey)
-          .get(pooled.usagePath ?? "/usage")
-          .pipe(
-            Effect.catchTag("HttpClientError", () =>
-              Effect.fail(new OpencodeGoUnavailableError({ reason: "it could not be reached" })),
-            ),
-            Effect.timeoutOrElse({
-              duration: LOOKUP_TIMEOUT,
-              orElse: () =>
-                Effect.fail(
-                  new OpencodeGoUnavailableError({
-                    reason: `it gave ${unansweredWithin(LOOKUP_TIMEOUT)}`,
-                  }),
-                ),
-            }),
-          );
-
-        if (status === 401 || status === 403) {
-          return yield* new OpencodeGoKeyRejectedError({ status });
-        }
-
-        if (status !== 200)
-          return yield* new OpencodeGoUnavailableError({ reason: `it answered HTTP ${status}` });
-      }),
+      verify: (apiKey) =>
+        probe({ ...pooled, apiKey }, pooled.usagePath ?? "/usage").pipe(
+          Effect.catchTags({
+            ProviderKeyRefusedError: ({ status }) =>
+              Effect.fail(new OpencodeGoKeyRejectedError({ status })),
+            ProviderUnreachableError: ({ reason }) =>
+              Effect.fail(new OpencodeGoUnavailableError({ reason })),
+          }),
+          Effect.withSpan("Providers.verify"),
+        ),
       check: (name) =>
         Effect.suspend(() => {
           const provider = providers.get(name);
@@ -360,12 +344,7 @@ const make = (
                   onSome: (currentKey) => Effect.succeed({ apiKey: currentKey.apiKey, models }),
                 }),
               )
-              .pipe(
-                Effect.catchTag(
-                  ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-                  Effect.die,
-                ),
-              );
+              .pipe(Effect.catchTag(FILE_FAILURES, Effect.die));
 
             yield* connectOpenrouter(next);
           }).pipe(editOpenrouter),
@@ -399,7 +378,8 @@ const make = (
         session,
         { apiKey: accountKey, headers = Headers.empty } = {},
       ) {
-        // `route` comes from `route`, so its provider is configured.
+        // `route` comes from `route`, so its provider was configured then; one the web UI
+        // removed since, Ollama or OpenRouter, is a defect here.
         const provider = providers.get(route.provider);
 
         if (provider === undefined) return yield* Effect.die(`unrouted provider ${route.provider}`);
@@ -463,7 +443,7 @@ const make = (
 export class Providers extends Context.Service<
   Providers,
   {
-    /** Every provider with its own API key, in config.yaml's order, then an Ollama added later. */
+    /** Every provider but the pooled one, in config.yaml's order, then an Ollama added later. */
     readonly names: Effect.Effect<ReadonlyArray<string>>;
     /** Every provider sent no key, such as Ollama, taken to run on your own hardware. */
     readonly local: Effect.Effect<ReadonlyArray<string>>;

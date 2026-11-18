@@ -1,15 +1,12 @@
 import * as stylex from "@stylexjs/stylex";
 import { accountColumns } from "../../components/account-columns.ts";
-import { useQueryClient, useSuspenseQuery } from "@tanstack/react-query";
+import { AccountDialogs, AccountRowEnd } from "../../components/account-rows.tsx";
+import { useSuspenseQuery } from "@tanstack/react-query";
 import { createFileRoute, type ErrorComponentProps, useRouter } from "@tanstack/react-router";
 import {
   Badge,
   Button,
   EmptyState,
-  MenuItem,
-  MenuSeparator,
-  RowActions,
-  Switch,
   Table,
   TableBody,
   TableCell,
@@ -24,7 +21,6 @@ import {
   ollamaQuery,
   opencodeGoQuery,
   openrouterQuery,
-  refreshPool,
   removeAccount,
   renameAccount,
   updateAccount,
@@ -32,23 +28,13 @@ import {
 import { useLiveOptions } from "../../api/live.ts";
 import type { Account } from "../../api/types.ts";
 import { useAddAccount } from "../../components/add-account.tsx";
-import { ConfirmDialog } from "../../components/confirm-dialog.tsx";
-import { Day } from "../../components/day.tsx";
 import { useEnabledToggle } from "../../components/enabled-toggle.ts";
-import {
-  AccountsIcon,
-  CodexIcon,
-  PlusIcon,
-  ProviderLogo,
-  EditIcon,
-  TrashIcon,
-} from "../../components/icons.tsx";
+import { AccountsIcon, CodexIcon, PlusIcon, ProviderLogo } from "../../components/icons.tsx";
 import { OllamaSection } from "../../components/ollama.tsx";
 import { OpencodeGoAccounts } from "../../components/opencode-go-accounts.tsx";
 import { OpenrouterSection } from "../../components/openrouter.tsx";
 import { Page, Panel, Section } from "../../components/page.tsx";
 import { QueryError } from "../../components/query-error.tsx";
-import { RenameDialog } from "../../components/rename-dialog.tsx";
 import { useRowDialog } from "../../components/row-dialog.ts";
 import { useMask } from "../../lib/privacy.ts";
 
@@ -111,13 +97,10 @@ function AccountsLoading() {
 
 function Accounts() {
   const mask = useMask();
-  const queryClient = useQueryClient();
   const accounts = useSuspenseQuery({ ...accountsQuery, ...useLiveOptions() });
   const dialogs = useRowDialog<Account, "rename" | "remove">();
   const add = useAddAccount();
   const enabled = useEnabledToggle(accountsQuery.queryKey, updateAccount);
-  const rename = dialogs.propsFor("rename");
-  const remove = dialogs.propsFor("remove");
 
   return (
     <Page
@@ -173,33 +156,12 @@ function Accounts() {
                       <TableCell secondary>
                         <Badge>{mask.plan(account.plan)}</Badge>
                       </TableCell>
-                      <TableCell>
-                        <Switch
-                          aria-label={`${mask.key(account.label)} enabled`}
-                          checked={enabled.isOn(account)}
-                          aria-busy={enabled.busy(account.id)}
-                          onCheckedChange={() => enabled.toggle(account)}
-                        />
-                      </TableCell>
-                      <TableCell secondary>
-                        <Day at={account.createdAt} />
-                      </TableCell>
-                      <TableCell actions>
-                        <RowActions label={`Actions for ${mask.key(account.label)}`}>
-                          <MenuItem
-                            label="Rename…"
-                            icon={<EditIcon size={15} />}
-                            onClick={() => dialogs.show("rename", account)}
-                          />
-                          <MenuSeparator />
-                          <MenuItem
-                            label="Remove…"
-                            icon={<TrashIcon size={15} />}
-                            destructive
-                            onClick={() => dialogs.show("remove", account)}
-                          />
-                        </RowActions>
-                      </TableCell>
+                      <AccountRowEnd
+                        account={account}
+                        enabled={enabled}
+                        onRename={() => dialogs.show("rename", account)}
+                        onRemove={() => dialogs.show("remove", account)}
+                      />
                     </TableRow>
                   ))}
                 </TableBody>
@@ -222,35 +184,15 @@ function Accounts() {
       </Section>
 
       {add.dialog}
-      {rename !== undefined && (
-        <RenameDialog
-          key={rename.row.id}
-          {...rename}
-          thing="Account"
-          name={rename.row.label}
-          hide={mask.key}
-          field="Label"
-          description="The label shows in usage, in the pool and in logs."
-          rename={(label) => renameAccount(rename.row.id, label)}
-          onRenamed={() => refreshPool(queryClient)}
-        />
-      )}
-      {remove !== undefined && (
-        <ConfirmDialog
-          key={remove.row.id}
-          {...remove}
-          title={`Remove ${mask.key(remove.row.label)}?`}
-          description="via stops handing it out and forgets its tokens. You can add it again by signing in."
-          confirmLabel="Remove account"
-          confirm={() => removeAccount(remove.row.id)}
-          onConfirmed={() => refreshPool(queryClient)}
-          done={{
-            title: "Account removed",
-            description: `via no longer uses ${mask.key(remove.row.label)}.`,
-          }}
-          failed={`Couldn't remove ${mask.key(remove.row.label)}`}
-        />
-      )}
+      <AccountDialogs
+        rename={dialogs.propsFor("rename")}
+        remove={dialogs.propsFor("remove")}
+        renameAccount={renameAccount}
+        removeAccount={removeAccount}
+        removeDescription={() =>
+          "via stops handing it out and forgets its tokens. You can add it again by signing in."
+        }
+      />
     </Page>
   );
 }

@@ -6,6 +6,6 @@ export { cachedUntilChanged } from "./file-stamp.ts";
 
 export { CorruptFileError, readJsonFile, writeJsonFile } from "./json-file.ts";
 
-export { ownedFiles } from "./owned-files.ts";
+export { FILE_FAILURES, ownedFiles } from "./owned-files.ts";
 
 export { resolvePaths } from "./paths.ts";

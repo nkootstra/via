@@ -4,6 +4,12 @@ import { fileStamp } from "./file-stamp.ts";
 import { readJsonFile, writeJsonFile } from "./json-file.ts";
 
 /**
+ * The tags of the ways using one of via's own files fails: a file that doesn't
+ * parse, a lock not taken in time, or the file system itself.
+ */
+export const FILE_FAILURES = ["CorruptFileError", "FileLockTimeoutError", "PlatformError"] as const;
+
+/**
  * via's own files, read, written, locked and stamped with the `FileSystem` taken here, so a
  * store takes it once, as it is made, and its methods need nothing more.
  */

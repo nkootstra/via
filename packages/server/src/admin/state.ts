@@ -134,7 +134,7 @@ const poolOf = Effect.fn("admin.pool")(function* (
   return {
     accounts: listed.map(inPool),
     opencodeGo: listedGo.map(inPool),
-    // A provider with its own key reports no usage, so it is always there to try.
+    // A provider not pooled reports no usage, so it is always there to try.
     providers: names.map((name) => ({ name, state: providerState(undefined, now) })),
   };
 });

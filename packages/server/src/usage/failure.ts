@@ -1,6 +1,7 @@
 import type { FailureCategory } from "@via/usage";
 import { Option, Schema } from "effect";
 import type { HttpClientError } from "effect/http";
+import { MESSAGE_LIMIT } from "../proxy/upstream-error.ts";
 import { redactText } from "./redact.ts";
 
 /** What via knows of an upstream attempt that didn't serve. */
@@ -93,9 +94,6 @@ const isUnanswered = Schema.is(
 /** Why an upstream couldn't be sent a request, or answer it: too slow, or out of reach. */
 export const causeOf = (error: HttpClientError.HttpClientError): "timeout" | "network" =>
   isUnanswered(error.reason) ? "timeout" : "network";
-
-/** The longest message kept, as `upstreamErrorOf` cuts one. */
-const MESSAGE_LIMIT = 500;
 
 /**
  * The upstream's `message` as the usage history keeps it: only for a 401, 402, 403, 429
