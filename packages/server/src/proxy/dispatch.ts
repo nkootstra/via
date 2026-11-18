@@ -10,7 +10,7 @@ import { Clock, type Data, Effect, Option, Result, Schema } from "effect";
 import { type HttpClientResponse, HttpServerResponse } from "effect/http";
 import { AccountPool } from "@via/account-pool";
 import { ModelCatalog } from "../models/catalog.ts";
-import { openAiError } from "./openai-error.ts";
+import { openAiError, openAiErrorBody } from "./openai-error.ts";
 import { answered, Outcome, unavailable } from "./outcome.ts";
 import { type BrokenStreamError, brokenResponse, failedResponse } from "./relay.ts";
 import { RequestLog } from "../usage/request-log.ts";
@@ -98,13 +98,11 @@ export const asOpenAiError = ({ status, contentType, body }: Refusal) => {
     : upstreamErrorOf(body);
 
   return HttpServerResponse.jsonUnsafe(
-    {
-      error: {
-        message: Option.getOrElse(message, () => `Codex refused the request (HTTP ${status})`),
-        type: status >= 500 ? "server_error" : "invalid_request_error",
-        code: Option.getOrNull(code),
-      },
-    },
+    openAiErrorBody(
+      status,
+      Option.getOrNull(code),
+      Option.getOrElse(message, () => `Codex refused the request (HTTP ${status})`),
+    ),
     { status },
   );
 };
