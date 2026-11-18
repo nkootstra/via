@@ -599,6 +599,9 @@ layer(BunFileSystem.layer)("via serve", (it) => {
       const { home, env } = yield* loggedIn;
       yield* writeConfig(home, "providers:\n  opencode-go:\n    apiKeyEnv: VIA_TEST_UNSET_KEY\n");
       const via = yield* startVia(home, ["--port", "0"], env);
+      // It logs, the warning included, to stdout, all of it before it listens.
+      expect(yield* via.logged).toContain("Listening on");
+      expect(yield* via.logged).not.toContain("deprecated");
       expect(yield* via.stop).not.toContain("deprecated");
     }),
   );
