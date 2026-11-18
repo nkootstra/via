@@ -28,7 +28,7 @@
     "react-dom": "catalog:"
   },
   "devDependencies": {
-    "@mswjs/interceptors": "0.45.11",
+    "@mswjs/interceptors": "0.45.12",
     "@testing-library/dom": "catalog:",
     "@testing-library/react": "catalog:",
     "@testing-library/user-event": "catalog:",
