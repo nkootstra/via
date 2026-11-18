@@ -46,7 +46,7 @@
   "devDependencies": {
     "@effect/tsgo": "0.67.5",
     "@oxlint/plugins": "1.87.0",
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.4",
     "knip": "6.41.0",
     "oxfmt": "^0.72.0",
     "oxlint": "1.87.0",
@@ -56,5 +56,5 @@
   "overrides": {
     "@effect/platform-node-shared": "4.0.3"
   },
-  "packageManager": "bun@1.4.3"
+  "packageManager": "bun@1.4.4"
 }
