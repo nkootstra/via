@@ -1,6 +1,10 @@
 import { loadConfig } from "@via/config";
 import { maskKey, parseOllamaAddress, Providers } from "@via/providers";
-import { OllamaAddressInvalidError, OpenrouterNotEditableError } from "@via/providers/errors";
+import {
+  OllamaAddressInvalidError,
+  OllamaNotEditableError,
+  OpenrouterNotEditableError,
+} from "@via/providers/errors";
 import { Console, Effect, Record } from "effect";
 import { Argument, Command } from "effect/cli";
 import { apiKeys } from "./api-keys.ts";
@@ -25,8 +29,12 @@ const withProvider =
         Effect.provide(Providers.layer({ providers, apiKeys: yield* apiKeys(providers), version })),
       );
     }).pipe(
-      // OpenRouter's key is config.yaml's then, whether or not its variable is set.
-      Effect.catchTag("MissingApiKeyError", () => Effect.fail(new OpenrouterNotEditableError())),
+      // The provider is config.yaml's then, whether or not the variable naming its key is set.
+      Effect.catchTag("MissingApiKeyError", () =>
+        Effect.fail(
+          name === "openrouter" ? new OpenrouterNotEditableError() : new OllamaNotEditableError(),
+        ),
+      ),
     );
 
 const setKey = (configPath: string) =>

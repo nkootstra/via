@@ -219,4 +219,16 @@ layer(Layer.mergeAll(BunFileSystem.layer, FetchHttpClient.layer))("via providers
       );
     }),
   );
+
+  it.effect("ollama set names Ollama when config.yaml sets it up with a key not set", () =>
+    Effect.gen(function* () {
+      const { home, via } = yield* setup;
+      yield* writeConfig(home, "providers:\n  ollama:\n    apiKeyEnv: OLLAMA_KEY\n");
+      const saved = yield* via(["providers", "ollama", "set", "http://nas:11434"]);
+      expect(saved.exitCode).toBe(1);
+      expect(saved.stderr).toBe(
+        "error: Ollama is set up in config.yaml: change its address there\n",
+      );
+    }),
+  );
 });
