@@ -1,4 +1,4 @@
-import type { ProviderConfig } from "@via/config";
+import { FILE_FAILURES, type ProviderConfig } from "@via/config";
 import {
   Context,
   Effect,
@@ -344,12 +344,7 @@ const make = (
                   onSome: (currentKey) => Effect.succeed({ apiKey: currentKey.apiKey, models }),
                 }),
               )
-              .pipe(
-                Effect.catchTag(
-                  ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-                  Effect.die,
-                ),
-              );
+              .pipe(Effect.catchTag(FILE_FAILURES, Effect.die));
 
             yield* connectOpenrouter(next);
           }).pipe(editOpenrouter),

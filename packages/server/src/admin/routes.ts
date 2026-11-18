@@ -1,5 +1,10 @@
 import { AccountNotFoundError, AccountStore } from "@via/codex-auth";
-import type { CorruptFileError, FileLockTimeoutError, ModelPrice } from "@via/config";
+import {
+  type CorruptFileError,
+  FILE_FAILURES,
+  type FileLockTimeoutError,
+  type ModelPrice,
+} from "@via/config";
 import { FallbackRuleStore, parseRule } from "@via/fallbacks";
 import { KeyStore } from "@via/keys";
 import {
@@ -137,22 +142,12 @@ const accounts = HttpApiBuilder.group(AdminApi, "accounts", (handlers) =>
           if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
 
           return withoutTokens(yield* store.find(id));
-        }).pipe(
-          Effect.catchTag(
-            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-            Effect.die,
-          ),
-        ),
+        }).pipe(Effect.catchTag(FILE_FAILURES, Effect.die)),
       )
       .handle("remove", ({ params }) =>
         Effect.gen(function* () {
           yield* (yield* AccountStore).remove((yield* byId(params.id)).id);
-        }).pipe(
-          Effect.catchTag(
-            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-            Effect.die,
-          ),
-        ),
+        }).pipe(Effect.catchTag(FILE_FAILURES, Effect.die)),
       );
   }),
 );
@@ -232,12 +227,7 @@ const opencodeGo = (environment: OpencodeGoEnvironment | undefined) =>
           const added = yield* (yield* OpencodeGoAccounts).add(payload.apiKey, payload.label);
 
           return opencodeGoAccount(added, environment);
-        }).pipe(
-          Effect.catchTag(
-            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-            Effect.die,
-          ),
-        ),
+        }).pipe(Effect.catchTag(FILE_FAILURES, Effect.die)),
       )
       .handle("update", ({ params, payload }) =>
         Effect.gen(function* () {
@@ -249,22 +239,12 @@ const opencodeGo = (environment: OpencodeGoEnvironment | undefined) =>
           if (payload.enabled !== undefined) yield* store.setEnabled(id, payload.enabled);
 
           return opencodeGoAccount(yield* store.find(id), environment);
-        }).pipe(
-          Effect.catchTag(
-            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-            Effect.die,
-          ),
-        ),
+        }).pipe(Effect.catchTag(FILE_FAILURES, Effect.die)),
       )
       .handle("remove", ({ params }) =>
         Effect.gen(function* () {
           yield* (yield* OpencodeGoAccounts).remove((yield* opencodeGoById(params.id)).id);
-        }).pipe(
-          Effect.catchTag(
-            ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-            Effect.die,
-          ),
-        ),
+        }).pipe(Effect.catchTag(FILE_FAILURES, Effect.die)),
       ),
   );
 
@@ -274,17 +254,17 @@ const keys = HttpApiBuilder.group(AdminApi, "keys", (handlers) =>
     .handle("list", () => Effect.flatMap(KeyStore, (store) => store.list).pipe(Effect.orDie))
     .handle("create", ({ payload }) =>
       Effect.flatMap(KeyStore, (store) => store.create(payload.name)).pipe(
-        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
+        Effect.catchTag(FILE_FAILURES, Effect.die),
       ),
     )
     .handle("rename", ({ params, payload }) =>
       Effect.flatMap(KeyStore, (store) => store.rename(params.idOrName, payload.name)).pipe(
-        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
+        Effect.catchTag(FILE_FAILURES, Effect.die),
       ),
     )
     .handle("revoke", ({ params }) =>
       Effect.flatMap(KeyStore, (store) => store.revoke(params.idOrName)).pipe(
-        Effect.catchTag(["CorruptFileError", "FileLockTimeoutError", "PlatformError"], Effect.die),
+        Effect.catchTag(FILE_FAILURES, Effect.die),
       ),
     ),
 );
@@ -306,20 +286,11 @@ const fallbacks = HttpApiBuilder.group(AdminApi, "fallbacks", (handlers) =>
     .handle("set", ({ payload }) =>
       Effect.flatMap(parseRule(payload), (rule) =>
         Effect.flatMap(FallbackRuleStore, (store) => store.set(rule)),
-      ).pipe(
-        Effect.flatMap(withStatus),
-        Effect.catchTag(
-          ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-          rulesFileError,
-        ),
-      ),
+      ).pipe(Effect.flatMap(withStatus), Effect.catchTag(FILE_FAILURES, rulesFileError)),
     )
     .handle("remove", ({ query }) =>
       Effect.flatMap(FallbackRuleStore, (store) => store.remove(query.model)).pipe(
-        Effect.catchTag(
-          ["CorruptFileError", "FileLockTimeoutError", "PlatformError"],
-          rulesFileError,
-        ),
+        Effect.catchTag(FILE_FAILURES, rulesFileError),
       ),
     ),
 );
