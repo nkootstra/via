@@ -4,6 +4,13 @@
 import { streamIncomplete } from "@via/codex-upstream";
 import { Effect, Option, Predicate, Schema, Stream } from "effect";
 import { Sse } from "effect/encoding";
+import {
+  chunk as chatChunk,
+  DONE,
+  envelope,
+  failure as chatFailure,
+  usageChunk,
+} from "./chat-chunks.ts";
 import type { ChatRequest } from "./chat-request.ts";
 
 /** The output tokens asked for when the client names no limit; Messages requires one. */
@@ -360,18 +367,11 @@ type State = {
 /** A piece of the Chat stream, or the usage it ended with, which is reported as well as sent. */
 type Out = { readonly text: string } | { readonly usage: ReturnType<typeof chatUsage> };
 
-const envelope = (id: string, created: number, model: string) =>
-  JSON.stringify({ id, object: "chat.completion.chunk", created, model }).slice(0, -1);
-
 const chunk = (state: State, delta: Schema.JsonObject, reason: string | null = null): Out => ({
-  text: `data: ${state.envelope},"choices":[{"index":0,"delta":${JSON.stringify(delta)},"finish_reason":${JSON.stringify(reason)}}]}\n\n`,
+  text: chatChunk(state.envelope, delta, reason),
 });
 
-// Chat Completions has no failure event; clients such as the openai SDK raise
-// an `error` payload sent in place of a chunk.
-const failure = (type: string, message: string): Out => ({
-  text: `data: ${JSON.stringify({ error: { message, type: "server_error", code: type } })}\n\n`,
-});
+const failure = (type: string, message: string): Out => ({ text: chatFailure(type, message) });
 
 const incomplete = failure(streamIncomplete.code, "The Messages stream broke off before it ended");
 
@@ -501,14 +501,8 @@ export const toChatStreamFromMessages = <E, R>(
         [
           chunk(state, {}, finishReason(state.stopReason)),
           { usage },
-          ...(options.includeUsage
-            ? [
-                {
-                  text: `data: ${state.envelope},"choices":[],"usage":${JSON.stringify(usage)}}\n\n`,
-                },
-              ]
-            : []),
-          { text: "data: [DONE]\n\n" },
+          ...(options.includeUsage ? [{ text: usageChunk(state.envelope, usage) }] : []),
+          { text: DONE },
         ],
       ];
     }
