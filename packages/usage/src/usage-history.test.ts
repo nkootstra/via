@@ -165,6 +165,20 @@ describe("UsageHistory", () => {
     ),
   );
 
+  it.effect("has no next page when a page holds the last request", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        for (const hour of [1, 2]) {
+          yield* usage.record(entry({ requestId: `r${hour}`, at: hour * HOUR }));
+        }
+
+        const page = yield* usage.requests({ from: 0, to: 10 * HOUR, limit: 2 });
+        expect(page.requests.map((r) => r.requestId)).toEqual(["r2", "r1"]);
+        expect(page.next).toEqual(Option.none());
+      }),
+    ),
+  );
+
   it.effect("pages past requests that share a timestamp without skipping any", () =>
     history((usage) =>
       Effect.gen(function* () {
@@ -684,6 +698,21 @@ describe("UsageHistory.breakdown", () => {
 
         expect(result.groups[0]?.firstChunkMs).toEqual(expected);
         expect(result.firstChunkMs).toEqual(expected);
+      }),
+    ),
+  );
+
+  it.effect("takes the 95th percentile at its nearest rank, not the slowest", () =>
+    history((usage) =>
+      Effect.gen(function* () {
+        // 21 times: rank 11 is the median and rank 20 the 95th percentile, short of the 1,000.
+        for (const ms of [...Array.from({ length: 20 }, (_, index) => (index + 1) * 10), 1_000]) {
+          yield* usage.record(entry({ requestId: `r${ms}`, firstChunkMs: Option.some(ms) }));
+        }
+
+        const result = yield* usage.breakdown({ from: 0, to: 2_000 * HOUR, groupBy: "model" });
+
+        expect(result.firstChunkMs).toEqual({ p50: Option.some(110), p95: Option.some(200) });
       }),
     ),
   );

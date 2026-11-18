@@ -319,6 +319,25 @@ layer(BunFileSystem.layer)("admin usage history", (it) => {
     ),
   );
 
+  it.effect("refuses a page of no requests or conversations, or of more than 500", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          for (const list of ["requests", "conversations"]) {
+            for (const limit of [0, 501]) {
+              const path = `/admin/history/${list}?${range}&limit=${limit}`;
+              expect((yield* via.get(path, adminKey)).status).toBe(400);
+            }
+
+            const path = `/admin/history/${list}?${range}&limit=500`;
+            expect((yield* via.get(path, adminKey)).status).toBe(200);
+          }
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("starts each day at midnight in the viewer's time zone", () =>
     withVia(
       ok,

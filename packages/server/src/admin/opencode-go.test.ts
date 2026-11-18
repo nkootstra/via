@@ -164,6 +164,20 @@ layer(BunFileSystem.layer)("admin API, OpenCode Go accounts", (it) => {
     ),
   );
 
+  it.effect("changes only what the request names", () =>
+    withVia(
+      ok,
+      (via) =>
+        Effect.gen(function* () {
+          const path = `/admin/opencode-go/accounts/${yield* idOf(via, "go-1")}`;
+          yield* via.patch(path, { enabled: false }, adminKey);
+          const response = yield* via.patch(path, {}, adminKey);
+          expect(yield* response.json).toMatchObject({ label: "go-1", enabled: false });
+        }),
+      { adminKey },
+    ),
+  );
+
   it.effect("answers 404 for an account it doesn't have, even by its label", () =>
     withVia(
       ok,
