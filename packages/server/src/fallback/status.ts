@@ -7,16 +7,11 @@ import { available, type PoolAccount, type PoolState, PoolStates } from "@via/po
 import { OpencodeGoAccounts, Providers } from "@via/providers";
 import { Clock, Effect, Option } from "effect";
 import { ModelCatalog } from "../models/catalog.ts";
+import type { FallbackAvailability } from "../admin/api.ts";
 import { isListed } from "./fallback.ts";
 
 /** Whether a model could serve a request now, and if not, why and until when. */
-type Availability =
-  | { readonly status: "available" }
-  | { readonly status: "cooling"; readonly until: string; readonly reason: string }
-  | {
-      readonly status: "unavailable";
-      readonly reason: "no_accounts" | "not_enabled" | "not_listed";
-    };
+type Availability = typeof FallbackAvailability.Type;
 
 /**
  * How `accounts` stand together at `now`: available while one is, else cooling
