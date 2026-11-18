@@ -61,6 +61,9 @@ interface Pattern {
 const SECRET_NAME =
   "\\b[A-Za-z0-9_.-]{0,40}?(?:api[_-]?key|apikey|secret|token|password|passwd|credential|access[_-]?key|private[_-]?key)[A-Za-z0-9_]{0,40}";
 
+/** A credential's schemes but Bearer, which has a pattern of its own, as in `Basic dXNlcjpwYXNz`. */
+const SCHEMES = "basic|digest|token|apikey|api-key|ssws|negotiate|ntlm|dpop";
+
 /** The patterns, the most specific first: what one replaces, the next doesn't see. */
 const patterns: ReadonlyArray<Pattern> = [
   {
@@ -86,8 +89,10 @@ const patterns: ReadonlyArray<Pattern> = [
   },
   {
     kind: "authorization",
-    pattern:
-      /(\bauthorization["']?\s*[:=]\s*["']?(?:basic|digest|token|apikey|api-key|ssws|negotiate|ntlm|dpop)[ \t]+)([A-Za-z0-9._~+/=-]{8,})/gi,
+    pattern: new RegExp(
+      `(\\bauthorization["']?\\s*[:=]\\s*["']?(?:${SCHEMES})[ \\t]+)([A-Za-z0-9._~+/=-]{8,})`,
+      "gi",
+    ),
     keep: true,
   },
   {
@@ -114,7 +119,7 @@ const patterns: ReadonlyArray<Pattern> = [
   {
     kind: "secret",
     pattern: new RegExp(
-      `(${SECRET_NAME}["']?\\s*[:=]\\s*["']?(?:(?:basic|digest|token|apikey)[ \\t]+)?)([^\\s"'\`,;<>]{12,})`,
+      `(${SECRET_NAME}["']?\\s*[:=]\\s*["']?(?:(?:${SCHEMES})[ \\t]+)?)([^\\s"'\`,;<>]{12,})`,
       "gi",
     ),
     keep: true,
@@ -156,8 +161,7 @@ const keyKind = (key: string) => {
 };
 
 /** A credential's scheme, as in `Basic dXNlcjpwYXNz`, and the credential after it. */
-const SCHEMED =
-  /^((?:basic|digest|bearer|token|apikey|api-key|ssws|negotiate|ntlm|dpop)[ \t]+)(\S[\s\S]*)$/i;
+const SCHEMED = new RegExp(`^((?:bearer|${SCHEMES})[ \\t]+)(\\S[\\s\\S]*)$`, "i");
 
 /** `bytes` as a person reads a size: `768 B`, `412 KB`, `1.2 MB`. */
 const sizeOf = (bytes: number) => {

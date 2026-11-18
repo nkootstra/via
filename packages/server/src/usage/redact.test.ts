@@ -335,7 +335,19 @@ describe("redact, as properties", () => {
   );
 
   const scheme = Arbitrary.schema(
-    Schema.Literals(["", "Basic ", "Bearer ", "Token ", "ApiKey ", "Digest "]),
+    Schema.Literals([
+      "",
+      "Basic ",
+      "Bearer ",
+      "Token ",
+      "ApiKey ",
+      "Api-Key ",
+      "Digest ",
+      "SSWS ",
+      "Negotiate ",
+      "NTLM ",
+      "DPoP ",
+    ]),
   );
 
   it.prop(
