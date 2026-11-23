@@ -39,10 +39,10 @@
     "@via/keys": "workspace:*",
     "@via/providers": "workspace:*",
     "@via/tsconfig": "workspace:*",
-    "@vitejs/plugin-react": "6.2.1",
+    "@vitejs/plugin-react": "6.3.0",
     "axe-core": "4.14.0",
     "happy-dom": "catalog:",
-    "msw": "3.0.4",
+    "msw": "3.0.6",
     "vite": "catalog:",
     "vitest": "catalog:"
   }
